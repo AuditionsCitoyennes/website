@@ -1,5 +1,5 @@
 <!--
-Merci pour votre contribution ! Cible : la branche `develop`.
+Merci pour votre contribution ! Cible : la branche `dev`.
 Assurez-vous que vos commits sont signés (git commit -s) — DCO requis.
 -->
 
@@ -21,7 +21,7 @@ Assurez-vous que vos commits sont signés (git commit -s) — DCO requis.
 
 ## Checklist
 
-- [ ] La PR cible la branche **`develop`**
+- [ ] La PR cible la branche **`dev`**
 - [ ] `npm run typecheck` passe
 - [ ] `npm run build` passe
 - [ ] Tous les commits sont **signés** (`git commit -s`) — DCO

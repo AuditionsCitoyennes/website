@@ -37,12 +37,12 @@ npm run build
 ## Workflow de contribution
 
 1. **Forkez** le dépôt (ou créez une branche si vous êtes membre).
-2. Créez une branche depuis **`develop`** (voir [nommage](#nommage-des-branches)).
+2. Créez une branche depuis **`dev`** (voir [nommage](#nommage-des-branches)).
 3. Faites vos changements, avec des commits **signés** (`git commit -s`).
-4. Ouvrez une **pull request vers `develop`** (jamais directement vers `main`).
+4. Ouvrez une **pull request vers `dev`** (jamais directement vers `main`).
 5. La CI (typecheck, build) et le contrôle DCO doivent passer ; un·e mainteneur·euse relit puis merge en **squash**.
 
-> `main` = production, `develop` = intégration. Toute PR cible `develop`.
+> `main` = production, `dev` = intégration. Toute PR cible `dev`.
 
 ## Nommage des branches
 
@@ -77,7 +77,7 @@ Signed-off-by: Votre Nom <votre.email@example.com>
 Vous avez oublié sur des commits déjà faits ? Rattrapez-les :
 
 ```sh
-git rebase --signoff develop
+git rebase --signoff dev
 ```
 
 Les commits faits via l'interface web de GitHub sont signés automatiquement (réglage activé sur le dépôt).
@@ -86,7 +86,7 @@ Les commits faits via l'interface web de GitHub sont signés automatiquement (r�
 
 - Une PR = un sujet cohérent. Les petites PR sont relues plus vite.
 - Remplissez le modèle de PR.
-- Gardez la PR à jour avec `develop` si besoin.
+- Gardez la PR à jour avec `dev` si besoin.
 - L'historique est **squashé** au merge : pas besoin de nettoyer chaque commit, mais un titre de PR clair est apprécié (il devient le message de commit).
 
 ## Sécurité

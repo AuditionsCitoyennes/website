@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
 
 # Annule les exécutions précédentes sur la même branche/PR
 concurrency:
