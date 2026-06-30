@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@ac/shared": "*",
-    "@fastify/cors": "^10.0.1",
+    "@fastify/cors": "^11.2.0",
     "@fastify/sensible": "^6.0.2",
     "@supabase/supabase-js": "^2.84.0",
     "dotenv": "^16.4.5",
