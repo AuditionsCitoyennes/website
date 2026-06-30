@@ -12,6 +12,17 @@
     "dev:web": "npm run dev --workspace=@ac/web",
     "dev:api": "npm run dev --workspace=@ac/api",
     "build": "npm run build --workspace=@ac/web && npm run build --workspace=@ac/api",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@vue/eslint-config-prettier": "^10.2.0",
+    "@vue/eslint-config-typescript": "^14.9.0",
+    "eslint": "^10.6.0",
+    "eslint-plugin-vue": "^10.9.2",
+    "prettier": "^3.9.4"
   }
 }
