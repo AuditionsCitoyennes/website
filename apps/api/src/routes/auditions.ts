@@ -7,6 +7,7 @@ import {
   updateAuditionSchema,
 } from "@ac/shared";
 import { publicClient } from "../supabase";
+import { cached, invalidatePublicCaches, PUBLIC_CACHE_KEYS } from "../cache";
 import { requireAdmin } from "../auth";
 import { fetchPublishedAuditions } from "../services/locations";
 import {
@@ -21,8 +22,10 @@ export default async function auditionRoutes(app: FastifyInstance) {
 
   // List published auditions with a count of their (visible) testimonies.
   app.get("/", async (_req, reply) => {
+    // Cached: same published list for every visitor, changes only on admin
+    // writes (which invalidate it). Powers the Analyses page on each mount.
     try {
-      return await fetchPublishedAuditions();
+      return await cached(PUBLIC_CACHE_KEYS.auditions, 60_000, fetchPublishedAuditions);
     } catch (e) {
       return reply.internalServerError((e as Error).message);
     }
@@ -84,6 +87,7 @@ export default async function auditionRoutes(app: FastifyInstance) {
 
     const { error } = await req.supabase.from("auditions").insert(audition);
     if (error) return reply.badRequest(error.message);
+    invalidatePublicCaches();
 
     let emailReport: SendReport | null = null;
 
@@ -162,6 +166,7 @@ export default async function auditionRoutes(app: FastifyInstance) {
         })
         .eq("id", req.params.id);
       if (error) return reply.badRequest(error.message);
+      invalidatePublicCaches();
       return { success: true };
     },
   );
@@ -181,6 +186,7 @@ export default async function auditionRoutes(app: FastifyInstance) {
 
       const { error } = await req.supabase.from("auditions").delete().eq("id", req.params.id);
       if (error) return reply.badRequest(error.message);
+      invalidatePublicCaches();
       return reply.code(204).send();
     },
   );

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { createTestimonySchema, sanitizeText, updateTestimonySchema } from "@ac/shared";
 import { publicClient } from "../supabase";
+import { cached, invalidatePublicCaches, PUBLIC_CACHE_KEYS } from "../cache";
 import { requireAdmin, requireSuperAdmin } from "../auth";
 import { EmailsDisabledError, frDate, sendVerificationEmails } from "../services/emails";
 import { analyzeContent, AnalysisDisabledError, AnalysisError } from "../services/analysis";
@@ -11,25 +12,34 @@ export default async function testimonyRoutes(app: FastifyInstance) {
   // first. Powers the Témoignages page list + filters. Paginated past
   // PostgREST's 1000-row cap so older testimonies aren't silently dropped.
   app.get("/", async (_req, reply) => {
-    const PAGE = 1000;
-    const all: unknown[] = [];
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await publicClient
-        .from("testimonies")
-        .select(
-          "id, person_name, person_info, content, topics, verification_status, created_at, audition:auditions(id, title, location, date)",
-        )
-        // Secondary sort on id: created_at ties (batch inserts) would
-        // otherwise make page windows skip/duplicate rows.
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: false })
-        .range(from, from + PAGE - 1);
-      if (error) return reply.internalServerError(error.message);
-      if (!data || data.length === 0) break;
-      all.push(...data);
-      if (data.length < PAGE) break;
+    // Cached: this whole corpus is identical for every visitor and changes only
+    // on admin writes (which invalidate the cache), so we pull it from Supabase
+    // at most once per TTL instead of once per page view + window focus.
+    try {
+      return await cached(PUBLIC_CACHE_KEYS.testimonies, 60_000, async () => {
+        const PAGE = 1000;
+        const all: unknown[] = [];
+        for (let from = 0; ; from += PAGE) {
+          const { data, error } = await publicClient
+            .from("testimonies")
+            .select(
+              "id, person_name, person_info, content, topics, verification_status, created_at, audition:auditions(id, title, location, date)",
+            )
+            // Secondary sort on id: created_at ties (batch inserts) would
+            // otherwise make page windows skip/duplicate rows.
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, from + PAGE - 1);
+          if (error) throw new Error(error.message);
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < PAGE) break;
+        }
+        return all;
+      });
+    } catch (e) {
+      return reply.internalServerError((e as Error).message);
     }
-    return all;
   });
 
   // ---- Admin (RLS-scoped to the caller) ----
@@ -80,6 +90,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
 
     const { error } = await req.supabase.from("testimonies").insert(testimony);
     if (error) return reply.badRequest(error.message);
+    invalidatePublicCaches();
 
     // Best-effort verification email — the testimony is kept even if it fails.
     let emailSent = false;
@@ -170,6 +181,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
         .maybeSingle();
       if (error) return reply.badRequest(error.message);
       if (!updated) return reply.notFound("Témoignage introuvable ou accès refusé");
+      invalidatePublicCaches();
 
       let emailSent = false;
       if (needsReverification && next.email && newToken) {
@@ -197,6 +209,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
       if (!(await requireAdmin(req, reply))) return reply;
       const { error } = await req.supabase.from("testimonies").delete().eq("id", req.params.id);
       if (error) return reply.badRequest(error.message);
+      invalidatePublicCaches();
       return reply.code(204).send();
     },
   );
@@ -225,6 +238,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
             .update({ topics })
             .eq("id", testimony.id);
           if (error) return reply.internalServerError(error.message);
+          invalidatePublicCaches();
         }
         return { topics };
       } catch (e) {
