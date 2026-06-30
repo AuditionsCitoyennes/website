@@ -4,17 +4,26 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
+      interval: "monthly"
+    open-pull-requests-limit: 5
     groups:
-      # Regroupe les mises à jour mineures/patch en une seule PR
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
+      # Regroupe les mises à jour mineures/patch en 2 PR (prod / dev)
+      production:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+      development:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+    ignore:
+      # Les montées de version MAJEURE se font à la main (souvent breaking)
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  # Mises à jour des GitHub Actions utilisées dans les workflows
+  # Mises à jour des GitHub Actions, regroupées en une seule PR
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    groups:
+      actions:
+        patterns: ["*"]
