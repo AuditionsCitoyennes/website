@@ -36,9 +36,9 @@ const cards = [
         <p class="eyebrow">Démocratie participative</p>
         <h1 class="hero-title">Auditions Citoyennes</h1>
         <p class="hero-lead">
-          Nous allons à la rencontre des citoyens, sur les marchés et les places,
-          pour écouter comment ils vont, comment ils voient la France, et ce qu'ils
-          changeraient. Chaque parole est recueillie, vérifiée, puis partagée.
+          Nous allons à la rencontre des citoyens, sur les marchés et les places, pour écouter
+          comment ils vont, comment ils voient la France, et ce qu'ils changeraient. Chaque parole
+          est recueillie, vérifiée, puis partagée.
         </p>
         <div class="hero-actions">
           <button class="btn btn-light" @click="router.push('/temoignages')">

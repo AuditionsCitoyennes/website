@@ -54,13 +54,7 @@ function yFor(value: number): number {
   <svg :viewBox="`0 0 ${W} ${H}`" class="chart" role="img" aria-label="Auditions par mois">
     <!-- gridlines + y labels -->
     <g v-for="v in ySteps" :key="v">
-      <line
-        :x1="PAD.left"
-        :x2="W - PAD.right"
-        :y1="yFor(v)"
-        :y2="yFor(v)"
-        class="grid"
-      />
+      <line :x1="PAD.left" :x2="W - PAD.right" :y1="yFor(v)" :y2="yFor(v)" class="grid" />
       <text :x="PAD.left - 8" :y="yFor(v) + 4" class="y-label">{{ v }}</text>
     </g>
 

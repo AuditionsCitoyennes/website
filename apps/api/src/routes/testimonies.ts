@@ -1,22 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
-import {
-  createTestimonySchema,
-  sanitizeText,
-  updateTestimonySchema,
-} from "@ac/shared";
+import { createTestimonySchema, sanitizeText, updateTestimonySchema } from "@ac/shared";
 import { publicClient } from "../supabase";
 import { requireAdmin, requireSuperAdmin } from "../auth";
-import {
-  EmailsDisabledError,
-  frDate,
-  sendVerificationEmails,
-} from "../services/emails";
-import {
-  analyzeContent,
-  AnalysisDisabledError,
-  AnalysisError,
-} from "../services/analysis";
+import { EmailsDisabledError, frDate, sendVerificationEmails } from "../services/emails";
+import { analyzeContent, AnalysisDisabledError, AnalysisError } from "../services/analysis";
 
 export default async function testimonyRoutes(app: FastifyInstance) {
   // Public list of testimonies (RLS as anon) with audition context, newest
@@ -144,17 +132,14 @@ export default async function testimonyRoutes(app: FastifyInstance) {
 
       const next = {
         person_name:
-          input.person_name !== undefined
-            ? sanitizeText(input.person_name)
-            : existing.person_name,
+          input.person_name !== undefined ? sanitizeText(input.person_name) : existing.person_name,
         person_info:
           input.person_info !== undefined
             ? input.person_info
               ? sanitizeText(input.person_info)
               : null
             : existing.person_info,
-        content:
-          input.content !== undefined ? sanitizeText(input.content) : existing.content,
+        content: input.content !== undefined ? sanitizeText(input.content) : existing.content,
         email: input.email !== undefined ? input.email || null : existing.email,
         topics:
           input.topics !== undefined
@@ -210,10 +195,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
     { preHandler: app.authenticate },
     async (req, reply) => {
       if (!(await requireAdmin(req, reply))) return reply;
-      const { error } = await req.supabase
-        .from("testimonies")
-        .delete()
-        .eq("id", req.params.id);
+      const { error } = await req.supabase.from("testimonies").delete().eq("id", req.params.id);
       if (error) return reply.badRequest(error.message);
       return reply.code(204).send();
     },
@@ -252,9 +234,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
         if (e instanceof AnalysisError) {
           return reply.code(e.statusCode).send({ error: e.message });
         }
-        return reply.internalServerError(
-          e instanceof Error ? e.message : "Erreur inconnue",
-        );
+        return reply.internalServerError(e instanceof Error ? e.message : "Erreur inconnue");
       }
     },
   );

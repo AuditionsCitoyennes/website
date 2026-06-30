@@ -132,13 +132,16 @@ function buildMarkers() {
     markers.push(marker);
     // Macro pins (pills) follow their unit's visible territory and stick to the
     // screen edge when it's off-screen, so the surrounding context never vanishes.
-    if (!unit.isLeaf) sticky.push({ marker, el, lngLat, bounds: unit.bounds, geometry: unit.geometry });
+    if (!unit.isLeaf)
+      sticky.push({ marker, el, lngLat, bounds: unit.bounds, geometry: unit.geometry });
   }
   updateSticky();
 }
 
 function boundsIntersect(a: Bounds, b: Bounds): boolean {
-  return a.minLat <= b.maxLat && a.maxLat >= b.minLat && a.minLng <= b.maxLng && a.maxLng >= b.minLng;
+  return (
+    a.minLat <= b.maxLat && a.maxLat >= b.minLat && a.minLng <= b.maxLng && a.maxLng >= b.minLng
+  );
 }
 
 // A point STRICTLY INSIDE the unit's polygon and inside the visible area: scan
@@ -149,7 +152,9 @@ function boundsIntersect(a: Bounds, b: Bounds): boolean {
 function interiorInView(geom: unknown, b: Bounds, v: Bounds): [number, number] | null {
   const g = geom as { type?: string; coordinates?: unknown } | undefined;
   if (!g?.type) return null;
-  const polys = (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []) as number[][][][];
+  const polys = (
+    g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []
+  ) as number[][][][];
   const latLo = Math.max(b.minLat, v.minLat);
   const latHi = Math.min(b.maxLat, v.maxLat);
   const lngLo = Math.max(b.minLng, v.minLng);
@@ -282,7 +287,12 @@ function emitView() {
   emit("viewChange", {
     zoom: map.getZoom(),
     center: [c.lat, c.lng],
-    bounds: { minLat: b.getSouth(), maxLat: b.getNorth(), minLng: b.getWest(), maxLng: b.getEast() },
+    bounds: {
+      minLat: b.getSouth(),
+      maxLat: b.getNorth(),
+      minLng: b.getWest(),
+      maxLng: b.getEast(),
+    },
   });
 }
 
@@ -362,8 +372,15 @@ onBeforeUnmount(() => {
   map = null;
 });
 
-watch(() => props.units, () => buildMarkers(), { deep: false });
-watch(() => props.outline, () => applyOutline());
+watch(
+  () => props.units,
+  () => buildMarkers(),
+  { deep: false },
+);
+watch(
+  () => props.outline,
+  () => applyOutline(),
+);
 watch(
   () => props.camera?.key,
   () => {

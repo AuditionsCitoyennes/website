@@ -41,10 +41,7 @@ async function handleAdd() {
     });
     return;
   }
-  if (
-    newTestimony.value.email &&
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newTestimony.value.email)
-  ) {
+  if (newTestimony.value.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newTestimony.value.email)) {
     toast({
       title: "Erreur",
       description: "L'adresse email n'est pas valide",
@@ -156,7 +153,12 @@ async function handleAnalyze(t: Testimony) {
         <div class="grid-2">
           <div class="form-field">
             <label class="form-label" for="add-name">Nom/Prénom</label>
-            <input id="add-name" v-model="newTestimony.person_name" class="form-input" placeholder="Ex: Marie" />
+            <input
+              id="add-name"
+              v-model="newTestimony.person_name"
+              class="form-input"
+              placeholder="Ex: Marie"
+            />
           </div>
           <div class="form-field">
             <label class="form-label" for="add-info">Informations (optionnel)</label>
@@ -210,8 +212,12 @@ async function handleAnalyze(t: Testimony) {
             <p class="t-name">{{ t.person_name }}</p>
             <p v-if="t.person_info" class="t-info">{{ t.person_info }}</p>
             <div class="t-chips">
-              <span v-if="t.verification_status === 'verified'" class="chip chip--green">Vérifié</span>
-              <span v-else-if="t.verification_status === 'pending'" class="chip chip--outline">En attente</span>
+              <span v-if="t.verification_status === 'verified'" class="chip chip--green"
+                >Vérifié</span
+              >
+              <span v-else-if="t.verification_status === 'pending'" class="chip chip--outline"
+                >En attente</span
+              >
               <span
                 v-if="auth.isSuperAdmin && (!t.topics || t.topics.length === 0)"
                 class="chip chip--red"

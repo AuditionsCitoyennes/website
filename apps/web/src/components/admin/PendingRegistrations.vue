@@ -17,10 +17,7 @@ const processingUserId = ref<string | null>(null);
 async function fetchRegistrations() {
   loading.value = true;
   try {
-    registrations.value = await api.get<PendingRegistration[]>(
-      "/api/admin/registrations",
-      true,
-    );
+    registrations.value = await api.get<PendingRegistration[]>("/api/admin/registrations", true);
   } catch {
     registrations.value = [];
   } finally {
@@ -30,7 +27,10 @@ async function fetchRegistrations() {
 
 async function handle(action: "approve" | "decline", reg: PendingRegistration) {
   const name = reg.username || reg.email;
-  if (action === "decline" && !confirm(`Êtes-vous sûr de vouloir refuser l'inscription de ${name} ?`)) {
+  if (
+    action === "decline" &&
+    !confirm(`Êtes-vous sûr de vouloir refuser l'inscription de ${name} ?`)
+  ) {
     return;
   }
 

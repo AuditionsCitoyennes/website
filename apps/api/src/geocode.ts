@@ -141,13 +141,14 @@ async function queryBan(name: string, municipalityOnly = false): Promise<BanHit 
 }
 
 /** Reverse-geocode coordinates → the BAN admin fields of the nearest address. */
-async function reverseBan(
-  [lat, lon]: Coords,
-): Promise<{ citycode: string | null; context: string | null; city: string | null } | null> {
-  const res = await fetch(
-    `https://api-adresse.data.gouv.fr/reverse/?lat=${lat}&lon=${lon}`,
-    { headers: { "User-Agent": "AuditionsCitoyennes/1.0" } },
-  );
+async function reverseBan([lat, lon]: Coords): Promise<{
+  citycode: string | null;
+  context: string | null;
+  city: string | null;
+} | null> {
+  const res = await fetch(`https://api-adresse.data.gouv.fr/reverse/?lat=${lat}&lon=${lon}`, {
+    headers: { "User-Agent": "AuditionsCitoyennes/1.0" },
+  });
   if (!res.ok) throw new Error(`BAN reverse ${res.status}`);
   const data = (await res.json()) as {
     features?: { properties?: { context?: string; city?: string; citycode?: string } }[];

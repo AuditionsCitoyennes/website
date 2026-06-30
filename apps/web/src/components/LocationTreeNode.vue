@@ -26,9 +26,7 @@ const selfSelected = computed(() => props.selected.has(props.node.token));
 const checked = computed(() => selfSelected.value || props.ancestorSelected);
 
 function anyDescendantSelected(node: LocNode): boolean {
-  return (node.children ?? []).some(
-    (c) => props.selected.has(c.token) || anyDescendantSelected(c),
-  );
+  return (node.children ?? []).some((c) => props.selected.has(c.token) || anyDescendantSelected(c));
 }
 
 // A partially-selected branch (some descendant chosen, but not this node/ancestor).
@@ -62,8 +60,16 @@ function onCheck() {
         :aria-expanded="effectiveOpen"
         @click="open = !open"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-          stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="14"
+          height="14"
+        >
           <polyline points="9 6 15 12 9 18" />
         </svg>
       </button>
@@ -80,8 +86,17 @@ function onCheck() {
         @click="onCheck"
       >
         <span class="tn-box" :class="{ checked, indeterminate }">
-          <svg v-if="checked" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+          <svg
+            v-if="checked"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            width="12"
+            height="12"
+          >
             <polyline points="20 6 9 17 4 12" />
           </svg>
           <span v-else-if="indeterminate" class="tn-dash" />

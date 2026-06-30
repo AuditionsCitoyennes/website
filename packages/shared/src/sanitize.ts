@@ -22,8 +22,6 @@ function looksLikePhone(match: string): boolean {
 export function sanitizeText(text: string): string {
   // Replace emails first (more specific), then phones
   let result = text.replace(EMAIL_REGEX, "***");
-  result = result.replace(PHONE_REGEX, (match) =>
-    looksLikePhone(match) ? "***" : match,
-  );
+  result = result.replace(PHONE_REGEX, (match) => (looksLikePhone(match) ? "***" : match));
   return result;
 }

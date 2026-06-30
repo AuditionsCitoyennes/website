@@ -136,10 +136,13 @@ async function handleSave() {
       </div>
 
       <div class="dialog-actions">
-        <button type="button" class="ac-btn ac-btn--outline" @click="emit('close')">
-          Annuler
-        </button>
-        <button type="button" class="ac-btn ac-btn--primary" :disabled="loading" @click="handleSave">
+        <button type="button" class="ac-btn ac-btn--outline" @click="emit('close')">Annuler</button>
+        <button
+          type="button"
+          class="ac-btn ac-btn--primary"
+          :disabled="loading"
+          @click="handleSave"
+        >
           {{ loading ? "Enregistrement..." : "Enregistrer" }}
         </button>
       </div>

@@ -114,8 +114,17 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
       @click="open = !open"
     >
       <span class="ms-value" :class="{ muted: modelValue.length === 0 }">{{ triggerLabel }}</span>
-      <svg class="ms-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+      <svg
+        class="ms-chevron"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        width="16"
+        height="16"
+      >
         <polyline points="6 9 12 15 18 9" />
       </svg>
     </button>

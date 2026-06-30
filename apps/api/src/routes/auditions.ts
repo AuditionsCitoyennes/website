@@ -156,9 +156,7 @@ export default async function auditionRoutes(app: FastifyInstance) {
         .update({
           ...(input.title !== undefined ? { title: sanitizeText(input.title) } : {}),
           ...(input.date !== undefined ? { date: input.date } : {}),
-          ...(input.location !== undefined
-            ? { location: normalizeLocation(input.location) }
-            : {}),
+          ...(input.location !== undefined ? { location: normalizeLocation(input.location) } : {}),
           ...(input.content !== undefined ? { content: sanitizeText(input.content) } : {}),
           ...(input.status !== undefined ? { status: input.status } : {}),
         })
@@ -181,10 +179,7 @@ export default async function auditionRoutes(app: FastifyInstance) {
         .eq("audition_id", req.params.id);
       if (terr) return reply.badRequest(terr.message);
 
-      const { error } = await req.supabase
-        .from("auditions")
-        .delete()
-        .eq("id", req.params.id);
+      const { error } = await req.supabase.from("auditions").delete().eq("id", req.params.id);
       if (error) return reply.badRequest(error.message);
       return reply.code(204).send();
     },

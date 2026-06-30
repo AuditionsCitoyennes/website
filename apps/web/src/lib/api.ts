@@ -17,10 +17,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiFetch<T = unknown>(
-  path: string,
-  options: ApiOptions = {},
-): Promise<T> {
+export async function apiFetch<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");

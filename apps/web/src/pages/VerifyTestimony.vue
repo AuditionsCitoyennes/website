@@ -44,9 +44,7 @@ onMounted(async () => {
     testimony.value = await api.get<VerifyTestimonyData>(`/api/verify/${token}`);
   } catch (e) {
     errorMessage.value =
-      e instanceof ApiError
-        ? e.message
-        : "Témoignage introuvable ou déjà traité";
+      e instanceof ApiError ? e.message : "Témoignage introuvable ou déjà traité";
   } finally {
     loading.value = false;
   }
@@ -88,10 +86,14 @@ function saveEdit() {
 async function handleVerify() {
   processing.value = true;
   try {
-    await api.post(`/api/verify/${token}`, {
-      action: "verify",
-      ...(pendingEdits.value ? { edits: pendingEdits.value } : {}),
-    }, false);
+    await api.post(
+      `/api/verify/${token}`,
+      {
+        action: "verify",
+        ...(pendingEdits.value ? { edits: pendingEdits.value } : {}),
+      },
+      false,
+    );
     completed.value = "verified";
     toast({
       title: "Témoignage validé !",
@@ -141,22 +143,38 @@ async function handleReject() {
     <!-- Invalid / expired link -->
     <div v-else-if="errorMessage || !testimony" class="card center-card">
       <div class="icon-circle danger" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" width="30" height="30">
-          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="30"
+          height="30"
+        >
+          <path
+            d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+          />
           <line x1="12" y1="9" x2="12" y2="13" />
           <line x1="12" y1="17" x2="12.01" y2="17" />
         </svg>
       </div>
       <h1 class="card-title">Lien invalide</h1>
       <p class="card-desc">
-        {{ errorMessage || "Ce lien de vérification n'est plus valide ou le témoignage a déjà été traité." }}
+        {{
+          errorMessage ||
+          "Ce lien de vérification n'est plus valide ou le témoignage a déjà été traité."
+        }}
       </p>
       <RouterLink to="/" class="ac-btn ac-btn--outline">Retour à l'accueil</RouterLink>
     </div>
 
     <!-- Already processed -->
-    <div v-else-if="testimony.verification_status !== 'pending' && !completed" class="card center-card">
+    <div
+      v-else-if="testimony.verification_status !== 'pending' && !completed"
+      class="card center-card"
+    >
       <h1 class="card-title">Témoignage déjà traité</h1>
       <p class="card-desc">
         Ce témoignage a déjà été
@@ -167,13 +185,35 @@ async function handleReject() {
 
     <!-- Done -->
     <div v-else-if="completed" class="card center-card">
-      <div class="icon-circle" :class="completed === 'verified' ? 'success' : 'danger'" aria-hidden="true">
-        <svg v-if="completed === 'verified'" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="30" height="30">
+      <div
+        class="icon-circle"
+        :class="completed === 'verified' ? 'success' : 'danger'"
+        aria-hidden="true"
+      >
+        <svg
+          v-if="completed === 'verified'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="30"
+          height="30"
+        >
           <polyline points="20 6 9 17 4 12" />
         </svg>
-        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-          stroke-linecap="round" stroke-linejoin="round" width="30" height="30">
+        <svg
+          v-else
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="30"
+          height="30"
+        >
           <line x1="18" y1="6" x2="6" y2="18" />
           <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
@@ -203,8 +243,13 @@ async function handleReject() {
              cleared in the preview, not fall back to the original value. -->
         <header class="t-head">
           <div class="who">
-            <h2 class="t-name">{{ pendingEdits ? pendingEdits.person_name : testimony.person_name }}</h2>
-            <p v-if="pendingEdits ? pendingEdits.person_info : testimony.person_info" class="t-info">
+            <h2 class="t-name">
+              {{ pendingEdits ? pendingEdits.person_name : testimony.person_name }}
+            </h2>
+            <p
+              v-if="pendingEdits ? pendingEdits.person_info : testimony.person_info"
+              class="t-info"
+            >
               {{ pendingEdits ? pendingEdits.person_info : testimony.person_info }}
             </p>
           </div>

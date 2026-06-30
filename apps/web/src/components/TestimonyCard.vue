@@ -12,7 +12,9 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
       <span class="t-name"><HighlightText :text="testimony.person_name" :query="highlight" /></span>
       <template v-if="testimony.person_info">
         <span class="t-sep" aria-hidden="true">·</span>
-        <span class="t-info"><HighlightText :text="testimony.person_info" :query="highlight" /></span>
+        <span class="t-info"
+          ><HighlightText :text="testimony.person_info" :query="highlight"
+        /></span>
       </template>
       <span v-if="testimony.verification_status === 'verified'" class="t-badge verified">
         Vérifié
@@ -31,7 +33,9 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
       </RouterLink>
     </header>
 
-    <blockquote class="t-quote"><HighlightText :text="testimony.content" :query="highlight" /></blockquote>
+    <blockquote class="t-quote">
+      <HighlightText :text="testimony.content" :query="highlight" />
+    </blockquote>
 
     <div v-if="testimony.topics && testimony.topics.length" class="t-topics">
       <span v-for="topic in testimony.topics" :key="topic" class="t-topic">{{ topic }}</span>

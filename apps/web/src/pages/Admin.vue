@@ -32,10 +32,7 @@ watchEffect(() => {
 // OAuth users arrive without a username — prompt once.
 const showUsernamePrompt = computed(
   () =>
-    !auth.loading &&
-    !!auth.user &&
-    !auth.user.user_metadata?.username &&
-    !usernamePromptDone.value,
+    !auth.loading && !!auth.user && !auth.user.user_metadata?.username && !usernamePromptDone.value,
 );
 
 function onProfileComplete() {

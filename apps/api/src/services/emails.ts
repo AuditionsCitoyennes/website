@@ -220,7 +220,12 @@ export async function sendVerificationEmails(
         to: [r.email],
         subject: `${r.personName}, validez votre témoignage`,
         text: buildVerificationText(r.personName, auditionLocation, auditionDate, verificationUrl),
-        html: buildVerificationHtml(esc(r.personName), esc(auditionLocation), esc(auditionDate), verificationUrl),
+        html: buildVerificationHtml(
+          esc(r.personName),
+          esc(auditionLocation),
+          esc(auditionDate),
+          verificationUrl,
+        ),
       };
     });
 

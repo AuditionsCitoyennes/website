@@ -82,7 +82,11 @@ async function ensureGeo(codes: string[]) {
         const f = await api.get<BoundaryFeature>(`/api/boundaries/commune/${code}`);
         communeGeo.value = {
           ...communeGeo.value,
-          [code]: { center: f.properties.center, bounds: f.properties.bounds, geometry: f.geometry },
+          [code]: {
+            center: f.properties.center,
+            bounds: f.properties.bounds,
+            geometry: f.geometry,
+          },
         };
       } catch {
         /* leave uncached → unit keeps its data-derived centre */
@@ -142,8 +146,12 @@ function outlineForUnits(units: GeoUnit[]): OutlineFC["features"] {
 const outline = computed<OutlineFC>(() => {
   if (selectedPlace.value) return EMPTY_FC;
   const lvl = panelUnits.value[0]?.levelKey;
-  const focus = lvl === "place" ? outlineForUnits([currentScope.value]) : outlineForUnits(panelUnits.value);
-  return { type: "FeatureCollection", features: focus.concat(outlineForUnits(scopeSiblings.value)) };
+  const focus =
+    lvl === "place" ? outlineForUnits([currentScope.value]) : outlineForUnits(panelUnits.value);
+  return {
+    type: "FeatureCollection",
+    features: focus.concat(outlineForUnits(scopeSiblings.value)),
+  };
 });
 
 interface AuditionGroup {
@@ -380,14 +388,24 @@ watch(
         <!-- Place detail: the selected lieu's auditions + testimonies. -->
         <div v-else-if="selectedPlace" class="place-detail">
           <button type="button" class="back-btn" @click="closePlace">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="16"
+              height="16"
+            >
               <polyline points="15 18 9 12 15 6" />
             </svg>
             Retour
           </button>
           <h2 class="place-title">{{ selectedPlace.label }}</h2>
-          <p class="place-meta">{{ selectedPlace.count }} témoignage{{ selectedPlace.count > 1 ? "s" : "" }}</p>
+          <p class="place-meta">
+            {{ selectedPlace.count }} témoignage{{ selectedPlace.count > 1 ? "s" : "" }}
+          </p>
 
           <div v-for="g in placeAuditions" :key="g.id" class="aud-group">
             <button
@@ -402,14 +420,28 @@ watch(
                 <p v-if="g.date" class="aud-meta">{{ formatDateShort(g.date) }}</p>
               </div>
               <span class="aud-count">{{ g.testimonies.length }}</span>
-              <svg class="aud-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+              <svg
+                class="aud-chevron"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                width="18"
+                height="18"
+              >
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </button>
             <ExpandTransition>
               <div v-if="isAudOpen(g.id)" class="aud-body">
-                <TestimonyCard v-for="t in g.testimonies" :key="t.id" :testimony="t" hide-audition />
+                <TestimonyCard
+                  v-for="t in g.testimonies"
+                  :key="t.id"
+                  :testimony="t"
+                  hide-audition
+                />
               </div>
             </ExpandTransition>
           </div>

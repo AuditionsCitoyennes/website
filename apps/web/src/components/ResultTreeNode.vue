@@ -89,8 +89,8 @@ const indent = computed(() => `${Math.min(props.depth, 6) * 0.5}rem`);
       </svg>
       <h2 class="rt-place-title">{{ headerLabel }}</h2>
       <span class="rt-count">
-        {{ node.testimonies }}<span class="rt-count-word">
-          témoignage{{ node.testimonies > 1 ? "s" : "" }}</span>
+        {{ node.testimonies
+        }}<span class="rt-count-word"> témoignage{{ node.testimonies > 1 ? "s" : "" }}</span>
       </span>
     </component>
 
@@ -111,8 +111,8 @@ const indent = computed(() => `${Math.min(props.depth, 6) * 0.5}rem`);
               </p>
             </div>
             <span class="aud-count">
-              {{ g.testimonies.length }}<span class="count-word">
-                témoignage{{ g.testimonies.length > 1 ? "s" : "" }}</span>
+              {{ g.testimonies.length
+              }}<span class="count-word"> témoignage{{ g.testimonies.length > 1 ? "s" : "" }}</span>
             </span>
             <svg
               class="aud-chevron"
@@ -171,9 +171,7 @@ const indent = computed(() => `${Math.min(props.depth, 6) * 0.5}rem`);
         <polyline points="6 9 12 15 18 9" />
       </svg>
       <span class="rt-label">{{ headerLabel }}</span>
-      <span class="rt-count">
-        {{ node.testimonies }}<span class="rt-count-word"> tém.</span>
-      </span>
+      <span class="rt-count"> {{ node.testimonies }}<span class="rt-count-word"> tém.</span> </span>
     </component>
 
     <ExpandTransition>

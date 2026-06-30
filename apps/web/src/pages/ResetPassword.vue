@@ -90,8 +90,7 @@ async function handleSubmit() {
     <div v-if="invalid" class="card glass-strong elevation-2xl fade-in">
       <h1 class="card-title">Lien invalide</h1>
       <p class="card-desc center">
-        Ce lien de réinitialisation est invalide ou a expiré. Veuillez en demander un
-        nouveau.
+        Ce lien de réinitialisation est invalide ou a expiré. Veuillez en demander un nouveau.
       </p>
       <RouterLink to="/auth" class="btn-primary-block link-block">
         Retour à la connexion
@@ -101,8 +100,16 @@ async function handleSubmit() {
     <!-- Success -->
     <div v-else-if="done" class="card glass-strong elevation-2xl fade-in">
       <div class="icon-wrap success">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-          stroke-linecap="round" stroke-linejoin="round" width="38" height="38">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="38"
+          height="38"
+        >
           <polyline points="20 6 9 17 4 12" />
         </svg>
       </div>
@@ -144,8 +151,16 @@ async function handleSubmit() {
             class="requirement"
             :class="{ ok: req.test(password) }"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="15"
+              height="15"
+            >
               <polyline points="20 6 9 17 4 12" />
             </svg>
             {{ req.label }}

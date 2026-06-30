@@ -65,7 +65,12 @@ const segments = computed(() => {
 
 <template>
   <div class="donut-wrap">
-    <svg :viewBox="`0 0 ${SIZE} ${SIZE}`" class="donut" role="img" aria-label="Répartition des thèmes">
+    <svg
+      :viewBox="`0 0 ${SIZE} ${SIZE}`"
+      class="donut"
+      role="img"
+      aria-label="Répartition des thèmes"
+    >
       <path v-for="s in segments" :key="s.name" :d="s.path" :fill="s.color" class="seg">
         <title>{{ s.name }} : {{ s.value }} ({{ s.percent }}%)</title>
       </path>

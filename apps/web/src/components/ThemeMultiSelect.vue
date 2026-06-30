@@ -60,24 +60,38 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
   <div ref="root" class="ms">
     <button type="button" class="ms-trigger" @click="open = !open">
       <span class="ms-value" :class="{ muted: modelValue.length === 0 }">{{ triggerLabel }}</span>
-      <svg class="ms-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+      <svg
+        class="ms-chevron"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        width="16"
+        height="16"
+      >
         <polyline points="6 9 12 15 18 9" />
       </svg>
     </button>
 
     <div v-if="open" class="ms-panel">
-      <input
-        v-model="search"
-        class="ms-search"
-        :placeholder="placeholder ?? 'Rechercher...'"
-      />
+      <input v-model="search" class="ms-search" :placeholder="placeholder ?? 'Rechercher...'" />
       <ul class="ms-list">
         <li v-for="o in filtered" :key="o.value">
           <button type="button" class="ms-item" @click="toggle(o.value)">
             <span class="ms-box" :class="{ checked: isChecked(o.value) }">
-              <svg v-if="isChecked(o.value)" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+              <svg
+                v-if="isChecked(o.value)"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                width="12"
+                height="12"
+              >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </span>
@@ -86,12 +100,7 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
         </li>
         <li v-if="filtered.length === 0" class="ms-empty">Aucun résultat</li>
       </ul>
-      <button
-        v-if="modelValue.length > 0"
-        type="button"
-        class="ms-clear"
-        @click="clearAll"
-      >
+      <button v-if="modelValue.length > 0" type="button" class="ms-clear" @click="clearAll">
         Tout effacer ({{ modelValue.length }})
       </button>
     </div>

@@ -24,8 +24,8 @@ const questions = [
     <header class="page-head">
       <h1>Participer</h1>
       <p class="lead">
-        Une audition citoyenne, c'est aller à la rencontre des gens là où ils sont
-        et les écouter vraiment. Voici comment faire.
+        Une audition citoyenne, c'est aller à la rencontre des gens là où ils sont et les écouter
+        vraiment. Voici comment faire.
       </p>
     </header>
 
@@ -45,17 +45,17 @@ const questions = [
     <section class="block">
       <h2>Notez à la main</h2>
       <p>
-        Prenez des notes sur papier pendant l'échange. C'est plus chaleureux qu'un
-        écran, ça met les gens en confiance et ça les encourage à partager.
+        Prenez des notes sur papier pendant l'échange. C'est plus chaleureux qu'un écran, ça met les
+        gens en confiance et ça les encourage à partager.
       </p>
     </section>
 
     <section class="block">
       <h2>Publiez les témoignages</h2>
       <p>
-        Connectez-vous à votre compte, créez une audition (date et lieu) et ajoutez
-        les témoignages recueillis. Chaque personne ayant laissé son email reçoit un
-        lien pour relire, corriger et valider son témoignage avant publication.
+        Connectez-vous à votre compte, créez une audition (date et lieu) et ajoutez les témoignages
+        recueillis. Chaque personne ayant laissé son email reçoit un lien pour relire, corriger et
+        valider son témoignage avant publication.
       </p>
       <div class="cta">
         <RouterLink to="/auth" class="btn btn-primary">Créer un compte / Se connecter</RouterLink>

@@ -57,8 +57,17 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
         <span class="fs-value" :class="{ muted: !selectedLabel }">
           {{ selectedLabel ?? allLabel }}
         </span>
-        <svg class="fs-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+        <svg
+          class="fs-chevron"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="16"
+          height="16"
+        >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
@@ -69,8 +78,16 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
         aria-label="Effacer"
         @click="select(null)"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="14"
+          height="14"
+        >
           <line x1="18" y1="6" x2="6" y2="18" />
           <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
@@ -78,11 +95,7 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
     </div>
 
     <div v-if="open" class="fs-panel">
-      <input
-        v-model="search"
-        class="fs-search"
-        :placeholder="placeholder ?? 'Rechercher...'"
-      />
+      <input v-model="search" class="fs-search" :placeholder="placeholder ?? 'Rechercher...'" />
       <ul class="fs-list">
         <li>
           <button type="button" class="fs-item" @click="select(null)">

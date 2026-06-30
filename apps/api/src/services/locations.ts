@@ -24,9 +24,7 @@ export async function fetchPublishedAuditions(): Promise<AuditionWithCount[]> {
   });
 }
 
-function groupByCanonical(
-  auds: AuditionWithCount[],
-): Map<string, AuditionWithCount[]> {
+function groupByCanonical(auds: AuditionWithCount[]): Map<string, AuditionWithCount[]> {
   const map = new Map<string, AuditionWithCount[]>();
   for (const a of auds) {
     const canonical = getCanonicalLocation(a.location);

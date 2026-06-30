@@ -49,7 +49,11 @@ function shortLabel(f: BanFeature): string {
   if (place && city && place !== city) return `${place}, ${city}`;
   if (city) return city;
   if (place) return place;
-  return p.label.split(",").slice(0, 2).map((s) => s.trim()).join(", ");
+  return p.label
+    .split(",")
+    .slice(0, 2)
+    .map((s) => s.trim())
+    .join(", ");
 }
 
 watch(search, (q) => {
@@ -105,8 +109,17 @@ onBeforeUnmount(() => {
     <button type="button" class="combo-trigger" @click="open = !open">
       <span v-if="modelValue" class="combo-value">{{ modelValue }}</span>
       <span v-else class="combo-placeholder">{{ placeholder ?? "Rechercher un lieu..." }}</span>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" width="15" height="15" class="combo-chevron">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        width="15"
+        height="15"
+        class="combo-chevron"
+      >
         <polyline points="7 15 12 20 17 15" />
         <polyline points="7 9 12 4 17 9" />
       </svg>

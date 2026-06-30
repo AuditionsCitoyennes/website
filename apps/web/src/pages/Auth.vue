@@ -11,10 +11,7 @@ import UsernamePromptDialog from "@/components/UsernamePromptDialog.vue";
 
 const loginSchema = z.object({
   email: z.string().email("Email invalide").max(255, "Email trop long"),
-  password: z
-    .string()
-    .min(1, "Le mot de passe est requis")
-    .max(100, "Mot de passe trop long"),
+  password: z.string().min(1, "Le mot de passe est requis").max(100, "Mot de passe trop long"),
 });
 
 const signupSchema = z.object({
@@ -172,8 +169,16 @@ async function handleForgotPassword() {
     <!-- "Vérifiez votre email" screen after signup -->
     <div v-if="signupDone" class="card glass-strong elevation-2xl fade-in">
       <div class="icon-wrap">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" width="38" height="38">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="38"
+          height="38"
+        >
           <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
           <polyline points="22,6 12,13 2,6" />
         </svg>
@@ -197,7 +202,10 @@ async function handleForgotPassword() {
         <button
           type="button"
           class="btn-ghost-block"
-          @click="signupDone = false; signupEmail = '';"
+          @click="
+            signupDone = false;
+            signupEmail = '';
+          "
         >
           ← Retour
         </button>
@@ -207,8 +215,16 @@ async function handleForgotPassword() {
     <!-- Login / signup card -->
     <div v-else class="card glass-strong elevation-2xl fade-in">
       <div class="icon-wrap">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" width="38" height="38">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="38"
+          height="38"
+        >
           <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
           <circle cx="9" cy="7" r="4" />
           <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -315,8 +331,16 @@ async function handleForgotPassword() {
             class="requirement"
             :class="{ ok: req.test(password) }"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="15"
+              height="15"
+            >
               <polyline points="20 6 9 17 4 12" />
             </svg>
             {{ req.label }}

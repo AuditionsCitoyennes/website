@@ -52,10 +52,7 @@ async function fetchAuditions() {
 
 async function fetchTestimonies(auditionId: string) {
   try {
-    const rows = await api.get<Testimony[]>(
-      `/api/testimonies/for-audition/${auditionId}`,
-      true,
-    );
+    const rows = await api.get<Testimony[]>(`/api/testimonies/for-audition/${auditionId}`, true);
     // Drop responses that no longer match the expanded audition (the user
     // switched or collapsed while the request was in flight).
     if (selectedAudition.value !== auditionId) return;
@@ -91,7 +88,12 @@ const savingEdit = ref(false);
 
 async function handleUpdate() {
   if (!editingId.value || savingEdit.value) return;
-  if (!editForm.value.title || !editForm.value.date || !editForm.value.location || !editForm.value.content) {
+  if (
+    !editForm.value.title ||
+    !editForm.value.date ||
+    !editForm.value.location ||
+    !editForm.value.content
+  ) {
     toast({
       title: "Erreur",
       description: "Veuillez remplir tous les champs",
@@ -183,10 +185,7 @@ async function handleAnalyzeAllAuditions() {
   let totalAuditions = 0;
   try {
     for (const audition of visibleAuditions.value) {
-      const list = await api.get<Testimony[]>(
-        `/api/testimonies/for-audition/${audition.id}`,
-        true,
-      );
+      const list = await api.get<Testimony[]>(`/api/testimonies/for-audition/${audition.id}`, true);
       const missing = list.filter((t) => !t.topics || t.topics.length === 0);
       if (missing.length === 0) continue;
       totalAuditions++;
@@ -238,9 +237,7 @@ defineExpose({ refresh: fetchAuditions });
         <div class="item-row">
           <div class="item-info">
             <h3 class="item-title">{{ audition.title }}</h3>
-            <p class="item-meta">
-              {{ formatDateShort(audition.date) }} — {{ audition.location }}
-            </p>
+            <p class="item-meta">{{ formatDateShort(audition.date) }} — {{ audition.location }}</p>
             <p class="item-status">
               Statut : {{ audition.status === "published" ? "Publié" : "Brouillon" }}
             </p>

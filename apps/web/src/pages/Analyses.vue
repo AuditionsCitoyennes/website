@@ -29,12 +29,8 @@ const mapQuery = useQuery({
 const auditions = computed(() => auditionsQuery.data.value ?? []);
 const testimonies = computed(() => testimoniesQuery.data.value ?? []);
 const groups = computed(() => mapQuery.data.value ?? []);
-const loading = computed(
-  () => auditionsQuery.isLoading.value || testimoniesQuery.isLoading.value,
-);
-const isError = computed(
-  () => auditionsQuery.isError.value || testimoniesQuery.isError.value,
-);
+const loading = computed(() => auditionsQuery.isLoading.value || testimoniesQuery.isLoading.value);
+const isError = computed(() => auditionsQuery.isError.value || testimoniesQuery.isError.value);
 
 // ---- Aggregations (ported from the old Analysis page) ----
 
@@ -58,9 +54,7 @@ const topTopics = computed(() =>
 );
 
 const average = computed(() =>
-  totalAuditions.value > 0
-    ? Math.round(totalTestimonies.value / totalAuditions.value)
-    : 0,
+  totalAuditions.value > 0 ? Math.round(totalTestimonies.value / totalAuditions.value) : 0,
 );
 
 // Auditions per month, chronological.
@@ -92,16 +86,12 @@ function onMapSelect(payload: { id: string }) {
   <div class="analyses container-page">
     <header class="page-head">
       <h1>Analyse des Auditions</h1>
-      <p class="lead">
-        Visualisez les données et tendances issues des auditions citoyennes
-      </p>
+      <p class="lead">Visualisez les données et tendances issues des auditions citoyennes</p>
     </header>
 
     <div v-if="loading" class="state">Chargement…</div>
 
-    <div v-else-if="isError" class="state">
-      Impossible de charger les données d'analyse.
-    </div>
+    <div v-else-if="isError" class="state">Impossible de charger les données d'analyse.</div>
 
     <template v-else>
       <!-- Stat cards -->
@@ -146,9 +136,7 @@ function onMapSelect(payload: { id: string }) {
       <!-- Map -->
       <section class="panel">
         <h2 class="panel-title">Carte des auditions</h2>
-        <p class="panel-desc">
-          Cliquez sur un point pour ouvrir les auditions de ce lieu
-        </p>
+        <p class="panel-desc">Cliquez sur un point pour ouvrir les auditions de ce lieu</p>
         <div class="map-zone">
           <TestimoniesMap :groups="groups" :active-locations="null" @select="onMapSelect" />
         </div>
@@ -172,12 +160,7 @@ function onMapSelect(payload: { id: string }) {
         <h2 class="panel-title">Détail des auditions</h2>
         <p class="panel-desc">Liste complète avec nombre de témoignages</p>
         <div class="aud-list">
-          <RouterLink
-            v-for="a in auditions"
-            :key="a.id"
-            :to="`/audition/${a.id}`"
-            class="aud-row"
-          >
+          <RouterLink v-for="a in auditions" :key="a.id" :to="`/audition/${a.id}`" class="aud-row">
             <div class="aud-info">
               <h3 class="aud-title">{{ a.title }}</h3>
               <p class="aud-meta">

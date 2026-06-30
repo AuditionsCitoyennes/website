@@ -34,7 +34,10 @@ export const createAuditionSchema = z.object({
 
 export const updateAuditionSchema = z.object({
   title: z.string().trim().min(1).max(300).optional(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   location: z.string().trim().min(1).optional(),
   content: z.string().trim().optional(),
   status: auditionStatusSchema.optional(),

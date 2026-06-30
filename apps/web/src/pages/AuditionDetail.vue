@@ -62,9 +62,7 @@ const testimonies = computed(() => {
           <span class="dot">·</span>
           <span>{{ audition.location }}</span>
           <span class="dot">·</span>
-          <span>
-            {{ testimonies.length }} témoignage{{ testimonies.length > 1 ? "s" : "" }}
-          </span>
+          <span> {{ testimonies.length }} témoignage{{ testimonies.length > 1 ? "s" : "" }} </span>
         </div>
       </header>
 

@@ -37,8 +37,7 @@ export function useIdleTimeout() {
     warnTimer = setTimeout(() => {
       toast({
         title: "Inactivité détectée",
-        description:
-          "Vous serez déconnecté dans 2 minutes si aucune activité n'est détectée.",
+        description: "Vous serez déconnecté dans 2 minutes si aucune activité n'est détectée.",
       });
     }, IDLE_TIMEOUT - WARNING_BEFORE);
 

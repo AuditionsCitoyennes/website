@@ -12,25 +12,10 @@ import { FRANCE_CENTER, type LocationGroup } from "@ac/shared";
 // current data covers only a corner and a data-derived centre would be far off.
 const METRO_FRANCE: Bounds = { minLat: 41.3, maxLat: 51.1, minLng: -5.2, maxLng: 9.6 };
 
-export type LevelKey =
-  | "world"
-  | "country"
-  | "region"
-  | "dep"
-  | "city"
-  | "arr"
-  | "place";
+export type LevelKey = "world" | "country" | "region" | "dep" | "city" | "arr" | "place";
 
 // Depth = index in this list (monde = 0 … lieu = 6).
-export const LEVELS: LevelKey[] = [
-  "world",
-  "country",
-  "region",
-  "dep",
-  "city",
-  "arr",
-  "place",
-];
+export const LEVELS: LevelKey[] = ["world", "country", "region", "dep", "city", "arr", "place"];
 
 export interface Bounds {
   minLat: number;
@@ -126,12 +111,7 @@ export function buildGeoHierarchy(groups: LocationGroup[]): {
     children: new Map(),
   };
 
-  const ensure = (
-    parent: Builder,
-    key: string,
-    levelKey: LevelKey,
-    label: string,
-  ): Builder => {
+  const ensure = (parent: Builder, key: string, levelKey: LevelKey, label: string): Builder => {
     let n = parent.children.get(key);
     if (!n) {
       n = {
@@ -190,9 +170,7 @@ export function buildGeoHierarchy(groups: LocationGroup[]): {
       return u;
     }
     const children = [...b.children.values()].map(convert).sort((x, y) => y.count - x.count);
-    const childBounds = children.length
-      ? unionBounds(children.map((c) => c.bounds))
-      : METRO_FRANCE;
+    const childBounds = children.length ? unionBounds(children.map((c) => c.bounds)) : METRO_FRANCE;
     const isCountry = b.levelKey === "country";
     // Ville / arrondissement carry the INSEE code shared by all their places (an
     // arrondissement's places share its code; a simple commune's places share the

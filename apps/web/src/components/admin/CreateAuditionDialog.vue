@@ -166,14 +166,24 @@ async function handleCreate() {
             </div>
             <div class="form-field">
               <label class="form-label">Informations (optionnel)</label>
-              <input v-model="t.person_info" class="form-input" placeholder="Ex: 45 ans, enseignante" />
+              <input
+                v-model="t.person_info"
+                class="form-input"
+                placeholder="Ex: 45 ans, enseignante"
+              />
             </div>
           </div>
           <div class="form-field">
             <label class="form-label">Email (optionnel)</label>
-            <input v-model="t.email" class="form-input" type="email" placeholder="Ex: marie@email.com" />
+            <input
+              v-model="t.email"
+              class="form-input"
+              type="email"
+              placeholder="Ex: marie@email.com"
+            />
             <p class="hint">
-              Si fourni, un email sera envoyé pour permettre à la personne de valider son témoignage.
+              Si fourni, un email sera envoyé pour permettre à la personne de valider son
+              témoignage.
             </p>
           </div>
           <div class="form-field">

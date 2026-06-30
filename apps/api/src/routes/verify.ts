@@ -24,11 +24,7 @@ const actionSchema = z.object({
   action: z.enum(["verify", "reject"]),
   edits: z
     .object({
-      person_name: z
-        .string()
-        .trim()
-        .min(1, "Le nom est requis")
-        .max(200, "Le nom est trop long"),
+      person_name: z.string().trim().min(1, "Le nom est requis").max(200, "Le nom est trop long"),
       person_info: z.string().trim().max(500, "Les informations sont trop longues").nullable(),
       content: z.string().trim().min(1, "Le témoignage est requis"),
     })

@@ -13,8 +13,7 @@ type LngLat = [number, number];
 type Ring = LngLat[];
 type Polygon = Ring[];
 type Geometry =
-  | { type: "Polygon"; coordinates: Polygon }
-  | { type: "MultiPolygon"; coordinates: Polygon[] };
+  { type: "Polygon"; coordinates: Polygon } | { type: "MultiPolygon"; coordinates: Polygon[] };
 
 export interface Bounds {
   minLat: number;
@@ -35,8 +34,7 @@ export interface BoundaryCollection {
   features: BoundaryFeature[];
 }
 
-const FR_GEOJSON =
-  "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master";
+const FR_GEOJSON = "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master";
 const GEO_API = "https://geo.api.gouv.fr";
 const UA = { "User-Agent": "AuditionsCitoyennes/1.0" };
 
@@ -119,7 +117,12 @@ function enrich(feature: {
 }
 
 // ---- Caching (régions/départements are static — keep on disk across restarts) ----
-const CACHE_FILE = join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".boundaries-cache.json");
+const CACHE_FILE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  ".boundaries-cache.json",
+);
 const memory = new Map<string, BoundaryCollection>();
 let loaded = false;
 
@@ -148,7 +151,9 @@ async function persist(): Promise<void> {
 async function fetchCollection(url: string): Promise<BoundaryCollection> {
   const res = await fetch(url, { headers: UA });
   if (!res.ok) throw new Error(`boundary fetch ${res.status} for ${url}`);
-  const fc = (await res.json()) as { features: { geometry: Geometry; properties: Record<string, unknown> }[] };
+  const fc = (await res.json()) as {
+    features: { geometry: Geometry; properties: Record<string, unknown> }[];
+  };
   return { type: "FeatureCollection", features: (fc.features ?? []).map(enrich) };
 }
 

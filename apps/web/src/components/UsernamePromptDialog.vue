@@ -64,9 +64,7 @@ async function handleSave() {
         />
       </div>
       <div class="form-field">
-        <label class="form-label" for="prompt-bio">
-          Dites nous en plus sur vous (optionnel)
-        </label>
+        <label class="form-label" for="prompt-bio"> Dites nous en plus sur vous (optionnel) </label>
         <textarea
           id="prompt-bio"
           v-model="bio"

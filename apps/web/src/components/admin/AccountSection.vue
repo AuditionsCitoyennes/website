@@ -140,7 +140,9 @@ async function handleDeleteAccount() {
     <div class="info">
       <div>
         <p class="info-label">Nom d'utilisateur</p>
-        <p class="info-value">{{ (auth.user?.user_metadata?.username as string) || "Non défini" }}</p>
+        <p class="info-value">
+          {{ (auth.user?.user_metadata?.username as string) || "Non défini" }}
+        </p>
       </div>
       <div>
         <p class="info-label">Email</p>
@@ -238,8 +240,16 @@ async function handleDeleteAccount() {
               class="requirement"
               :class="{ ok: req.test(editPassword) }"
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                width="13"
+                height="13"
+              >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
               {{ req.label }}

@@ -1,13 +1,7 @@
 // Supabase-generated database types (ported from the previous app).
 // Regenerate with `supabase gen types typescript` if the schema changes.
 
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type Database = {
   __InternalSupabase: {
@@ -208,14 +202,12 @@ export type Database = {
 
 type PublicSchema = Database["public"];
 
-export type Tables<T extends keyof PublicSchema["Tables"]> =
-  PublicSchema["Tables"][T]["Row"];
+export type Tables<T extends keyof PublicSchema["Tables"]> = PublicSchema["Tables"][T]["Row"];
 export type TablesInsert<T extends keyof PublicSchema["Tables"]> =
   PublicSchema["Tables"][T]["Insert"];
 export type TablesUpdate<T extends keyof PublicSchema["Tables"]> =
   PublicSchema["Tables"][T]["Update"];
-export type Enums<T extends keyof PublicSchema["Enums"]> =
-  PublicSchema["Enums"][T];
+export type Enums<T extends keyof PublicSchema["Enums"]> = PublicSchema["Enums"][T];
 
 export const Constants = {
   public: {

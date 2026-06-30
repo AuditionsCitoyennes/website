@@ -37,8 +37,16 @@ async function handleSignOut() {
     <div class="header-inner">
       <RouterLink to="/" class="brand" @click="closeMobile">
         <span class="brand-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            width="22"
+            height="22"
+          >
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
             <circle cx="9" cy="7" r="4" />
             <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -49,25 +57,40 @@ async function handleSignOut() {
       </RouterLink>
 
       <nav class="nav-desktop" aria-label="Navigation principale">
-        <RouterLink
-          v-for="link in links"
-          :key="link.to"
-          :to="link.to"
-          class="nav-link"
-        >
+        <RouterLink v-for="link in links" :key="link.to" :to="link.to" class="nav-link">
           {{ link.label }}
         </RouterLink>
       </nav>
 
       <div class="header-actions">
         <button class="icon-btn" :title="isDark ? 'Mode clair' : 'Mode sombre'" @click="toggle">
-          <svg v-if="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+          <svg
+            v-if="isDark"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            width="18"
+            height="18"
+          >
             <circle cx="12" cy="12" r="5" />
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            <path
+              d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+            />
           </svg>
-          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+          <svg
+            v-else
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            width="18"
+            height="18"
+          >
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
         </button>
@@ -86,8 +109,16 @@ async function handleSignOut() {
           aria-label="Menu"
           @click="mobileOpen = !mobileOpen"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            width="20"
+            height="20"
+          >
             <line v-if="!mobileOpen" x1="3" y1="6" x2="21" y2="6" />
             <line v-if="!mobileOpen" x1="3" y1="12" x2="21" y2="12" />
             <line v-if="!mobileOpen" x1="3" y1="18" x2="21" y2="18" />
@@ -97,7 +128,6 @@ async function handleSignOut() {
         </button>
       </div>
     </div>
-
   </header>
 
   <!-- Mobile menu: a floating popup with a dimmed backdrop (not an in-header
@@ -119,7 +149,11 @@ async function handleSignOut() {
         <div class="nav-mobile-auth">
           <template v-if="auth.user">
             <RouterLink to="/admin" class="nav-link-mobile" @click="closeMobile">Admin</RouterLink>
-            <button type="button" class="nav-link-mobile nav-link-mobile-btn" @click="handleSignOut">
+            <button
+              type="button"
+              class="nav-link-mobile nav-link-mobile-btn"
+              @click="handleSignOut"
+            >
               Déconnexion
             </button>
           </template>
