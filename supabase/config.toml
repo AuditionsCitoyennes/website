@@ -1,0 +1,10 @@
+project_id = "ruofdjexhrnxolhijddh"
+
+[functions.analyze-audition]
+verify_jwt = false
+
+[functions.handle-registration]
+verify_jwt = false
+
+[functions.send-verification-email]
+verify_jwt = false

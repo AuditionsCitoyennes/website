@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Question / discussion
+    url: https://github.com/AuditionsCitoyennes/website/discussions
+    about: Pour les questions et les idées, utilisez les Discussions.
+  - name: 🔒 Faille de sécurité
+    url: https://github.com/AuditionsCitoyennes/website/security/policy
+    about: Ne signalez PAS une faille via une issue publique — suivez la politique de sécurité.

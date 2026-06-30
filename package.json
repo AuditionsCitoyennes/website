@@ -1,0 +1,17 @@
+{
+  "name": "auditions-citoyennes",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@ac/api & npm run dev --workspace=@ac/web",
+    "dev:web": "npm run dev --workspace=@ac/web",
+    "dev:api": "npm run dev --workspace=@ac/api",
+    "build": "npm run build --workspace=@ac/web && npm run build --workspace=@ac/api",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

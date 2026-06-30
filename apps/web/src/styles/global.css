@@ -1,0 +1,747 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
+
+/* =========================================================================
+   Design tokens — ported from the previous app (Moxfield-inspired deep purple).
+   Colours are stored as raw HSL channels and consumed via hsl(var(--x)).
+   ========================================================================= */
+
+:root {
+  /* Light theme */
+  --background: 0 0% 98%;
+  --foreground: 240 10% 10%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 10%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 10%;
+
+  --primary: 270 60% 55%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 240 5% 92%;
+  --secondary-foreground: 240 10% 20%;
+
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 5% 45%;
+
+  --accent: 270 50% 95%;
+  --accent-foreground: 270 60% 40%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 240 6% 90%;
+  --input: 240 6% 90%;
+  --ring: 270 60% 55%;
+
+  --radius: 0.5rem;
+
+  --civic-blue: 270 60% 55%;
+  --civic-green: 160 60% 45%;
+  --warm-gray: 240 5% 96%;
+
+  --gradient-hero: linear-gradient(135deg, hsl(270 60% 55%) 0%, hsl(290 60% 60%) 100%);
+  --gradient-card: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(240 5% 98%) 100%);
+  --gradient-surface: linear-gradient(180deg, hsl(270 50% 98%) 0%, hsl(0 0% 98%) 100%);
+
+  --shadow-xs: 0 1px 2px 0 hsl(240 10% 10% / 0.03);
+  --shadow-sm: 0 1px 3px 0 hsl(240 10% 10% / 0.06), 0 1px 2px -1px hsl(240 10% 10% / 0.06);
+  --shadow-md: 0 4px 6px -1px hsl(240 10% 10% / 0.07), 0 2px 4px -2px hsl(240 10% 10% / 0.05);
+  --shadow-lg: 0 10px 15px -3px hsl(240 10% 10% / 0.08), 0 4px 6px -4px hsl(240 10% 10% / 0.05);
+  --shadow-xl: 0 20px 25px -5px hsl(240 10% 10% / 0.1), 0 8px 10px -6px hsl(240 10% 10% / 0.06);
+  --shadow-2xl: 0 25px 50px -12px hsl(240 10% 10% / 0.2);
+  --shadow-glow: 0 0 30px hsl(270 60% 55% / 0.2);
+
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --font-sans: "Source Sans 3", system-ui, -apple-system, sans-serif;
+  --font-display: "Bebas Neue", system-ui, sans-serif;
+}
+
+.dark {
+  /* Dark theme */
+  --background: 260 30% 8%;
+  --foreground: 0 0% 95%;
+
+  --card: 260 25% 12%;
+  --card-foreground: 0 0% 95%;
+
+  --popover: 260 25% 10%;
+  --popover-foreground: 0 0% 95%;
+
+  --primary: 270 70% 65%;
+  --primary-foreground: 260 30% 8%;
+
+  --secondary: 260 20% 18%;
+  --secondary-foreground: 0 0% 90%;
+
+  --muted: 260 20% 15%;
+  --muted-foreground: 260 10% 55%;
+
+  --accent: 270 40% 20%;
+  --accent-foreground: 270 70% 75%;
+
+  --destructive: 0 65% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 260 20% 18%;
+  --input: 260 20% 18%;
+  --ring: 270 70% 65%;
+
+  --civic-blue: 270 70% 65%;
+  --civic-green: 160 50% 50%;
+  --warm-gray: 260 20% 15%;
+
+  --gradient-hero: linear-gradient(135deg, hsl(270 50% 25%) 0%, hsl(290 40% 30%) 100%);
+  --gradient-card: linear-gradient(180deg, hsl(260 25% 14%) 0%, hsl(260 25% 10%) 100%);
+  --gradient-surface: linear-gradient(180deg, hsl(260 30% 12%) 0%, hsl(260 30% 8%) 100%);
+
+  --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
+  --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.4), 0 1px 2px -1px hsl(0 0% 0% / 0.4);
+  --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.5), 0 2px 4px -2px hsl(0 0% 0% / 0.4);
+  --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.5), 0 4px 6px -4px hsl(0 0% 0% / 0.4);
+  --shadow-xl: 0 20px 25px -5px hsl(0 0% 0% / 0.6), 0 8px 10px -6px hsl(0 0% 0% / 0.5);
+  --shadow-2xl: 0 25px 50px -12px hsl(0 0% 0% / 0.8);
+  --shadow-glow: 0 0 40px hsl(270 70% 65% / 0.25);
+}
+
+/* =========================================================================
+   Reset + base
+   ========================================================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-color: hsl(var(--border));
+}
+
+* {
+  margin: 0;
+}
+
+html {
+  height: 100%;
+  background: hsl(var(--background));
+}
+
+body {
+  min-height: 100%;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  font-weight: 400;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  line-height: 1.05;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input, select, textarea, button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* Prevent iOS Safari auto-zoom on input focus */
+@supports (-webkit-touch-callout: none) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* =========================================================================
+   Utility helpers (used across hand-written components)
+   ========================================================================= */
+
+.gradient-hero { background: var(--gradient-hero); }
+.gradient-card { background: var(--gradient-card); }
+.gradient-surface { background: var(--gradient-surface); }
+
+.elevation-xs { box-shadow: var(--shadow-xs); }
+.elevation-sm { box-shadow: var(--shadow-sm); }
+.elevation-md { box-shadow: var(--shadow-md); }
+.elevation-lg { box-shadow: var(--shadow-lg); }
+.elevation-xl { box-shadow: var(--shadow-xl); }
+.elevation-2xl { box-shadow: var(--shadow-2xl); }
+.elevation-glow { box-shadow: var(--shadow-glow); }
+
+.transition-smooth { transition: var(--transition-smooth); }
+
+.glass {
+  background: hsl(var(--card) / 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid hsl(var(--border) / 0.5);
+}
+
+.glass-strong {
+  background: hsl(var(--card) / 0.95);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid hsl(var(--border) / 0.3);
+}
+
+.container-page {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in { animation: fade-in 0.4s ease-out; }
+
+/* =========================================================================
+   Forms (shared by auth pages, dialogs, admin)
+   ========================================================================= */
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.form-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+
+.form-input {
+  width: 100%;
+  height: 3rem;
+  padding: 0 0.85rem;
+  border-radius: 0.6rem;
+  border: 1px solid hsl(var(--input));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-input::placeholder {
+  color: hsl(var(--muted-foreground) / 0.7);
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.2);
+}
+
+.form-textarea {
+  height: auto;
+  padding: 0.7rem 0.85rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.btn-primary-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 3rem;
+  border-radius: 0.6rem;
+  border: none;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-size: 0.95rem;
+  transition: var(--transition-smooth);
+}
+
+.btn-primary-block:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: var(--shadow-glow);
+}
+
+.btn-primary-block:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-outline-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 3rem;
+  border-radius: 0.6rem;
+  border: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-size: 0.95rem;
+  transition: var(--transition-smooth);
+}
+
+.btn-outline-block:hover:not(:disabled) {
+  background: hsl(var(--accent) / 0.5);
+}
+
+.btn-outline-block:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-ghost-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 2.6rem;
+  border-radius: 0.6rem;
+  border: none;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-weight: 500;
+  transition: var(--transition-smooth);
+}
+
+.btn-ghost-block:hover:not(:disabled) {
+  background: hsl(var(--accent) / 0.5);
+}
+
+/* Button system used across admin components (prefixed to avoid clashing
+   with page-scoped .btn classes) */
+
+.ac-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: 0.55rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+  font-size: 0.88rem;
+  letter-spacing: 0.01em;
+  transition: var(--transition-smooth);
+  cursor: pointer;
+}
+
+.ac-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ac-btn--primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.ac-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ac-btn--outline {
+  border-color: hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.ac-btn--outline:hover:not(:disabled) {
+  background: hsl(var(--accent) / 0.5);
+}
+
+.ac-btn--ghost {
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+.ac-btn--ghost:hover:not(:disabled) {
+  background: hsl(var(--accent) / 0.5);
+}
+
+.ac-btn--danger {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.ac-btn--danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.ac-btn--success {
+  background: hsl(var(--civic-green));
+  color: #fff;
+}
+
+.ac-btn--success:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ac-btn--sm {
+  height: 2.1rem;
+  padding: 0 0.75rem;
+  font-size: 0.8rem;
+}
+
+.ac-btn--icon {
+  width: 2.5rem;
+  padding: 0;
+}
+
+.ac-btn--icon.ac-btn--sm {
+  width: 2.1rem;
+}
+
+.ac-btn--block {
+  width: 100%;
+}
+
+/* Admin cards */
+
+.admin-card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow-sm);
+  padding: 1.4rem;
+  margin-bottom: 1.6rem;
+}
+
+.admin-card-title {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  letter-spacing: 0.04em;
+  color: hsl(var(--foreground));
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-card-desc {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.88rem;
+  margin-top: 0.25rem;
+  margin-bottom: 1.1rem;
+}
+
+/* Small status chips */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+}
+
+.chip--green {
+  background: hsl(var(--civic-green) / 0.12);
+  color: hsl(var(--civic-green));
+  border-color: hsl(var(--civic-green) / 0.25);
+}
+
+.chip--outline {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  border-color: hsl(var(--border));
+}
+
+.chip--red {
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+  border-color: hsl(var(--destructive) / 0.3);
+}
+
+.chip--amber {
+  background: hsl(38 80% 50% / 0.14);
+  color: hsl(38 90% 45%);
+  border-color: hsl(38 80% 50% / 0.3);
+}
+
+.spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+
+.spinner-lg {
+  width: 2rem;
+  height: 2rem;
+  border-width: 3px;
+  color: hsl(var(--primary));
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* =========================================================================
+   Map (Mapbox GL) overrides
+   ========================================================================= */
+
+.marker-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: hsl(270 70% 65%);
+  border: 2.5px solid white;
+  box-shadow: 0 0 8px hsl(270 70% 65% / 0.6), 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.3s ease;
+}
+
+.marker-dot-active {
+  animation: marker-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes marker-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px 2px hsl(270 70% 65% / 0.7), 0 0 20px 4px hsl(270 70% 65% / 0.3), 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 24px 6px hsl(270 70% 65% / 1), 0 0 50px 12px hsl(270 70% 65% / 0.5), 0 0 80px 20px hsl(270 70% 65% / 0.2), 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+}
+
+.mapboxgl-popup-content {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-lg);
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* The popup arrow is drawn with CSS borders — match the card colour for
+   every anchor direction. */
+.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip,
+.mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip,
+.mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip {
+  border-top-color: hsl(var(--card));
+}
+
+.mapboxgl-popup-anchor-top .mapboxgl-popup-tip,
+.mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip,
+.mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip {
+  border-bottom-color: hsl(var(--card));
+}
+
+.mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
+  border-right-color: hsl(var(--card));
+}
+
+.mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
+  border-left-color: hsl(var(--card));
+}
+
+.mapboxgl-popup-close-button {
+  color: hsl(var(--muted-foreground));
+  font-size: 1.25rem;
+  top: 0.4rem;
+  right: 0.5rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.35rem;
+}
+
+.mapboxgl-popup-close-button:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent) / 0.5);
+}
+
+/* Marker elements get cursor + keep the glow on top of the canvas. */
+.mapboxgl-marker .marker-dot,
+.mapboxgl-marker.marker-dot {
+  cursor: pointer;
+}
+
+/* Geo-drill count bubbles (built imperatively in GeoDrillMap, so styled
+   globally): a circle sized by count with the unit name on a chip below. */
+.geo-pin {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Uniform outlined pill (rounded line style) — count + unit name inline. Size is
+   constant; the number carries the magnitude, not the pin's area. */
+.geo-pin-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 1.85rem;
+  padding: 0 0.6rem;
+  border-radius: 0.6rem;
+  background: hsl(var(--card) / 0.94);
+  border: 1.5px solid hsl(var(--primary) / 0.85);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+  white-space: nowrap;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.geo-pin:hover .geo-pin-bubble {
+  transform: translateY(-1px);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.geo-pin-num {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: hsl(var(--primary));
+}
+
+.geo-pin-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+/* Lieu (leaf): the original flat ground dot (.marker-dot "point au sol"), sized
+   to hold the audition count. Lies flat on the map (tilts with it). */
+.geo-pin-leaf {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: hsl(270 70% 65%);
+  border: 2.5px solid white;
+  box-shadow: 0 0 8px hsl(270 70% 65% / 0.6), 0 1px 3px rgba(0, 0, 0, 0.3);
+  color: white;
+  font-weight: 700;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+/* A macro pin clamped to the screen edge (its unit is off-screen) — lift it so it
+   reads as a floating edge indicator pointing toward the off-screen unit. */
+.geo-pin-stuck .geo-pin-bubble {
+  box-shadow: 0 0 0 2px hsl(var(--card) / 0.85), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Map popup content (built imperatively in TestimoniesMap, so styled globally) */
+.map-popup {
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.map-popup-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  color: hsl(var(--foreground));
+  padding-right: 1.25rem;
+}
+
+.map-popup-meta {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+}
+
+.map-popup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.map-popup-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.45rem;
+  border: 1px solid hsl(var(--border) / 0.6);
+  background: transparent;
+  transition: var(--transition-smooth);
+}
+
+.map-popup-item:hover {
+  background: hsl(var(--accent) / 0.6);
+  border-color: hsl(var(--primary) / 0.4);
+}
+
+.map-popup-item-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: hsl(var(--foreground));
+}
+
+.map-popup-item-date {
+  font-size: 0.72rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.map-popup-action {
+  margin-top: 0.15rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.45rem;
+  border: 1px solid hsl(var(--primary) / 0.4);
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.map-popup-action:hover {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}

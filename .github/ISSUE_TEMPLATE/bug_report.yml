@@ -1,0 +1,37 @@
+name: 🐛 Signaler un bug
+description: Quelque chose ne fonctionne pas comme prévu
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Merci de prendre le temps de signaler un bug ! Ne partagez aucune donnée personnelle ni secret dans ce rapport.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Décrivez le bug clairement.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Étapes pour reproduire
+      placeholder: |
+        1. Aller sur '...'
+        2. Cliquer sur '...'
+        3. Voir l'erreur
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexte
+      description: Navigateur, OS, page concernée, captures d'écran…
+    validations:
+      required: false
