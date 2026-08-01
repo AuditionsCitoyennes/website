@@ -11,11 +11,11 @@
   },
   "dependencies": {
     "@ac/shared": "*",
-    "@supabase/supabase-js": "^2.109.0",
-    "@tanstack/vue-query": "^5.101.2",
-    "mapbox-gl": "^3.25.0",
+    "@supabase/supabase-js": "^2.111.0",
+    "@tanstack/vue-query": "^5.101.4",
+    "mapbox-gl": "^3.27.0",
     "pinia": "^2.2.6",
-    "vue": "^3.5.39",
+    "vue": "^3.5.40",
     "vue-router": "^4.4.5",
     "zod": "^3.25.76"
   },
