@@ -44,25 +44,6 @@ export const updateAuditionSchema = z.object({
   status: auditionStatusSchema.optional(),
 });
 
-export const analyzeTestimonySchema = z.object({
-  content: z.string().trim().min(1),
-});
-
-export const verifyTestimonySchema = z.object({
-  action: z.enum(["verify", "reject"]),
-  // Optional edits applied at verification time.
-  person_name: z.string().trim().min(1).max(200).optional(),
-  person_info: z.string().trim().max(500).nullable().optional(),
-  content: z.string().trim().min(1).optional(),
-});
-
-export const registrationActionSchema = z.object({
-  action: z.enum(["approve", "decline"]),
-  userId: z.string().uuid(),
-  email: z.string().email(),
-  username: z.string().optional().nullable(),
-});
-
 // A testimony sent by a visitor through the site's "Témoigner" form. The place
 // is only an INSEE code: the server resolves everything else itself.
 export const ONLINE_TESTIMONY_MAX = 5000;
@@ -114,5 +95,3 @@ export type TestimonyInput = z.infer<typeof testimonyInputSchema>;
 export type CreateAuditionInput = z.infer<typeof createAuditionSchema>;
 export type UpdateAuditionInput = z.infer<typeof updateAuditionSchema>;
 export type UpdateTestimonyInput = z.infer<typeof updateTestimonySchema>;
-export type VerifyTestimonyInput = z.infer<typeof verifyTestimonySchema>;
-export type RegistrationActionInput = z.infer<typeof registrationActionSchema>;
