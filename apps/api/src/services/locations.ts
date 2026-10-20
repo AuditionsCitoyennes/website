@@ -5,9 +5,10 @@ import {
   type LocationGroup,
   type OnlinePlace,
 } from "@ac/shared";
-import { publicClient } from "../supabase";
+import { publicClient } from "../lib/supabase";
 import { resolve, getCachedEntry } from "../geocode";
-import { cached, invalidate, PUBLIC_CACHE_KEYS, publicCachesGeneration } from "../cache";
+import { cached, invalidate } from "../lib/cache";
+import { PUBLIC_CACHE_KEYS, publicCachesGeneration } from "../lib/publicCache";
 
 /**
  * Where an audition is filed on the map. An online audition's location is its

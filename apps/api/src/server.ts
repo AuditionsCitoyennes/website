@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import sensible from "@fastify/sensible";
 import { config } from "./config";
-import authPlugin from "./auth";
+import authPlugin from "./lib/auth";
 import healthRoutes from "./routes/health";
 import auditionRoutes from "./routes/auditions";
 import testimonyRoutes from "./routes/testimonies";

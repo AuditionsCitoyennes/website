@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { getRoles } from "../auth";
-import { adminClient } from "../supabase";
+import { getRoles } from "../lib/auth";
+import { adminClient } from "../lib/supabase";
 import { hasServiceRole } from "../config";
-import { logAudit } from "../services/audit";
+import { logAudit } from "../lib/audit";
 
 export default async function meRoutes(app: FastifyInstance) {
   // Current user + role flags.

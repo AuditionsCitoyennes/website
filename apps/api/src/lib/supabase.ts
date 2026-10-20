@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@ac/shared";
-import { config } from "./config";
+import { config } from "../config";
 
 type DB = SupabaseClient<Database>;
 

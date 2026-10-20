@@ -7,19 +7,20 @@ import {
   sanitizeText,
   updateAuditionSchema,
 } from "@ac/shared";
-import { publicClient } from "../supabase";
-import { cached, invalidatePublicCaches, PUBLIC_CACHE_KEYS } from "../cache";
-import { requireAdmin } from "../auth";
+import { publicClient } from "../lib/supabase";
+import { cached } from "../lib/cache";
+import { invalidatePublicCaches, PUBLIC_CACHE_KEYS } from "../lib/publicCache";
+import { requireAdmin } from "../lib/auth";
 import { fetchPublishedAuditions, onlinePlaceOf, placeKeyOf } from "../services/locations";
-import { logAudit } from "../services/audit";
+import { logAudit } from "../lib/audit";
 import { auditionGone } from "../services/auditions";
 import { getCachedEntry, loadGeocodeCache, resolve as resolveLocation } from "../geocode";
+import { frDate } from "../lib/dates";
 import {
-  frDate,
   sendVerificationEmails,
   type SendReport,
   type VerificationRecipient,
-} from "../services/emails";
+} from "../lib/email/verification";
 
 /** Geocode an audition's lieu, waiting for it 3 seconds at most. */
 async function geocodeBriefly(location: string): Promise<void> {

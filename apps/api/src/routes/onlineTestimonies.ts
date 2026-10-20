@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
 import { composeAnswers, onlineTestimonySchema, sanitizeText, type Json } from "@ac/shared";
-import { adminClient } from "../supabase";
+import { adminClient } from "../lib/supabase";
 import { config, hasEmail, hasServiceRole, isDev } from "../config";
-import { logAudit } from "../services/audit";
-import { sendOnlineVerificationEmail } from "../services/emails";
+import { logAudit } from "../lib/audit";
+import { sendOnlineVerificationEmail } from "../lib/email/verification";
 import { PlaceError, resolveTownHall } from "../services/places";
-import { allowGlobalHit, allowHit, clientKey } from "../services/rateLimit";
+import { allowGlobalHit, allowHit, clientKey } from "../lib/rateLimit";
 
 // "Témoigner": a visitor — nobody signed in — sends a testimony from the site.
 //

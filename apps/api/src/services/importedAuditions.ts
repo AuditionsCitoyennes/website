@@ -5,7 +5,7 @@ import {
   type LocationGroup,
   type PublicTestimony,
 } from "@ac/shared";
-import { adminClient, publicClient } from "../supabase";
+import { adminClient, publicClient } from "../lib/supabase";
 import { hasServiceRole } from "../config";
 import { arrondissementFromCitycode } from "../geocode";
 import { FR_DEPARTMENTS, departementFromPostcode } from "../data/frDepartments";
