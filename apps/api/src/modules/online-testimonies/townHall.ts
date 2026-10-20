@@ -1,5 +1,5 @@
 import type { OnlinePlace } from "@ac/shared";
-import { arrondissementFromCitycode } from "../geocode";
+import { arrondissementFromCitycode } from "../geo/geocode";
 
 // The town hall of a commune — or of an arrondissement in Paris, Lyon and
 // Marseille — for online auditions, from the official commune API

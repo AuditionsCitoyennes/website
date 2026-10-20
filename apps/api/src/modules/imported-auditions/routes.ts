@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { buildImportedGroups, buildImportedTestimonies } from "../services/importedAuditions";
-import { cached } from "../lib/cache";
+import { buildImportedGroups, buildImportedTestimonies } from "./service";
+import { cached } from "../../lib/cache";
 
 export default async function importedAuditionRoutes(app: FastifyInstance) {
   // Imported events grouped for the map, same shape as /api/map — pins + drill

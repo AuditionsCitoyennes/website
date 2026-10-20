@@ -5,10 +5,10 @@ import {
   type LocationGroup,
   type PublicTestimony,
 } from "@ac/shared";
-import { adminClient, publicClient } from "../lib/supabase";
-import { hasServiceRole } from "../config";
-import { arrondissementFromCitycode } from "../geocode";
-import { FR_DEPARTMENTS, departementFromPostcode } from "../data/frDepartments";
+import { adminClient, publicClient } from "../../lib/supabase";
+import { hasServiceRole } from "../../config";
+import { arrondissementFromCitycode } from "../geo/geocode";
+import { FR_DEPARTMENTS, departementFromPostcode } from "./frDepartments";
 
 // Imported, located citizen-participation events (data-ingestion → the
 // `imported_auditions` table). Served in the SAME shapes the map already
@@ -66,7 +66,7 @@ function placeKey(r: BaseRow): string {
 async function fetchRows<T>(columns: string): Promise<T[]> {
   // PostgREST caps a response at 1000 rows and reports NO error when it does —
   // a bare select() just returned a short array, silently dropping imported
-  // places from the map. Page explicitly (same pattern as routes/testimonies.ts),
+  // places from the map. Page explicitly (same pattern as modules/testimonies/routes.ts),
   // ordered by id so the pages are stable and can't repeat or skip a row.
   const PAGE = 1000;
   const all: T[] = [];

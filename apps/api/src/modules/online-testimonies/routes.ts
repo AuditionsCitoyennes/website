@@ -1,18 +1,18 @@
 import type { FastifyInstance } from "fastify";
 import { createHash, randomUUID } from "node:crypto";
 import { composeAnswers, onlineTestimonySchema, sanitizeText, type Json } from "@ac/shared";
-import { adminClient } from "../lib/supabase";
-import { config, hasEmail, hasServiceRole, isDev } from "../config";
-import { logAudit } from "../lib/audit";
-import { sendOnlineVerificationEmail } from "../lib/email/verification";
-import { PlaceError, resolveTownHall } from "../services/places";
-import { allowGlobalHit, allowHit, clientKey } from "../lib/rateLimit";
+import { adminClient } from "../../lib/supabase";
+import { config, hasEmail, hasServiceRole, isDev } from "../../config";
+import { logAudit } from "../../lib/audit";
+import { sendOnlineVerificationEmail } from "../../lib/email/verification";
+import { PlaceError, resolveTownHall } from "./townHall";
+import { allowGlobalHit, allowHit, clientKey } from "../../lib/rateLimit";
 
 // "Témoigner": a visitor — nobody signed in — sends a testimony from the site.
 //
 // It joins the online audition of the month of their commune's town hall
 // (created by the month's first testimony), and stays unpublished until the
-// link emailed to them is clicked (/verifier/:token, routes/verify.ts). One
+// link emailed to them is clicked (/verifier/:token, modules/verification/routes.ts). One
 // testimony per email per week. Everything that must not race — the weekly
 // quota, the month's audition — happens in one database call
 // (submit_online_testimony, service role only).

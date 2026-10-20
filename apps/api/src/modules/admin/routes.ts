@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { adminClient } from "../lib/supabase";
-import { hasServiceRole } from "../config";
-import { requireSuperAdmin } from "../lib/auth";
-import { sendApprovalEmail, sendDeclineEmail } from "../lib/email/registration";
-import { logAudit } from "../lib/audit";
+import { adminClient } from "../../lib/supabase";
+import { hasServiceRole } from "../../config";
+import { requireSuperAdmin } from "../../lib/auth";
+import { sendApprovalEmail, sendDeclineEmail } from "../../lib/email/registration";
+import { logAudit } from "../../lib/audit";
 
 const registrationActionSchema = z.object({
   action: z.enum(["approve", "decline"]),

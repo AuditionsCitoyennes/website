@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { getCommune, getCommunes, getDepartement, getLevel } from "../services/boundaries";
+import { getCommune, getCommunes, getDepartement, getLevel } from "./service";
 
 export default async function boundaryRoutes(app: FastifyInstance) {
   // Every commune currently in view, in ONE request. Registered before the

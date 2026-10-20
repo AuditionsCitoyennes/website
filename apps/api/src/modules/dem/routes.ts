@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { renderTile, setSelection } from "../services/dem";
+import { renderTile, setSelection } from "./service";
 
 // Custom DEM tiles for the "Plateau" elevation mode: the client POSTs the selected
 // polygons + a height, gets back a version key, then points a raster-dem source at

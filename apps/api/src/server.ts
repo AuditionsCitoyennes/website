@@ -4,17 +4,17 @@ import compress from "@fastify/compress";
 import sensible from "@fastify/sensible";
 import { config } from "./config";
 import authPlugin from "./lib/auth";
-import healthRoutes from "./routes/health";
-import auditionRoutes from "./routes/auditions";
-import testimonyRoutes from "./routes/testimonies";
-import mapRoutes from "./routes/map";
-import importedAuditionRoutes from "./routes/importedAuditions";
-import boundaryRoutes from "./routes/boundaries";
-import demRoutes from "./routes/dem";
-import adminRoutes from "./routes/admin";
-import verifyRoutes from "./routes/verify";
-import meRoutes from "./routes/me";
-import onlineTestimonyRoutes from "./routes/onlineTestimonies";
+import healthRoutes from "./modules/health/routes";
+import auditionRoutes from "./modules/auditions/routes";
+import testimonyRoutes from "./modules/testimonies/routes";
+import mapRoutes from "./modules/map/routes";
+import importedAuditionRoutes from "./modules/imported-auditions/routes";
+import boundaryRoutes from "./modules/boundaries/routes";
+import demRoutes from "./modules/dem/routes";
+import adminRoutes from "./modules/admin/routes";
+import verifyRoutes from "./modules/verification/routes";
+import meRoutes from "./modules/account/routes";
+import onlineTestimonyRoutes from "./modules/online-testimonies/routes";
 
 export function buildServer() {
   const app = Fastify({ logger: true, trustProxy: config.TRUST_PROXY || false });

@@ -1,5 +1,5 @@
 import { ANALYSIS_MODEL, AUDITION_THEMES } from "@ac/shared";
-import { config } from "../config";
+import { config } from "../../config";
 
 // Thematic analysis of testimonies via Claude — ported verbatim from the
 // previous analyze-audition edge function (same model, prompt, parameters).

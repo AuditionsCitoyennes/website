@@ -1,16 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { createTestimonySchema, sanitizeText, updateTestimonySchema } from "@ac/shared";
-import { publicClient } from "../lib/supabase";
-import { cached } from "../lib/cache";
-import { invalidatePublicCaches, PUBLIC_CACHE_KEYS } from "../lib/publicCache";
-import { requireAdmin, requireSuperAdmin } from "../lib/auth";
-import { frDate } from "../lib/dates";
-import { EmailsDisabledError } from "../lib/email/resend";
-import { sendVerificationEmails } from "../lib/email/verification";
-import { analyzeContent, AnalysisDisabledError, AnalysisError } from "../services/analysis";
-import { logAudit } from "../lib/audit";
-import { auditionGone } from "../services/auditions";
+import { publicClient } from "../../lib/supabase";
+import { cached } from "../../lib/cache";
+import { invalidatePublicCaches, PUBLIC_CACHE_KEYS } from "../../lib/publicCache";
+import { requireAdmin, requireSuperAdmin } from "../../lib/auth";
+import { frDate } from "../../lib/dates";
+import { EmailsDisabledError } from "../../lib/email/resend";
+import { sendVerificationEmails } from "../../lib/email/verification";
+import { analyzeContent, AnalysisDisabledError, AnalysisError } from "./analysis";
+import { logAudit } from "../../lib/audit";
+import { auditionGone } from "../auditions/service";
 
 // What an admin is told when trying to edit a testimony its witness verified.
 const VERIFIED_LOCKED =

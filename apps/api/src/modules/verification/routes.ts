@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ONLINE_TESTIMONY_MAX, sanitizeText, type TablesUpdate } from "@ac/shared";
-import { adminClient, publicClient } from "../lib/supabase";
-import { hasServiceRole } from "../config";
-import { logAudit } from "../lib/audit";
-import { auditionGone } from "../services/auditions";
-import { invalidatePublicCaches } from "../lib/publicCache";
+import { adminClient, publicClient } from "../../lib/supabase";
+import { hasServiceRole } from "../../config";
+import { logAudit } from "../../lib/audit";
+import { auditionGone } from "../auditions/service";
+import { invalidatePublicCaches } from "../../lib/publicCache";
 
 // Public testimony verification by emailed token. No authentication — the
 // token IS the credential. Sends no emails.

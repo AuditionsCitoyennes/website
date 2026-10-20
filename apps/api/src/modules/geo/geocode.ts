@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { getKnownCoordinates, isGenericLocation } from "@ac/shared";
+import { config } from "../../config";
 
 // Server-side geocoder for canonical location names.
 // - Uses the Base Adresse Nationale (api-adresse.data.gouv.fr) — the official
@@ -38,7 +38,7 @@ export interface GeoEntry {
 // Bumped to v3 when `citycode` (INSEE) was added: old cache entries lack the
 // field, so a fresh file is built (re-querying BAN once per location) rather than
 // serving stale, citycode-less data.
-const CACHE_FILE = join(dirname(fileURLToPath(import.meta.url)), "..", ".geocode-cache-v3.json");
+const CACHE_FILE = join(config.CACHE_DIR, ".geocode-cache-v3.json");
 
 const cache = new Map<string, GeoEntry | null>();
 let loaded = false;

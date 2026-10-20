@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import { buildLocationGroups, warmLocationGeocodes } from "../services/locations";
-import { cached } from "../lib/cache";
-import { PUBLIC_CACHE_KEYS } from "../lib/publicCache";
+import { buildLocationGroups, warmLocationGeocodes } from "./locationGroups";
+import { cached } from "../../lib/cache";
+import { PUBLIC_CACHE_KEYS } from "../../lib/publicCache";
 
 export default async function mapRoutes(app: FastifyInstance) {
   // Published auditions grouped by canonical location, with coordinates.
