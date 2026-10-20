@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AUDITION_QUESTIONS, ONLINE_ANSWER_MAX } from "./answers";
 
 export const auditionStatusSchema = z.enum(["published", "draft"]);
 
@@ -62,6 +63,53 @@ export const registrationActionSchema = z.object({
   username: z.string().optional().nullable(),
 });
 
+// A testimony sent by a visitor through the site's "Témoigner" form. The place
+// is only an INSEE code: the server resolves everything else itself.
+export const ONLINE_TESTIMONY_MAX = 5000;
+export const onlineTestimonySchema = z.object({
+  commune_code: z
+    .string({ required_error: "Choisissez votre commune dans la liste" })
+    .regex(/^(\d{5}|2[AB]\d{3})$/, "Choisissez votre commune dans la liste"),
+  email: z
+    .string({ required_error: "L'email est requis" })
+    .trim()
+    .toLowerCase()
+    .min(1, "L'email est requis")
+    .max(254, "Email invalide")
+    .email("Email invalide"),
+  person_name: z
+    .string()
+    .trim()
+    .max(80, "Le nom est trop long (80 caractères au plus)")
+    .default(""),
+  person_info: z
+    .string()
+    .trim()
+    .max(300, "Les informations sont trop longues (300 caractères au plus)")
+    .default(""),
+  // One answer per question (AUDITION_QUESTIONS), in order; at least one.
+  answers: z
+    .array(
+      z
+        .string()
+        .trim()
+        .max(
+          ONLINE_ANSWER_MAX,
+          `Une réponse est trop longue (${ONLINE_ANSWER_MAX} caractères au plus)`,
+        ),
+      { required_error: "Répondez à au moins une des questions" },
+    )
+    .length(AUDITION_QUESTIONS.length, "Répondez à au moins une des questions")
+    .refine((answers) => answers.some((a) => a.length > 0), {
+      message: "Répondez à au moins une des questions",
+    }),
+  consent: z.literal(true, { errorMap: () => ({ message: "Votre accord est nécessaire" }) }),
+  // Anti-robot: a field people never see, and the time taken to fill the form.
+  website: z.string().max(200).optional().default(""),
+  elapsed_ms: z.number().int().nonnegative().optional(),
+});
+
+export type OnlineTestimonyInput = z.infer<typeof onlineTestimonySchema>;
 export type TestimonyInput = z.infer<typeof testimonyInputSchema>;
 export type CreateAuditionInput = z.infer<typeof createAuditionSchema>;
 export type UpdateAuditionInput = z.infer<typeof updateAuditionSchema>;

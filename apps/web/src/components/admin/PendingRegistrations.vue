@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
 import type { PendingRegistration } from "@ac/shared";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/composables/useToast";
+import { usePendingRegistrations } from "@/composables/usePendingRegistrations";
 import { formatDateShort } from "@/lib/format";
 
 const emit = defineEmits<{
@@ -10,20 +11,10 @@ const emit = defineEmits<{
 }>();
 
 const { toast } = useToast();
-const registrations = ref<PendingRegistration[]>([]);
-const loading = ref(true);
+// Shared with the page, which shows a dot on the "Administrateurs" button
+// while this list is not empty.
+const { registrations, loading, failed, refresh, remove } = usePendingRegistrations();
 const processingUserId = ref<string | null>(null);
-
-async function fetchRegistrations() {
-  loading.value = true;
-  try {
-    registrations.value = await api.get<PendingRegistration[]>("/api/admin/registrations", true);
-  } catch {
-    registrations.value = [];
-  } finally {
-    loading.value = false;
-  }
-}
 
 async function handle(action: "approve" | "decline", reg: PendingRegistration) {
   const name = reg.username || reg.email;
@@ -48,7 +39,8 @@ async function handle(action: "approve" | "decline", reg: PendingRegistration) {
           ? `${name} a été ajouté(e) comme administrateur`
           : `L'inscription de ${name} a été refusée`,
     });
-    await fetchRegistrations();
+    remove(reg.user_id);
+    await refresh();
     if (action === "approve") emit("approved");
   } catch (e) {
     toast({
@@ -60,8 +52,6 @@ async function handle(action: "approve" | "decline", reg: PendingRegistration) {
     processingUserId.value = null;
   }
 }
-
-onMounted(fetchRegistrations);
 </script>
 
 <template>
@@ -72,6 +62,7 @@ onMounted(fetchRegistrations);
     <div v-if="loading" class="state">
       <span class="spinner" aria-label="Chargement"></span>
     </div>
+    <p v-else-if="failed" class="empty">Impossible de charger les inscriptions en attente.</p>
     <div v-else-if="registrations.length > 0" class="list">
       <div v-for="reg in registrations" :key="reg.user_id" class="row">
         <div class="row-info">
@@ -141,12 +132,12 @@ onMounted(fetchRegistrations);
 }
 
 .row-email {
-  font-size: 0.85rem;
+  font-size: var(--text-ui);
   color: hsl(var(--muted-foreground));
 }
 
 .row-bio {
-  font-size: 0.85rem;
+  font-size: var(--text-ui);
   color: hsl(var(--muted-foreground));
   margin-top: 0.25rem;
   display: -webkit-box;
@@ -156,7 +147,7 @@ onMounted(fetchRegistrations);
 }
 
 .row-date {
-  font-size: 0.75rem;
+  font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
   margin-top: 0.25rem;
 }
@@ -169,7 +160,7 @@ onMounted(fetchRegistrations);
 
 .empty {
   color: hsl(var(--muted-foreground));
-  font-size: 0.88rem;
+  font-size: var(--text-body);
 }
 
 @media (max-width: 560px) {

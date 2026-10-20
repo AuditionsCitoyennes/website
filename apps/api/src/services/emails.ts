@@ -53,14 +53,17 @@ function esc(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-async function resendPost(path: string, body: unknown): Promise<Response> {
+async function resendPost(path: string, body: unknown, idempotencyKey?: string): Promise<Response> {
   return fetch(`https://api.resend.com${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${requireKey()}`,
       "Content-Type": "application/json",
+      // The same email is never sent twice when a timed-out call is retried.
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
   });
 }
 
@@ -246,6 +249,70 @@ export async function sendVerificationEmails(
   const sent = results.filter((r) => r.success).length;
   const failed = results.length - sent;
   return { success: failed === 0, sent, failed, results };
+}
+
+/**
+ * A visitor's online testimony: the link that publishes it. Nothing the
+ * visitor typed goes into the subject (anyone can type anything into a public
+ * form, and this is sent from our domain); only the town hall's name, which
+ * the server resolved itself, is in the body.
+ */
+export async function sendOnlineVerificationEmail(
+  email: string,
+  verificationToken: string,
+  townHall: string,
+  auditionTitle: string,
+): Promise<void> {
+  const verificationUrl = `${config.PUBLIC_APP_URL}/verifier/${verificationToken}`;
+  const body = `              <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1a1f28;">
+                Merci pour votre témoignage
+              </h2>
+              <p style="margin: 0 0 16px 0; font-size: 16px; color: #1a1f28;">
+                Votre témoignage a bien été reçu. Il rejoindra l'« ${esc(auditionTitle)} » de la ${esc(townHall)}.
+              </p>
+              <p style="margin: 0 0 24px 0; font-size: 16px; color: #1a1f28;">
+                Il ne sera publié qu'une fois que vous l'aurez validé. Vous pourrez le relire, et le corriger si besoin :
+              </p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 28px 0;">
+                    <a href="${verificationUrl}" style="display: inline-block; background-color: #7a29cc; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600;">
+                      Valider mon témoignage
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin: 0 0 12px 0; font-size: 14px; color: #737a82;">
+                Ce lien est valable 14 jours. Votre adresse email n'est jamais publiée.
+              </p>
+              <p style="margin: 0; font-size: 14px; color: #737a82;">
+                Vous n'êtes pas à l'origine de ce message ? Ignorez-le : rien ne sera publié. Le même lien permet aussi de supprimer ce témoignage.
+              </p>`;
+  const text = [
+    "Merci pour votre témoignage",
+    "",
+    `Votre témoignage a bien été reçu. Il rejoindra l'« ${auditionTitle} » de la ${townHall}.`,
+    "Il ne sera publié qu'une fois que vous l'aurez validé. Vous pourrez le relire, et le corriger si besoin :",
+    "",
+    verificationUrl,
+    "",
+    "Ce lien est valable 14 jours. Votre adresse email n'est jamais publiée.",
+    "Vous n'êtes pas à l'origine de ce message ? Ignorez-le : rien ne sera publié. Le même lien permet aussi de supprimer ce témoignage.",
+  ].join("\n");
+
+  const res = await resendPost(
+    "/emails",
+    {
+      from: FROM,
+      reply_to: REPLY_TO,
+      to: [email],
+      subject: "Validez votre témoignage",
+      text,
+      html: wrapBrandedEmail("Validez votre témoignage", body),
+    },
+    `online-testimony-${verificationToken}`,
+  );
+  if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
 }
 
 /** Registration approved — invite the new admin to the dashboard. */

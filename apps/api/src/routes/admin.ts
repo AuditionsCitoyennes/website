@@ -4,6 +4,7 @@ import { adminClient } from "../supabase";
 import { hasServiceRole } from "../config";
 import { requireSuperAdmin } from "../auth";
 import { sendApprovalEmail, sendDeclineEmail } from "../services/emails";
+import { logAudit } from "../services/audit";
 
 const registrationActionSchema = z.object({
   action: z.enum(["approve", "decline"]),
@@ -52,12 +53,12 @@ export default async function adminRoutes(app: FastifyInstance) {
         return reply.internalServerError(`Failed to insert role: ${insertError.message}`);
       }
 
-      await req.supabase.rpc("insert_audit_log", {
-        p_user_id: req.user.id,
-        p_action: "registration_approved",
-        p_target_type: "user",
-        p_target_id: userId,
-        p_metadata: { target_email: email, target_username: username },
+      await logAudit(req.supabase, req.log, {
+        actorId: req.user.id,
+        action: "registration_approved",
+        targetType: "user",
+        targetId: userId,
+        metadata: { target_email: email, target_username: username },
       });
 
       let emailSent = true;
@@ -79,14 +80,6 @@ export default async function adminRoutes(app: FastifyInstance) {
       });
     }
 
-    await req.supabase.rpc("insert_audit_log", {
-      p_user_id: req.user.id,
-      p_action: "registration_declined",
-      p_target_type: "user",
-      p_target_id: userId,
-      p_metadata: { target_email: email, target_username: username },
-    });
-
     let emailSent = true;
     try {
       await sendDeclineEmail(email, displayName);
@@ -99,6 +92,14 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (deleteError) {
       return reply.internalServerError(`Failed to delete user: ${deleteError.message}`);
     }
+
+    await logAudit(req.supabase, req.log, {
+      actorId: req.user.id,
+      action: "registration_declined",
+      targetType: "user",
+      targetId: userId,
+      metadata: { target_email: email, target_username: username },
+    });
 
     return { success: true, action: "declined", emailSent };
   });
@@ -134,12 +135,12 @@ export default async function adminRoutes(app: FastifyInstance) {
     const { error } = await req.supabase.from("user_roles").delete().eq("id", req.params.id);
     if (error) return reply.badRequest(error.message);
 
-    await req.supabase.rpc("insert_audit_log", {
-      p_user_id: req.user.id,
-      p_action: "role_deleted",
-      p_target_type: "user",
-      p_target_id: role.user_id,
-      p_metadata: {
+    await logAudit(req.supabase, req.log, {
+      actorId: req.user.id,
+      action: "role_deleted",
+      targetType: "user",
+      targetId: role.user_id,
+      metadata: {
         target_email: role.email,
         target_username: role.username,
         role: role.role,
@@ -147,6 +148,43 @@ export default async function adminRoutes(app: FastifyInstance) {
     });
 
     return { success: true };
+  });
+
+  // ---- One audition, as the reader of the audit log opens it (super admin) ----
+
+  // Whatever its status: a draft is exactly what a super admin wants to look at
+  // when the log says an admin has just added it. A draft is not readable
+  // through RLS until the policy migration is applied, hence the service
+  // client — reached only once the caller is known to be a super admin, and
+  // for what that migration lets a super admin read anyway.
+  // Explicit testimony columns: `*` would hand out emails and verification
+  // tokens, which a preview has no use for.
+  app.get<{ Params: { id: string } }>("/auditions/:id", async (req, reply) => {
+    if (!(await requireSuperAdmin(req, reply))) return reply;
+    // A non-UUID compared to the uuid column would surface as a raw 500.
+    if (!z.string().uuid().safeParse(req.params.id).success) {
+      return reply.notFound("Audition introuvable");
+    }
+    const client = hasServiceRole ? adminClient : req.supabase;
+    const { data, error } = await client
+      .from("auditions")
+      .select(
+        "id, title, date, location, content, status, created_at, testimonies(id, person_name, person_info, content, topics, verification_status, created_at)",
+      )
+      .eq("id", req.params.id)
+      .maybeSingle();
+    if (error) return reply.internalServerError(error.message);
+    if (!data) {
+      // Deleted since the entry was written…
+      if (hasServiceRole) return reply.notFound("Audition introuvable");
+      // …or, without the service key, a draft that RLS hides: not to be
+      // reported as gone.
+      return reply.code(503).send({
+        error:
+          "SUPABASE_SERVICE_ROLE_KEY n'est pas configuré — audition illisible (brouillon) ou supprimée.",
+      });
+    }
+    return data;
   });
 
   // ---- Audit log (super admin; RPC enforces it too) ----

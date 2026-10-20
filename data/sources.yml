@@ -1,0 +1,231 @@
+# Registry of external open-data sources ingested by data-ingestion/.
+# Every harvested source MUST be declared here with its reuse terms.
+# publish: false ⇒ the data stays display-only-with-link on the site and is
+# excluded from the merged exports until the license is confirmed.
+# non_commercial: true ⇒ normalized output segregated under data/nc-sa/,
+# never merged into permissive exports; display only on non-monetized sections.
+version: 1
+
+sources:
+  - id: gdn
+    name: Données ouvertes du Grand Débat National
+    kind: datagouv
+    urls:
+      dataset: https://www.data.gouv.fr/datasets/donnees-ouvertes-du-grand-debat-national/
+    license: Licence Ouverte 2.0
+    license_url: https://www.etalab.gouv.fr/licence-ouverte-open-licence
+    attribution: >-
+      Source : Données ouvertes du Grand Débat National — Service d'Information du
+      Gouvernement, via data.gouv.fr — Licence Ouverte 2.0 — extraction du {date}.
+    pii_policy: >-
+      La Licence Ouverte n'exonère pas des obligations RGPD : les champs libres (body)
+      contiennent noms d'organisateurs, courriels et téléphones. Avant toute sortie de
+      data/raw/ : courriels et numéros FR supprimés de tous les champs libres ; authorId
+      supprimé (pseudonyme HMAC-SHA256 uniquement si GDN_HMAC_SECRET est défini, pour la
+      déduplication) ; authorZipCode conservé (granularité communale, pas d'identification
+      directe). GARDE-FOU RÉPUBLICATION (comptes-rendus/témoignages) : contributions déposées
+      de façon NON anonyme en 2019 ; leur republication par Auditions Citoyennes en 2026 est
+      un nouveau traitement par un nouveau responsable → nécessite une base légale propre +
+      mentions légales/notice de confidentialité + canal d'effacement, et l'anonymisation
+      préalable (noms de particuliers et d'élus nommés en fonction → rôle générique ;
+      données art. 9 généralisées). Table imported_auditions chargée en status='draft' ;
+      ne passer 'published' qu'après levée de ce garde-fou.
+    # publish=true = la licence autorise la rediffusion ; le garde-fou RGPD ci-dessus
+    # reste une condition distincte avant tout affichage des témoignages.
+    publish: true
+    datagouv:
+      dataset_api: https://www.data.gouv.fr/api/1/datasets/donnees-ouvertes-du-grand-debat-national/
+      resources:
+        events:
+          # ~10 450 réunions locales, datetime + adresse + lat/lng. Snapshot du
+          # 21/03/2019 = base ; les snapshots antérieurs (02/03, 08/03) sont des
+          # sous-ensembles — en cas d'union, dédupliquer par id.
+          title_match: "reunions locales repertoriees au 21/03/2019"
+          fallback_url: https://static.data.gouv.fr/resources/donnees-ouvertes-du-grand-debat-national/20200611-235816/events.json
+        cr_ril:
+          # Comptes-rendus des réunions locales (contenu-témoignage des réunions).
+          title_match: "comptes[- ]rendus des reunions locales"
+          fallback_url: https://static.data.gouv.fr/resources/donnees-ouvertes-du-grand-debat-national/20200612-000534/cr-ril.json
+        # Les 4 fichiers thématiques de contributions en ligne (démocratie, fiscalité,
+        # organisation de l'État, transition écologique) : granularité authorZipCode
+        # uniquement → priorité basse, téléchargés seulement avec --all.
+        # On cible le format CSV (~4× plus petit que le JSON, même contenu :
+        # ~1,2 Go au total au lieu de ~4,6 Go) et le snapshot 21/03/2019, et on
+        # exige "Contributions déposées" pour écarter les "Questions rapides".
+        # URLs CSV épinglées (snapshots archivés, figés) en secours.
+        theme_democratie:
+          title_match: "contributions deposees au 21/03/2019.*democratie et la citoyennete"
+          format: csv
+          fallback_url: https://static.data.gouv.fr/resources/donnees-ouvertes-du-grand-debat-national/20200611-224804/democratie-et-citoyennete.csv
+          optional: true
+        theme_fiscalite:
+          title_match: "contributions deposees au 21/03/2019.*fiscalite et les depenses publiques"
+          format: csv
+          fallback_url: https://static.data.gouv.fr/resources/donnees-ouvertes-du-grand-debat-national/20200611-214446/la-fiscalite-et-les-depenses-publiques.csv
+          optional: true
+        theme_organisation_etat:
+          title_match: "contributions deposees au 21/03/2019.*organisation de l'etat et des services publics"
+          format: csv
+          fallback_url: https://static.data.gouv.fr/resources/donnees-ouvertes-du-grand-debat-national/20200611-233643/organisation-de-letat-et-des-services-publics.csv
+          optional: true
+        theme_transition:
+          title_match: "contributions deposees au 21/03/2019.*transition ecologique"
+          format: csv
+          fallback_url: https://static.data.gouv.fr/resources/donnees-ouvertes-du-grand-debat-national/20200611-182240/la-transition-ecologique.csv
+          optional: true
+
+  - id: decidim-meta
+    name: Meta Decidim (meta.decidim.org)
+    kind: decidim
+    urls:
+      home: https://meta.decidim.org
+      api: https://meta.decidim.org/api
+    license: non vérifiée (instance communautaire — sert à valider le moissonneur)
+    license_url: null
+    attribution: >-
+      Source : Meta Decidim (meta.decidim.org), API publique Decidim — réutilisation à
+      confirmer — extraction du {date}.
+    pii_policy: >-
+      Seules les métadonnées publiques des réunions sont moissonnées (titre, description,
+      dates, lieu, coordonnées) ; aucun champ auteur.
+    publish: false
+    decidim:
+      host: https://meta.decidim.org
+      locales: [fr, en, es, ca]
+      country_code: null
+
+  - id: decidim-barcelona
+    name: Decidim Barcelona (decidim.barcelona)
+    kind: decidim
+    urls:
+      home: https://www.decidim.barcelona
+      api: https://www.decidim.barcelona/api
+      opendata_portal: https://opendata-ajuntament.barcelona.cat/
+      terms: https://opendata-ajuntament.barcelona.cat/en/condicions-us
+    # Conditions du portail open data de Barcelone (consultées le 2026-07-07) :
+    # la plupart des jeux de données sont en CC BY 4.0, MAIS « any data involving
+    # third-party participation may be reused under a Creative Commons
+    # Attribution-NoDerivs (CC BY-ND 4.0) licence » — les données de participation
+    # citoyenne (dont les réunions Decidim) relèvent a priori du second cas.
+    # Ces conditions couvrent le portail open data, pas explicitement le
+    # moissonnage direct de l'API Decidim → publish reste à false.
+    license: CC BY-ND 4.0 probable (données de participation, conditions du portail open data — à confirmer pour l'API Decidim)
+    license_url: https://creativecommons.org/licenses/by-nd/4.0/
+    attribution: >-
+      Source : Decidim Barcelona — Ajuntament de Barcelona (decidim.barcelona) —
+      licence à confirmer (probablement CC BY-ND 4.0) — extraction du {date}.
+    pii_policy: >-
+      Seules les métadonnées publiques des réunions sont moissonnées (titre, description,
+      dates, lieu, coordonnées) ; aucun champ auteur.
+    publish: false
+    decidim:
+      # decidim.barcelona (sans www) redirige en 301 — utiliser le host final.
+      host: https://www.decidim.barcelona
+      locales: [fr, ca, es, en]
+      country_code: ES
+
+  # Instances francophones repérées dans la section « Used by » de decidim.org
+  # (consultée le 2026-07-07). La page est une vitrine sélective, pas un
+  # annuaire complet — compléter au fil des découvertes.
+  - id: decidim-assemblee-nationale
+    name: Pétitions de l'Assemblée nationale (petitions.assemblee-nationale.fr)
+    kind: decidim
+    urls:
+      home: https://petitions.assemblee-nationale.fr
+      api: https://petitions.assemblee-nationale.fr/api
+    license: non vérifiée (mentions légales à consulter)
+    license_url: null
+    attribution: >-
+      Source : Pétitions de l'Assemblée nationale (petitions.assemblee-nationale.fr), API
+      publique Decidim — réutilisation à confirmer — extraction du {date}.
+    pii_policy: >-
+      Seules les métadonnées publiques des réunions sont moissonnées ; aucun champ auteur.
+    publish: false
+    notes: >-
+      Plateforme de pétitions : contenu essentiellement sans réunions localisées ;
+      enregistrée pour documenter la découverte d'instances françaises. L'endpoint
+      /api renvoie HTTP 500 (constaté le 2026-07-07) — moissonnage impossible en l'état.
+    decidim:
+      host: https://petitions.assemblee-nationale.fr
+      locales: [fr, en]
+      country_code: FR
+
+  - id: decidim-geneve
+    name: Participer.ge.ch — République et Canton de Genève
+    kind: decidim
+    urls:
+      home: https://participer.ge.ch
+      api: https://participer.ge.ch/api
+    license: non vérifiée (mentions légales à consulter)
+    license_url: null
+    attribution: >-
+      Source : participer.ge.ch — République et Canton de Genève, API publique Decidim —
+      réutilisation à confirmer — extraction du {date}.
+    pii_policy: >-
+      Seules les métadonnées publiques des réunions sont moissonnées ; aucun champ auteur.
+    publish: false
+    notes: Instance francophone (Suisse) repérée via decidim.org/usedby.
+    decidim:
+      host: https://participer.ge.ch
+      locales: [fr, en]
+      country_code: CH
+
+  - id: participedia
+    name: Participedia (participedia.net)
+    kind: csv-manual
+    urls:
+      home: https://participedia.net
+      cases_csv: https://participedia.net/search?selectedCategory=case&returns=csv
+      codebook: https://participedia.net/docs/Participedia_Codebook_-_Case.pdf
+    license: CC BY-NC-SA 3.0
+    license_url: https://creativecommons.org/licenses/by-nc-sa/3.0/
+    attribution: >-
+      Source : Participedia (participedia.net) — CC BY-NC-SA 3.0
+      (https://creativecommons.org/licenses/by-nc-sa/3.0/) — extraction du {date}.
+    pii_policy: >-
+      Base documentaire éditoriale (processus participatifs mondiaux) ; pas de données de
+      participants. Export téléchargé manuellement (compte Auth0 requis — ne pas
+      automatiser la connexion).
+    publish: true
+    non_commercial: true
+    notes: >-
+      SÉGRÉGATION STRICTE : stocké sous data/nc-sa/participedia/, jamais fusionné dans les
+      exports permissifs ni dans nos propres données ; sections du site l'affichant non
+      monétisées. Localisation souvent au niveau ville/pays, dates parfois à l'année.
+
+  - id: oecd-deliberative
+    name: OECD Deliberative Democracy Database
+    kind: cite-and-link
+    urls:
+      page: https://www.oecd.org/en/topics/sub-issues/open-government-and-citizen-participation/innovative-public-participation.html
+    license: non déterminée (conditions OCDE à vérifier sur la page de téléchargement)
+    license_url: null
+    attribution: >-
+      Source : OECD Deliberative Democracy Database — OCDE — citation et lien uniquement —
+      consulté le {date}.
+    pii_policy: >-
+      Aucune donnée téléchargée tant que les conditions de réutilisation ne sont pas
+      confirmées (~733 processus délibératifs, 1979–2023, 34 pays ; localisation
+      ville/région, dates à l'année).
+    publish: false
+    notes: >-
+      npm run check:oecd repère le lien de téléchargement courant (tableur/Airtable) et
+      l'enregistre dans data/interim/oecd/links.json pour vérification humaine.
+
+# Sources examinées et explicitement écartées — ne pas les réintégrer sans
+# lever les blocages documentés ici.
+excluded:
+  - id: wvs
+    name: World Values Survey / baromètres régionaux
+    reason: >-
+      Redistribution des microdonnées interdite — agrégats + citation + lien uniquement.
+  - id: ushahidi
+    name: Déploiements Ushahidi
+    reason: >-
+      Les données appartiennent à chaque organisation déployante — autorisation par
+      déploiement nécessaire.
+  - id: cahiers-doleances
+    name: Scans des cahiers de doléances
+    reason: >-
+      Conditions de réutilisation archivistiques (CRPA) + forte exposition RGPD —
+      autorisation écrite des Archives départementales requise.

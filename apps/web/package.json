@@ -13,6 +13,7 @@
     "@ac/shared": "*",
     "@supabase/supabase-js": "^2.109.0",
     "@tanstack/vue-query": "^5.101.2",
+    "earcut": "^3.2.3",
     "mapbox-gl": "^3.25.0",
     "pinia": "^2.2.6",
     "vue": "^3.5.39",
@@ -20,6 +21,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/earcut": "^3.0.0",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^22.20.0",
     "@vitejs/plugin-vue": "^5.2.0",

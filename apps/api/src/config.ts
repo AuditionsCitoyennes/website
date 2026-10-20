@@ -10,6 +10,11 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
   ANTHROPIC_API_KEY: z.string().optional().default(""),
   RESEND_API_KEY: z.string().optional().default(""),
+  // How many reverse proxies stand in front of the API (production: usually 1).
+  // Their hops are taken off X-Forwarded-For to find the visitor's address —
+  // only theirs: the entries a client writes itself are never trusted. 0 when
+  // the API is reached directly.
+  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -22,3 +27,9 @@ export const config = parsed.data;
 
 /** Whether privileged operations (analysis, emails, role mgmt) are available. */
 export const hasServiceRole = config.SUPABASE_SERVICE_ROLE_KEY.length > 0;
+
+/** Whether emails can be sent (Resend). */
+export const hasEmail = config.RESEND_API_KEY.length > 0;
+
+/** Not production (local development). */
+export const isDev = process.env.NODE_ENV !== "production";

@@ -1,39 +1,107 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useTheme } from "@/composables/useTheme";
+import { useCreateAudition } from "@/composables/useCreateAudition";
+import { useSubmitTestimony } from "@/composables/useSubmitTestimony";
 
 const auth = useAuthStore();
 const { isDark, toggle } = useTheme();
-const router = useRouter();
 const route = useRoute();
+const createAudition = useCreateAudition();
+const submitTestimony = useSubmitTestimony();
 const mobileOpen = ref(false);
+const menuToggle = ref<HTMLButtonElement | null>(null);
 
-// On the full-bleed map page, the mobile header floats transparently so the
-// map fills to the top of the screen (other pages keep the solid bar).
+// On phones the header is no bar: its tiles float over the page. On the map
+// page they always stay (nothing scrolls there).
 const immersive = computed(() => route.path === "/temoignages");
+
+// Elsewhere they get out of the way while the page is read downwards, and come
+// back as soon as it goes up — or near the top, where they cover nothing.
+const tucked = ref(false);
+const phone = window.matchMedia("(max-width: 899px)");
+/** Scroll, in px, before the tiles react: a finger resting on the screen trembles. */
+const TUCK_SLACK = 8;
+/** Near the top of the page the tiles always show: they sit in its margin. */
+const TUCK_FROM = 64;
+let lastY = 0;
+let scrollFrame = 0;
+function onScroll() {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    const y = Math.max(0, window.scrollY); // iOS bounces above 0
+    if (!phone.matches || immersive.value || mobileOpen.value || y < TUCK_FROM) {
+      tucked.value = false;
+      lastY = y;
+    } else if (y - lastY > TUCK_SLACK) {
+      tucked.value = true;
+      lastY = y;
+    } else if (lastY - y > TUCK_SLACK) {
+      tucked.value = false;
+      lastY = y;
+    }
+  });
+}
+onMounted(() => window.addEventListener("scroll", onScroll, { passive: true }));
+onBeforeUnmount(() => {
+  window.removeEventListener("scroll", onScroll);
+  cancelAnimationFrame(scrollFrame);
+});
+// A new page: the tiles show.
+watch(
+  () => route.fullPath,
+  () => {
+    tucked.value = false;
+    lastY = Math.max(0, window.scrollY);
+  },
+);
 
 const links = [
   { to: "/", label: "Accueil" },
   { to: "/temoignages", label: "Témoignages" },
-  { to: "/analyses", label: "Analyses" },
-  { to: "/participer", label: "Participer" },
 ];
 
 function closeMobile() {
   mobileOpen.value = false;
 }
 
-async function handleSignOut() {
-  await auth.signOut();
+// From the phone menu, the entry just pressed leaves the page with the menu:
+// the hamburger takes the focus, for the popup to give it back there when it
+// closes.
+function leaveMenu() {
+  if (!mobileOpen.value) return;
   closeMobile();
-  router.push("/");
+  menuToggle.value?.focus({ preventScroll: true });
 }
+
+// "Nouvelle Audition": the popup opens over whichever page this is. (Signing
+// out is on the admin page.)
+function newAudition() {
+  leaveMenu();
+  createAudition.show();
+}
+
+// "Témoigner", for everyone: the same, with the visitors' form.
+function testify() {
+  leaveMenu();
+  submitTestimony.show();
+}
+
+// The bar is fuller for admins ("+ Nouvelle Audition", "Admin"): their
+// "Témoigner" folds down to its icon sooner.
+const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loading));
 </script>
 
 <template>
-  <header class="header glass-strong" :class="{ 'header--immersive': immersive }">
+  <!-- Keyboard focus coming into it brings the tiles back. -->
+  <header
+    class="header glass-strong"
+    :class="{ 'header--tucked': tucked }"
+    @focusin="tucked = false"
+  >
     <div class="header-inner">
       <RouterLink to="/" class="brand" @click="closeMobile">
         <span class="brand-icon" aria-hidden="true">
@@ -96,14 +164,54 @@ async function handleSignOut() {
         </button>
 
         <div class="auth-desktop">
+          <button
+            type="button"
+            class="btn btn-primary testify"
+            :class="{ 'testify--crowded': crowded }"
+            aria-label="Témoigner"
+            title="Témoigner"
+            @click="testify"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="16"
+              height="16"
+              aria-hidden="true"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <line x1="12" y1="7" x2="12" y2="13" />
+              <line x1="9" y1="10" x2="15" y2="10" />
+            </svg>
+            <span class="testify-label">Témoigner</span>
+          </button>
           <template v-if="auth.user">
+            <!-- While the role is still being checked (each page load) its place
+                 is kept, unseen: the bar does not shift under the pointer when
+                 the answer comes. -->
+            <button
+              v-if="auth.isAdmin || auth.loading"
+              type="button"
+              class="btn btn-outline new-audition"
+              :class="{ 'new-audition--pending': !auth.isAdmin }"
+              aria-label="Nouvelle audition"
+              title="Nouvelle audition"
+              @click="newAudition"
+            >
+              <span aria-hidden="true">+</span>
+              <span class="new-audition-label">Nouvelle Audition</span>
+            </button>
             <RouterLink to="/admin" class="btn btn-ghost">Admin</RouterLink>
-            <button class="btn btn-outline" @click="handleSignOut">Déconnexion</button>
           </template>
-          <RouterLink v-else to="/auth" class="btn btn-primary">Connexion</RouterLink>
+          <RouterLink v-else to="/auth" class="btn btn-ghost">Connexion</RouterLink>
         </div>
 
         <button
+          ref="menuToggle"
           class="icon-btn menu-toggle"
           :aria-expanded="mobileOpen"
           aria-label="Menu"
@@ -147,15 +255,19 @@ async function handleSignOut() {
         </RouterLink>
 
         <div class="nav-mobile-auth">
+          <button type="button" class="nav-link-mobile nav-link-mobile-btn" @click="testify">
+            Témoigner
+          </button>
           <template v-if="auth.user">
-            <RouterLink to="/admin" class="nav-link-mobile" @click="closeMobile">Admin</RouterLink>
             <button
+              v-if="auth.isAdmin"
               type="button"
               class="nav-link-mobile nav-link-mobile-btn"
-              @click="handleSignOut"
+              @click="newAudition"
             >
-              Déconnexion
+              + Nouvelle Audition
             </button>
+            <RouterLink to="/admin" class="nav-link-mobile" @click="closeMobile">Admin</RouterLink>
           </template>
           <RouterLink v-else to="/auth" class="nav-link-mobile" @click="closeMobile">
             Connexion
@@ -201,7 +313,7 @@ async function handleSignOut() {
 
 .brand-text {
   font-family: var(--font-display);
-  font-size: 1.35rem;
+  font-size: var(--text-title);
   letter-spacing: 0.04em;
   color: hsl(var(--foreground));
 }
@@ -216,6 +328,7 @@ async function handleSignOut() {
   padding: 0.5rem 0.9rem;
   border-radius: 0.5rem;
   color: hsl(var(--muted-foreground));
+  font-size: var(--text-ui);
   font-weight: 500;
   transition: var(--transition-smooth);
 }
@@ -261,7 +374,7 @@ async function handleSignOut() {
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: var(--text-ui);
   border: 1px solid transparent;
   transition: var(--transition-smooth);
 }
@@ -293,6 +406,56 @@ async function handleSignOut() {
 
 .btn-ghost:hover {
   background: hsl(var(--accent) / 0.6);
+}
+
+/* "+ Nouvelle Audition" (admins). One line, never squeezed by the nav links —
+   and where the bar is too narrow for all of it (just above the width at which
+   the nav folds into the hamburger), only its "+" is left. */
+.new-audition {
+  flex-shrink: 0;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 1099px) {
+  .new-audition-label {
+    display: none;
+  }
+}
+
+/* "Témoigner", for everyone: never wrapped, and down to its icon where the
+   bar gets short — sooner for admins, whose bar holds more. */
+.testify {
+  flex-shrink: 0;
+  gap: 0.45rem;
+  white-space: nowrap;
+  /* As tall as its neighbours when only its icon is left. */
+  min-height: 2.45rem;
+}
+
+@media (max-width: 959px) {
+  .testify-label {
+    display: none;
+  }
+}
+
+@media (max-width: 1099px) {
+  .testify--crowded .testify-label {
+    display: none;
+  }
+}
+
+/* Just above the width where the nav folds into the hamburger, the links
+   tighten a little to leave the buttons their room. */
+@media (min-width: 900px) and (max-width: 999px) {
+  .nav-link {
+    padding-inline: 0.6rem;
+  }
+}
+
+/* Not known to be an admin yet: there, but neither seen nor pressable. */
+.new-audition--pending {
+  visibility: hidden;
 }
 
 /* Auth buttons live in the header bar on desktop, and move into the mobile
@@ -393,25 +556,39 @@ async function handleSignOut() {
   }
 }
 
-/* Immersive header (map page, mobile): drop the bar background and float over
-   the content so it fills to the very top of the screen. */
+/* Phones: no bar. The tiles (brand, theme, menu — each on its own solid
+   ground) float over the page, which runs to the very top of the screen: the
+   map, the home photo, or a page's own top margin (App.vue). */
 @media (max-width: 899px) {
-  .header--immersive {
+  .header {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
+    padding-top: env(safe-area-inset-top, 0px);
     background: transparent;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     border-color: transparent;
-    /* Taps fall through to the map; the brand + controls re-enable themselves. */
+    /* Taps between the tiles fall through to the page; the tiles take theirs. */
     pointer-events: none;
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .header--immersive .brand,
-  .header--immersive .header-actions {
+  .header .brand,
+  .header .header-actions {
     pointer-events: auto;
+  }
+
+  /* Out of the way while the page is read downwards. */
+  .header--tucked {
+    transform: translateY(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header {
+    transition: none;
   }
 }
 </style>

@@ -234,7 +234,7 @@ async function handleSubmit() {
 }
 
 .card-title {
-  font-size: 1.8rem;
+  font-size: var(--text-section);
   text-transform: uppercase;
   text-align: center;
   color: hsl(var(--foreground));
@@ -244,7 +244,7 @@ async function handleSubmit() {
   margin-top: 0.4rem;
   margin-bottom: 1.4rem;
   color: hsl(var(--muted-foreground));
-  font-size: 0.95rem;
+  font-size: var(--text-body);
 }
 
 .center {
@@ -274,7 +274,7 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.85rem;
+  font-size: var(--text-ui);
   color: hsl(var(--muted-foreground));
 }
 

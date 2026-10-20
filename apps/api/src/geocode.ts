@@ -65,6 +65,11 @@ async function persist(): Promise<void> {
   }
 }
 
+/** Makes sure the persisted cache has been read (before `getCachedEntry`). */
+export async function loadGeocodeCache(): Promise<void> {
+  await load();
+}
+
 /** Cached entry, or `undefined` if this name has never been resolved. */
 export function getCachedEntry(name: string): GeoEntry | null | undefined {
   return cache.has(name) ? cache.get(name)! : undefined;
@@ -174,7 +179,7 @@ function ordinalFr(n: number): string {
 // Only Paris (751xx), Lyon (693xx) and Marseille (132xx) split their commune into
 // arrondissements; the code's last two digits give the number. Everywhere else
 // the commune *is* the smallest unit, so there's no arrondissement.
-function arrondissementFromCitycode(citycode: string | null): string | null {
+export function arrondissementFromCitycode(citycode: string | null): string | null {
   if (!citycode || !/^\d{5}$/.test(citycode)) return null;
   const n = Number(citycode);
   if (n >= 75101 && n <= 75120) return `Paris ${ordinalFr(n - 75100)}`;
@@ -208,6 +213,19 @@ export async function resolve(name: string): Promise<GeoEntry | null> {
     return null;
   }
 
+  // One lookup per name at a time: several callers asking for the same lieu
+  // (the admin list, the warm pass, a creation) share it instead of each
+  // queueing a slot in the throttle.
+  const pending = inflight.get(name);
+  if (pending) return pending;
+  const lookup = lookUp(name).finally(() => inflight.delete(name));
+  inflight.set(name, lookup);
+  return lookup;
+}
+
+const inflight = new Map<string, Promise<GeoEntry | null>>();
+
+function lookUp(name: string): Promise<GeoEntry | null> {
   return throttle(async () => {
     const again = getCachedEntry(name);
     if (again !== undefined) return again;

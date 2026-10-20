@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { getRoles } from "../auth";
 import { adminClient } from "../supabase";
 import { hasServiceRole } from "../config";
+import { logAudit } from "../services/audit";
 
 export default async function meRoutes(app: FastifyInstance) {
   // Current user + role flags.
@@ -27,18 +28,20 @@ export default async function meRoutes(app: FastifyInstance) {
       });
     }
 
-    await req.supabase.rpc("insert_audit_log", {
-      p_user_id: req.user.id,
-      p_action: "account_deleted",
-      p_target_type: "user",
-      p_target_id: req.user.id,
-      p_metadata: { target_email: req.user.email },
-    });
-
     // Roles first (service client bypasses RLS), then the auth user.
     await adminClient.from("user_roles").delete().eq("user_id", req.user.id);
     const { error } = await adminClient.auth.admin.deleteUser(req.user.id);
     if (error) return reply.internalServerError(error.message);
+
+    // The account is gone, and so is the caller's session: no actor (the
+    // column references auth.users), written with the service client.
+    await logAudit(adminClient, req.log, {
+      actorId: null,
+      action: "account_deleted",
+      targetType: "user",
+      targetId: req.user.id,
+      metadata: { target_email: req.user.email },
+    });
 
     return reply.code(204).send();
   });

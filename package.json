@@ -5,7 +5,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "data-ingestion"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=@ac/api & npm run dev --workspace=@ac/web",
@@ -13,7 +14,7 @@
     "dev:api": "npm run dev --workspace=@ac/api",
     "build": "npm run build --workspace=@ac/web && npm run build --workspace=@ac/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "eslint .",
+    "lint": "eslint . && node apps/web/scripts/check-type-scale.mjs",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

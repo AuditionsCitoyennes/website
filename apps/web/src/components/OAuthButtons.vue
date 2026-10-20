@@ -67,6 +67,7 @@ async function handleGoogle() {
   background: hsl(var(--card));
   color: hsl(var(--foreground));
   font-weight: 600;
+  font-size: var(--text-ui);
   letter-spacing: 0.02em;
   transition: var(--transition-smooth);
 }
@@ -94,7 +95,7 @@ async function handleGoogle() {
 }
 
 .divider-text {
-  font-size: 0.72rem;
+  font-size: var(--text-caption);
   text-transform: uppercase;
   color: hsl(var(--muted-foreground));
 }
