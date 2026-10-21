@@ -1,5 +1,3 @@
-import { AUDITION_THEMES, type AuditionTheme } from "./domain";
-
 // The themes of a testimony, read in the 16-theme grid (AUDITION_THEMES).
 //
 // The AI tagging only ever answers in that grid, but most testimonies were
@@ -7,6 +5,31 @@ import { AUDITION_THEMES, type AuditionTheme } from "./domain";
 // "écologie", "solidarité"…). They are converted here, on the client, and never
 // in the database: the live database is shared with the old app, which still
 // reads the old tags.
+
+/** Model used to tag testimonies with themes (ported from the old edge function). */
+export const ANALYSIS_MODEL = "claude-haiku-4-5-20251001";
+
+/** The exact, closed set of themes Claude may assign. Order matches the prompt. */
+export const AUDITION_THEMES = [
+  "Santé et accès aux soins",
+  "Éducation",
+  "Emploi et conditions de travail",
+  "Logement",
+  "Pouvoir d'achat et inflation",
+  "Retraites",
+  "Justice sociale et inégalités",
+  "Démocratie et institutions",
+  "Médias et information",
+  "Sécurité et police",
+  "Immigration",
+  "Environnement et écologie",
+  "Guerre et géopolitique",
+  "Services publics",
+  "Fiscalité",
+  "Culture et loisirs",
+] as const;
+
+export type AuditionTheme = (typeof AUDITION_THEMES)[number];
 
 /** How a tag reached the grid: written in it, a plain synonym of one of its
  *  themes, or the closest theme to a tag that has no exact counterpart. */

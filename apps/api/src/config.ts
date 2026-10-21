@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 const schema = z.object({
@@ -23,7 +25,11 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const config = parsed.data;
+export const config = {
+  ...parsed.data,
+  /** The apps/api directory, where the geocode and boundary caches are kept on disk. */
+  CACHE_DIR: join(dirname(fileURLToPath(import.meta.url)), ".."),
+};
 
 /** Whether privileged operations (analysis, emails, role mgmt) are available. */
 export const hasServiceRole = config.SUPABASE_SERVICE_ROLE_KEY.length > 0;
