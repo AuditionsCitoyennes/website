@@ -1,5 +1,13 @@
 import type { FastifyInstance } from "fastify";
+import { cachedResponse } from "../../lib/cache";
+import { sendCached } from "../../lib/httpCache";
 import { getCommune, getCommunes, getDepartement, getLevel } from "./service";
+
+// The levels and the raised départements are static open data: serialised and
+// gzipped once (the départements level is 585 KB of JSON — 16 ms of gzip on
+// every page load before), and a browser may keep them a day without asking.
+const STATIC_TTL_MS = 24 * 60 * 60 * 1000;
+const STATIC = "public, max-age=86400";
 
 export default async function boundaryRoutes(app: FastifyInstance) {
   // Every commune currently in view, in ONE request. Registered before the
@@ -22,8 +30,12 @@ export default async function boundaryRoutes(app: FastifyInstance) {
   // (geometry + centre + bounds per unit). The frontend filters to the children
   // of the current scope; "metropole" is the single France contour.
   app.get<{ Params: { level: string } }>("/:level", async (req, reply) => {
+    const { level } = req.params;
     try {
-      return await getLevel(req.params.level);
+      const res = await cachedResponse(`boundaries:level:${level}`, STATIC_TTL_MS, () =>
+        getLevel(level),
+      );
+      return sendCached(req, reply, res, STATIC);
     } catch (e) {
       return reply.notFound((e as Error).message);
     }
@@ -31,8 +43,12 @@ export default async function boundaryRoutes(app: FastifyInstance) {
 
   // A département as the map raises it: the union of its communes' contours.
   app.get<{ Params: { code: string } }>("/departement/:code", async (req, reply) => {
+    const { code } = req.params;
     try {
-      return await getDepartement(req.params.code);
+      const res = await cachedResponse(`boundaries:departement:${code}`, STATIC_TTL_MS, () =>
+        getDepartement(code),
+      );
+      return sendCached(req, reply, res, STATIC);
     } catch (e) {
       return reply.notFound((e as Error).message);
     }

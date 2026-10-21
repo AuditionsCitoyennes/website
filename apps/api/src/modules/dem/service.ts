@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { encodePNG } from "./png";
 
 // Dynamic terrain-RGB (Mapbox-encoded) DEM tiles that raise a SELECTED set of
@@ -19,13 +20,21 @@ interface Selection {
 const store = new Map<string, Selection>();
 const MAX_VERSIONS = 40;
 
-function fnv1a(s: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(36);
+// Folded into every version key. Tiles are served immutable for a year, so a
+// client that drilled a territory keeps the tiles it got: bump this whenever
+// the bytes rendered for the SAME selection change (encoding, erosion,
+// rasteriser), or returning clients stay on the old rendering.
+const RENDER_REV = 1;
+
+/** The version key: 128 bits of the selection's hash. (fnv1a's 32 bits made a
+ *  collision between two drilled territories a matter of tens of thousands of
+ *  selections — and a collision raises one territory's plateau for another.) */
+function versionKey(polys: Polygon[], height: number): string {
+  return createHash("sha1")
+    .update(`${RENDER_REV}\n`)
+    .update(JSON.stringify({ polys, height }))
+    .digest("hex")
+    .slice(0, 32);
 }
 
 interface GeoFeatureLike {
@@ -46,7 +55,7 @@ export function setSelection(features: GeoFeatureLike[], height: number): string
     ) as Polygon[];
     for (const poly of list) polys.push(poly);
   }
-  const key = fnv1a(JSON.stringify({ polys, height: Math.round(height) }));
+  const key = versionKey(polys, Math.round(height));
   // True LRU: a hit refreshes recency (Map preserves insertion order), so a
   // version still being rendered by clients can't age out behind their back.
   const existing = store.get(key);

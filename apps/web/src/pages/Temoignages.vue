@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
-import type { AuditionWithCount, LocationGroup, PublicTestimony } from "@ac/shared";
+import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { api } from "@/shared/api/client";
 import { ROUTE } from "@/shared/routes";
 import {
@@ -25,6 +25,10 @@ const props = defineProps<{ preview?: boolean }>();
 const testimoniesQuery = useQuery({
   queryKey: ["testimonies"],
   queryFn: () => api.get<PublicTestimony[]>("/api/testimonies"),
+  // Not for the home page's card: it has no filters and no panel, so nothing
+  // there reads the corpus — 1.5 MB per visit saved. Fetched once the card
+  // becomes the page.
+  enabled: computed(() => !props.preview),
   // shallow: vue-query wraps data in reactive()+readonly() by default, so every
   // nested object of these bulk payloads becomes a double Proxy and each read in
   // the hierarchy/mesh hot paths pays a trap. Nothing mutates this data.
@@ -135,6 +139,11 @@ const filteredTestimonies = computed(() =>
 
 /** Own groups, narrowed to the auditions that still have matching testimonies. */
 const filteredOwnGroups = computed<LocationGroup[]>(() => {
+  // Nothing to narrow by on the card (no filters, and the corpus is not
+  // fetched for it), nor on the page until the corpus has arrived: the pins
+  // as the map serves them, so they do not blink out while the card becomes
+  // the page and the corpus loads.
+  if (props.preview || !testimoniesQuery.data.value) return ownGroups.value;
   const perAudition = new Map<string, number>();
   for (const t of filteredTestimonies.value) {
     const id = t.audition?.id;
@@ -147,9 +156,7 @@ const filteredOwnGroups = computed<LocationGroup[]>(() => {
     const total = auditions.reduce((s, a) => s + (perAudition.get(a.id) ?? 0), 0);
     out.push({
       ...g,
-      auditions: auditions.map(
-        (a) => ({ ...a, testimony_count: perAudition.get(a.id) ?? 0 }) as AuditionWithCount,
-      ),
+      auditions: auditions.map((a) => ({ ...a, testimony_count: perAudition.get(a.id) ?? 0 })),
       totalTestimonies: total,
     });
   }
@@ -167,8 +174,8 @@ const filteredImportedGroups = computed<LocationGroup[]>(() => {
 
 const groups = computed(() => [...filteredOwnGroups.value, ...filteredImportedGroups.value]);
 
-const resultCount = computed(
-  () => filteredTestimonies.value.length + filteredImportedGroups.value.length,
+const resultCount = computed(() =>
+  props.preview ? 0 : filteredTestimonies.value.length + filteredImportedGroups.value.length,
 );
 
 // ---- Filter option sources ---------------------------------------------------

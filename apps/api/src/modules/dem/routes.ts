@@ -17,9 +17,12 @@ export default async function demRoutes(app: FastifyInstance) {
       const { version, z, x, y } = req.params;
       const tile = renderTile(version, Number(z), Number(x), Number.parseInt(y, 10));
       if (!tile) return reply.notFound("unknown DEM version");
+      // A tile is a pure function of its URL (the version key hashes the
+      // selection, the height and RENDER_REV), so a client may keep it a year
+      // without asking: drilling the same territory again fetches nothing.
       return reply
         .header("Content-Type", "image/png")
-        .header("Cache-Control", "public, max-age=3600")
+        .header("Cache-Control", "public, max-age=31536000, immutable")
         .send(tile);
     },
   );

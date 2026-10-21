@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { buildLocationGroups, warmLocationGeocodes } from "./locationGroups";
-import { cached } from "../../lib/cache";
+import { cachedResponse } from "../../lib/cache";
+import { sendCached } from "../../lib/httpCache";
 import { PUBLIC_CACHE_KEYS } from "../../lib/publicCache";
 
 export default async function mapRoutes(app: FastifyInstance) {
@@ -13,11 +14,15 @@ export default async function mapRoutes(app: FastifyInstance) {
   // geocoded locations surface within a poll or two. The background warm pass
   // runs on every hit (cheap once the geocode cache is populated) so a cold
   // cache keeps making progress regardless of the response cache.
-  app.get("/", async (_req, reply) => {
+  //
+  // `no-cache`: the client compares the group count across polls, so a copy it
+  // served itself would freeze it. It asks every time, and is told "unchanged"
+  // (304, no body) until the groups move.
+  app.get("/", async (req, reply) => {
     try {
-      const groups = await cached(PUBLIC_CACHE_KEYS.map, 15_000, buildLocationGroups);
+      const res = await cachedResponse(PUBLIC_CACHE_KEYS.map, 15_000, buildLocationGroups);
       void warmLocationGeocodes();
-      return groups;
+      return sendCached(req, reply, res, "no-cache");
     } catch (e) {
       return reply.internalServerError((e as Error).message);
     }

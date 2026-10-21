@@ -11,6 +11,15 @@ export interface AuditionWithCount extends Audition {
 }
 
 /**
+ * An audition as the map carries it in a LocationGroup: what a pin and the
+ * lieu's list need — never the text (it comes with the testimonies), the
+ * author (a user id), the town hall record or the timestamps.
+ */
+export type MapAudition = Pick<Audition, "id" | "title" | "date" | "location"> & {
+  testimony_count: number;
+};
+
+/**
  * Where an online audition's town hall is (auditions.place), resolved from the
  * official commune API when the audition is created.
  */
@@ -32,7 +41,7 @@ export interface OnlinePlace {
 export interface LocationGroup {
   canonicalName: string;
   coordinates: [number, number];
-  auditions: AuditionWithCount[];
+  auditions: MapAudition[];
   totalTestimonies: number;
   // Administrative area (from the geocoder) — powers area-based filtering.
   city?: string | null;
