@@ -1,14 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import { buildImportedGroups, buildImportedTestimonies } from "./service";
-import { cached } from "../../lib/cache";
+import { cached, cachedResponse } from "../../lib/cache";
+import { sendCached } from "../../lib/httpCache";
 
 export default async function importedAuditionRoutes(app: FastifyInstance) {
   // Imported events grouped for the map, same shape as /api/map — pins + drill
   // metadata only, no report text. The import set is immutable and pre-baked, so
   // a long TTL keeps this off the hot path.
-  app.get("/map", async (_req, reply) => {
+  //
+  // Pre-baked and immutable, so the bytes are built once per fill and a browser
+  // may keep them 5 minutes without asking (no admin write can move them).
+  app.get("/map", async (req, reply) => {
     try {
-      return await cached("imported:map", 300_000, buildImportedGroups);
+      const res = await cachedResponse("imported:map", 300_000, buildImportedGroups);
+      return sendCached(req, reply, res, "public, max-age=300");
     } catch (e) {
       return reply.internalServerError((e as Error).message);
     }

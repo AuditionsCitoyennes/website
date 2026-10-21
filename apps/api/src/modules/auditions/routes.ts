@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { createAuditionSchema, updateAuditionSchema } from "@ac/shared";
 import { publicClient } from "../../lib/supabase";
-import { cached } from "../../lib/cache";
+import { cachedResponse } from "../../lib/cache";
+import { sendCached } from "../../lib/httpCache";
 import { PUBLIC_CACHE_KEYS } from "../../lib/publicCache";
 import { requireAdmin } from "../../lib/auth";
 import {
@@ -17,12 +18,18 @@ export default async function auditionRoutes(app: FastifyInstance) {
   // ---- Public reads (RLS as anon: published auditions + visible testimonies) ----
 
   // List published auditions with a count of their (visible) testimonies.
-  app.get("/", async (_req, reply) => {
+  app.get("/", async (req, reply) => {
     // Cached: same published list for every visitor, changes only on admin
     // writes (which invalidate it). Public API only: the website itself no
     // longer reads it (its analyses are built from /api/map + /api/testimonies).
+    // `no-cache`: a client revalidates (304) rather than keep a copy past a write.
     try {
-      return await cached(PUBLIC_CACHE_KEYS.auditions, 60_000, fetchPublishedAuditions);
+      const res = await cachedResponse(
+        PUBLIC_CACHE_KEYS.auditions,
+        60_000,
+        fetchPublishedAuditions,
+      );
+      return sendCached(req, reply, res, "no-cache");
     } catch (e) {
       return reply.internalServerError((e as Error).message);
     }

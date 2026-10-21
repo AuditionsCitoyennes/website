@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { createTestimonySchema, updateTestimonySchema } from "@ac/shared";
-import { cached } from "../../lib/cache";
+import { cachedResponse } from "../../lib/cache";
+import { sendCached } from "../../lib/httpCache";
 import { PUBLIC_CACHE_KEYS } from "../../lib/publicCache";
 import { requireAdmin, requireSuperAdmin } from "../../lib/auth";
 import { AnalysisDisabledError, AnalysisError } from "./analysis";
@@ -21,12 +22,21 @@ const VERIFIED_LOCKED =
 export default async function testimonyRoutes(app: FastifyInstance) {
   // Public list of testimonies (RLS as anon) with audition context, newest
   // first. Powers the Témoignages page list + filters.
-  app.get("/", async (_req, reply) => {
+  app.get("/", async (req, reply) => {
     // Cached: this whole corpus is identical for every visitor and changes only
     // on admin writes (which invalidate the cache), so we pull it from Supabase
-    // at most once per TTL instead of once per page view + window focus.
+    // at most once per TTL instead of once per page view + window focus — and
+    // its 4.75 MB of JSON are serialised and gzipped once per fill, not once
+    // per request. `no-cache`: a returning visitor asks whether it changed and
+    // is told so in a 304 instead of downloading 1.5 MB again, while an admin's
+    // write still shows at the next load.
     try {
-      return await cached(PUBLIC_CACHE_KEYS.testimonies, 60_000, fetchPublicTestimonies);
+      const res = await cachedResponse(
+        PUBLIC_CACHE_KEYS.testimonies,
+        60_000,
+        fetchPublicTestimonies,
+      );
+      return sendCached(req, reply, res, "no-cache");
     } catch (e) {
       return reply.internalServerError((e as Error).message);
     }
