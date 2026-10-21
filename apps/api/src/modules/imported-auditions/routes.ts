@@ -1,5 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { buildImportedGroups, buildImportedTestimonies } from "./service";
+import {
+  buildImportedGroups,
+  buildImportedTestimonies,
+  IMPORTED_CACHE_KEYS,
+  IMPORTED_CACHE_TTL_MS,
+} from "./service";
 import { cached, cachedResponse } from "../../lib/cache";
 import { sendCached } from "../../lib/httpCache";
 
@@ -12,7 +17,11 @@ export default async function importedAuditionRoutes(app: FastifyInstance) {
   // may keep them 5 minutes without asking (no admin write can move them).
   app.get("/map", async (req, reply) => {
     try {
-      const res = await cachedResponse("imported:map", 300_000, buildImportedGroups);
+      const res = await cachedResponse(
+        IMPORTED_CACHE_KEYS.map,
+        IMPORTED_CACHE_TTL_MS,
+        buildImportedGroups,
+      );
       return sendCached(req, reply, res, "public, max-age=300");
     } catch (e) {
       return reply.internalServerError((e as Error).message);
@@ -38,7 +47,11 @@ export default async function importedAuditionRoutes(app: FastifyInstance) {
       );
     }
     try {
-      const all = await cached("imported:testimonies", 300_000, buildImportedTestimonies);
+      const all = await cached(
+        IMPORTED_CACHE_KEYS.testimonies,
+        IMPORTED_CACHE_TTL_MS,
+        buildImportedTestimonies,
+      );
       return all.filter((t) =>
         audition ? t.audition?.id === audition : t.audition?.location === place,
       );

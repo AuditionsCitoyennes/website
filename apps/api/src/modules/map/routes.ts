@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { buildLocationGroups, warmLocationGeocodes } from "./locationGroups";
 import { cachedResponse } from "../../lib/cache";
 import { sendCached } from "../../lib/httpCache";
-import { PUBLIC_CACHE_KEYS } from "../../lib/publicCache";
+import { PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "../../lib/publicCache";
 
 export default async function mapRoutes(app: FastifyInstance) {
   // Published auditions grouped by canonical location, with coordinates.
@@ -20,7 +20,11 @@ export default async function mapRoutes(app: FastifyInstance) {
   // (304, no body) until the groups move.
   app.get("/", async (req, reply) => {
     try {
-      const res = await cachedResponse(PUBLIC_CACHE_KEYS.map, 15_000, buildLocationGroups);
+      const res = await cachedResponse(
+        PUBLIC_CACHE_KEYS.map,
+        PUBLIC_CACHE_TTL_MS.map,
+        buildLocationGroups,
+      );
       void warmLocationGeocodes();
       return sendCached(req, reply, res, "no-cache");
     } catch (e) {
