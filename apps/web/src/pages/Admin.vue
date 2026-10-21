@@ -24,7 +24,7 @@ const roleManagementRef = ref<InstanceType<typeof RoleManagement> | null>(null);
 const auditionListRef = ref<InstanceType<typeof AuditionAdminList> | null>(null);
 const auditLogRef = ref<InstanceType<typeof AuditLogTable> | null>(null);
 
-// The "Nouvelle Audition" popup belongs to the whole app (see App.vue): it is
+// The "Nouvelle Audition" popup belongs to the whole app (see app/AppDialogs.vue): it is
 // also opened from the nav bar. An audition created from either place shows up
 // in the list here — or in the audit log — when that is the feature open.
 const createAudition = useCreateAudition();

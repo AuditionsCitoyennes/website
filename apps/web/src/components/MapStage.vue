@@ -11,6 +11,7 @@ import {
 import { useRouter } from "vue-router";
 import { useMapStage, type StageRect } from "@/composables/useMapStage";
 import { headerBottomPx, isPhone } from "@/shared/dom/header";
+import { ROUTE } from "@/shared/routes";
 
 // The one testimonies map (see useMapStage): mounted in whichever place a page
 // lends it — the home page's card, or /temoignages — and moved, not rebuilt,
@@ -91,7 +92,7 @@ function pageRect(): StageRect {
 }
 
 /** The page's address, for the card's link (a new tab, a middle click). */
-const pageHref = computed(() => router.resolve({ name: "temoignages" }).href);
+const pageHref = computed(() => router.resolve({ name: ROUTE.temoignages.name }).href);
 
 /** A plain click opens the card in place; any other (modifier keys, middle
  *  button) is left to the browser — a new tab, a new window. */
@@ -217,7 +218,7 @@ async function open() {
     }
     stopWatching();
     if (!elsewhere) {
-      await router.push({ name: "temoignages" });
+      await router.push({ name: ROUTE.temoignages.name });
       await nextTick();
     }
   } finally {
