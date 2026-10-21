@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { createAuditionSchema, updateAuditionSchema } from "@ac/shared";
 import { publicClient } from "../../lib/supabase";
-import { cachedResponse } from "../../lib/cache";
+import { cached, cachedResponse } from "../../lib/cache";
 import { sendCached } from "../../lib/httpCache";
-import { PUBLIC_CACHE_KEYS } from "../../lib/publicCache";
+import { auditionCacheKey, PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "../../lib/publicCache";
 import { requireAdmin } from "../../lib/auth";
 import {
   createAudition,
@@ -26,7 +27,7 @@ export default async function auditionRoutes(app: FastifyInstance) {
     try {
       const res = await cachedResponse(
         PUBLIC_CACHE_KEYS.auditions,
-        60_000,
+        PUBLIC_CACHE_TTL_MS.auditions,
         fetchPublishedAuditions,
       );
       return sendCached(req, reply, res, "no-cache");
@@ -47,8 +48,22 @@ export default async function auditionRoutes(app: FastifyInstance) {
 
   // One published audition with its visible testimonies (public detail page).
   app.get<{ Params: { id: string } }>("/:id", async (req, reply) => {
-    const result = await fetchPublishedAudition(publicClient, req.params.id);
-    if (result.kind === "dbError") return reply.internalServerError(result.message);
+    const { id } = req.params;
+    // A non-UUID compared to the uuid column would surface as a raw 500.
+    if (!z.string().uuid().safeParse(id).success) return reply.notFound("Audition introuvable");
+    // Cached per id, dropped with the other public caches on any write: this
+    // was the only public read that went to Supabase on every request. A
+    // failed read is not kept.
+    let result;
+    try {
+      result = await cached(auditionCacheKey(id), PUBLIC_CACHE_TTL_MS.auditions, async () => {
+        const r = await fetchPublishedAudition(publicClient, id);
+        if (r.kind === "dbError") throw new Error(r.message);
+        return r;
+      });
+    } catch (e) {
+      return reply.internalServerError((e as Error).message);
+    }
     if (result.kind === "notFound") return reply.notFound("Audition introuvable");
     return result.audition;
   });

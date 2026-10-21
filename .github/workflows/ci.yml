@@ -35,5 +35,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Test (API cache)
+        run: npm run test --workspace=@ac/api
+
       - name: Build
         run: npm run build

@@ -1,11 +1,15 @@
 import { buildServer } from "./server";
 import { config, hasServiceRole } from "./config";
 import { warmLocationGeocodes } from "./modules/map/locationGroups";
+import { prewarmPublicCaches } from "./prewarm";
 
 const app = buildServer();
 
-// Warm the location geocode cache in the background on boot.
+// Warm the location geocode cache, then the public read caches, in the
+// background on boot (the second needs the first's persisted entries, which
+// buildLocationGroups awaits itself).
 void warmLocationGeocodes();
+void prewarmPublicCaches(app.log);
 
 if (!hasServiceRole) {
   app.log.warn(

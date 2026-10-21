@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { createTestimonySchema, updateTestimonySchema } from "@ac/shared";
 import { cachedResponse } from "../../lib/cache";
 import { sendCached } from "../../lib/httpCache";
-import { PUBLIC_CACHE_KEYS } from "../../lib/publicCache";
+import { PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "../../lib/publicCache";
 import { requireAdmin, requireSuperAdmin } from "../../lib/auth";
 import { AnalysisDisabledError, AnalysisError } from "./analysis";
 import {
@@ -33,7 +33,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
     try {
       const res = await cachedResponse(
         PUBLIC_CACHE_KEYS.testimonies,
-        60_000,
+        PUBLIC_CACHE_TTL_MS.testimonies,
         fetchPublicTestimonies,
       );
       return sendCached(req, reply, res, "no-cache");

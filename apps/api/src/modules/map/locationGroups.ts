@@ -5,9 +5,13 @@ import {
   type MapAudition,
 } from "@ac/shared";
 import { fetchPublishedAuditions, onlinePlaceOf, placeKeyOf } from "../auditions/service";
-import { resolve, getCachedEntry } from "../geo/geocode";
+import { getCachedEntry, loadGeocodeCache, resolve } from "../geo/geocode";
 import { cached, invalidate } from "../../lib/cache";
-import { PUBLIC_CACHE_KEYS, publicCachesGeneration } from "../../lib/publicCache";
+import {
+  PUBLIC_CACHE_KEYS,
+  PUBLIC_CACHE_TTL_MS,
+  publicCachesGeneration,
+} from "../../lib/publicCache";
 
 function groupByCanonical(auds: AuditionWithCount[]): Map<string, AuditionWithCount[]> {
   const map = new Map<string, AuditionWithCount[]>();
@@ -35,7 +39,17 @@ function toMapAudition(a: AuditionWithCount): MapAudition {
  *  network). Prefers hardcoded rule coordinates for precise markers, and
  *  attaches the administrative area from the cached BAN entry. */
 export async function buildLocationGroups(): Promise<LocationGroup[]> {
-  const grouped = groupByCanonical(await fetchPublishedAuditions());
+  // The persisted geocode entries, before reading them: the first map after a
+  // boot was otherwise built from an empty cache — and cached, pins missing.
+  await loadGeocodeCache();
+  // Through the same cache as /api/auditions and the warm pass: one Supabase
+  // pull for the three, and one invalidation (invalidatePublicCaches) for all.
+  const auditions = await cached(
+    PUBLIC_CACHE_KEYS.auditions,
+    PUBLIC_CACHE_TTL_MS.auditions,
+    fetchPublishedAuditions,
+  );
+  const grouped = groupByCanonical(auditions);
   const groups: LocationGroup[] = [];
   for (const [canonical, list] of grouped) {
     // An online audition's town hall was located when it was created.
@@ -100,7 +114,11 @@ export function warmLocationGeocodes(): Promise<void> {
       // costs at most one Supabase read per TTL instead of one per request.
       // invalidatePublicCaches() already drops this key on every write, so
       // freshness is unchanged.
-      const auditions = await cached(PUBLIC_CACHE_KEYS.auditions, 60_000, fetchPublishedAuditions);
+      const auditions = await cached(
+        PUBLIC_CACHE_KEYS.auditions,
+        PUBLIC_CACHE_TTL_MS.auditions,
+        fetchPublishedAuditions,
+      );
       // Online auditions are not geocoded: their town hall is stored with them.
       const grouped = groupByCanonical(auditions.filter((a) => !a.audition_en_ligne));
       let resolvedAny = false;

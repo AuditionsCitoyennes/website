@@ -47,6 +47,16 @@ interface TestimonyRow extends BaseRow {
 // through an untyped client and cast the rows.
 const db = (hasServiceRole ? adminClient : publicClient) as unknown as SupabaseClient;
 
+/**
+ * The cache keys of the two imported reads (lib/cache.ts) and how long they
+ * are served before a refill: the set is pre-baked and immutable, so long.
+ */
+export const IMPORTED_CACHE_KEYS = {
+  map: "imported:map",
+  testimonies: "imported:testimonies",
+} as const;
+export const IMPORTED_CACHE_TTL_MS = 300_000;
+
 // Pins/drill: no `testimony`, no `topics` — keeps this payload ~440 KB not 3.7 MB.
 const GROUP_COLUMNS = "id,title,held_on,address,city,postcode,citycode,lat,lng";
 const TESTIMONY_COLUMNS = "id,title,held_on,address,testimony,topics";
