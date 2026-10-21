@@ -40,3 +40,34 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  database:
+    name: Database from scratch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+
+      # Builds a blank Postgres from supabase/migrations + seed.sql: a migration
+      # that does not apply on top of the others fails here, not on staging.
+      - name: Apply every migration to a blank database
+        run: supabase db start
+
+      - name: Lint the schema
+        run: supabase db lint --level error
+
+      # A table without RLS is open to anyone holding the public key.
+      - name: Every public table has row level security
+        run: |
+          missing=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -tAc \
+            "select string_agg(c.relname, ', ') from pg_class c
+               join pg_namespace n on n.oid = c.relnamespace
+              where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity")
+          if [ -n "$missing" ]; then
+            echo "::error::Tables without row level security: $missing"
+            exit 1
+          fi
