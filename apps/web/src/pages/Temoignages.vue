@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import type { AuditionWithCount, LocationGroup, PublicTestimony } from "@ac/shared";
 import { api } from "@/shared/api/client";
+import { ROUTE } from "@/shared/routes";
 import {
   buildLocationTree,
   buildTopicOptions,
@@ -190,7 +191,7 @@ const router = useRouter();
 watch(
   [() => route.name, () => route.query.analyses],
   ([name, flag]) => {
-    if (name === "temoignages") analyses.value = flag === "1";
+    if (name === ROUTE.temoignages.name) analyses.value = flag === "1";
   },
   { immediate: true },
 );
@@ -206,7 +207,7 @@ watch(analyses, (on) => {
       if (!active || active === document.body) analysesBtn.value?.focus({ preventScroll: true });
     });
   }
-  if (props.preview || route.name !== "temoignages") return;
+  if (props.preview || route.name !== ROUTE.temoignages.name) return;
   if ((route.query.analyses === "1") === on) return;
   void router.replace({
     query: { ...route.query, analyses: on ? "1" : undefined },

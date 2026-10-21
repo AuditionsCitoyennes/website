@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useTheme } from "@/shared/ui/theme/useTheme";
+import { ROUTE } from "@/shared/routes";
 import { useCreateAudition } from "@/composables/useCreateAudition";
 import { useSubmitTestimony } from "@/composables/useSubmitTestimony";
+import HeaderMobileMenu from "./HeaderMobileMenu.vue";
+import { useHeaderTuck } from "./useHeaderTuck";
 
 const auth = useAuthStore();
 const { isDark, toggle } = useTheme();
@@ -16,52 +19,15 @@ const menuToggle = ref<HTMLButtonElement | null>(null);
 
 // On phones the header is no bar: its tiles float over the page. On the map
 // page they always stay (nothing scrolls there).
-const immersive = computed(() => route.path === "/temoignages");
+const immersive = computed(() => route.path === ROUTE.temoignages.path);
 
 // Elsewhere they get out of the way while the page is read downwards, and come
 // back as soon as it goes up — or near the top, where they cover nothing.
-const tucked = ref(false);
-const phone = window.matchMedia("(max-width: 899px)");
-/** Scroll, in px, before the tiles react: a finger resting on the screen trembles. */
-const TUCK_SLACK = 8;
-/** Near the top of the page the tiles always show: they sit in its margin. */
-const TUCK_FROM = 64;
-let lastY = 0;
-let scrollFrame = 0;
-function onScroll() {
-  if (scrollFrame) return;
-  scrollFrame = requestAnimationFrame(() => {
-    scrollFrame = 0;
-    const y = Math.max(0, window.scrollY); // iOS bounces above 0
-    if (!phone.matches || immersive.value || mobileOpen.value || y < TUCK_FROM) {
-      tucked.value = false;
-      lastY = y;
-    } else if (y - lastY > TUCK_SLACK) {
-      tucked.value = true;
-      lastY = y;
-    } else if (lastY - y > TUCK_SLACK) {
-      tucked.value = false;
-      lastY = y;
-    }
-  });
-}
-onMounted(() => window.addEventListener("scroll", onScroll, { passive: true }));
-onBeforeUnmount(() => {
-  window.removeEventListener("scroll", onScroll);
-  cancelAnimationFrame(scrollFrame);
-});
-// A new page: the tiles show.
-watch(
-  () => route.fullPath,
-  () => {
-    tucked.value = false;
-    lastY = Math.max(0, window.scrollY);
-  },
-);
+const { tucked } = useHeaderTuck({ immersive, menuOpen: mobileOpen });
 
 const links = [
-  { to: "/", label: "Accueil" },
-  { to: "/temoignages", label: "Témoignages" },
+  { to: ROUTE.home.path, label: "Accueil" },
+  { to: ROUTE.temoignages.path, label: "Témoignages" },
 ];
 
 function closeMobile() {
@@ -238,44 +204,13 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
     </div>
   </header>
 
-  <!-- Mobile menu: a floating popup with a dimmed backdrop (not an in-header
-       dropdown), so it overlays the page instead of pushing/attaching to the bar. -->
-  <Teleport to="body">
-    <div v-if="mobileOpen" class="nav-overlay">
-      <div class="nav-overlay-backdrop" @click="closeMobile"></div>
-      <nav class="nav-popup glass-strong" aria-label="Navigation mobile">
-        <RouterLink
-          v-for="link in links"
-          :key="link.to"
-          :to="link.to"
-          class="nav-link-mobile"
-          @click="closeMobile"
-        >
-          {{ link.label }}
-        </RouterLink>
-
-        <div class="nav-mobile-auth">
-          <button type="button" class="nav-link-mobile nav-link-mobile-btn" @click="testify">
-            Témoigner
-          </button>
-          <template v-if="auth.user">
-            <button
-              v-if="auth.isAdmin"
-              type="button"
-              class="nav-link-mobile nav-link-mobile-btn"
-              @click="newAudition"
-            >
-              + Nouvelle Audition
-            </button>
-            <RouterLink to="/admin" class="nav-link-mobile" @click="closeMobile">Admin</RouterLink>
-          </template>
-          <RouterLink v-else to="/auth" class="nav-link-mobile" @click="closeMobile">
-            Connexion
-          </RouterLink>
-        </div>
-      </nav>
-    </div>
-  </Teleport>
+  <HeaderMobileMenu
+    :open="mobileOpen"
+    :links="links"
+    @close="closeMobile"
+    @testify="testify"
+    @new-audition="newAudition"
+  />
 </template>
 
 <style scoped>
@@ -459,76 +394,13 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
 }
 
 /* Auth buttons live in the header bar on desktop, and move into the mobile
-   menu (below) once the nav collapses into the hamburger. */
+   menu (HeaderMobileMenu.vue) once the nav collapses into the hamburger. */
 .auth-desktop {
   display: none;
 }
 
 .menu-toggle {
   display: grid;
-}
-
-.nav-mobile-auth {
-  display: flex;
-  flex-direction: column;
-  margin-top: 0.25rem;
-  padding-top: 0.25rem;
-  border-top: 1px solid hsl(var(--border) / 0.5);
-}
-
-.nav-link-mobile-btn {
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: none;
-  font: inherit;
-  cursor: pointer;
-}
-
-/* Mobile menu popup (floating card + dimmed backdrop). */
-.nav-overlay {
-  position: fixed;
-  inset: 0;
-  /* Below the header (z 50) so the bar + close button stay crisp and clickable;
-     above the page content, which the backdrop dims. */
-  z-index: 45;
-}
-
-.nav-overlay-backdrop {
-  position: absolute;
-  inset: 0;
-  background: hsl(var(--background) / 0.55);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
-.nav-popup {
-  position: absolute;
-  /* Drop in from just below the header bar, near the hamburger. */
-  top: 4rem;
-  right: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  min-width: 13rem;
-  max-width: calc(100vw - 1.5rem);
-  padding: 0.5rem;
-  border-radius: 0.85rem;
-  box-shadow: var(--shadow-lg);
-}
-
-.nav-link-mobile {
-  padding: 0.75rem 0.5rem;
-  border-radius: 0.5rem;
-  color: hsl(var(--foreground));
-  font-weight: 500;
-}
-
-.nav-link-mobile:hover {
-  background: hsl(var(--accent) / 0.6);
-}
-
-.nav-link-mobile.router-link-active {
-  color: hsl(var(--primary));
 }
 
 @media (min-width: 900px) {
@@ -540,11 +412,6 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
     display: contents;
   }
   .menu-toggle {
-    display: none;
-  }
-  /* Safety: if the viewport grows while the popup is open, hide it (the
-     hamburger is gone at this width). */
-  .nav-overlay {
     display: none;
   }
 }

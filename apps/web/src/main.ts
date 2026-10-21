@@ -1,8 +1,9 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
-import { VueQueryPlugin, type VueQueryPluginOptions } from "@tanstack/vue-query";
+import { VueQueryPlugin } from "@tanstack/vue-query";
 import App from "./App.vue";
-import { router } from "./router";
+import { router } from "./app/router";
+import { vueQueryOptions } from "./app/query";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "./shared/styles/index.css";
 
@@ -16,22 +17,6 @@ const setAppHeight = () => {
 };
 setAppHeight();
 window.addEventListener("resize", setAppHeight);
-
-// Public data (testimonies, auditions, map) is shared and barely changes, so
-// treat it as fresh for 5 min and don't refetch on every window focus — both
-// were silently re-pulling the full corpus from Supabase on each mount/focus.
-// GeoNav opts into `staleTime: Infinity` per-query; the map poll uses
-// `refetchInterval`, which is independent of these defaults.
-const vueQueryOptions: VueQueryPluginOptions = {
-  queryClientConfig: {
-    defaultOptions: {
-      queries: {
-        staleTime: 5 * 60 * 1000,
-        refetchOnWindowFocus: false,
-      },
-    },
-  },
-};
 
 const app = createApp(App);
 app.use(createPinia());
