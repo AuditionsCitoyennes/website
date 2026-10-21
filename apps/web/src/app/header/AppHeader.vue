@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
-import { useAuthStore } from "@/stores/auth";
+import { useAuthStore } from "@/features/auth";
 import { useTheme } from "@/shared/ui/theme/useTheme";
 import { ROUTE } from "@/shared/routes";
-import { useCreateAudition } from "@/composables/useCreateAudition";
-import { useSubmitTestimony } from "@/composables/useSubmitTestimony";
+import { useCreateAudition } from "@/features/admin";
+import { useSubmitTestimony } from "@/features/testify";
 import HeaderMobileMenu from "./HeaderMobileMenu.vue";
 import { useHeaderTuck } from "./useHeaderTuck";
 

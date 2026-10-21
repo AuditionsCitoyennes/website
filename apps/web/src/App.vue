@@ -5,7 +5,7 @@ import AppHeader from "@/app/header/AppHeader.vue";
 import AppDialogs from "@/app/AppDialogs.vue";
 import MapStage from "@/components/MapStage.vue";
 import ToastHost from "@/shared/ui/toast/ToastHost.vue";
-import { useAuthStore } from "@/stores/auth";
+import { useAuthStore } from "@/features/auth";
 
 const auth = useAuthStore();
 const route = useRoute();

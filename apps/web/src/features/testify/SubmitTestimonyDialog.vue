@@ -4,7 +4,7 @@ import { AUDITION_QUESTIONS, ONLINE_ANSWER_MAX, onlineTestimonySchema } from "@a
 import { api, ApiError } from "@/shared/api/client";
 import { vAutogrow } from "@/shared/ui/directives/autogrow";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
-import CommuneCombobox, { type Commune } from "@/components/CommuneCombobox.vue";
+import CommuneCombobox, { type Commune } from "./CommuneCombobox.vue";
 
 // "Témoigner": anyone — signed in or not — leaves a testimony. It joins the
 // online audition of the month of their commune's town hall, and is published

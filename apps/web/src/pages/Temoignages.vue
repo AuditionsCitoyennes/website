@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { api } from "@/shared/api/client";
+import { MAP_KEY, TESTIMONIES_KEY } from "@/shared/api/queryKeys";
 import { ROUTE } from "@/shared/routes";
 import {
   buildLocationTree,
@@ -12,18 +13,18 @@ import {
   passesContent as testimonyPasses,
   passesDate as dateIn,
   passesLocation as areaIn,
-} from "@/lib/filters";
-import { useFilters } from "@/composables/useFilters";
+  useFilters,
+  FiltersDialog,
+  FilterChips,
+} from "@/features/filters";
 import GeoNav from "@/components/GeoNav.vue";
-import FiltersDialog from "@/components/FiltersDialog.vue";
-import FilterChips from "@/components/FilterChips.vue";
 
 // The testimonies map — the page, or (preview) the card on the home page: the
 // same instance moves between the two (see MapStage).
 const props = defineProps<{ preview?: boolean }>();
 
 const testimoniesQuery = useQuery({
-  queryKey: ["testimonies"],
+  queryKey: TESTIMONIES_KEY,
   queryFn: () => api.get<PublicTestimony[]>("/api/testimonies"),
   // Not for the home page's card: it has no filters and no panel, so nothing
   // there reads the corpus — 1.5 MB per visit saved. Fetched once the card
@@ -48,7 +49,7 @@ let mapStableTicks = 0;
 let mapLastLen = -1;
 
 const mapQuery = useQuery({
-  queryKey: ["map"],
+  queryKey: MAP_KEY,
   queryFn: () => api.get<LocationGroup[]>("/api/map"),
   refetchInterval: (query) => {
     const len = query.state.data?.length ?? -1;

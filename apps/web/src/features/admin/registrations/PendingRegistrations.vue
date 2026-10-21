@@ -3,7 +3,7 @@ import { ref } from "vue";
 import type { PendingRegistration } from "@ac/shared";
 import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
-import { usePendingRegistrations } from "@/composables/usePendingRegistrations";
+import { usePendingRegistrations } from "./usePendingRegistrations";
 import { formatDateShort } from "@/shared/format/dates";
 
 const emit = defineEmits<{

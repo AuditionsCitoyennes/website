@@ -4,10 +4,10 @@ import { useRoute, useRouter } from "vue-router";
 import { z } from "zod";
 import { supabase } from "@/shared/api/supabase";
 import { useToast } from "@/shared/ui/toast/useToast";
-import { passwordSchema, PASSWORD_REQUIREMENTS } from "@/lib/passwordValidation";
-import { mapAuthError } from "@/lib/authErrors";
-import OAuthButtons from "@/components/OAuthButtons.vue";
-import UsernamePromptDialog from "@/components/UsernamePromptDialog.vue";
+import { passwordSchema, PASSWORD_REQUIREMENTS } from "../lib/password";
+import { mapAuthError } from "../authErrors";
+import OAuthButtons from "../components/OAuthButtons.vue";
+import UsernamePromptDialog from "../components/UsernamePromptDialog.vue";
 
 const loginSchema = z.object({
   email: z.string().email("Email invalide").max(255, "Email trop long"),

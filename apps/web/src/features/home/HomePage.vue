@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, type Directive } from "vue";
 import { AUDITION_QUESTIONS } from "@ac/shared";
-import { useAuthStore } from "@/stores/auth";
+import { useAuthStore } from "@/features/auth";
 import { useMapStage } from "@/composables/useMapStage";
-import { useSubmitTestimony } from "@/composables/useSubmitTestimony";
-import { HERO_IMAGE as hero, PROJECT_IMAGE as project, srcFor, srcsetFor } from "@/lib/homeImages";
+import { useSubmitTestimony } from "@/features/testify";
+import { HERO_IMAGE as hero, PROJECT_IMAGE as project, srcFor, srcsetFor } from "./homeImages";
 
 const auth = useAuthStore();
 const testify = useSubmitTestimony();
