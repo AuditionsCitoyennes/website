@@ -37,12 +37,26 @@ npm run dev      # lance l'API (3000) et le web (5173)
 Le développement se fait sur une base Supabase locale (Docker), jamais sur la production.
 
 ```sh
-npm run db:start   # démarre Supabase en local (Docker Desktop doit tourner)
-npm run db:reset   # repart d'une base vide : migrations + supabase/seed.sql
+npm run db:start      # démarre Supabase en local (Docker Desktop doit tourner)
+npm run db:reset      # repart d'une base vide : migrations + données fictives
+npm run db:accounts   # crée les comptes de test (mot de passe affiché une fois)
+npm run dev:local     # API + web branchés sur la base locale, sans emails ni IA
 npm run db:stop
 ```
 
-`supabase/migrations/` part d'un état de référence de la production (`…_baseline.sql`, 21/10/2026) : la structure seule, jamais de données. Les données locales et de staging sont **fictives** et propres à Auditions Citoyennes (`supabase/seed.sql`). Studio : http://127.0.0.1:54323 — emails reçus en local : http://127.0.0.1:54324.
+`supabase/migrations/` part d'un état de référence de la production (`…_baseline.sql`, 21/10/2026) : la structure seule, jamais de données.
+
+Les données locales et de staging sont **fictives** et propres à Auditions Citoyennes, générées par `scripts/seed/` dans `supabase/seed.sql` (non versionné) : textes inventés, adresses `@example.org`, aucun jeu de données importé. Toujours les mêmes pour un profil donné :
+
+| `SEED_PROFILE` | Contenu |
+|---|---|
+| `france` (défaut) | ~80 auditions et ~1 400 témoignages à la forme du corpus réel (Lyon/Villeurbanne, villages des Hautes-Alpes, grandes villes, fourre-tout « France »), brouillons, auditions en ligne, et des cas limites (emoji, HTML, textes très longs, homonymes, outre-mer) |
+| `world` | Chaque pays sauf la France : plusieurs villes, 2–3 auditions de 3–4 témoignages, en partie dans la langue locale |
+| `all` | Les deux |
+
+Comptes de test (`npm run db:accounts`) : `superadmin@example.org`, `admin@example.org`, `inscription@example.org` (inscription en attente), `non-confirme@example.org`. Sur staging : `SUPABASE_PROJECT_REF=<ref> SEED_PASSWORD=… npm run db:accounts` (la clé est lue via la CLI Supabase connectée). Le script refuse de s'exécuter sur la production.
+
+Studio : http://127.0.0.1:54323 — emails reçus en local : http://127.0.0.1:54324.
 
 ### Scripts
 
