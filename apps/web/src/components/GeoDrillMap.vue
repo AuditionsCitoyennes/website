@@ -178,6 +178,7 @@ export interface SlabThemesSpec {
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import mapboxgl from "mapbox-gl";
+import type * as GeoJSON from "geojson";
 import earcut, { flatten } from "earcut";
 import { FRANCE_CENTER } from "@ac/shared";
 import { SnapshotManager, type Snapshot } from "@/lib/mapSnapshot";

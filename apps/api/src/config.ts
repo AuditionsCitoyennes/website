@@ -12,11 +12,17 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
   ANTHROPIC_API_KEY: z.string().optional().default(""),
   RESEND_API_KEY: z.string().optional().default(""),
-  // How many reverse proxies stand in front of the API (production: usually 1).
-  // Their hops are taken off X-Forwarded-For to find the visitor's address —
-  // only theirs: the entries a client writes itself are never trusted. 0 when
-  // the API is reached directly.
-  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+  // The reverse proxies the API sits behind, as a comma-separated list of IP
+  // addresses or CIDR ranges (in production: the proxy's addresses, e.g.
+  // Cloudflare's published ranges or the private network between the proxy
+  // and the container). Only X-Forwarded-* headers written by one of them are
+  // believed when reading the visitor's address (rate limits of the public
+  // "Témoigner" form), so a client can't spoof it. Empty when the API is
+  // reached directly; "0", the old hop-count spelling, also means no proxy.
+  TRUST_PROXY: z
+    .string()
+    .default("")
+    .transform((s) => (s.trim() === "0" ? "" : s.trim())),
 });
 
 const parsed = schema.safeParse(process.env);
