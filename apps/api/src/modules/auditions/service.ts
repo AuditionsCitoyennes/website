@@ -287,7 +287,6 @@ export async function createAudition(
 
   const { error } = await client.from("auditions").insert(audition);
   if (error) return { kind: "dbError", message: error.message };
-  invalidatePublicCaches();
 
   let emailReport: SendReport | null = null;
 
@@ -318,8 +317,9 @@ export async function createAudition(
   // it otherwise) — so that the map, or the admin list's place filter (drafts
   // too), reloaded right after this answer already knows where it is.
   await geocodeBriefly(audition.location);
-  // Again, now that everything is written: a read between the two inserts
-  // may have cached the audition without its testimonies.
+  // Once everything is written and placed — not after the audition alone,
+  // which only opened a window where it was public with no testimonies. (A
+  // read in flight across this write is not stored: lib/cache.ts.)
   invalidatePublicCaches();
   // Logged before the early return below: the audition exists by now whether
   // or not its testimonies went in.
@@ -408,12 +408,15 @@ export async function updateAudition(
     .update(next, { count: "exact" })
     .eq("id", id);
   if (error) return { kind: "dbError", message: error.message };
+  // Right after the write, before anything slow: nothing stale past it.
+  invalidatePublicCaches();
   // Moved to a lieu never placed: looked up now (see createAudition). Not an
-  // online audition: renaming its town hall does not move it.
+  // online audition: renaming its town hall does not move it. Then again: a
+  // map built during the lookup does not know where the lieu is.
   if (next.location !== undefined && !before?.audition_en_ligne) {
     await geocodeBriefly(next.location);
+    invalidatePublicCaches();
   }
-  invalidatePublicCaches();
 
   const submitted = Object.keys(next) as (keyof typeof next)[];
   // Unknown when the audition could not be read beforehand.
@@ -459,11 +462,15 @@ export async function deleteAudition(
     .delete({ count: "exact" })
     .eq("audition_id", id);
   if (terr) return { kind: "dbError", message: terr.message };
+  // Its testimonies are gone: the counts and the map have moved, whatever
+  // the next statement does.
+  if (deletedTestimonies) invalidatePublicCaches();
 
   // Emptied that way, the audition has already gone with its last
   // testimony (the database never leaves one empty): nothing is left for
   // this statement, and the audition is deleted all the same.
   const { error, count } = await client.from("auditions").delete({ count: "exact" }).eq("id", id);
+  if (!error) invalidatePublicCaches();
   // (Gone, if the caller could see it a moment ago.)
   const deleted =
     !error &&
@@ -499,6 +506,5 @@ export async function deleteAudition(
     });
   }
   if (error) return { kind: "dbError", message: error.message };
-  invalidatePublicCaches();
   return { kind: "ok" };
 }
