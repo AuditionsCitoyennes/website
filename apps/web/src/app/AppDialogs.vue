@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { watch } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
-import { MAP_KEY, TESTIMONIES_KEY } from "@/shared/api/queryKeys";
 import { useAuthStore } from "@/features/auth";
 import { loadCreateAuditionDialog, useCreateAudition } from "@/features/admin";
 import { loadSubmitTestimonyDialog, useSubmitTestimony } from "@/features/testify";
+import { testimoniesKeys } from "@/features/temoignages";
 import { useLazyDialog } from "./useLazyDialog";
 
 const auth = useAuthStore();
@@ -34,7 +34,7 @@ function onAuditionCreated() {
   createAudition.notifyCreated();
   // The public pages show what they loaded a moment ago: the new audition
   // belongs on them now, wherever it was created from.
-  for (const key of [TESTIMONIES_KEY, MAP_KEY]) {
+  for (const key of [testimoniesKeys.list, testimoniesKeys.map]) {
     void queryClient.invalidateQueries({ queryKey: key });
   }
 }

@@ -20,9 +20,9 @@
 // Three boxes: the ring's (its parts' targets and focus ring, over the parts
 // raised: they are GeoDrillMap's, told the pick and the hover here, setRing),
 // the label's, the plaque's. Their boxes are laid out at the type scale's
-// sizes (lib/analysisPlates), and the slabs are sized on the map so that right
+// sizes (analyses/content/analysisPlates), and the slabs are sized on the map so that right
 // after the camera frames the territory the reader sees a set share of those
-// sizes (lib/slabs: TEXT_SCALE) — the CSS keeps its tokens, the map draws the
+// sizes (map/lib/slabs: TEXT_SCALE) — the CSS keeps its tokens, the map draws the
 // boxes smaller.
 //
 // Shown only while the slabs stand: the plateau raised, these slabs its own,
@@ -39,8 +39,8 @@ import {
   watch,
 } from "vue";
 import type { AuditionTheme } from "@ac/shared";
-import type { PlateauFrame } from "@/components/GeoDrillMap.vue";
-import type { ScopeAnalysis } from "@/lib/scopeStats";
+import type { PlateauFrame } from "@/features/map/types";
+import type { ScopeAnalysis } from "../stats/scopeStats";
 import {
   emptyTextOf,
   fmtN,
@@ -48,8 +48,8 @@ import {
   RING_LABEL,
   shortName,
   type SlabSizes,
-} from "@/lib/analysisPlates";
-import { homography, matrix3dOf } from "@/lib/slabs";
+} from "../content/analysisPlates";
+import { homography, matrix3dOf } from "@/features/map/lib";
 import {
   frameFill,
   ringBandMode,
@@ -65,7 +65,7 @@ import {
   type RingBandMode,
   type SlabLidMode,
   type SlabTextMode,
-} from "@/lib/slabDev";
+} from "../devSwitch";
 
 /** What the overlay needs of the map: GeoDrillMap's exposed frame bus. */
 interface FrameSource {
@@ -134,7 +134,7 @@ const summaryLabel = computed(() => `Analyses : ${a.value.label}`);
 
 // ---- Themes --------------------------------------------------------------------
 
-/** The ring, as its content box was laid out for (lib/analysisPlates:
+/** The ring, as its content box was laid out for (analyses/content/analysisPlates:
  *  slabSizes) — the very parts GeoDrillMap raises. */
 const ring = computed(() => sz.value.themes?.ring ?? null);
 
@@ -938,7 +938,7 @@ onBeforeUnmount(() => {
   >
     <!-- 1. The plaque, on the slab under the middle of the territory: what
          this unit is, and how much was heard there. Its box is the size
-         estimate's (lib/analysisPlates: slabSizes), mapped onto the lid. -->
+         estimate's (analyses/content/analysisPlates: slabSizes), mapped onto the lid. -->
     <section data-slab="plaque" class="slab slab-plaque" :aria-labelledby="`${uid}-title`">
       <div class="slab-zoom">
         <div
@@ -1138,8 +1138,8 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Testing tools only (dev server, staging): the slabs' lid, words and
-         size, the territory's framing, the ring's band (lib/slabDev). Apart
-         from them; on a phone folded, see switchStyle. -->
+         size, the territory's framing, the ring's band (analyses/devSwitch).
+         Apart from them; on a phone folded, see switchStyle. -->
     <component
       :is="compact ? 'details' : 'div'"
       v-if="testTools"
@@ -1249,7 +1249,7 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-/* The box the estimate laid out (lib/analysisPlates: slabSizes — keep in
+/* The box the estimate laid out (analyses/content/analysisPlates: slabSizes — keep in
    step): every word at --text-caption, the title at --text-title. No
    transition: it fades with the lid's rise, frame by frame (written there).
    Its ground is its lid's — the map draws it exactly where the lid stands: a
@@ -1270,7 +1270,7 @@ onBeforeUnmount(() => {
    blurred, brightened, its colours lifted, through a light white — enough
    for the words to read should a browser drop the blur under the 3D
    transform —; a bright rim along the top edge and round it, a sheen
-   across; rounded as their pieces' outlines (lib/slabs: SLAB_RADIUS_PX).
+   across; rounded as their pieces' outlines (map/lib/slabs: SLAB_RADIUS_PX).
    Chromium computes the blur in the box's own plane (the backdrop mapped
    into it): it lies on the lid with the words. The map keeps the style's own
    light (Standard, "dawn": pale warm ground, dark place names) whatever the

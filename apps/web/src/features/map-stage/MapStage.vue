@@ -1,17 +1,12 @@
 <script setup lang="ts">
-import {
-  computed,
-  defineAsyncComponent,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from "vue";
+import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { useMapStage, type StageRect } from "@/composables/useMapStage";
-import { headerBottomPx, isPhone } from "@/shared/dom/header";
 import { ROUTE } from "@/shared/routes";
+import { MAP_MOVED_EVENT } from "@/features/map/events";
+import { loadTemoignagesExplorer } from "@/features/temoignages";
+import { useMapStage } from "./useMapStage";
+import { useCardOpenGestures } from "./useCardOpenGestures";
+import { grown, nextFrame, pageRect } from "./openTransition";
 
 // The one testimonies map (see useMapStage): mounted in whichever place a page
 // lends it — the home page's card, or /temoignages — and moved, not rebuilt,
@@ -19,7 +14,7 @@ import { ROUTE } from "@/shared/routes";
 // lifted out of the card (fixed, where the card was), grows to the page's
 // area while the home page fades away, and the route changes under it.
 
-const Temoignages = defineAsyncComponent(() => import("@/pages/Temoignages.vue"));
+const Temoignages = defineAsyncComponent(loadTemoignagesExplorer);
 
 const stage = useMapStage();
 const router = useRouter();
@@ -39,7 +34,7 @@ const stageEl = ref<HTMLElement | null>(null);
 watch(
   target,
   (to, from) => {
-    if (to && from && to !== from) window.dispatchEvent(new Event("ac:map-moved"));
+    if (to && from && to !== from) window.dispatchEvent(new Event(MAP_MOVED_EVENT));
   },
   { flush: "post" },
 );
@@ -53,144 +48,31 @@ const openingStyle = computed(() => {
     : undefined;
 });
 
-const GROW_MS = 650;
-
-/** A frame painted — or a moment, where frames are held back (a hidden tab). */
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    const done = () => {
-      window.clearTimeout(timer);
-      resolve();
-    };
-    const timer = window.setTimeout(done, 60);
-    requestAnimationFrame(() => requestAnimationFrame(done));
-  });
-}
-
-/** The growth's end — or its time, should the event never come. */
-function grown(el: HTMLElement): Promise<void> {
-  return new Promise((resolve) => {
-    const done = () => {
-      el.removeEventListener("transitionend", onEnd);
-      window.clearTimeout(timer);
-      resolve();
-    };
-    const onEnd = (e: TransitionEvent) => {
-      if (e.target === el && e.propertyName === "height") done();
-    };
-    el.addEventListener("transitionend", onEnd);
-    const timer = window.setTimeout(done, GROW_MS + 150);
-  });
-}
-
-/** Where the page will hold the map: under the header — or right from the
- *  top on a phone, where the header floats over the map page. */
-function pageRect(): StageRect {
-  const top = isPhone() ? 0 : headerBottomPx();
-  const width = document.documentElement.clientWidth;
-  return { top, left: 0, width, height: window.innerHeight - top };
-}
-
 /** The page's address, for the card's link (a new tab, a middle click). */
 const pageHref = computed(() => router.resolve({ name: ROUTE.temoignages.name }).href);
 
-/** A plain click opens the card in place; any other (modifier keys, middle
- *  button) is left to the browser — a new tab, a new window. */
-function onCardClick(e: MouseEvent) {
-  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
-    return;
-  }
-  e.preventDefault();
-  void open();
-}
-
-// ---- Trying to move the map opens it, like a click ------------------------
-// A drag with the mouse, a pinch — two fingers on a touch screen, or on a
-// trackpad (which the browser reports as a wheel with ctrlKey, no key held).
-// Not the plain wheel, a one-finger swipe or a pen stroke: those scroll the
-// home page, and must keep doing so over the card. Nor ctrl/⌘ + wheel with the
-// key really held: that is the browser's own zoom.
-const DRAG_PX = 6;
-let press: { id: number; x: number; y: number } | null = null;
-const fingers = new Set<number>();
-/** Ctrl or ⌘ physically held — a trackpad pinch sets ctrlKey with none. */
-let modifierHeld = false;
-
-function onCardPointerDown(e: PointerEvent) {
-  if (e.pointerType === "touch") {
-    fingers.add(e.pointerId);
-    if (fingers.size >= 2) void open();
-    return;
-  }
-  if (e.pointerType !== "mouse" || e.button !== 0) return;
-  if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; // as for clicks
-  press = { id: e.pointerId, x: e.clientX, y: e.clientY };
-}
-
-function onCardPointerMove(e: PointerEvent) {
-  if (!press || e.pointerId !== press.id) return;
-  // The button went up somewhere this card never heard of (a context menu).
-  if ((e.buttons & 1) === 0) {
-    press = null;
-    return;
-  }
-  if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < DRAG_PX) return;
-  press = null;
-  void open();
-}
-
-function onCardPointerEnd(e: PointerEvent) {
-  if (press?.id === e.pointerId) press = null;
-}
-
-/** A context menu takes the button's release: no press is left armed. */
-function onCardContextMenu() {
-  press = null;
-}
-
-function onCardWheel(e: WheelEvent) {
-  if ((!e.ctrlKey && !e.metaKey) || modifierHeld) return;
-  e.preventDefault(); // not the browser's own pinch zoom
-  void open();
-}
-
-// Fingers lifted anywhere (the card's link is gone the moment it opens, and
-// with it the events of the fingers still down): forgotten, wherever.
-function onWindowPointerEnd(e: PointerEvent) {
-  fingers.delete(e.pointerId);
-}
-function onKey(e: KeyboardEvent) {
-  modifierHeld = e.ctrlKey || e.metaKey;
-}
-function onBlur() {
-  modifierHeld = false;
-}
-onMounted(() => {
-  window.addEventListener("pointerup", onWindowPointerEnd, true);
-  window.addEventListener("pointercancel", onWindowPointerEnd, true);
-  window.addEventListener("keydown", onKey, true);
-  window.addEventListener("keyup", onKey, true);
-  window.addEventListener("blur", onBlur);
-});
-onBeforeUnmount(() => {
-  window.removeEventListener("pointerup", onWindowPointerEnd, true);
-  window.removeEventListener("pointercancel", onWindowPointerEnd, true);
-  window.removeEventListener("keydown", onKey, true);
-  window.removeEventListener("keyup", onKey, true);
-  window.removeEventListener("blur", onBlur);
-});
+// A click, a drag, a pinch on the card: it opens (see useCardOpenGestures).
+const {
+  onCardClick,
+  onCardPointerDown,
+  onCardPointerMove,
+  onCardPointerEnd,
+  onCardContextMenu,
+  onCardWheel,
+  reset: resetGestures,
+  isModifierHeld,
+} = useCardOpenGestures(open);
 
 /** The rest of a pinch that opened the card: no browser zoom under it. */
 function swallowPinch(e: WheelEvent) {
-  if ((e.ctrlKey || e.metaKey) && !modifierHeld) e.preventDefault();
+  if ((e.ctrlKey || e.metaKey) && !isModifierHeld()) e.preventDefault();
 }
 
 async function open() {
   const card = stage.card.value;
   if (!card || stage.opening.value) return;
   // Whatever was pressed on the card is over: the card's link goes now.
-  press = null;
-  fingers.clear();
+  resetGestures();
   window.addEventListener("wheel", swallowPinch, { capture: true, passive: false });
   const html = document.documentElement;
   // The home page fades away and stops scrolling — its scrollbar goes too,

@@ -8,17 +8,17 @@
 // territory's edge — the themes over the middle of its box's top edge, the
 // plaque under the middle of its bottom edge — with raised pieces standing on
 // it at the plateau's height, its words lying on their lids, glued to the map
-// (lib/slabs: how big it is on the map). The plaque is one piece; the themes
+// (map/lib/slabs: how big it is on the map). The plaque is one piece; the themes
 // are three in a row, the ground between them: the ring (each part a piece of
 // its own), the picked theme's bar, the label's box. Their content boxes are
 // laid out here at the type scale's sizes, the very boxes the overlay's style
 // draws: right after the camera frames the territory, the words read at a set
-// share of those sizes (lib/slabs: TEXT_SCALE — the slabs drawn that much
+// share of those sizes (map/lib/slabs: TEXT_SCALE — the slabs drawn that much
 // smaller, never the CSS); zoomed in or out, they grow and shrink with the
 // map, as any piece of it.
 import { themeShortLabel, type AuditionTheme } from "@ac/shared";
-import type { ScopeAnalysis } from "@/lib/scopeStats";
-import { FIT_PITCH_DEG, SLAB_SAFETY, type PieceBox } from "@/lib/slabs";
+import type { ScopeAnalysis } from "../stats/scopeStats";
+import { FIT_PITCH_DEG, SLAB_SAFETY, type PieceBox } from "@/features/map/lib";
 
 export { FIT_PITCH_DEG };
 
@@ -166,7 +166,7 @@ interface RingSpec {
  *  the label's box centred on it. */
 export const RING_OVER_LABEL = 2;
 /** The ring's band, per px of its outer diameter: a fifth — its hole three
- *  fifths of it (the DEV switch, "Anneau", compares others: lib/slabDev). */
+ *  fifths of it (the DEV switch, "Anneau", compares others: analyses/devSwitch). */
 export const RING_THICK = 0.2;
 /** How far out the picked part and a part hovered reach, per px of the
  *  ring's outer diameter — a desktop's 2.5 and 1.25 px at 40 px across, a
@@ -634,7 +634,7 @@ export interface SizeOpts {
    *  never wider (its counts then take more lines). Absent or 0: no bound. */
   safeW?: number;
   /** The slabs' words on screen right after a fit, per CSS px of their boxes
-   *  (lib/slabs: TEXT_SCALE). */
+   *  (map/lib/slabs: TEXT_SCALE). */
   textScale: number;
 }
 
@@ -810,7 +810,7 @@ export interface RoomOpts extends ScreenOpts {
   /** Slabs drawn long ("Redressé"): each comes out as tall as its box. */
   anamorphic: boolean;
   /** The slabs on screen right after a fit, per CSS px of their boxes
-   *  (lib/slabs: TEXT_SCALE). */
+   *  (map/lib/slabs: TEXT_SCALE). */
   textScale: number;
 }
 
@@ -820,7 +820,7 @@ export interface RoomOpts extends ScreenOpts {
  * ONE side of the box: the themes above it, the plaque below it — none beside
  * it (left and right: 0), each centred on the box's middle, which a fit puts
  * on the safe rect's. The box is the plateau's silhouette, its lid included:
- * that is what a fit frames (GeoDrillMap, lib/slabs' fitSilhouette).
+ * that is what a fit frames (GeoDrillMap, map/lib/slabs' fitSilhouette).
  *
  * Above: the margin, the themes' slab as drawn (its box's height at textScale
  * and the safety the slabs are sized with: drawn long, as tall as that; "À

@@ -18,7 +18,7 @@ import {
   type LocationGroup,
   type PublicTestimony,
 } from "@ac/shared";
-import { unitChainOf, type GeoUnit, type LevelKey } from "./geo";
+import { unitChainOf, type GeoUnit, type LevelKey } from "@/features/geo";
 
 export type Reliability = "solide" | "indicatif" | "chips" | "trop-peu";
 

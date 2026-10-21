@@ -31,14 +31,14 @@ export const FIT_PITCH_DEG = 45;
 /** How much of the rectangle a territory's fit gives its silhouette, on the
  *  axis that limits it — the rest is map around it, the silhouette still
  *  centred (fitSilhouette's `fill`). GeoNav's, in production; its DEV switch
- *  ("Cadrage", lib/slabDev) compares others. */
+ *  ("Cadrage", analyses/devSwitch) compares others. */
 export const FRAME_FILL = 0.8;
 
 /** The analyses' words right after a fit: this much of the type scale's sizes
  *  on screen (solveSlabScales' `textScale`). Their content boxes are laid out
  *  at the type scale's sizes (the CSS keeps its tokens); the slabs are drawn
  *  that much smaller on the map, padding and gaps with them. In production;
- *  the DEV switch ("Taille", lib/slabDev) compares others. */
+ *  the DEV switch ("Taille", analyses/devSwitch) compares others. */
 export const TEXT_SCALE = 0.8;
 
 const DEG = Math.PI / 180;
@@ -896,7 +896,7 @@ const ARC_STEP = (6 * Math.PI) / 180;
 /**
  * A part of the themes' ring as a piece of its slab: the annular sector from
  * angle `a0` to `a1` (radians, clockwise from 3 o'clock, the box's y growing
- * down — the ring's own SVG geometry, lib/analysisPlates), radii `rIn` to
+ * down — the ring's own SVG geometry, analyses/content/analysisPlates), radii `rIn` to
  * `rOut` around (`cx`, `cy`) CSS px of the slab's content box. Its outer and
  * inner arcs, point for point ([lng, lat], a0 to a1 each), mapped onto the
  * map as its words are (slabPointPx): drawn long ("Redressé"), the ring is

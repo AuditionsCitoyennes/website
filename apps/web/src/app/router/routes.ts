@@ -5,6 +5,7 @@ import { AuditionDetailPage } from "@/features/audition";
 import { AuthPage, ResetPasswordPage } from "@/features/auth";
 import { AdminPage } from "@/features/admin";
 import { VerifyTestimonyPage } from "@/features/testify";
+import { StagePage } from "@/features/map-stage";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -25,7 +26,7 @@ export const routes: RouteRecordRaw[] = [
     path: ROUTE.temoignages.path,
     name: ROUTE.temoignages.name,
     // Only a place for the map, which lives above the pages (MapStage).
-    component: () => import("@/pages/TemoignagesPage.vue"),
+    component: StagePage,
     meta: { bleed: true },
   },
   // The page is gone: its analyses are drawn on the map now, around the
