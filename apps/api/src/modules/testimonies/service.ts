@@ -4,9 +4,9 @@ import type { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
   sanitizeText,
+  type AdminTestimony,
   type createTestimonySchema,
   type Database,
-  type Testimony,
   type UpdateTestimonyInput,
 } from "@ac/shared";
 import { publicClient } from "../../lib/supabase";
@@ -35,6 +35,12 @@ export interface FetchFailed {
 
 // PostgREST's cap: past it a bare select is silently cut short.
 const PAGE = 1000;
+
+// What a signed-in caller may read from testimonies: every column but the
+// email and the verification token, which the API no longer exposes (admins
+// get the email through the admin_testimonies() function).
+const READABLE_COLUMNS =
+  "id, audition_id, person_name, person_info, content, topics, verification_status, created_by, created_at";
 
 // ---- Reads ----------------------------------------------------------------
 
@@ -92,12 +98,8 @@ export async function fetchFilterableTestimonies(
 export async function fetchTestimoniesForAudition(
   client: Client,
   auditionId: string,
-): Promise<{ kind: "ok"; testimonies: Testimony[] } | FetchFailed> {
-  const { data, error } = await client
-    .from("testimonies")
-    .select("*")
-    .eq("audition_id", auditionId)
-    .order("created_at", { ascending: true });
+): Promise<{ kind: "ok"; testimonies: AdminTestimony[] } | FetchFailed> {
+  const { data, error } = await client.rpc("admin_testimonies", { p_audition_id: auditionId });
   if (error) return { kind: "fetchFailed", message: error.message };
   return { kind: "ok", testimonies: data ?? [] };
 }
@@ -211,7 +213,12 @@ export async function createTestimony(
 // ---- Update ---------------------------------------------------------------
 
 export type UpdateTestimonyResult =
-  | { kind: "ok"; testimony: Testimony; reverificationSent: boolean; needsReverification: boolean }
+  | {
+      kind: "ok";
+      testimony: AdminTestimony;
+      reverificationSent: boolean;
+      needsReverification: boolean;
+    }
   | { kind: "notFound" }
   /** Its witness verified it: nobody — super admins included — may change it. */
   | { kind: "locked" }
@@ -235,12 +242,17 @@ export async function updateTestimony(
   input: UpdateTestimonyInput,
 ): Promise<UpdateTestimonyResult> {
   const { data: existing, error: fetchError } = await client
-    .from("testimonies")
-    .select("*, audition:auditions(title, location, date)")
-    .eq("id", id)
+    .rpc("admin_testimonies", { p_id: id })
     .maybeSingle();
   if (fetchError) return { kind: "fetchFailed", message: fetchError.message };
   if (!existing) return { kind: "notFound" };
+  const { data: audition } = existing.audition_id
+    ? await client
+        .from("auditions")
+        .select("title, location, date")
+        .eq("id", existing.audition_id)
+        .maybeSingle()
+    : { data: null };
 
   const next = {
     person_name:
@@ -292,7 +304,7 @@ export async function updateTestimony(
     // (`neq` alone would also skip the rows that have no status at all.)
     update = update.or("verification_status.is.null,verification_status.neq.verified");
   }
-  const { data: updated, error } = await update.select().maybeSingle();
+  const { data: updated, error } = await update.select(READABLE_COLUMNS).maybeSingle();
   if (error) return { kind: "dbError", message: error.message };
   if (!updated) {
     // Nothing written: verified in the meantime, or not the caller's to edit.
@@ -304,12 +316,6 @@ export async function updateTestimony(
     return now?.verification_status === "verified" ? { kind: "locked" } : { kind: "notFound" };
   }
   invalidatePublicCaches();
-
-  const audition = existing.audition as {
-    title: string;
-    location: string;
-    date: string;
-  } | null;
   // Field NAMES only — never the values (see AuditEntry.metadata). Nothing
   // is logged for a save that changed nothing.
   const sameTopics = JSON.stringify(next.topics ?? []) === JSON.stringify(existing.topics ?? []);
@@ -352,7 +358,13 @@ export async function updateTestimony(
     });
   }
 
-  return { kind: "ok", testimony: updated, reverificationSent: emailSent, needsReverification };
+  return {
+    kind: "ok",
+    // The row as written; the email is the one just saved (not readable back).
+    testimony: { ...updated, email: next.email },
+    reverificationSent: emailSent,
+    needsReverification,
+  };
 }
 
 // ---- Delete ---------------------------------------------------------------
