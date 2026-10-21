@@ -54,7 +54,7 @@ Les données locales et de staging sont **fictives** et propres à Auditions Cit
 | `world` | Chaque pays sauf la France : plusieurs villes, 2–3 auditions de 3–4 témoignages, en partie dans la langue locale |
 | `all` | Les deux |
 
-Comptes de test (`npm run db:accounts`) : `superadmin@example.org`, `admin@example.org`, `inscription@example.org` (inscription en attente), `non-confirme@example.org`. Le script refuse de s'exécuter sur la production.
+Comptes de test (`npm run db:accounts`) : `superadmin@example.org`, `admin@example.org`, `inscription@example.org` (inscription en attente), `non-confirme@example.org`. Sur staging : `SUPABASE_PROJECT_REF=<ref> SEED_PASSWORD=… npm run db:accounts` (la clé est lue via la CLI Supabase connectée). Le script refuse de s'exécuter sur la production.
 
 Studio : http://127.0.0.1:54323 — emails reçus en local : http://127.0.0.1:54324.
 

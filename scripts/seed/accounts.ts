@@ -8,8 +8,11 @@
 //
 //   npm run db:accounts      local stack: URL and key from `supabase status`;
 //                            the password is SEED_PASSWORD, or a random one printed once
+//   SUPABASE_PROJECT_REF=<ref> SEED_PASSWORD=… npm run db:accounts
+//                            a hosted project (staging): its secret key is read
+//                            through the logged-in Supabase CLI
 //   SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… SEED_PASSWORD=… npm run db:accounts
-//                            staging: everything from the environment
+//                            or everything from the environment
 //
 // Running it again resets the four accounts' passwords and roles.
 // It refuses to touch production.
@@ -50,10 +53,29 @@ function localStack(): { url: string; key: string } {
   return { url: status.API_URL, key: status.SECRET_KEY ?? status.SERVICE_ROLE_KEY };
 }
 
+function hostedProject(ref: string): { url: string; key: string } {
+  const keys = JSON.parse(
+    execFileSync("supabase", ["projects", "api-keys", "--project-ref", ref, "-o", "json"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString(),
+  ) as { name: string; type: string; api_key: string }[];
+  const secret =
+    keys.find((k) => k.type === "secret") ?? keys.find((k) => k.name === "service_role");
+  if (!secret) throw new Error(`No secret key found for project ${ref}`);
+  return { url: `https://${ref}.supabase.co`, key: secret.api_key };
+}
+
+const ref = process.env.SUPABASE_PROJECT_REF;
+if (ref === PRODUCTION_REF) {
+  console.error("Refusing to create test accounts on the production project.");
+  process.exit(1);
+}
 const fromEnv = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
-const { url, key } = fromEnv
-  ? { url: process.env.SUPABASE_URL!, key: process.env.SUPABASE_SERVICE_ROLE_KEY! }
-  : localStack();
+const { url, key } = ref
+  ? hostedProject(ref)
+  : fromEnv
+    ? { url: process.env.SUPABASE_URL!, key: process.env.SUPABASE_SERVICE_ROLE_KEY! }
+    : localStack();
 const local = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(url);
 
 if (url.includes(PRODUCTION_REF)) {
