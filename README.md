@@ -32,6 +32,18 @@ cp apps/web/.env.example apps/web/.env
 npm run dev      # lance l'API (3000) et le web (5173)
 ```
 
+### Base de données locale
+
+Le développement se fait sur une base Supabase locale (Docker), jamais sur la production.
+
+```sh
+npm run db:start   # démarre Supabase en local (Docker Desktop doit tourner)
+npm run db:reset   # repart d'une base vide : migrations + supabase/seed.sql
+npm run db:stop
+```
+
+`supabase/migrations/` part d'un état de référence de la production (`…_baseline.sql`, 21/10/2026) : la structure seule, jamais de données. Les données locales et de staging sont **fictives** et propres à Auditions Citoyennes (`supabase/seed.sql`). Studio : http://127.0.0.1:54323 — emails reçus en local : http://127.0.0.1:54324.
+
 ### Scripts
 
 | Commande | Effet |

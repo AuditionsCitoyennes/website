@@ -1,3 +1,12 @@
+-- DRAFT, NOT A MIGRATION: kept out of supabase/migrations on purpose.
+--
+-- Written in 2026 against what the old migration files described, not against
+-- production: production's policies carry other names ("Admin insert
+-- auditions", "Public read testimonies", ...), so on production most of the
+-- DROP POLICY IF EXISTS below would do nothing and leave the open policies in
+-- place. Rewrite it against supabase/migrations/20261021175021_baseline.sql
+-- (and test it on staging) before the old app is switched off.
+
 -- ============================================================================
 -- TIGHTENING MIGRATION — apply ONLY when cutting over to the new Vue/Fastify
 -- app. The OLD React app's /verifier page updates testimonies directly with

@@ -23,6 +23,7 @@ dist-ssr
 
 # Supabase
 supabase/.temp
+supabase/.branches
 
 # Server-side geocode cache (persisted BAN results; the filename is version-bumped)
 .geocode-cache*.json
