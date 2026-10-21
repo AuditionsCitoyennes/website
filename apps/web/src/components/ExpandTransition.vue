@@ -9,7 +9,21 @@
 // styles, listeners, or timers are stranded. A fallback timer guarantees
 // done() even if `transitionend` never fires (e.g. 0px→0px content).
 
-const DURATION = 280;
+const props = withDefaults(
+  defineProps<{
+    /**
+     * Collapse with no tween (the expand still animates). For a single-open
+     * accordion: when opening another panel closes the current one, tweening
+     * that collapse drags everything below it upward for the whole duration —
+     * including the header just clicked. Dropping it in one step keeps the
+     * layout shift to a single, correctable jump.
+     */
+    instantLeave?: boolean;
+  }>(),
+  { instantLeave: false },
+);
+
+const DURATION = 460;
 
 const cleanups = new WeakMap<HTMLElement, () => void>();
 
@@ -73,6 +87,13 @@ function onEnter(el: Element, done: () => void) {
 
 function onLeave(el: Element, done: () => void) {
   const node = el as HTMLElement;
+  if (props.instantLeave) {
+    runCleanup(node); // an expand still mid-flight must not fight this
+    node.style.overflow = "hidden";
+    node.style.height = "0px";
+    done();
+    return;
+  }
   animate(node, `${node.scrollHeight}px`, "0px", false, done);
 }
 

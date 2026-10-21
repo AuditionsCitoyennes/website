@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import ModalDialog from "@/components/ModalDialog.vue";
-import FilterSelect from "@/components/FilterSelect.vue";
 import ThemeMultiSelect from "@/components/ThemeMultiSelect.vue";
 import LocationMultiSelect from "@/components/LocationMultiSelect.vue";
 import type { LocNode } from "@/components/LocationTreeNode.vue";
@@ -12,14 +12,28 @@ interface Option {
   hint?: string;
 }
 
-defineProps<{
-  open: boolean;
-  chips: { id: string; label: string }[];
-  locationTree: LocNode[];
-  dateOptions: Option[];
-  topicOptions: Option[];
-  resultCount: number;
-}>();
+withDefaults(
+  defineProps<{
+    open: boolean;
+    chips: { id: string; label: string }[];
+    locationTree: LocNode[];
+    /** Earliest/latest audition date in the data — bounds the picker. */
+    dateBounds: { min: string | null; max: string | null };
+    topicOptions: Option[];
+    /** null: not known yet (what it depends on is still loading). */
+    resultCount: number | null;
+    /** What is being filtered — the same filters serve more than one list. */
+    description?: string;
+    searchPlaceholder?: string;
+    /** What the results are, in the singular ("résultat", "audition"). */
+    resultNoun?: string;
+  }>(),
+  {
+    description: "Affinez la liste des témoignages",
+    searchPlaceholder: "Mot ou phrase à rechercher dans les témoignages...",
+    resultNoun: "résultat",
+  },
+);
 
 const emit = defineEmits<{
   close: [];
@@ -35,13 +49,25 @@ const topics = defineModel<string[]>("topics", { default: () => [] });
 const sort = defineModel<"recent" | "ancien">("sort", { default: "recent" });
 const text = defineModel<string>("text", { default: "" });
 const verified = defineModel<boolean>("verified", { default: false });
+
+// `<input type="date">` speaks "" for empty and YYYY-MM-DD otherwise — exactly
+// the format the filter already compares on, so no parsing either way. These
+// only bridge "" ↔ null so an emptied field clears the filter.
+const dateFromInput = computed({
+  get: () => dateFrom.value ?? "",
+  set: (v: string) => (dateFrom.value = v || null),
+});
+const dateToInput = computed({
+  get: () => dateTo.value ?? "",
+  set: (v: string) => (dateTo.value = v || null),
+});
 </script>
 
 <template>
   <ModalDialog
     :open="open"
     title="Filtres"
-    description="Affinez la liste des témoignages"
+    :description="description"
     dismissible
     medium
     @close="emit('close')"
@@ -80,21 +106,47 @@ const verified = defineModel<boolean>("verified", { default: false });
       </div>
 
       <div class="field">
-        <label>Date</label>
-        <div class="date-range">
-          <FilterSelect
-            v-model="dateFrom"
-            :options="dateOptions"
-            all-label="Début"
-            placeholder="Date de début..."
-          />
+        <label id="filters-date-label">Date</label>
+        <div class="date-range" role="group" aria-labelledby="filters-date-label">
+          <div class="date-field">
+            <input
+              v-model="dateFromInput"
+              type="date"
+              class="form-input date-input"
+              aria-label="Date de début"
+              :min="dateBounds.min ?? undefined"
+              :max="dateTo ?? dateBounds.max ?? undefined"
+            />
+            <button
+              v-if="dateFrom"
+              type="button"
+              class="date-clear"
+              aria-label="Effacer la date de début"
+              @click="dateFrom = null"
+            >
+              ×
+            </button>
+          </div>
           <span class="arrow" aria-hidden="true">→</span>
-          <FilterSelect
-            v-model="dateTo"
-            :options="dateOptions"
-            all-label="Fin"
-            placeholder="Date de fin..."
-          />
+          <div class="date-field">
+            <input
+              v-model="dateToInput"
+              type="date"
+              class="form-input date-input"
+              aria-label="Date de fin"
+              :min="dateFrom ?? dateBounds.min ?? undefined"
+              :max="dateBounds.max ?? undefined"
+            />
+            <button
+              v-if="dateTo"
+              type="button"
+              class="date-clear"
+              aria-label="Effacer la date de fin"
+              @click="dateTo = null"
+            >
+              ×
+            </button>
+          </div>
         </div>
       </div>
 
@@ -123,7 +175,7 @@ const verified = defineModel<boolean>("verified", { default: false });
           v-model="text"
           class="form-input"
           type="search"
-          placeholder="Mot ou phrase à rechercher dans les témoignages..."
+          :placeholder="searchPlaceholder"
         />
       </div>
 
@@ -137,7 +189,10 @@ const verified = defineModel<boolean>("verified", { default: false });
           Réinitialiser
         </button>
         <button type="button" class="ac-btn ac-btn--primary" @click="emit('close')">
-          Voir {{ resultCount }} résultat{{ resultCount > 1 ? "s" : "" }}
+          <template v-if="resultCount === null">Chargement…</template>
+          <template v-else>
+            Voir {{ resultCount }} {{ resultNoun }}{{ resultCount > 1 ? "s" : "" }}
+          </template>
         </button>
       </div>
     </div>
@@ -163,7 +218,7 @@ const verified = defineModel<boolean>("verified", { default: false });
 }
 
 .field > label {
-  font-size: 0.68rem;
+  font-size: var(--text-caption);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -179,7 +234,7 @@ const verified = defineModel<boolean>("verified", { default: false });
 }
 
 .field-row > label {
-  font-size: 0.9rem;
+  font-size: var(--text-ui);
   font-weight: 500;
   color: hsl(var(--foreground));
 }
@@ -226,6 +281,49 @@ const verified = defineModel<boolean>("verified", { default: false });
   gap: 0.5rem;
 }
 
+.date-field {
+  position: relative;
+  min-width: 0;
+}
+
+.date-input {
+  width: 100%;
+  height: 2.7rem;
+  /* Room for the clear button, which overlays the field's right edge. */
+  padding-right: 2rem;
+}
+
+/* The native indicator sits at the right edge of the control; nudge it clear of
+   the clear button so the two are not stacked on top of each other. */
+.date-input::-webkit-calendar-picker-indicator {
+  margin-right: 1.1rem;
+  cursor: pointer;
+}
+
+.date-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.45rem;
+  transform: translateY(-50%);
+  width: 1.25rem;
+  height: 1.25rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-ui);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.date-clear:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
 .arrow {
   color: hsl(var(--muted-foreground));
 }
@@ -238,7 +336,7 @@ const verified = defineModel<boolean>("verified", { default: false });
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   color: hsl(var(--foreground));
-  font-size: 0.9rem;
+  font-size: var(--text-input);
 }
 
 .dialog-actions {

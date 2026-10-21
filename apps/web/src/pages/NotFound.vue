@@ -21,7 +21,7 @@
 }
 
 .notfound h1 {
-  font-size: 5rem;
+  font-size: var(--text-display);
   color: hsl(var(--primary));
 }
 
@@ -36,5 +36,6 @@
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
   font-weight: 600;
+  font-size: var(--text-ui);
 }
 </style>

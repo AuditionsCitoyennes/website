@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { useQueryClient } from "@tanstack/vue-query";
 import type { RoleWithDetails } from "@ac/shared";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/composables/useToast";
+import { PENDING_REGISTRATIONS_KEY } from "@/composables/usePendingRegistrations";
 import { useAuthStore } from "@/stores/auth";
 
 const { toast } = useToast();
 const auth = useAuthStore();
+const queryClient = useQueryClient();
 const roles = ref<RoleWithDetails[]>([]);
 
 async function fetchRoles() {
@@ -22,6 +25,9 @@ async function removeRole(role: RoleWithDetails) {
   try {
     await api.del(`/api/admin/roles/${role.id}`);
     toast({ title: "Succès!", description: "Rôle supprimé" });
+    // An account left without a role is a registration waiting again: the
+    // list above and the dot on the button follow at once.
+    void queryClient.invalidateQueries({ queryKey: PENDING_REGISTRATIONS_KEY });
     await fetchRoles();
   } catch (e) {
     toast({
@@ -99,18 +105,18 @@ defineExpose({ refresh: fetchRoles });
 
 .row-name {
   font-weight: 600;
-  font-size: 0.92rem;
+  font-size: var(--text-body);
   color: hsl(var(--foreground));
 }
 
 .row-email {
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   color: hsl(var(--muted-foreground));
   margin-bottom: 0.3rem;
 }
 
 .empty {
   color: hsl(var(--muted-foreground));
-  font-size: 0.88rem;
+  font-size: var(--text-body);
 }
 </style>

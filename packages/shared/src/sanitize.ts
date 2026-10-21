@@ -4,8 +4,10 @@
  * (Ported verbatim from the previous app.)
  */
 
-// Email pattern: standard user@domain.tld
-const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+// Email pattern: standard user@domain.tld. The runs are bounded (as real
+// addresses are): unbounded, a long run of letters with no "@" made the
+// engine retry from every position — seconds of blocked server for 100 KB.
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,255}\.[a-zA-Z]{2,63}/g;
 
 // Phone patterns covering French and common international formats:
 //   +33 6 12 34 56 78  |  +33612345678  |  +1 (555) 123-4567

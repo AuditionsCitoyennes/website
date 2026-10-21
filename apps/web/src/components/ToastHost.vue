@@ -75,11 +75,11 @@ const { toasts, dismiss } = useToast();
 
 .toast-title {
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: var(--text-ui);
 }
 
 .toast-desc {
-  font-size: 0.82rem;
+  font-size: var(--text-ui);
   margin-top: 0.15rem;
   opacity: 0.85;
 }

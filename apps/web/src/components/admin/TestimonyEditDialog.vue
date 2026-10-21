@@ -80,6 +80,12 @@ async function handleSave() {
       description: e instanceof ApiError ? e.message : "Une erreur est survenue",
       variant: "destructive",
     });
+    // Refused because its witness verified it while this dialog was open: the
+    // form has nothing left to do, and the list must show the new state.
+    if (e instanceof ApiError && e.status === 409) {
+      emit("updated");
+      emit("close");
+    }
   } finally {
     loading.value = false;
   }
@@ -170,7 +176,7 @@ async function handleSave() {
 }
 
 .hint {
-  font-size: 0.78rem;
+  font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
 }
 

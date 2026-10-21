@@ -1,6 +1,6 @@
 import { buildServer } from "./server";
 import { config, hasServiceRole } from "./config";
-import { warmLocationGeocodes } from "./services/locations";
+import { warmLocationGeocodes } from "./modules/map/locationGroups";
 
 const app = buildServer();
 
