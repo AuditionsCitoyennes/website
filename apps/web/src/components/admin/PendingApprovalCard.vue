@@ -117,7 +117,7 @@ async function handleSignOut() {
   align-items: center;
   gap: 0.5rem;
   font-family: var(--font-display);
-  font-size: 1.45rem;
+  font-size: var(--text-title);
   letter-spacing: 0.04em;
   color: hsl(38 90% 45%);
   margin-bottom: 1.25rem;
@@ -185,7 +185,7 @@ async function handleSignOut() {
 }
 
 .step-desc {
-  font-size: 0.85rem;
+  font-size: var(--text-ui);
   color: hsl(var(--muted-foreground));
 }
 </style>

@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import type { PublicTestimony } from "@ac/shared";
+import { computed } from "vue";
+import { themesOf, type PublicTestimony } from "@ac/shared";
 import { formatDateShort } from "@/lib/format";
 import HighlightText from "@/components/HighlightText.vue";
+import TestimonyText from "@/components/TestimonyText.vue";
 
-defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: string }>();
+const props = defineProps<{
+  testimony: PublicTestimony;
+  hideAudition?: boolean;
+  highlight?: string;
+}>();
+
+// Its themes as the theme filter names them (old tags read in the grid).
+const themes = computed(() => themesOf(props.testimony.topics));
 </script>
 
 <template>
@@ -33,12 +42,10 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
       </RouterLink>
     </header>
 
-    <blockquote class="t-quote">
-      <HighlightText :text="testimony.content" :query="highlight" />
-    </blockquote>
+    <TestimonyText :content="testimony.content" :highlight="highlight" />
 
-    <div v-if="testimony.topics && testimony.topics.length" class="t-topics">
-      <span v-for="topic in testimony.topics" :key="topic" class="t-topic">{{ topic }}</span>
+    <div v-if="themes.length" class="t-topics">
+      <span v-for="theme in themes" :key="theme" class="t-topic">{{ theme }}</span>
     </div>
   </article>
 </template>
@@ -64,11 +71,13 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.35rem 0.5rem;
+  /* The byline's size, so the "·" between its parts is that size too. */
+  font-size: var(--text-ui);
 }
 
 .t-name {
   font-weight: 600;
-  font-size: clamp(0.85rem, 0.69rem + 0.7vw, 0.96rem);
+  font-size: var(--text-ui);
   color: hsl(var(--foreground));
 }
 
@@ -77,7 +86,7 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
 }
 
 .t-info {
-  font-size: clamp(0.79rem, 0.65rem + 0.6vw, 0.88rem);
+  font-size: var(--text-ui);
   font-style: italic;
   color: hsl(var(--muted-foreground));
 }
@@ -86,7 +95,7 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
   align-self: center;
   padding: 0.05rem 0.45rem;
   border-radius: 999px;
-  font-size: 0.66rem;
+  font-size: var(--text-caption);
   font-weight: 600;
   border: 1px solid transparent;
 }
@@ -106,7 +115,7 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
 .t-audition {
   margin-left: auto;
   align-self: center;
-  font-size: 0.72rem;
+  font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
   transition: var(--transition-smooth);
 }
@@ -115,24 +124,25 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
   color: hsl(var(--primary));
 }
 
-/* Content as a quotation: hanging coloured guillemets + a soft left accent. */
-.t-quote {
+/* Content as a quotation: hanging coloured guillemets + a soft left accent.
+   (Rendered by TestimonyText — one per answer for a testimony sent online.) */
+.testimony :deep(.t-quote) {
   margin: 0;
   padding-left: 0.85rem;
   border-left: 2px solid hsl(var(--primary) / 0.25);
   color: hsl(var(--foreground) / 0.9);
-  font-size: clamp(0.82rem, 0.66rem + 0.7vw, 0.92rem);
-  line-height: 1.62;
+  font-size: var(--text-body);
+  line-height: var(--lh-body);
   white-space: pre-line;
 }
 
-.t-quote::before {
+.testimony :deep(.t-quote)::before {
   content: "«\00a0";
   color: hsl(var(--primary));
   font-weight: 600;
 }
 
-.t-quote::after {
+.testimony :deep(.t-quote)::after {
   content: "\00a0»";
   color: hsl(var(--primary));
   font-weight: 600;
@@ -149,6 +159,6 @@ defineProps<{ testimony: PublicTestimony; hideAudition?: boolean; highlight?: st
   border-radius: 999px;
   background: hsl(var(--secondary) / 0.7);
   color: hsl(var(--secondary-foreground));
-  font-size: 0.7rem;
+  font-size: var(--text-caption);
 }
 </style>

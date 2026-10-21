@@ -12,6 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   complete: [username: string, bio: string];
+  signOut: [];
 }>();
 
 const { toast } = useToast();
@@ -77,6 +78,18 @@ async function handleSave() {
       <button type="button" class="btn-primary-block" :disabled="saving" @click="handleSave">
         <span v-if="saving" class="spinner" aria-hidden="true"></span>
         Confirmer
+      </button>
+      <!-- This popup cannot be closed, and it covers the page: someone signed
+           in with the wrong account needs a way out that is not "fill it in".
+           (Not during signup — `collectOnly` — where nobody is signed in yet.) -->
+      <button
+        v-if="!collectOnly"
+        type="button"
+        class="btn-outline-block"
+        :disabled="saving"
+        @click="emit('signOut')"
+      >
+        Se déconnecter
       </button>
     </div>
   </ModalDialog>

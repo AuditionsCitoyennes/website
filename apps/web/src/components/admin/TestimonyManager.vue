@@ -10,6 +10,14 @@ import TestimonyEditDialog from "./TestimonyEditDialog.vue";
 const props = defineProps<{
   auditionId: string;
   testimonies: Testimony[];
+  /** An online audition: a testimony is published only once validated by email. */
+  online?: boolean;
+  /**
+   * Its last testimony deleted, the audition is gone too. A callback, not an
+   * event: the popup may have been closed (and this component unmounted)
+   * while the deletion was on its way, and the list must hear of it anyway.
+   */
+  onAuditionDeleted?: (auditionId: string) => void;
 }>();
 
 const emit = defineEmits<{
@@ -27,9 +35,19 @@ const editDialogOpen = ref(false);
 const editingTestimony = ref<Testimony | null>(null);
 const newTestimony = ref({ person_name: "", person_info: "", content: "", email: "" });
 
-function canModify(t: Testimony): boolean {
-  const isVerified = t.verification_status === "verified";
-  return auth.isSuperAdmin || (t.created_by === auth.user?.id && !isVerified);
+const isVerified = (t: Testimony) => t.verification_status === "verified";
+const isMine = (t: Testimony) => t.created_by === auth.user?.id;
+
+// Once its witness has verified it, a testimony is theirs: nobody edits it any
+// more, super admins included (the API refuses it too).
+function canEdit(t: Testimony): boolean {
+  return !isVerified(t) && (auth.isSuperAdmin || isMine(t));
+}
+
+// Removing one stays possible (a witness may ask for it): for a super admin
+// always, for its author as long as it is not verified.
+function canDelete(t: Testimony): boolean {
+  return auth.isSuperAdmin || (isMine(t) && !isVerified(t));
 }
 
 async function handleAdd() {
@@ -37,6 +55,15 @@ async function handleAdd() {
     toast({
       title: "Erreur",
       description: "Le nom et le contenu sont requis",
+      variant: "destructive",
+    });
+    return;
+  }
+  if (props.online && !newTestimony.value.email) {
+    toast({
+      title: "Erreur",
+      description:
+        "Un email est requis : un témoignage d'audition en ligne n'est publié qu'une fois validé par email.",
       variant: "destructive",
     });
     return;
@@ -88,9 +115,25 @@ async function handleAdd() {
 }
 
 async function handleDelete(id: string) {
-  if (!confirm("Êtes-vous sûr de vouloir supprimer ce témoignage?")) return;
+  // An audition never outlives its last testimony: said before, not after.
+  const question =
+    props.testimonies.length === 1
+      ? "C'est le dernier témoignage de cette audition : l'audition sera supprimée avec lui. Continuer ?"
+      : "Êtes-vous sûr de vouloir supprimer ce témoignage?";
+  if (!confirm(question)) return;
+  const auditionId = props.auditionId;
   try {
-    await api.del(`/api/testimonies/${id}`);
+    const result = await api.del<{ auditionDeleted?: boolean } | undefined>(
+      `/api/testimonies/${id}`,
+    );
+    if (result?.auditionDeleted) {
+      toast({
+        title: "Succès!",
+        description: "Témoignage supprimé, et l'audition avec lui : elle n'en avait plus d'autre",
+      });
+      props.onAuditionDeleted?.(auditionId);
+      return;
+    }
     toast({ title: "Succès!", description: "Témoignage supprimé" });
     emit("update");
   } catch (e) {
@@ -171,7 +214,9 @@ async function handleAnalyze(t: Testimony) {
           </div>
         </div>
         <div class="form-field">
-          <label class="form-label" for="add-email">Email (optionnel)</label>
+          <label class="form-label" for="add-email">
+            {{ online ? "Email (obligatoire)" : "Email (optionnel)" }}
+          </label>
           <input
             id="add-email"
             v-model="newTestimony.email"
@@ -205,18 +250,26 @@ async function handleAnalyze(t: Testimony) {
     </ModalDialog>
 
     <div v-if="testimonies.length > 0" class="list">
-      <h3 class="list-title">Témoignages existants ({{ testimonies.length }})</h3>
       <article v-for="t in testimonies" :key="t.id" class="t-card">
         <header class="t-head">
           <div class="t-meta">
             <p class="t-name">{{ t.person_name }}</p>
             <p v-if="t.person_info" class="t-info">{{ t.person_info }}</p>
             <div class="t-chips">
-              <span v-if="t.verification_status === 'verified'" class="chip chip--green"
+              <span
+                v-if="t.verification_status === 'verified'"
+                class="chip chip--green"
+                title="Vérifié par son auteur : ce témoignage ne peut plus être modifié"
                 >Vérifié</span
               >
               <span v-else-if="t.verification_status === 'pending'" class="chip chip--outline"
                 >En attente</span
+              >
+              <span
+                v-else-if="online"
+                class="chip chip--outline"
+                title="Sans validation par email, un témoignage d'audition en ligne n'est pas publié"
+                >Non publié</span
               >
               <span
                 v-if="auth.isSuperAdmin && (!t.topics || t.topics.length === 0)"
@@ -228,7 +281,7 @@ async function handleAnalyze(t: Testimony) {
           </div>
           <div class="t-actions">
             <button
-              v-if="canModify(t)"
+              v-if="canEdit(t)"
               type="button"
               class="ac-btn ac-btn--outline ac-btn--sm ac-btn--icon"
               title="Modifier"
@@ -248,7 +301,7 @@ async function handleAnalyze(t: Testimony) {
               <span v-else>✦</span>
             </button>
             <button
-              v-if="canModify(t)"
+              v-if="canDelete(t)"
               type="button"
               class="ac-btn ac-btn--danger ac-btn--sm ac-btn--icon"
               title="Supprimer"
@@ -300,28 +353,31 @@ async function handleAnalyze(t: Testimony) {
 }
 
 .hint {
-  font-size: 0.78rem;
+  font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
 }
 
 .list {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
 }
 
-.list-title {
-  font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 1rem;
-  color: hsl(var(--foreground));
-}
-
+/* One after the other across the popup's full width, a line between two — not
+   a box each: boxes inside the popup only cost the text its width. */
 .t-card {
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.7rem;
-  padding: 1rem;
+  padding-block: 1rem;
+}
+
+.t-card + .t-card {
+  border-top: 1px solid hsl(var(--border));
+}
+
+.t-card:first-child {
+  padding-top: 0;
+}
+
+.t-card:last-child {
+  padding-bottom: 0;
 }
 
 .t-head {
@@ -334,11 +390,12 @@ async function handleAnalyze(t: Testimony) {
 
 .t-name {
   font-weight: 600;
+  font-size: var(--text-ui);
   color: hsl(var(--foreground));
 }
 
 .t-info {
-  font-size: 0.82rem;
+  font-size: var(--text-ui);
   color: hsl(var(--muted-foreground));
 }
 
@@ -356,7 +413,7 @@ async function handleAnalyze(t: Testimony) {
 }
 
 .t-content {
-  font-size: 0.86rem;
+  font-size: var(--text-body);
   color: hsl(var(--muted-foreground));
   display: -webkit-box;
   -webkit-line-clamp: 3;

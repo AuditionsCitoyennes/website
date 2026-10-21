@@ -7,6 +7,9 @@
 
 :root {
   /* Light theme */
+  /* Native controls (the date picker's calendar and its indicator, scrollbars)
+     are painted by the browser — this is what makes them follow the theme. */
+  color-scheme: light;
   --background: 0 0% 98%;
   --foreground: 240 10% 10%;
 
@@ -57,10 +60,64 @@
 
   --font-sans: "Source Sans 3", system-ui, -apple-system, sans-serif;
   --font-display: "Bebas Neue", system-ui, sans-serif;
+
+  /* Type scale — the ONLY font sizes in the app (scripts/check-type-scale.mjs
+     fails the lint on anything else). Each one grows evenly from a 360px phone
+     to a 1280px screen, then stops; the root stays 16px, so the browser's own
+     text-size setting still applies. Sizes are picked by rank on the screen,
+     not by HTML tag:
+     - nothing readable under --text-caption (12px);
+     - reading text (testimonies, paragraphs) is --text-body, line-height
+       --lh-body, at most ~65 characters per line;
+     - anything typed into is --text-input: under 16px, iPhones zoom in;
+     - buttons are --text-ui whatever their variant (padding makes them small);
+     - Bebas Neue only from --text-title up — below 20px it reads too small,
+       use Source Sans 600 instead; dialogs and side panels top out at title;
+     - no font-size in a phone @media rule: a long word wraps, it isn't shrunk. */
+  --text-caption: clamp(
+    0.75rem,
+    0.7255rem + 0.1087vw,
+    0.8125rem
+  ); /* 12 → 13: chips, counts, dates, credits, kickers */
+  --text-ui: clamp(
+    0.84375rem,
+    0.8193rem + 0.1087vw,
+    0.90625rem
+  ); /* 13.5 → 14.5: labels, buttons, crumbs, secondary lines */
+  --text-body: clamp(0.9375rem, 0.913rem + 0.1087vw, 1rem); /* 15 → 16: reading text, the default */
+  --text-input: max(1rem, 16px); /* 16: typed text */
+  --text-lead: clamp(
+    1.03125rem,
+    0.9457rem + 0.3804vw,
+    1.25rem
+  ); /* 16.5 → 20: one intro per section */
+  --text-title: clamp(
+    1.25rem,
+    1.1522rem + 0.4348vw,
+    1.5rem
+  ); /* 20 → 24 (Bebas): dialog, card, panel titles */
+  --text-section: clamp(
+    1.5rem,
+    1.1087rem + 1.7391vw,
+    2.5rem
+  ); /* 24 → 40 (Bebas): section titles, big numbers */
+  --text-page: clamp(
+    1.75rem,
+    1.0652rem + 3.0435vw,
+    3.5rem
+  ); /* 28 → 56 (Bebas): the page's title, one per screen */
+  --text-display: clamp(2.75rem, 1.087rem + 7.3913vw, 7rem); /* 44 → 112 (Bebas): home hero, 404 */
+  --lh-body: 1.55;
+
+  /* The header's height. On phones it floats over the page (AppHeader) and
+     takes no room of its own: a page leaves it this much space at its top. */
+  --header-h: 4rem;
+  --header-space: calc(var(--header-h) + env(safe-area-inset-top, 0px));
 }
 
 .dark {
   /* Dark theme */
+  color-scheme: dark;
   --background: 260 30% 8%;
   --foreground: 0 0% 95%;
 
@@ -131,8 +188,9 @@ body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
+  font-size: var(--text-body);
   font-weight: 400;
-  line-height: 1.5;
+  line-height: var(--lh-body);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -145,14 +203,35 @@ body {
 
 h1,
 h2,
-h3,
-h4,
-h5,
-h6 {
+h3 {
   font-family: var(--font-display);
   font-weight: 400;
   letter-spacing: 0.03em;
   line-height: 1.05;
+}
+
+/* Defaults, so a heading without a size of its own never falls back to the
+   browser's (in Bebas: from 32px for an h1 down to 10.7px for an h6). */
+h1 {
+  font-size: var(--text-page);
+}
+
+h2 {
+  font-size: var(--text-section);
+}
+
+h3 {
+  font-size: var(--text-title);
+}
+
+/* Below the title tier Bebas reads too small: sans, semibold. */
+h4,
+h5,
+h6 {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 a {
@@ -170,7 +249,16 @@ select,
 textarea,
 button {
   font-family: inherit;
+}
+
+button {
   font-size: inherit;
+}
+
+input,
+select,
+textarea {
+  font-size: var(--text-input);
 }
 
 img {
@@ -178,12 +266,18 @@ img {
   max-width: 100%;
 }
 
-/* Prevent iOS Safari auto-zoom on input focus */
+/* Prevent iOS Safari auto-zoom on input focus — a safety net, every field is
+   --text-input already. The `.form-input` fields are named too: as a bare
+   element selector this rule once lost to that class's smaller size, and
+   iPhones zoomed into every form field. */
 @supports (-webkit-touch-callout: none) {
   input,
   select,
-  textarea {
-    font-size: 16px;
+  textarea,
+  input.form-input,
+  select.form-input,
+  textarea.form-input {
+    font-size: 16px; /* type-exception: iOS focus-zoom guard */
   }
 }
 
@@ -274,7 +368,7 @@ img {
 }
 
 .form-label {
-  font-size: 0.85rem;
+  font-size: var(--text-ui);
   font-weight: 500;
   color: hsl(var(--foreground));
 }
@@ -287,7 +381,7 @@ img {
   border: 1px solid hsl(var(--input));
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-size: 0.95rem;
+  font-size: var(--text-input);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
@@ -323,7 +417,7 @@ img {
   color: hsl(var(--primary-foreground));
   font-weight: 600;
   letter-spacing: 0.02em;
-  font-size: 0.95rem;
+  font-size: var(--text-ui);
   transition: var(--transition-smooth);
 }
 
@@ -350,7 +444,7 @@ img {
   color: hsl(var(--foreground));
   font-weight: 600;
   letter-spacing: 0.02em;
-  font-size: 0.95rem;
+  font-size: var(--text-ui);
   transition: var(--transition-smooth);
 }
 
@@ -375,6 +469,7 @@ img {
   background: transparent;
   color: hsl(var(--foreground));
   font-weight: 500;
+  font-size: var(--text-ui);
   transition: var(--transition-smooth);
 }
 
@@ -395,7 +490,7 @@ img {
   border-radius: 0.55rem;
   border: 1px solid transparent;
   font-weight: 600;
-  font-size: 0.88rem;
+  font-size: var(--text-ui);
   letter-spacing: 0.01em;
   transition: var(--transition-smooth);
   cursor: pointer;
@@ -455,7 +550,6 @@ img {
 .ac-btn--sm {
   height: 2.1rem;
   padding: 0 0.75rem;
-  font-size: 0.8rem;
 }
 
 .ac-btn--icon {
@@ -484,7 +578,7 @@ img {
 
 .admin-card-title {
   font-family: var(--font-display);
-  font-size: 1.45rem;
+  font-size: var(--text-title);
   letter-spacing: 0.04em;
   color: hsl(var(--foreground));
   display: flex;
@@ -494,7 +588,7 @@ img {
 
 .admin-card-desc {
   color: hsl(var(--muted-foreground));
-  font-size: 0.88rem;
+  font-size: var(--text-ui);
   margin-top: 0.25rem;
   margin-bottom: 1.1rem;
 }
@@ -507,7 +601,7 @@ img {
   gap: 0.3rem;
   padding: 0.12rem 0.55rem;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: var(--text-caption);
   font-weight: 600;
   border: 1px solid transparent;
   background: hsl(var(--secondary));
@@ -562,96 +656,8 @@ img {
 }
 
 /* =========================================================================
-   Map (Mapbox GL) overrides
+   Map markers (GeoDrillMap)
    ========================================================================= */
-
-.marker-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: hsl(270 70% 65%);
-  border: 2.5px solid white;
-  box-shadow:
-    0 0 8px hsl(270 70% 65% / 0.6),
-    0 1px 3px rgba(0, 0, 0, 0.3);
-  transition: box-shadow 0.3s ease;
-}
-
-.marker-dot-active {
-  animation: marker-glow 1.5s ease-in-out infinite;
-}
-
-@keyframes marker-glow {
-  0%,
-  100% {
-    box-shadow:
-      0 0 10px 2px hsl(270 70% 65% / 0.7),
-      0 0 20px 4px hsl(270 70% 65% / 0.3),
-      0 1px 3px rgba(0, 0, 0, 0.3);
-  }
-  50% {
-    box-shadow:
-      0 0 24px 6px hsl(270 70% 65% / 1),
-      0 0 50px 12px hsl(270 70% 65% / 0.5),
-      0 0 80px 20px hsl(270 70% 65% / 0.2),
-      0 1px 3px rgba(0, 0, 0, 0.3);
-  }
-}
-
-.mapboxgl-popup-content {
-  background: hsl(var(--card));
-  color: hsl(var(--card-foreground));
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.75rem;
-  box-shadow: var(--shadow-lg);
-  padding: 0;
-  font-family: inherit;
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-/* The popup arrow is drawn with CSS borders — match the card colour for
-   every anchor direction. */
-.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip,
-.mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip,
-.mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip {
-  border-top-color: hsl(var(--card));
-}
-
-.mapboxgl-popup-anchor-top .mapboxgl-popup-tip,
-.mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip,
-.mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip {
-  border-bottom-color: hsl(var(--card));
-}
-
-.mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
-  border-right-color: hsl(var(--card));
-}
-
-.mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
-  border-left-color: hsl(var(--card));
-}
-
-.mapboxgl-popup-close-button {
-  color: hsl(var(--muted-foreground));
-  font-size: 1.25rem;
-  top: 0.4rem;
-  right: 0.5rem;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 0.35rem;
-}
-
-.mapboxgl-popup-close-button:hover {
-  color: hsl(var(--foreground));
-  background: hsl(var(--accent) / 0.5);
-}
-
-/* Marker elements get cursor + keep the glow on top of the canvas. */
-.mapboxgl-marker .marker-dot,
-.mapboxgl-marker.marker-dot {
-  cursor: pointer;
-}
 
 /* Geo-drill count bubbles (built imperatively in GeoDrillMap, so styled
    globally): a circle sized by count with the unit name on a chip below. */
@@ -667,58 +673,97 @@ img {
 .geo-pin-bubble {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  height: 1.85rem;
-  padding: 0 0.6rem;
+  gap: 0.3rem;
+  height: 1.7rem;
+  padding: 0 0.45rem;
   border-radius: 0.6rem;
   background: hsl(var(--card) / 0.94);
   border: 1.5px solid hsl(var(--primary) / 0.85);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
   white-space: nowrap;
   transition:
-    transform 0.12s ease,
-    box-shadow 0.12s ease,
-    border-color 0.12s ease;
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
 }
 
-.geo-pin:hover .geo-pin-bubble {
-  transform: translateY(-1px);
+.geo-pin:hover .geo-pin-bubble,
+.geo-pin-hover .geo-pin-bubble {
+  /* Hovering the pin OR anywhere inside its unit's boundary (the class is set
+     from the map's hover tracking): the pill moves UP, clearing the zone centre
+     so the highlight wash stays visible under it. */
+  transform: translateY(-32px);
   border-color: hsl(var(--primary));
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.geo-pin-num {
-  font-weight: 700;
-  font-size: 0.82rem;
-  color: hsl(var(--primary));
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
 }
 
 .geo-pin-name {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.74rem;
+  font-size: var(--text-caption);
   font-weight: 600;
   color: hsl(var(--foreground));
 }
 
-/* Lieu (leaf): the original flat ground dot (.marker-dot "point au sol"), sized
-   to hold the audition count. Lies flat on the map (tilts with it). */
+/* Lieu (leaf): the original flat ground dot (.marker-dot "point au sol"), now a
+   plain unlabelled point. Lies flat on the map (tilts with it). */
 .geo-pin-leaf {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: hsl(270 70% 65%);
-  border: 2.5px solid white;
+  border: 2px solid white;
   box-shadow:
     0 0 8px hsl(270 70% 65% / 0.6),
     0 1px 3px rgba(0, 0, 0, 0.3);
-  color: white;
-  font-weight: 700;
-  font-size: 0.72rem;
-  line-height: 1;
+}
+
+/* The lieu whose testimonies are open in the panel: a small halo keeps pulsing
+   out from under its dot. Both pseudo-elements sit on the dot's border box
+   (inset = minus its 2px border). The halo animates transform + opacity only, so
+   it stays on the compositor. The marker's own transform makes the dot a
+   stacking context, which paints any child OVER its background — hence ::after
+   redrawing the dot's face on top, so the halo reads as coming from beneath. */
+.geo-pin-leaf.geo-pin-active {
+  z-index: 1; /* above neighbouring dots */
+}
+
+.geo-pin-leaf.geo-pin-active::before,
+.geo-pin-leaf.geo-pin-active::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+}
+
+.geo-pin-leaf.geo-pin-active::before {
+  background: hsl(270 70% 65% / 0.55);
+  animation: geo-pin-halo 1.8s ease-out infinite;
+}
+
+.geo-pin-leaf.geo-pin-active::after {
+  background: inherit;
+  border: inherit;
+}
+
+@keyframes geo-pin-halo {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .geo-pin-leaf.geo-pin-active::before {
+    animation: none;
+    transform: scale(1.9);
+    opacity: 0.45;
+  }
 }
 
 /* A macro pin clamped to the screen edge (its unit is off-screen) — lift it so it
@@ -727,82 +772,4 @@ img {
   box-shadow:
     0 0 0 2px hsl(var(--card) / 0.85),
     0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-/* Map popup content (built imperatively in TestimoniesMap, so styled globally) */
-.map-popup {
-  padding: 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.map-popup-title {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  letter-spacing: 0.03em;
-  color: hsl(var(--foreground));
-  padding-right: 1.25rem;
-}
-
-.map-popup-meta {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: hsl(var(--muted-foreground));
-}
-
-.map-popup-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  max-height: 12rem;
-  overflow-y: auto;
-}
-
-.map-popup-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  width: 100%;
-  text-align: left;
-  padding: 0.4rem 0.55rem;
-  border-radius: 0.45rem;
-  border: 1px solid hsl(var(--border) / 0.6);
-  background: transparent;
-  transition: var(--transition-smooth);
-}
-
-.map-popup-item:hover {
-  background: hsl(var(--accent) / 0.6);
-  border-color: hsl(var(--primary) / 0.4);
-}
-
-.map-popup-item-title {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: hsl(var(--foreground));
-}
-
-.map-popup-item-date {
-  font-size: 0.72rem;
-  color: hsl(var(--muted-foreground));
-}
-
-.map-popup-action {
-  margin-top: 0.15rem;
-  width: 100%;
-  padding: 0.45rem 0.6rem;
-  border-radius: 0.45rem;
-  border: 1px solid hsl(var(--primary) / 0.4);
-  background: hsl(var(--primary) / 0.12);
-  color: hsl(var(--primary));
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: var(--transition-smooth);
-}
-
-.map-popup-action:hover {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
 }

@@ -172,7 +172,7 @@ onBeforeUnmount(() => {
   border: 1px solid hsl(var(--input));
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-size: 0.95rem;
+  font-size: var(--text-input);
   text-align: left;
 }
 
@@ -224,7 +224,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 1rem;
   color: hsl(var(--muted-foreground));
-  font-size: 0.85rem;
+  font-size: var(--text-ui);
 }
 
 .combo-item {
@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border: none;
   color: hsl(var(--foreground));
-  font-size: 0.9rem;
+  font-size: var(--text-ui);
   cursor: pointer;
 }
 

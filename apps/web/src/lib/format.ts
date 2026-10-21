@@ -20,11 +20,6 @@ const shortFmt = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
-const monthFmt = new Intl.DateTimeFormat("fr-FR", {
-  month: "long",
-  year: "numeric",
-});
-
 /** e.g. "9 juin 2026" */
 export function formatDateLong(value: string): string {
   return longFmt.format(parseDate(value));
@@ -33,11 +28,6 @@ export function formatDateLong(value: string): string {
 /** e.g. "9 juin 2026" (abbreviated month) */
 export function formatDateShort(value: string): string {
   return shortFmt.format(parseDate(value));
-}
-
-/** e.g. "juin 2026" */
-export function formatMonthYear(value: string): string {
-  return monthFmt.format(parseDate(value));
 }
 
 /**

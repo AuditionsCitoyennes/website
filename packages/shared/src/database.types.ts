@@ -41,34 +41,43 @@ export type Database = {
       };
       auditions: {
         Row: {
+          audition_en_ligne: boolean;
+          citycode: string | null;
           content: string;
           created_at: string | null;
           created_by: string | null;
           date: string;
           id: string;
           location: string;
+          place: Json | null;
           status: Database["public"]["Enums"]["audition_status"] | null;
           title: string;
           updated_at: string | null;
         };
         Insert: {
+          audition_en_ligne?: boolean;
+          citycode?: string | null;
           content: string;
           created_at?: string | null;
           created_by?: string | null;
           date: string;
           id?: string;
           location: string;
+          place?: Json | null;
           status?: Database["public"]["Enums"]["audition_status"] | null;
           title: string;
           updated_at?: string | null;
         };
         Update: {
+          audition_en_ligne?: boolean;
+          citycode?: string | null;
           content?: string;
           created_at?: string | null;
           created_by?: string | null;
           date?: string;
           id?: string;
           location?: string;
+          place?: Json | null;
           status?: Database["public"]["Enums"]["audition_status"] | null;
           title?: string;
           updated_at?: string | null;
@@ -124,6 +133,27 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      online_testimony_submissions: {
+        Row: {
+          id: number;
+          testimony_id: string | null;
+          email_hash: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: never;
+          testimony_id?: string | null;
+          email_hash: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: never;
+          testimony_id?: string | null;
+          email_hash?: string;
+          created_at?: string;
+        };
+        Relationships: [];
       };
       user_roles: {
         Row: {
@@ -184,6 +214,22 @@ export type Database = {
         Returns: undefined;
       };
       is_admin: { Args: Record<string, never>; Returns: boolean };
+      submit_online_testimony: {
+        Args: {
+          p_email_hash: string;
+          p_person_name: string;
+          p_person_info: string | null;
+          p_content: string;
+          p_citycode: string;
+          p_location: string;
+          p_place: Json;
+          p_month: string;
+          p_title: string;
+          p_audition_content: string;
+          p_token: string;
+        };
+        Returns: Json;
+      };
       is_super_admin: { Args: Record<string, never>; Returns: boolean };
       verify_testimony: {
         Args: { p_action: string; p_token: string };

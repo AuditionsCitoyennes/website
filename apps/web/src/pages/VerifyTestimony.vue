@@ -1,9 +1,17 @@
 <script setup lang="ts">
+import {
+  AUDITION_QUESTIONS,
+  ONLINE_ANSWER_MAX,
+  ONLINE_TESTIMONY_MAX,
+  composeAnswers,
+  parseAnswers,
+} from "@ac/shared";
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/composables/useToast";
 import { formatDateLong } from "@/lib/format";
+import TestimonyText from "@/components/TestimonyText.vue";
 
 interface VerifyTestimonyData {
   id: string;
@@ -12,7 +20,13 @@ interface VerifyTestimonyData {
   content: string;
   verification_status: string | null;
   created_at: string | null;
-  audition: { title: string; location: string; date: string } | null;
+  audition: {
+    title: string;
+    location: string;
+    date: string;
+    /** Sent from the site's "Témoigner" form: published only once validated. */
+    audition_en_ligne?: boolean;
+  } | null;
 }
 
 interface Edits {
@@ -33,6 +47,9 @@ const completed = ref<"verified" | "rejected" | null>(null);
 const editing = ref(false);
 const pendingEdits = ref<Edits | null>(null);
 const editForm = ref({ person_name: "", person_info: "", content: "" });
+/** A testimony sent through the form: edited answer by answer (one per
+ *  question, in order), and written back as one text. null: as one text. */
+const editAnswers = ref<string[] | null>(null);
 
 onMounted(async () => {
   if (!token) {
@@ -58,10 +75,29 @@ function startEditing() {
     person_info: current.person_info ?? "",
     content: current.content,
   };
+  // Answer by answer only for a testimony sent through the form (its limits are
+  // the form's); one noted at an audition is edited as the text it is.
+  const answers = testimony.value?.audition?.audition_en_ligne
+    ? parseAnswers(current.content)
+    : null;
+  editAnswers.value = answers
+    ? AUDITION_QUESTIONS.map((q) => answers.find((a) => a.question === q)?.answer ?? "")
+    : null;
   editing.value = true;
 }
 
 function saveEdit() {
+  if (editAnswers.value) {
+    if (!editAnswers.value.some((a) => a.trim())) {
+      toast({
+        title: "Erreur",
+        description: "Répondez à au moins une des questions",
+        variant: "destructive",
+      });
+      return;
+    }
+    editForm.value.content = composeAnswers(editAnswers.value);
+  }
   if (!editForm.value.person_name || !editForm.value.content) {
     toast({
       title: "Erreur",
@@ -223,9 +259,13 @@ async function handleReject() {
       </h1>
       <p class="card-desc">
         {{
-          completed === "verified"
-            ? 'Votre témoignage apparaîtra désormais avec un badge "Vérifié" sur notre site.'
-            : "Votre témoignage a été retiré de notre base de données."
+          completed !== "verified"
+            ? testimony?.audition?.audition_en_ligne
+              ? "Votre témoignage a été supprimé. Vous pouvez en envoyer un nouveau dès maintenant."
+              : "Votre témoignage a été retiré de notre base de données."
+            : testimony?.audition?.audition_en_ligne
+              ? "Votre témoignage est maintenant publié sur notre site."
+              : 'Votre témoignage apparaîtra désormais avec un badge "Vérifié" sur notre site.'
         }}
       </p>
       <RouterLink to="/" class="ac-btn ac-btn--outline">Retour à l'accueil</RouterLink>
@@ -259,7 +299,14 @@ async function handleReject() {
           </div>
         </header>
 
-        <p v-if="testimony.audition" class="t-meta">
+        <!-- An online audition is a month at a town hall: its title says
+             which month, where a date (the 1st) would mislead. -->
+        <p v-if="testimony.audition?.audition_en_ligne" class="t-meta">
+          {{ testimony.audition.title }}
+          <span class="dot">·</span>
+          {{ testimony.audition.location }}
+        </p>
+        <p v-else-if="testimony.audition" class="t-meta">
           {{ testimony.audition.location }}
           <span class="dot">·</span>
           {{ formatDateLong(testimony.audition.date) }}
@@ -270,7 +317,12 @@ async function handleReject() {
           <div class="grid-2">
             <div class="form-field">
               <label class="form-label" for="v-name">Nom/Prénom</label>
-              <input id="v-name" v-model="editForm.person_name" class="form-input" />
+              <input
+                id="v-name"
+                v-model="editForm.person_name"
+                class="form-input"
+                :maxlength="testimony.audition?.audition_en_ligne ? 80 : 200"
+              />
             </div>
             <div class="form-field">
               <label class="form-label" for="v-info">Informations (optionnel)</label>
@@ -279,16 +331,30 @@ async function handleReject() {
                 v-model="editForm.person_info"
                 class="form-input"
                 placeholder="Ex: 45 ans, enseignante"
+                :maxlength="testimony.audition?.audition_en_ligne ? 300 : 500"
               />
             </div>
           </div>
-          <div class="form-field">
+          <template v-if="editAnswers">
+            <div v-for="(question, i) in AUDITION_QUESTIONS" :key="question" class="form-field">
+              <label class="form-label" :for="`v-answer-${i}`">{{ question }}</label>
+              <textarea
+                :id="`v-answer-${i}`"
+                v-model="editAnswers[i]"
+                class="form-input form-textarea"
+                rows="4"
+                :maxlength="ONLINE_ANSWER_MAX"
+              ></textarea>
+            </div>
+          </template>
+          <div v-else class="form-field">
             <label class="form-label" for="v-content">Témoignage</label>
             <textarea
               id="v-content"
               v-model="editForm.content"
               class="form-input form-textarea"
               rows="8"
+              :maxlength="testimony.audition?.audition_en_ligne ? ONLINE_TESTIMONY_MAX : 20000"
             ></textarea>
           </div>
           <div class="edit-actions">
@@ -303,7 +369,11 @@ async function handleReject() {
 
         <!-- Read view -->
         <div v-else class="content-box">
-          <p class="t-content">{{ pendingEdits ? pendingEdits.content : testimony.content }}</p>
+          <TestimonyText
+            :content="pendingEdits ? pendingEdits.content : testimony.content"
+            as="p"
+            text-class="t-content"
+          />
         </div>
       </div>
 
@@ -357,12 +427,13 @@ async function handleReject() {
 }
 
 .page-head h1 {
-  font-size: clamp(2rem, 5vw, 2.8rem);
+  font-size: var(--text-page);
   text-transform: uppercase;
   color: hsl(var(--foreground));
 }
 
 .lead {
+  font-size: var(--text-lead);
   color: hsl(var(--muted-foreground));
   margin-top: 0.4rem;
 }
@@ -404,7 +475,7 @@ async function handleReject() {
 }
 
 .card-title {
-  font-size: 1.8rem;
+  font-size: var(--text-section);
   text-transform: uppercase;
   color: hsl(var(--foreground));
 }
@@ -424,13 +495,14 @@ async function handleReject() {
 .t-name {
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 1.2rem;
+  font-size: var(--text-ui);
   letter-spacing: 0;
+  line-height: 1.3; /* the h2's Bebas 1.05 crowds a wrapped sans name */
   color: hsl(var(--foreground));
 }
 
 .t-info {
-  font-size: 0.88rem;
+  font-size: var(--text-ui);
   color: hsl(var(--muted-foreground));
   margin-top: 0.15rem;
 }
@@ -442,7 +514,7 @@ async function handleReject() {
 }
 
 .t-meta {
-  font-size: 0.85rem;
+  font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
   margin-top: 0.6rem;
 }
@@ -459,9 +531,10 @@ async function handleReject() {
   border: 1px solid hsl(var(--border) / 0.5);
 }
 
-.t-content {
+.content-box :deep(.t-content) {
+  margin: 0;
   color: hsl(var(--foreground) / 0.88);
-  line-height: 1.65;
+  line-height: var(--lh-body);
   white-space: pre-wrap;
 }
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { z } from "zod";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/composables/useToast";
@@ -22,7 +22,16 @@ const signupSchema = z.object({
 const router = useRouter();
 const { toast } = useToast();
 
+// `?tab=inscription` (the home page's "join" button) opens on the sign-up tab —
+// and the plain /auth (the header's "Connexion"), reached from there, goes back
+// to the sign-in one: the page stays mounted while only its query changes.
+const route = useRoute();
 const tab = ref<"login" | "signup">("login");
+watch(
+  () => route.query.tab,
+  (t) => (tab.value = t === "inscription" ? "signup" : "login"),
+  { immediate: true },
+);
 const loading = ref(false);
 const email = ref("");
 const password = ref("");
@@ -399,7 +408,7 @@ async function handleForgotPassword() {
 }
 
 .card-title {
-  font-size: 2rem;
+  font-size: var(--text-section);
   text-transform: uppercase;
   text-align: center;
   color: hsl(var(--foreground));
@@ -409,7 +418,7 @@ async function handleForgotPassword() {
   margin-top: 0.4rem;
   margin-bottom: 1.4rem;
   color: hsl(var(--muted-foreground));
-  font-size: 0.95rem;
+  font-size: var(--text-body);
 }
 
 .center {
@@ -437,6 +446,7 @@ async function handleForgotPassword() {
   background: transparent;
   color: hsl(var(--muted-foreground));
   font-weight: 600;
+  font-size: var(--text-ui);
   letter-spacing: 0.02em;
   transition: var(--transition-smooth);
 }
@@ -466,7 +476,7 @@ async function handleForgotPassword() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.85rem;
+  font-size: var(--text-ui);
   color: hsl(var(--muted-foreground));
 }
 
@@ -487,7 +497,7 @@ async function handleForgotPassword() {
   background: none;
   border: none;
   padding: 0;
-  font-size: 0.88rem;
+  font-size: var(--text-ui);
   color: hsl(var(--primary));
 }
 
