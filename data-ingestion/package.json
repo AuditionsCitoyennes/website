@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@dsnp/parquetjs": "^1.8.0",
-    "csv-parse": "^5.6.0",
+    "csv-parse": "^7.0.3",
     "luxon": "^3.5.0",
     "yaml": "^2.7.0",
     "zod": "^3.25.76"
@@ -36,6 +36,6 @@
     "@types/node": "^22.20.0",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3",
-    "vitest": "^3.0.0"
+    "vitest": "^5.0.5"
   }
 }
