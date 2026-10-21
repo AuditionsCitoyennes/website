@@ -6,3 +6,5 @@ LICENSE
 supabase
 .geocode-cache*.json
 .boundaries-cache.json
+.boundaries-cache/
+apps/api/data/france-geojson/*.geojson

@@ -1,6 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../../config";
+import { readJson, writeAtomic } from "../../lib/diskCache";
 import {
   DEP_MAX_TOLERANCE_M,
   DEP_MAX_VERTICES,
@@ -15,105 +16,173 @@ import {
 // Administrative boundary geometry, sourced from open data and served to the
 // map (outlines) + used for real centroids/extents.
 //   - métropole contour, régions, départements → france-geojson (IGN-derived,
-//     simplified, open).
+//     simplified, open), vendored in apps/api/data: a cold boot never contacts
+//     GitHub for them.
 //   - communes + arrondissements municipaux → the official Géo API (precise).
 //   - a département as the map RAISES it → the union of its communes' Géo API
 //     contours (getDepartement), so the communes drawn on it lie inside it.
 // The endpoint is the single seam: today it reads these sources; later it can be
 // swapped to a PostGIS-backed store + vector tiles without the frontend changing.
 
-const FR_GEOJSON = "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master";
 const GEO_API = "https://geo.api.gouv.fr";
 const UA = { "User-Agent": "AuditionsCitoyennes/1.0" };
 
-// ---- Caching (régions/départements are static — keep on disk across restarts) ----
-const CACHE_FILE = join(config.CACHE_DIR, ".boundaries-cache.json");
+// ---- Caching (on disk across restarts: a commune is fetched once) ---------------
+// One file per key under CACHE_DIR/.boundaries-cache/, the key URL-encoded in
+// the name (a département's holds its recipe, "…:20000/15m"). Keys are
+// immutable once set, so adding a commune writes ITS few kilobytes, atomically
+// (tmp + rename), and never re-serialises the whole map — which was 11.7 MB,
+// rewritten every 3 s while someone drilled, and in place, so a crash
+// mid-write left a truncated file the next boot read as empty.
+const CACHE_ROOT = join(config.CACHE_DIR, ".boundaries-cache");
+// What the cache was before: the whole map in one file, split into the
+// directory once, at boot, without fetching anything (migrateLegacyFile).
+const LEGACY_FILE = join(config.CACHE_DIR, ".boundaries-cache.json");
 const memory = new Map<string, BoundaryCollection>();
-let loaded = false;
 
-async function load(): Promise<void> {
-  if (loaded) return;
-  loaded = true;
+function fileOf(key: string): string {
+  return join(CACHE_ROOT, `${encodeURIComponent(key)}.json`);
+}
+
+export interface BoundariesLoadReport {
+  /** Keys read from the directory. */
+  keys: number;
+  /** Keys split out of the one-file cache this boot (0 when there was none). */
+  migrated: number;
+}
+
+// The read, memoised as a promise: every caller before it lands waits on the
+// SAME read. A flag set before the await let the three level requests GeoNav
+// fires on mount see an empty map on every cold start.
+let loading: Promise<BoundariesLoadReport> | undefined;
+
+function load(): Promise<BoundariesLoadReport> {
+  return (loading ??= readCache());
+}
+
+async function readCache(): Promise<BoundariesLoadReport> {
+  await mkdir(CACHE_ROOT, { recursive: true });
+  const migrated = await migrateLegacyFile();
+  const names = await readdir(CACHE_ROOT);
+  // What a write that never completed left behind.
+  await Promise.all(
+    names.filter((n) => n.endsWith(".tmp")).map((n) => rm(join(CACHE_ROOT, n), { force: true })),
+  );
+  await pool(
+    names.filter((n) => n.endsWith(".json")),
+    16,
+    async (name) => {
+      const key = decodeURIComponent(name.slice(0, -".json".length));
+      const value = await readJson<BoundaryCollection>(join(CACHE_ROOT, name)).catch(
+        () => undefined,
+      );
+      if (value?.type === "FeatureCollection" && Array.isArray(value.features)) {
+        memory.set(key, value);
+      }
+    },
+  );
+  return { keys: memory.size, migrated };
+}
+
+/**
+ * Split the one-file cache of earlier versions into the directory, one file
+ * per key, and remove it once every key has its file. Pure disk work: nothing
+ * is fetched, nothing is recomputed. A file that is not JSON (one the old
+ * in-place write left by halves) is left alone, and the cache starts cold.
+ */
+async function migrateLegacyFile(): Promise<number> {
+  const legacy = await readJson<Record<string, BoundaryCollection>>(LEGACY_FILE).catch(
+    () => undefined,
+  );
+  if (!legacy) return 0;
+  const entries = Object.entries(legacy);
+  await pool(entries, WRITE_CONCURRENCY, ([key, value]) =>
+    writeAtomic(fileOf(key), JSON.stringify(value)),
+  );
+  await rm(LEGACY_FILE, { force: true });
+  return entries.length;
+}
+
+// Persisting a key: its own file, written as soon as it is set. A few at a
+// time (a bulk seeds a whole département's communes at once), each tracked
+// until it lands so that flushBoundariesCache() can wait for them.
+const WRITE_CONCURRENCY = 8;
+let activeWrites = 0;
+const waitingWrites: (() => void)[] = [];
+const pendingWrites = new Set<Promise<void>>();
+
+async function limited<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeWrites >= WRITE_CONCURRENCY) await new Promise<void>((r) => waitingWrites.push(r));
+  activeWrites++;
   try {
-    const raw = await readFile(CACHE_FILE, "utf8");
-    const obj = JSON.parse(raw) as Record<string, BoundaryCollection>;
-    for (const [k, v] of Object.entries(obj)) memory.set(k, v);
-  } catch {
-    /* no cache yet */
+    return await fn();
+  } finally {
+    activeWrites--;
+    waitingWrites.shift()?.();
   }
 }
 
-async function persist(): Promise<void> {
-  const obj: Record<string, BoundaryCollection> = {};
-  for (const [k, v] of memory) obj[k] = v;
-  try {
-    await writeFile(CACHE_FILE, JSON.stringify(obj));
-  } catch {
-    /* ignore */
-  }
+function persistKey(key: string): void {
+  const value = memory.get(key);
+  if (!value) return;
+  const task = limited(() => writeAtomic(fileOf(key), JSON.stringify(value))).catch(() => {
+    /* a cache: the entry is still in memory, fetched again after a restart at worst */
+  });
+  pendingWrites.add(task);
+  void task.finally(() => pendingWrites.delete(task));
 }
 
-// Writing the WHOLE cache on every insert is O(n²): the file is already >1 MB,
-// and drilling a dense département inserts dozens of communes in a row, so each
-// one re-serialised megabytes on the event loop and stalled every in-flight
-// request. Coalesce instead — the cache is a warm-start optimisation, so losing
-// the last few seconds on a crash is harmless.
-const PERSIST_DEBOUNCE_MS = 3000;
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Makes sure the directory has been read (every public function does). Awaited
+ * once at boot, before the server listens, where its report is logged.
+ */
+export function loadBoundariesCache(): Promise<BoundariesLoadReport> {
+  return load();
+}
 
-function schedulePersist(): void {
-  if (persistTimer) return;
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    void persist();
-  }, PERSIST_DEBOUNCE_MS);
-  // A pending cache write must never hold the process open.
-  persistTimer.unref?.();
+/** Wait for the writes in flight — for a shutdown. Nothing is buffered beyond them. */
+export async function flushBoundariesCache(): Promise<void> {
+  await Promise.all(pendingWrites);
 }
 
 // Every upstream call has a deadline: one that hangs would otherwise hold its
-// callers until undici gives up (300 s). A level file is ~600 KB from GitHub;
-// a commune's contour a few kB; a département's all of its communes' (megabytes
-// for a coast like Finistère's).
-const LEVEL_TIMEOUT_MS = 30000;
+// callers until undici gives up (300 s). A commune's contour is a few kB; a
+// département's all of its communes' (megabytes for a coast like Finistère's).
 const COMMUNE_TIMEOUT_MS = 8000;
 const DEP_TIMEOUT_MS = 20000;
 
-async function fetchCollection(url: string): Promise<BoundaryCollection> {
-  const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(LEVEL_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`boundary fetch ${res.status} for ${url}`);
-  const fc = (await res.json()) as {
+// ---- The static levels: vendored (apps/api/data/france-geojson) -----------------
+const LEVEL_FILE: Record<string, string> = {
+  metropole: join(config.DATA_DIR, "france-geojson", "metropole-version-simplifiee.geojson"),
+  regions: join(config.DATA_DIR, "france-geojson", "regions-version-simplifiee.geojson"),
+  departements: join(config.DATA_DIR, "france-geojson", "departements-version-simplifiee.geojson"),
+};
+
+async function readLevel(level: string): Promise<BoundaryCollection> {
+  const file = LEVEL_FILE[level];
+  if (!file) throw new Error(`unknown boundary level: ${level}`);
+  const raw = await readFile(file, "utf8");
+  if (level === "metropole") {
+    // The métropole contour is a bare Feature with empty properties: wrapped
+    // into a one-feature collection and named here.
+    const feat = JSON.parse(raw) as { geometry: Geometry };
+    const enriched = enrich({ geometry: feat.geometry, properties: { code: "FR", nom: "France" } });
+    return { type: "FeatureCollection", features: [enriched] };
+  }
+  const fc = JSON.parse(raw) as {
     features: { geometry: Geometry; properties: Record<string, unknown> }[];
   };
   return { type: "FeatureCollection", features: (fc.features ?? []).map(enrich) };
 }
-
-// Metropolitan France contour — upstream serves a bare Feature with empty
-// properties, so wrap it into a one-feature collection and name it ourselves.
-async function fetchMetropole(url: string): Promise<BoundaryCollection> {
-  const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(LEVEL_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`boundary fetch ${res.status} for ${url}`);
-  const feat = (await res.json()) as { geometry: Geometry };
-  const enriched = enrich({ geometry: feat.geometry, properties: { code: "FR", nom: "France" } });
-  return { type: "FeatureCollection", features: [enriched] };
-}
-
-const LEVEL_URL: Record<string, string> = {
-  metropole: `${FR_GEOJSON}/metropole-version-simplifiee.geojson`,
-  regions: `${FR_GEOJSON}/regions-version-simplifiee.geojson`,
-  departements: `${FR_GEOJSON}/departements-version-simplifiee.geojson`,
-};
 
 /** Métropole / régions / départements as one enriched FeatureCollection (cached). */
 export async function getLevel(level: string): Promise<BoundaryCollection> {
   await load();
   const cached = memory.get(level);
   if (cached) return cached;
-  const url = LEVEL_URL[level];
-  if (!url) throw new Error(`unknown boundary level: ${level}`);
-  const fc = level === "metropole" ? await fetchMetropole(url) : await fetchCollection(url);
+  const fc = await readLevel(level);
   memory.set(level, fc);
-  schedulePersist();
+  persistKey(level);
   return fc;
 }
 
@@ -179,7 +248,7 @@ export async function getCommune(insee: string): Promise<BoundaryFeature> {
     const feat = (await res.json()) as { geometry: Geometry; properties: Record<string, unknown> };
     const enriched = enrich(feat);
     memory.set(key, { type: "FeatureCollection", features: [enriched] });
-    schedulePersist();
+    persistKey(key);
     return enriched;
   });
 }
@@ -209,9 +278,9 @@ async function fetchDepartementCommunes(dep: string): Promise<BoundaryFeature[]>
       const key = `commune:${enriched.properties.code}`;
       if (enriched.properties.code && !memory.has(key)) {
         memory.set(key, { type: "FeatureCollection", features: [enriched] });
+        persistKey(key);
       }
     }
-    if (features.length) schedulePersist();
     return features;
   });
 }
@@ -315,13 +384,13 @@ export async function getDepartement(code: string): Promise<BoundaryFeature> {
     const contours = (await fetchDepartementCommunes(code)).map((f) => f.geometry);
     const merged = contours.length ? mergeTiles(contours) : null;
     if (!merged) throw new Error(`no commune contours for département ${code}`);
-    const nom = memory.get("departements")?.features.find((f) => f.properties.code === code);
+    const nom = (await getLevel("departements")).features.find((f) => f.properties.code === code);
     const enriched = enrich({
       geometry: simplifyToBudget(merged, DEP_MAX_VERTICES, DEP_MAX_TOLERANCE_M),
       properties: { code, nom: nom?.properties.nom ?? "" },
     });
     memory.set(key, { type: "FeatureCollection", features: [enriched] });
-    schedulePersist();
+    persistKey(key);
     return enriched;
   });
 }
