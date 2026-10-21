@@ -5,7 +5,7 @@ import {
   type MapAudition,
 } from "@ac/shared";
 import { fetchPublishedAuditions, onlinePlaceOf, placeKeyOf } from "../auditions/service";
-import { getCachedEntry, loadGeocodeCache, resolve } from "../geo/geocode";
+import { backoffUntil, getCachedEntry, loadGeocodeCache, resolve } from "../geo/geocode";
 import { cached, invalidate } from "../../lib/cache";
 import {
   PUBLIC_CACHE_KEYS,
@@ -102,8 +102,16 @@ let warming: Promise<void> | null = null;
 // latch that stayed shut would keep it off the map until the API restarts.
 let warmGeneration = -1;
 
+// Some lieux failed to geocode and back off (geocode.ts): no pass of that
+// generation before the earliest of them may be tried again — one would only
+// find them still backing off.
+let warmNotBefore = 0;
+let warmNotBeforeGeneration = -1;
+
 export function warmLocationGeocodes(): Promise<void> {
-  if (warmGeneration === publicCachesGeneration()) return Promise.resolve();
+  const current = publicCachesGeneration();
+  if (warmGeneration === current) return Promise.resolve();
+  if (warmNotBeforeGeneration === current && Date.now() < warmNotBefore) return Promise.resolve();
   if (warming) return warming;
   warming = (async () => {
     try {
@@ -121,19 +129,28 @@ export function warmLocationGeocodes(): Promise<void> {
       );
       // Online auditions are not geocoded: their town hall is stored with them.
       const grouped = groupByCanonical(auditions.filter((a) => !a.audition_en_ligne));
-      let resolvedAny = false;
-      let pending = 0;
+      // Whether the geocode cache gained an entry (coordinates, or a final no
+      // match): only then does the cached map need building again. A lookup
+      // that failed leaves no entry and backs off; the pass comes back when
+      // the earliest of those may be tried again.
+      let changed = false;
+      let retryAt = Infinity;
       for (const canonical of grouped.keys()) {
         if (getCachedEntry(canonical) !== undefined) continue;
-        pending++;
         await resolve(canonical);
-        resolvedAny = true;
+        if (getCachedEntry(canonical) !== undefined) changed = true;
+        else retryAt = Math.min(retryAt, backoffUntil(canonical) ?? Date.now());
       }
-      if (pending === 0) warmGeneration = generation;
+      if (retryAt === Infinity) {
+        warmGeneration = generation;
+      } else {
+        warmNotBeforeGeneration = generation;
+        warmNotBefore = retryAt;
+      }
       // Newly geocoded locations only reach the client if the cached map
       // response is dropped — otherwise they wait out the full TTL, which is
       // longer than the client's entire polling window.
-      if (resolvedAny) invalidate(PUBLIC_CACHE_KEYS.map);
+      if (changed) invalidate(PUBLIC_CACHE_KEYS.map);
     } catch {
       /* ignore — best-effort warm */
     } finally {
