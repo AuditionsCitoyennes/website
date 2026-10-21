@@ -1,0 +1,27 @@
+/* Admin cards */
+
+.admin-card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow-sm);
+  padding: 1.4rem;
+  margin-bottom: 1.6rem;
+}
+
+.admin-card-title {
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  letter-spacing: 0.04em;
+  color: hsl(var(--foreground));
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-card-desc {
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-ui);
+  margin-top: 0.25rem;
+  margin-bottom: 1.1rem;
+}

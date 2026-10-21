@@ -10,6 +10,7 @@ import {
 } from "vue";
 import { useRouter } from "vue-router";
 import { useMapStage, type StageRect } from "@/composables/useMapStage";
+import { headerBottomPx, isPhone } from "@/shared/dom/header";
 
 // The one testimonies map (see useMapStage): mounted in whichever place a page
 // lends it — the home page's card, or /temoignages — and moved, not rebuilt,
@@ -84,9 +85,7 @@ function grown(el: HTMLElement): Promise<void> {
 /** Where the page will hold the map: under the header — or right from the
  *  top on a phone, where the header floats over the map page. */
 function pageRect(): StageRect {
-  const phone = window.matchMedia("(max-width: 899px)").matches;
-  const header = document.querySelector<HTMLElement>("header.header");
-  const top = phone ? 0 : Math.max(0, Math.round(header?.getBoundingClientRect().bottom ?? 0));
+  const top = isPhone() ? 0 : headerBottomPx();
   const width = document.documentElement.clientWidth;
   return { top, left: 0, width, height: window.innerHeight - top };
 }

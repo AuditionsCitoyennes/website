@@ -8,10 +8,10 @@ import {
 } from "@ac/shared";
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { api, ApiError } from "@/lib/api";
-import { useToast } from "@/composables/useToast";
-import { formatDateLong } from "@/lib/format";
-import TestimonyText from "@/components/TestimonyText.vue";
+import { api, ApiError } from "@/shared/api/client";
+import { useToast } from "@/shared/ui/toast/useToast";
+import { formatDateLong } from "@/shared/format/dates";
+import TestimonyText from "@/shared/testimony/TestimonyText.vue";
 
 interface VerifyTestimonyData {
   id: string;

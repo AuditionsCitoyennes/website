@@ -2,11 +2,11 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
 import { answersText, type Testimony } from "@ac/shared";
-import { api, ApiError } from "@/lib/api";
-import { useToast } from "@/composables/useToast";
+import { api, ApiError } from "@/shared/api/client";
+import { useToast } from "@/shared/ui/toast/useToast";
 import { useAuthStore } from "@/stores/auth";
 import { useFilters } from "@/composables/useFilters";
-import { formatDateLong, formatDateShort } from "@/lib/format";
+import { formatDateLong, formatDateShort } from "@/shared/format/dates";
 import {
   buildLocationTree,
   buildTopicOptions,
@@ -18,11 +18,11 @@ import {
   type Area,
   type TestimonyContent,
 } from "@/lib/filters";
-import ModalDialog from "@/components/ModalDialog.vue";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import LocationCombobox from "@/components/LocationCombobox.vue";
 import FiltersDialog from "@/components/FiltersDialog.vue";
 import FilterChips from "@/components/FilterChips.vue";
-import LoadingDots from "@/components/LoadingDots.vue";
+import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
 import TestimonyManager from "./TestimonyManager.vue";
 
 interface AdminAudition {

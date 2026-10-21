@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import type { Testimony } from "@ac/shared";
-import { api, ApiError } from "@/lib/api";
-import { useToast } from "@/composables/useToast";
-import ModalDialog from "@/components/ModalDialog.vue";
+import { api, ApiError } from "@/shared/api/client";
+import { useToast } from "@/shared/ui/toast/useToast";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 
 const props = defineProps<{
   open: boolean;

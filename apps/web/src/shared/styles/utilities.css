@@ -1,0 +1,75 @@
+/* =========================================================================
+   Utility helpers (used across hand-written components)
+   ========================================================================= */
+
+.gradient-hero {
+  background: var(--gradient-hero);
+}
+.gradient-card {
+  background: var(--gradient-card);
+}
+.gradient-surface {
+  background: var(--gradient-surface);
+}
+
+.elevation-xs {
+  box-shadow: var(--shadow-xs);
+}
+.elevation-sm {
+  box-shadow: var(--shadow-sm);
+}
+.elevation-md {
+  box-shadow: var(--shadow-md);
+}
+.elevation-lg {
+  box-shadow: var(--shadow-lg);
+}
+.elevation-xl {
+  box-shadow: var(--shadow-xl);
+}
+.elevation-2xl {
+  box-shadow: var(--shadow-2xl);
+}
+.elevation-glow {
+  box-shadow: var(--shadow-glow);
+}
+
+.transition-smooth {
+  transition: var(--transition-smooth);
+}
+
+.glass {
+  background: hsl(var(--card) / 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid hsl(var(--border) / 0.5);
+}
+
+.glass-strong {
+  background: hsl(var(--card) / 0.95);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid hsl(var(--border) / 0.3);
+}
+
+.container-page {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.4s ease-out;
+}

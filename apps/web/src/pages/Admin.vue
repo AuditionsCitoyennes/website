@@ -2,7 +2,7 @@
 import { computed, ref, watch, watchEffect } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
-import { useToast } from "@/composables/useToast";
+import { useToast } from "@/shared/ui/toast/useToast";
 import { useIdleTimeout } from "@/composables/useIdleTimeout";
 import { usePendingRegistrations } from "@/composables/usePendingRegistrations";
 import { useCreateAudition } from "@/composables/useCreateAudition";

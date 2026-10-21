@@ -425,7 +425,7 @@ export function ringOf(s: ScopeAnalysis, o: RingOpts, outer: number): Ring | nul
 
 // ---- Type -----------------------------------------------------------------------
 
-/** The type scale at a viewport width, px (global.css; `rem`: the root's size). */
+/** The type scale at a viewport width, px (shared/styles/tokens.css; `rem`: the root's size). */
 export interface TypePx {
   caption: number;
   ui: number;

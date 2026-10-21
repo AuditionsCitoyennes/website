@@ -1,5 +1,5 @@
 // Every font size in the web app is one of the type scale's tokens (see the
-// "Type scale" block in src/styles/global.css). This fails on any other value
+// "Type scale" block in src/shared/styles/tokens.css). This fails on any other value
 // — a rem, a px, a clamp of its own — unless the line says why it must be an
 // exception: a `type-exception: <reason>` comment on it or on the line above.
 //
@@ -43,7 +43,7 @@ for (const entry of readdirSync(src, { recursive: true })) {
 if (problems.length) {
   console.error(
     `Font sizes must be one of var(--text-{${TOKENS.join(",")}}) or inherit ` +
-      `(see the type scale in apps/web/src/styles/global.css), or carry a ` +
+      `(see the type scale in apps/web/src/shared/styles/tokens.css), or carry a ` +
       `"type-exception: <reason>" comment:\n` +
       problems.map((p) => `  ${p}`).join("\n"),
   );

@@ -1,5 +1,5 @@
 import { answersText, themesOf } from "@ac/shared";
-import type { LocNode } from "@/components/LocationTreeNode.vue";
+import type { LocNode } from "@/shared/ui/select/treeNode";
 
 // The filters of the Témoignages page — place, dates, themes, verified, free
 // text, order — as plain functions, so that every list offering them (the map's

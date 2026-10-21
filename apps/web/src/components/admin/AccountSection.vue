@@ -2,13 +2,13 @@
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { isAuthError } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/shared/api/supabase";
 import { checkCurrentPassword, hasPassword } from "@/lib/reauth";
-import { api, ApiError } from "@/lib/api";
-import { useToast } from "@/composables/useToast";
+import { api, ApiError } from "@/shared/api/client";
+import { useToast } from "@/shared/ui/toast/useToast";
 import { useAuthStore } from "@/stores/auth";
 import { passwordSchema, PASSWORD_REQUIREMENTS } from "@/lib/passwordValidation";
-import ModalDialog from "@/components/ModalDialog.vue";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 
 const router = useRouter();
 const auth = useAuthStore();

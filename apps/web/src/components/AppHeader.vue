@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
-import { useTheme } from "@/composables/useTheme";
+import { useTheme } from "@/shared/ui/theme/useTheme";
 import { useCreateAudition } from "@/composables/useCreateAudition";
 import { useSubmitTestimony } from "@/composables/useSubmitTestimony";
 

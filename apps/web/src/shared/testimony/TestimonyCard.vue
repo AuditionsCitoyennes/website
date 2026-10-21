@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { themesOf, type PublicTestimony } from "@ac/shared";
-import { formatDateShort } from "@/lib/format";
-import HighlightText from "@/components/HighlightText.vue";
-import TestimonyText from "@/components/TestimonyText.vue";
+import { formatDateShort } from "@/shared/format/dates";
+import HighlightText from "@/shared/testimony/HighlightText.vue";
+import TestimonyText from "@/shared/testimony/TestimonyText.vue";
 
 const props = defineProps<{
   testimony: PublicTestimony;

@@ -1,0 +1,118 @@
+/* =========================================================================
+   Map markers (GeoDrillMap)
+   ========================================================================= */
+
+/* Geo-drill count bubbles (built imperatively in GeoDrillMap, so styled
+   globally): a circle sized by count with the unit name on a chip below. */
+.geo-pin {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Uniform outlined pill (rounded line style) — count + unit name inline. Size is
+   constant; the number carries the magnitude, not the pin's area. */
+.geo-pin-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 1.7rem;
+  padding: 0 0.45rem;
+  border-radius: 0.6rem;
+  background: hsl(var(--card) / 0.94);
+  border: 1.5px solid hsl(var(--primary) / 0.85);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+  white-space: nowrap;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.geo-pin:hover .geo-pin-bubble,
+.geo-pin-hover .geo-pin-bubble {
+  /* Hovering the pin OR anywhere inside its unit's boundary (the class is set
+     from the map's hover tracking): the pill moves UP, clearing the zone centre
+     so the highlight wash stays visible under it. */
+  transform: translateY(-32px);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+}
+
+.geo-pin-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+/* Lieu (leaf): the original flat ground dot (.marker-dot "point au sol"), now a
+   plain unlabelled point. Lies flat on the map (tilts with it). */
+.geo-pin-leaf {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: hsl(270 70% 65%);
+  border: 2px solid white;
+  box-shadow:
+    0 0 8px hsl(270 70% 65% / 0.6),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* The lieu whose testimonies are open in the panel: a small halo keeps pulsing
+   out from under its dot. Both pseudo-elements sit on the dot's border box
+   (inset = minus its 2px border). The halo animates transform + opacity only, so
+   it stays on the compositor. The marker's own transform makes the dot a
+   stacking context, which paints any child OVER its background — hence ::after
+   redrawing the dot's face on top, so the halo reads as coming from beneath. */
+.geo-pin-leaf.geo-pin-active {
+  z-index: 1; /* above neighbouring dots */
+}
+
+.geo-pin-leaf.geo-pin-active::before,
+.geo-pin-leaf.geo-pin-active::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+}
+
+.geo-pin-leaf.geo-pin-active::before {
+  background: hsl(270 70% 65% / 0.55);
+  animation: geo-pin-halo 1.8s ease-out infinite;
+}
+
+.geo-pin-leaf.geo-pin-active::after {
+  background: inherit;
+  border: inherit;
+}
+
+@keyframes geo-pin-halo {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .geo-pin-leaf.geo-pin-active::before {
+    animation: none;
+    transform: scale(1.9);
+    opacity: 0.45;
+  }
+}
+
+/* A macro pin clamped to the screen edge (its unit is off-screen) — lift it so it
+   reads as a floating edge indicator pointing toward the off-screen unit. */
+.geo-pin-stuck .geo-pin-bubble {
+  box-shadow:
+    0 0 0 2px hsl(var(--card) / 0.85),
+    0 4px 12px rgba(0, 0, 0, 0.4);
+}

@@ -578,7 +578,7 @@ function buildMarkers() {
   applyActivePin(); // a rebuilt pin is a fresh element — re-mark it
 }
 
-/** Move `.geo-pin-active` (the pulsing halo, styled in global.css) onto the pin
+/** Move `.geo-pin-active` (the pulsing halo, styled in features/map/geo-pins.css) onto the pin
  *  of the lieu being read. */
 function applyActivePin() {
   const id = props.activeId ?? "";
@@ -1412,11 +1412,11 @@ function applyPinVisibility(s: (typeof sticky)[number]) {
 // into `opacity` and `pointer-events`), each time the pins or the slabs
 // change: every sticky pass, a hover, the slabs built or gone.
 let pinsUnderSlab = new Set<string>();
-/** How far above its point a hovered pill is drawn: global.css,
+/** How far above its point a hovered pill is drawn: geo-pins.css,
  *  `.geo-pin-hover .geo-pin-bubble { transform: translateY(-32px) }` — keep
  *  the two in step. */
 const PILL_LIFT_PX = 32;
-/** A lieu dot's radius: global.css, `.geo-pin-leaf` (16 px, border-box). */
+/** A lieu dot's radius: geo-pins.css, `.geo-pin-leaf` (16 px, border-box). */
 const DOT_RADIUS_PX = 8;
 /** Around a pin's centre, the points looked at too (× its half-size): a
  *  pill's corners, a dot's rim across and along. */
@@ -6398,7 +6398,7 @@ const rectBounds = (r: SlabRect): Bounds => ({
   maxLng: r.maxLng,
 });
 
-/** The site's card colour (global.css --card, an HSL triplet), as sRGB 0..1. */
+/** The site's card colour (shared/styles/tokens.css --card, an HSL triplet), as sRGB 0..1. */
 function readCardRgb(): [number, number, number] {
   const raw = getComputedStyle(document.documentElement).getPropertyValue("--card").trim();
   const m = raw.match(/^(-?[\d.]+)(?:deg)?[\s,]+([\d.]+)%[\s,]+([\d.]+)%/);

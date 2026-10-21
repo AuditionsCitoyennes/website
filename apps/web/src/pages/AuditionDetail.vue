@@ -3,9 +3,9 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import { themesOf } from "@ac/shared";
-import { api } from "@/lib/api";
-import { formatDateLong } from "@/lib/format";
-import TestimonyText from "@/components/TestimonyText.vue";
+import { api } from "@/shared/api/client";
+import { formatDateLong } from "@/shared/format/dates";
+import TestimonyText from "@/shared/testimony/TestimonyText.vue";
 
 interface DetailTestimony {
   id: string;

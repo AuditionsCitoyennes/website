@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { supabase, wasPasswordRecoveryDetected } from "@/lib/supabase";
-import { useToast } from "@/composables/useToast";
+import { supabase, wasPasswordRecoveryDetected } from "@/shared/api/supabase";
+import { useToast } from "@/shared/ui/toast/useToast";
 import { passwordSchema, PASSWORD_REQUIREMENTS } from "@/lib/passwordValidation";
 
 const router = useRouter();
@@ -21,7 +21,7 @@ let unsubscribe: (() => void) | null = null;
 onMounted(() => {
   // The recovery link signs the user in via the URL. The PASSWORD_RECOVERY
   // event may already have fired before this lazy-loaded page mounted — the
-  // module-scope flag in lib/supabase covers that window; the live
+  // module-scope flag in shared/api/supabase covers that window; the live
   // subscription covers a detection that resolves later. Otherwise declare
   // the link invalid after 5s.
   if (wasPasswordRecoveryDetected()) {

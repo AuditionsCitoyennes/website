@@ -1,0 +1,117 @@
+/* =========================================================================
+   Reset + base
+   ========================================================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-color: hsl(var(--border));
+}
+
+* {
+  margin: 0;
+}
+
+html {
+  height: 100%;
+  background: hsl(var(--background));
+}
+
+body {
+  min-height: 100%;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: 400;
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  line-height: 1.05;
+}
+
+/* Defaults, so a heading without a size of its own never falls back to the
+   browser's (in Bebas: from 32px for an h1 down to 10.7px for an h6). */
+h1 {
+  font-size: var(--text-page);
+}
+
+h2 {
+  font-size: var(--text-section);
+}
+
+h3 {
+  font-size: var(--text-title);
+}
+
+/* Below the title tier Bebas reads too small: sans, semibold. */
+h4,
+h5,
+h6 {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+button {
+  font-size: inherit;
+}
+
+input,
+select,
+textarea {
+  font-size: var(--text-input);
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* Prevent iOS Safari auto-zoom on input focus — a safety net, every field is
+   --text-input already. The `.form-input` fields are named too: as a bare
+   element selector this rule once lost to that class's smaller size, and
+   iPhones zoomed into every form field. */
+@supports (-webkit-touch-callout: none) {
+  input,
+  select,
+  textarea,
+  input.form-input,
+  select.form-input,
+  textarea.form-input {
+    font-size: 16px; /* type-exception: iOS focus-zoom guard */
+  }
+}

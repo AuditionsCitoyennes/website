@@ -1,6 +1,6 @@
 import { computed, ref, type Ref } from "vue";
-import type { LocNode } from "@/components/LocationTreeNode.vue";
-import { formatDateShort } from "@/lib/format";
+import type { LocNode } from "@/shared/ui/select/treeNode";
+import { formatDateShort } from "@/shared/format/dates";
 import { fold } from "@/lib/filters";
 
 /**

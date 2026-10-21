@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { supabase } from "@/lib/supabase";
-import { useToast } from "@/composables/useToast";
-import ModalDialog from "@/components/ModalDialog.vue";
+import { supabase } from "@/shared/api/supabase";
+import { useToast } from "@/shared/ui/toast/useToast";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 
 const props = defineProps<{
   open: boolean;

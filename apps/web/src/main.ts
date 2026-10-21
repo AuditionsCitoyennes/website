@@ -4,11 +4,11 @@ import { VueQueryPlugin, type VueQueryPluginOptions } from "@tanstack/vue-query"
 import App from "./App.vue";
 import { router } from "./router";
 import "mapbox-gl/dist/mapbox-gl.css";
-import "./styles/global.css";
+import "./shared/styles/index.css";
 
-// Theme bootstrap lives in composables/useTheme.ts (module scope) so the
+// Theme bootstrap lives in shared/ui/theme/useTheme.ts (module scope) so the
 // reactive ref and the <html> class share one initialization.
-import "./composables/useTheme";
+import "./shared/ui/theme/useTheme";
 
 // --- iOS Safari viewport height fix (exposes --app-height) ---
 const setAppHeight = () => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { supabase } from "@/lib/supabase";
-import { useToast } from "@/composables/useToast";
+import { supabase } from "@/shared/api/supabase";
+import { useToast } from "@/shared/ui/toast/useToast";
 
 const { toast } = useToast();
 const loading = ref(false);

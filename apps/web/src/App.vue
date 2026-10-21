@@ -4,11 +4,11 @@ import { useRoute } from "vue-router";
 import { useQueryClient } from "@tanstack/vue-query";
 import AppHeader from "@/components/AppHeader.vue";
 import MapStage from "@/components/MapStage.vue";
-import ToastHost from "@/components/ToastHost.vue";
+import ToastHost from "@/shared/ui/toast/ToastHost.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useCreateAudition } from "@/composables/useCreateAudition";
 import { useSubmitTestimony } from "@/composables/useSubmitTestimony";
-import { useToast } from "@/composables/useToast";
+import { useToast } from "@/shared/ui/toast/useToast";
 
 const auth = useAuthStore();
 const route = useRoute();

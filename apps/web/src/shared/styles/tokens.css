@@ -1,0 +1,162 @@
+/* =========================================================================
+   Design tokens — ported from the previous app (Moxfield-inspired deep purple).
+   Colours are stored as raw HSL channels and consumed via hsl(var(--x)).
+   ========================================================================= */
+
+:root {
+  /* Light theme */
+  /* Native controls (the date picker's calendar and its indicator, scrollbars)
+     are painted by the browser — this is what makes them follow the theme. */
+  color-scheme: light;
+  --background: 0 0% 98%;
+  --foreground: 240 10% 10%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 10%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 10%;
+
+  --primary: 270 60% 55%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 240 5% 92%;
+  --secondary-foreground: 240 10% 20%;
+
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 5% 45%;
+
+  --accent: 270 50% 95%;
+  --accent-foreground: 270 60% 40%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 240 6% 90%;
+  --input: 240 6% 90%;
+  --ring: 270 60% 55%;
+
+  --radius: 0.5rem;
+
+  --civic-blue: 270 60% 55%;
+  --civic-green: 160 60% 45%;
+  --warm-gray: 240 5% 96%;
+
+  --gradient-hero: linear-gradient(135deg, hsl(270 60% 55%) 0%, hsl(290 60% 60%) 100%);
+  --gradient-card: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(240 5% 98%) 100%);
+  --gradient-surface: linear-gradient(180deg, hsl(270 50% 98%) 0%, hsl(0 0% 98%) 100%);
+
+  --shadow-xs: 0 1px 2px 0 hsl(240 10% 10% / 0.03);
+  --shadow-sm: 0 1px 3px 0 hsl(240 10% 10% / 0.06), 0 1px 2px -1px hsl(240 10% 10% / 0.06);
+  --shadow-md: 0 4px 6px -1px hsl(240 10% 10% / 0.07), 0 2px 4px -2px hsl(240 10% 10% / 0.05);
+  --shadow-lg: 0 10px 15px -3px hsl(240 10% 10% / 0.08), 0 4px 6px -4px hsl(240 10% 10% / 0.05);
+  --shadow-xl: 0 20px 25px -5px hsl(240 10% 10% / 0.1), 0 8px 10px -6px hsl(240 10% 10% / 0.06);
+  --shadow-2xl: 0 25px 50px -12px hsl(240 10% 10% / 0.2);
+  --shadow-glow: 0 0 30px hsl(270 60% 55% / 0.2);
+
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --font-sans: "Source Sans 3", system-ui, -apple-system, sans-serif;
+  --font-display: "Bebas Neue", system-ui, sans-serif;
+
+  /* Type scale — the ONLY font sizes in the app (scripts/check-type-scale.mjs
+     fails the lint on anything else). Each one grows evenly from a 360px phone
+     to a 1280px screen, then stops; the root stays 16px, so the browser's own
+     text-size setting still applies. Sizes are picked by rank on the screen,
+     not by HTML tag:
+     - nothing readable under --text-caption (12px);
+     - reading text (testimonies, paragraphs) is --text-body, line-height
+       --lh-body, at most ~65 characters per line;
+     - anything typed into is --text-input: under 16px, iPhones zoom in;
+     - buttons are --text-ui whatever their variant (padding makes them small);
+     - Bebas Neue only from --text-title up — below 20px it reads too small,
+       use Source Sans 600 instead; dialogs and side panels top out at title;
+     - no font-size in a phone @media rule: a long word wraps, it isn't shrunk. */
+  --text-caption: clamp(
+    0.75rem,
+    0.7255rem + 0.1087vw,
+    0.8125rem
+  ); /* 12 → 13: chips, counts, dates, credits, kickers */
+  --text-ui: clamp(
+    0.84375rem,
+    0.8193rem + 0.1087vw,
+    0.90625rem
+  ); /* 13.5 → 14.5: labels, buttons, crumbs, secondary lines */
+  --text-body: clamp(0.9375rem, 0.913rem + 0.1087vw, 1rem); /* 15 → 16: reading text, the default */
+  --text-input: max(1rem, 16px); /* 16: typed text */
+  --text-lead: clamp(
+    1.03125rem,
+    0.9457rem + 0.3804vw,
+    1.25rem
+  ); /* 16.5 → 20: one intro per section */
+  --text-title: clamp(
+    1.25rem,
+    1.1522rem + 0.4348vw,
+    1.5rem
+  ); /* 20 → 24 (Bebas): dialog, card, panel titles */
+  --text-section: clamp(
+    1.5rem,
+    1.1087rem + 1.7391vw,
+    2.5rem
+  ); /* 24 → 40 (Bebas): section titles, big numbers */
+  --text-page: clamp(
+    1.75rem,
+    1.0652rem + 3.0435vw,
+    3.5rem
+  ); /* 28 → 56 (Bebas): the page's title, one per screen */
+  --text-display: clamp(2.75rem, 1.087rem + 7.3913vw, 7rem); /* 44 → 112 (Bebas): home hero, 404 */
+  --lh-body: 1.55;
+
+  /* The header's height. On phones it floats over the page (AppHeader) and
+     takes no room of its own: a page leaves it this much space at its top. */
+  --header-h: 4rem;
+  --header-space: calc(var(--header-h) + env(safe-area-inset-top, 0px));
+}
+
+.dark {
+  /* Dark theme */
+  color-scheme: dark;
+  --background: 260 30% 8%;
+  --foreground: 0 0% 95%;
+
+  --card: 260 25% 12%;
+  --card-foreground: 0 0% 95%;
+
+  --popover: 260 25% 10%;
+  --popover-foreground: 0 0% 95%;
+
+  --primary: 270 70% 65%;
+  --primary-foreground: 260 30% 8%;
+
+  --secondary: 260 20% 18%;
+  --secondary-foreground: 0 0% 90%;
+
+  --muted: 260 20% 15%;
+  --muted-foreground: 260 10% 55%;
+
+  --accent: 270 40% 20%;
+  --accent-foreground: 270 70% 75%;
+
+  --destructive: 0 65% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 260 20% 18%;
+  --input: 260 20% 18%;
+  --ring: 270 70% 65%;
+
+  --civic-blue: 270 70% 65%;
+  --civic-green: 160 50% 50%;
+  --warm-gray: 260 20% 15%;
+
+  --gradient-hero: linear-gradient(135deg, hsl(270 50% 25%) 0%, hsl(290 40% 30%) 100%);
+  --gradient-card: linear-gradient(180deg, hsl(260 25% 14%) 0%, hsl(260 25% 10%) 100%);
+  --gradient-surface: linear-gradient(180deg, hsl(260 30% 12%) 0%, hsl(260 30% 8%) 100%);
+
+  --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
+  --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.4), 0 1px 2px -1px hsl(0 0% 0% / 0.4);
+  --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.5), 0 2px 4px -2px hsl(0 0% 0% / 0.4);
+  --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.5), 0 4px 6px -4px hsl(0 0% 0% / 0.4);
+  --shadow-xl: 0 20px 25px -5px hsl(0 0% 0% / 0.6), 0 8px 10px -6px hsl(0 0% 0% / 0.5);
+  --shadow-2xl: 0 25px 50px -12px hsl(0 0% 0% / 0.8);
+  --shadow-glow: 0 0 40px hsl(270 70% 65% / 0.25);
+}
