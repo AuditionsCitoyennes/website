@@ -2,10 +2,10 @@
 import { computed } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import type { AuditionPreview } from "@ac/shared";
-import { api, ApiError } from "@/lib/api";
-import { formatDateLong } from "@/lib/format";
-import ModalDialog from "@/components/ModalDialog.vue";
-import TestimonyCard from "@/components/TestimonyCard.vue";
+import { api, ApiError } from "@/shared/api/client";
+import { formatDateLong } from "@/shared/format/dates";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
+import TestimonyCard from "@/shared/testimony/TestimonyCard.vue";
 
 // Read-only look at one audition, opened from an entry of the audit log: what
 // an admin added (or touched), as it stands now, draft or published.

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import ModalDialog from "@/components/ModalDialog.vue";
-import ThemeMultiSelect from "@/components/ThemeMultiSelect.vue";
-import LocationMultiSelect from "@/components/LocationMultiSelect.vue";
-import type { LocNode } from "@/components/LocationTreeNode.vue";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
+import ThemeMultiSelect from "@/shared/ui/select/ThemeMultiSelect.vue";
+import LocationMultiSelect from "@/shared/ui/select/LocationMultiSelect.vue";
+import type { LocNode } from "@/shared/ui/select/treeNode";
 import FilterChips from "@/components/FilterChips.vue";
 
 interface Option {

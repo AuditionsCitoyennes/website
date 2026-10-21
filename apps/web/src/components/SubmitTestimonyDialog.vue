@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { AUDITION_QUESTIONS, ONLINE_ANSWER_MAX, onlineTestimonySchema } from "@ac/shared";
-import { api, ApiError } from "@/lib/api";
-import { vAutogrow } from "@/lib/autogrow";
-import ModalDialog from "@/components/ModalDialog.vue";
+import { api, ApiError } from "@/shared/api/client";
+import { vAutogrow } from "@/shared/ui/directives/autogrow";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import CommuneCombobox, { type Commune } from "@/components/CommuneCombobox.vue";
 
 // "Témoigner": anyone — signed in or not — leaves a testimony. It joins the

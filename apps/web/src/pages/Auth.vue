@@ -2,8 +2,8 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { z } from "zod";
-import { supabase } from "@/lib/supabase";
-import { useToast } from "@/composables/useToast";
+import { supabase } from "@/shared/api/supabase";
+import { useToast } from "@/shared/ui/toast/useToast";
 import { passwordSchema, PASSWORD_REQUIREMENTS } from "@/lib/passwordValidation";
 import { mapAuthError } from "@/lib/authErrors";
 import OAuthButtons from "@/components/OAuthButtons.vue";

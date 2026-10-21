@@ -2,8 +2,9 @@
 import { computed, markRaw, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, watch } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
-import { api } from "@/lib/api";
-import { formatDateShort } from "@/lib/format";
+import { api } from "@/shared/api/client";
+import { formatDateShort } from "@/shared/format/dates";
+import { headerTilesBottomPx } from "@/shared/dom/header";
 import {
   abbrevCount,
   ancestorsOf,
@@ -51,9 +52,9 @@ import {
   slabTextMode,
   slabTextScale,
 } from "@/lib/slabDev";
-import TestimonyCard from "@/components/TestimonyCard.vue";
-import ExpandTransition from "@/components/ExpandTransition.vue";
-import LoadingDots from "@/components/LoadingDots.vue";
+import TestimonyCard from "@/shared/testimony/TestimonyCard.vue";
+import ExpandTransition from "@/shared/ui/transition/ExpandTransition.vue";
+import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
 
 const props = defineProps<{
   groups: LocationGroup[];
@@ -1686,15 +1687,8 @@ const pageH = ref(0);
 const headerClearPx = ref(0);
 function measureHeaderClear() {
   const page = pageEl.value;
-  const header = document.querySelector<HTMLElement>("header.header");
-  if (!page || !header) return;
-  const tiles = [...header.querySelectorAll(".header-inner > *")]
-    .map((tile) => tile.getBoundingClientRect())
-    .filter((r) => r.height > 0);
-  // None found (the header laid out otherwise): its whole box, to be safe.
-  const bottom = tiles.length
-    ? Math.max(...tiles.map((r) => r.bottom))
-    : header.getBoundingClientRect().bottom;
+  const bottom = headerTilesBottomPx();
+  if (!page || bottom === null) return;
   headerClearPx.value = Math.max(0, Math.round(bottom - page.getBoundingClientRect().top));
 }
 let pageRO: ResizeObserver | null = null;

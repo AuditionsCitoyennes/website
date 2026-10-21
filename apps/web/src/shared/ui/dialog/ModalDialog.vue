@@ -1,13 +1,6 @@
-<script lang="ts">
-// The dialogs open at this moment, bottom to top. One can open over another
-// (an audition's popup, then the form that edits it): only the top one answers
-// Escape, each sits above the one it was opened from, and the page stays
-// locked until the last one closes.
-const openDialogs: symbol[] = [];
-</script>
-
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { openDialogs } from "@/shared/ui/dialog/dialogPile";
 
 const props = defineProps<{
   open: boolean;

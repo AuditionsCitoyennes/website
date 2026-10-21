@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { Testimony } from "@ac/shared";
-import { api, ApiError } from "@/lib/api";
-import { useToast } from "@/composables/useToast";
+import { api, ApiError } from "@/shared/api/client";
+import { useToast } from "@/shared/ui/toast/useToast";
 import { useAuthStore } from "@/stores/auth";
-import ModalDialog from "@/components/ModalDialog.vue";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import TestimonyEditDialog from "./TestimonyEditDialog.vue";
 
 const props = defineProps<{

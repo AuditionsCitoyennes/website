@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { testimonyInputSchema } from "@ac/shared";
-import { api, ApiError } from "@/lib/api";
-import { useToast } from "@/composables/useToast";
-import ModalDialog from "@/components/ModalDialog.vue";
+import { api, ApiError } from "@/shared/api/client";
+import { useToast } from "@/shared/ui/toast/useToast";
+import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import LocationCombobox from "@/components/LocationCombobox.vue";
 
 const props = defineProps<{ open: boolean }>();

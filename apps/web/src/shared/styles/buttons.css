@@ -1,0 +1,87 @@
+/* Button system used across admin components (prefixed to avoid clashing
+   with page-scoped .btn classes) */
+
+.ac-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: 0.55rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+  font-size: var(--text-ui);
+  letter-spacing: 0.01em;
+  transition: var(--transition-smooth);
+  cursor: pointer;
+}
+
+.ac-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ac-btn--primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.ac-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ac-btn--outline {
+  border-color: hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.ac-btn--outline:hover:not(:disabled) {
+  background: hsl(var(--accent) / 0.5);
+}
+
+.ac-btn--ghost {
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+.ac-btn--ghost:hover:not(:disabled) {
+  background: hsl(var(--accent) / 0.5);
+}
+
+.ac-btn--danger {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.ac-btn--danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.ac-btn--success {
+  background: hsl(var(--civic-green));
+  color: #fff;
+}
+
+.ac-btn--success:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ac-btn--sm {
+  height: 2.1rem;
+  padding: 0 0.75rem;
+}
+
+.ac-btn--icon {
+  width: 2.5rem;
+  padding: 0;
+}
+
+.ac-btn--icon.ac-btn--sm {
+  width: 2.1rem;
+}
+
+.ac-btn--block {
+  width: 100%;
+}

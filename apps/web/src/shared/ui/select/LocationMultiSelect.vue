@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import LocationTreeNode, { type LocNode } from "@/components/LocationTreeNode.vue";
+import LocationTreeNode from "@/shared/ui/select/LocationTreeNode.vue";
+import type { LocNode } from "@/shared/ui/select/treeNode";
 
 const props = defineProps<{
   modelValue: string[];

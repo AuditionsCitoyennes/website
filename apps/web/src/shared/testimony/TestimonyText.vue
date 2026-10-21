@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { parseAnswers } from "@ac/shared";
-import { formatTestimonyText } from "@/lib/format";
-import HighlightText from "@/components/HighlightText.vue";
+import { formatTestimonyText } from "@/shared/testimony/text";
+import HighlightText from "@/shared/testimony/HighlightText.vue";
 
 // A testimony's text. One sent through the "Témoigner" form is its answers,
 // each under its question; any other is shown as it is.

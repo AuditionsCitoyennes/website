@@ -1,0 +1,38 @@
+/* Small status chips */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  border: 1px solid transparent;
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+}
+
+.chip--green {
+  background: hsl(var(--civic-green) / 0.12);
+  color: hsl(var(--civic-green));
+  border-color: hsl(var(--civic-green) / 0.25);
+}
+
+.chip--outline {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  border-color: hsl(var(--border));
+}
+
+.chip--red {
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+  border-color: hsl(var(--destructive) / 0.3);
+}
+
+.chip--amber {
+  background: hsl(38 80% 50% / 0.14);
+  color: hsl(38 90% 45%);
+  border-color: hsl(38 80% 50% / 0.3);
+}

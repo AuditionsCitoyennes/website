@@ -2,8 +2,8 @@
 import { onMounted, ref } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
 import type { RoleWithDetails } from "@ac/shared";
-import { api, ApiError } from "@/lib/api";
-import { useToast } from "@/composables/useToast";
+import { api, ApiError } from "@/shared/api/client";
+import { useToast } from "@/shared/ui/toast/useToast";
 import { PENDING_REGISTRATIONS_KEY } from "@/composables/usePendingRegistrations";
 import { useAuthStore } from "@/stores/auth";
 

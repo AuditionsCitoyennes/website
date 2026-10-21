@@ -1,0 +1,15 @@
+@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Source+Sans+3:wght@300;400;500;600;700&display=swap");
+
+/* The site's global stylesheet, in pieces: the one CSS import in main.ts.
+   The order below IS the cascade order of the former global.css — keep it. The
+   admin cards and the geo pins belong to their features but stay globally
+   imported here, so the cascade and the first paint are unchanged. */
+@import "./tokens.css";
+@import "./base.css";
+@import "./utilities.css";
+@import "./forms.css";
+@import "./buttons.css";
+@import "../../features/admin/admin.css";
+@import "./chips.css";
+@import "./feedback.css";
+@import "../../features/map/geo-pins.css";

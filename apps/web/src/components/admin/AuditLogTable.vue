@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
 import type { AuditAction, AuditLogRow } from "@ac/shared";
-import { api } from "@/lib/api";
-import { formatDateShort } from "@/lib/format";
+import { api } from "@/shared/api/client";
+import { formatDateShort } from "@/shared/format/dates";
 import AuditionPreviewDialog from "./AuditionPreviewDialog.vue";
 
 // Keyed by AuditAction, so an action added to the shared list without a label

@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import type { AuditionWithCount, LocationGroup, PublicTestimony } from "@ac/shared";
-import { api } from "@/lib/api";
+import { api } from "@/shared/api/client";
 import {
   buildLocationTree,
   buildTopicOptions,

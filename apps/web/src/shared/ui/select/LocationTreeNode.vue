@@ -1,13 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-
-export interface LocNode {
-  token: string;
-  label: string;
-  hint?: string;
-  count?: number;
-  children?: LocNode[];
-}
+import type { LocNode } from "@/shared/ui/select/treeNode";
 
 const props = defineProps<{
   node: LocNode;

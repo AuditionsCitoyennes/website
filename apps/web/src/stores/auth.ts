@@ -1,8 +1,8 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
-import { api } from "@/lib/api";
+import { supabase } from "@/shared/api/supabase";
+import { api } from "@/shared/api/client";
 
 interface MeResponse {
   user: { id: string; email: string | null; metadata: Record<string, unknown> };

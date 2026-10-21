@@ -1,7 +1,7 @@
 import { onBeforeUnmount, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { supabase } from "@/lib/supabase";
-import { useToast } from "@/composables/useToast";
+import { supabase } from "@/shared/api/supabase";
+import { useToast } from "@/shared/ui/toast/useToast";
 
 const IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const WARNING_BEFORE = 2 * 60 * 1000; // warn 2 min before

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { PendingRegistration } from "@ac/shared";
-import { api, ApiError } from "@/lib/api";
-import { useToast } from "@/composables/useToast";
+import { api, ApiError } from "@/shared/api/client";
+import { useToast } from "@/shared/ui/toast/useToast";
 import { usePendingRegistrations } from "@/composables/usePendingRegistrations";
-import { formatDateShort } from "@/lib/format";
+import { formatDateShort } from "@/shared/format/dates";
 
 const emit = defineEmits<{
   approved: [];
