@@ -1,5 +1,10 @@
 import type { RouteRecordRaw } from "vue-router";
 import { ROUTE } from "@/shared/routes";
+import { HomePage } from "@/features/home";
+import { AuditionDetailPage } from "@/features/audition";
+import { AuthPage, ResetPasswordPage } from "@/features/auth";
+import { AdminPage } from "@/features/admin";
+import { VerifyTestimonyPage } from "@/features/testify";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -13,7 +18,7 @@ export const routes: RouteRecordRaw[] = [
   {
     path: ROUTE.home.path,
     name: ROUTE.home.name,
-    component: () => import("@/pages/Landing.vue"),
+    component: HomePage,
     meta: { bleed: true },
   },
   {
@@ -36,22 +41,22 @@ export const routes: RouteRecordRaw[] = [
   {
     path: ROUTE.auditionDetail.path,
     name: ROUTE.auditionDetail.name,
-    component: () => import("@/pages/AuditionDetail.vue"),
+    component: AuditionDetailPage,
   },
   // The page is gone: what it said lives on the home page now. Old links
   // land on that part of it.
   { path: "/participer", redirect: { path: ROUTE.home.path, hash: "#auditions-publiques" } },
-  { path: ROUTE.auth.path, name: ROUTE.auth.name, component: () => import("@/pages/Auth.vue") },
-  { path: ROUTE.admin.path, name: ROUTE.admin.name, component: () => import("@/pages/Admin.vue") },
+  { path: ROUTE.auth.path, name: ROUTE.auth.name, component: AuthPage },
+  { path: ROUTE.admin.path, name: ROUTE.admin.name, component: AdminPage },
   {
     path: ROUTE.verifyTestimony.path,
     name: ROUTE.verifyTestimony.name,
-    component: () => import("@/pages/VerifyTestimony.vue"),
+    component: VerifyTestimonyPage,
   },
   {
     path: ROUTE.resetPassword.path,
     name: ROUTE.resetPassword.name,
-    component: () => import("@/pages/ResetPassword.vue"),
+    component: ResetPasswordPage,
   },
   {
     path: ROUTE.notFound.path,

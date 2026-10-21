@@ -4,7 +4,7 @@ import { testimonyInputSchema } from "@ac/shared";
 import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
-import LocationCombobox from "@/components/LocationCombobox.vue";
+import LocationCombobox from "./LocationCombobox.vue";
 
 const props = defineProps<{ open: boolean }>();
 

@@ -4,7 +4,7 @@ import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import ThemeMultiSelect from "@/shared/ui/select/ThemeMultiSelect.vue";
 import LocationMultiSelect from "@/shared/ui/select/LocationMultiSelect.vue";
 import type { LocNode } from "@/shared/ui/select/treeNode";
-import FilterChips from "@/components/FilterChips.vue";
+import FilterChips from "./FilterChips.vue";
 
 interface Option {
   value: string;

@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch, watchEffect } from "vue";
 import { useRouter } from "vue-router";
-import { useAuthStore } from "@/stores/auth";
+import { useAuthStore } from "@/features/auth";
+import { useIdleTimeout, UsernamePromptDialog } from "@/features/auth/account";
 import { useToast } from "@/shared/ui/toast/useToast";
-import { useIdleTimeout } from "@/composables/useIdleTimeout";
-import { usePendingRegistrations } from "@/composables/usePendingRegistrations";
-import { useCreateAudition } from "@/composables/useCreateAudition";
-import UsernamePromptDialog from "@/components/UsernamePromptDialog.vue";
-import PendingApprovalCard from "@/components/admin/PendingApprovalCard.vue";
-import AccountSection from "@/components/admin/AccountSection.vue";
-import PendingRegistrations from "@/components/admin/PendingRegistrations.vue";
-import RoleManagement from "@/components/admin/RoleManagement.vue";
-import AuditLogTable from "@/components/admin/AuditLogTable.vue";
-import AuditionAdminList from "@/components/admin/AuditionAdminList.vue";
+import { usePendingRegistrations } from "../registrations/usePendingRegistrations";
+import { useCreateAudition } from "../auditions/useCreateAudition";
+import PendingApprovalCard from "../shell/PendingApprovalCard.vue";
+import AccountSection from "../account/AccountSection.vue";
+import PendingRegistrations from "../registrations/PendingRegistrations.vue";
+import RoleManagement from "../registrations/RoleManagement.vue";
+import AuditLogTable from "../audit-log/AuditLogTable.vue";
+import AuditionAdminList from "../auditions/AuditionAdminList.vue";
 
 const router = useRouter();
 const auth = useAuthStore();

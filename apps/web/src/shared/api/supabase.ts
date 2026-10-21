@@ -20,7 +20,7 @@ export const supabase = createClient<Database>(
 // client parses the recovery URL — which can be before a lazy-loaded page
 // component gets a chance to subscribe. This synchronous module-scope
 // listener is registered before that tick, so the flag is never missed;
-// ResetPassword reads it on mount as a fallback to its live subscription.
+// ResetPasswordPage reads it on mount as a fallback to its live subscription.
 let passwordRecoveryDetected = false;
 supabase.auth.onAuthStateChange((event) => {
   if (event === "PASSWORD_RECOVERY") passwordRecoveryDetected = true;

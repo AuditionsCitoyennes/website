@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { watch } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
-import { useAuthStore } from "@/stores/auth";
-import { useCreateAudition } from "@/composables/useCreateAudition";
-import { useSubmitTestimony } from "@/composables/useSubmitTestimony";
+import { MAP_KEY, TESTIMONIES_KEY } from "@/shared/api/queryKeys";
+import { useAuthStore } from "@/features/auth";
+import { loadCreateAuditionDialog, useCreateAudition } from "@/features/admin";
+import { loadSubmitTestimonyDialog, useSubmitTestimony } from "@/features/testify";
 import { useLazyDialog } from "./useLazyDialog";
 
 const auth = useAuthStore();
@@ -15,7 +16,7 @@ const queryClient = useQueryClient();
 // again, then said (useLazyDialog).
 const createAudition = useCreateAudition();
 const { component: CreateAuditionDialog, unavailable: dialogUnavailable } = useLazyDialog({
-  loader: () => import("@/components/admin/CreateAuditionDialog.vue"),
+  loader: loadCreateAuditionDialog,
   open: createAudition.open,
   hide: createAudition.hide,
 });
@@ -24,7 +25,7 @@ const { component: CreateAuditionDialog, unavailable: dialogUnavailable } = useL
 // first asked for (most visits never testify). Same failure handling.
 const submitTestimony = useSubmitTestimony();
 const { component: SubmitTestimonyDialog } = useLazyDialog({
-  loader: () => import("@/components/SubmitTestimonyDialog.vue"),
+  loader: loadSubmitTestimonyDialog,
   open: submitTestimony.open,
   hide: submitTestimony.hide,
 });
@@ -33,8 +34,8 @@ function onAuditionCreated() {
   createAudition.notifyCreated();
   // The public pages show what they loaded a moment ago: the new audition
   // belongs on them now, wherever it was created from.
-  for (const key of ["testimonies", "map"]) {
-    void queryClient.invalidateQueries({ queryKey: [key] });
+  for (const key of [TESTIMONIES_KEY, MAP_KEY]) {
+    void queryClient.invalidateQueries({ queryKey: key });
   }
 }
 

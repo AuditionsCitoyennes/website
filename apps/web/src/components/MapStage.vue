@@ -302,7 +302,7 @@ async function open() {
   position: fixed;
   z-index: 45;
   overflow: hidden;
-  /* The card's own corners (Landing's .map-card), at first. */
+  /* The card's own corners (HomePage's .map-card), at first. */
   border-radius: 1.5rem;
   box-shadow: var(--shadow-2xl);
 }

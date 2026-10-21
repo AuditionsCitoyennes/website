@@ -2,7 +2,7 @@ import { computed } from "vue";
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
 import type { PendingRegistration } from "@ac/shared";
 import { api } from "@/shared/api/client";
-import { useAuthStore } from "@/stores/auth";
+import { useAuthStore } from "@/features/auth";
 
 /** Start of the query's key: what the other admin panels invalidate. */
 export const PENDING_REGISTRATIONS_KEY = ["admin", "pending-registrations"] as const;

@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { supabase, wasPasswordRecoveryDetected } from "@/shared/api/supabase";
 import { useToast } from "@/shared/ui/toast/useToast";
-import { passwordSchema, PASSWORD_REQUIREMENTS } from "@/lib/passwordValidation";
+import { passwordSchema, PASSWORD_REQUIREMENTS } from "../lib/password";
 
 const router = useRouter();
 const { toast } = useToast();

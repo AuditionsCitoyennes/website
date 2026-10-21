@@ -1,7 +1,7 @@
 import { computed, ref, type Ref } from "vue";
 import type { LocNode } from "@/shared/ui/select/treeNode";
 import { formatDateShort } from "@/shared/format/dates";
-import { fold } from "@/lib/filters";
+import { fold } from "./filters";
 
 /**
  * The state behind the filters dialog (FiltersDialog): the values picked, the

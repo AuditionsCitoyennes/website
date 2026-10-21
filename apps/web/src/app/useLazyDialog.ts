@@ -7,8 +7,8 @@ import { useToast } from "@/shared/ui/toast/useToast";
  * buttons that open it must not simply do nothing: it is tried again, then
  * said — and the popup closed again, so a later press says it again.
  *
- * `loader` stays a literal `() => import("…")` in the caller: that is what
- * Vite splits into a chunk of its own.
+ * `loader` is a literal `() => import("…")`, exported by the feature's barrel:
+ * that is what Vite splits into a chunk of its own.
  */
 export function useLazyDialog(options: {
   loader: AsyncComponentLoader;
