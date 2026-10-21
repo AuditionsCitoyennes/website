@@ -10,6 +10,7 @@ import {
 } from "@ac/shared";
 import { config, hasEmail, hasServiceRole, isDev } from "../../config";
 import { logAudit } from "../../lib/audit";
+import { EmailRetryableError } from "../../lib/email/resend";
 import { sendOnlineVerificationEmail } from "../../lib/email/verification";
 import { allowGlobalHit } from "../../lib/rateLimit";
 import { PlaceError, resolveTownHall } from "./townHall";
@@ -109,8 +110,10 @@ export type SubmitResult =
   | { kind: "weeklyQuota" }
   /** The database call failed for another reason. */
   | { kind: "notSaved" }
-  /** The email could not be sent; `rolledBack` says whether the testimony and its quota row went. */
-  | { kind: "emailFailed"; rolledBack: boolean };
+  /** The email was refused for good; `rolledBack` says whether the testimony and its quota row went. */
+  | { kind: "emailFailed"; rolledBack: boolean }
+  /** The email service did not answer, twice: the testimony stays, the visitor may try again after `retryAfterSeconds`. */
+  | { kind: "emailRetryable"; retryAfterSeconds: number };
 
 /** A visitor's testimony, from a well-formed form, past the per-visitor limit. */
 export async function submitOnlineTestimony(
@@ -180,11 +183,31 @@ export async function submitOnlineTestimony(
   try {
     await sendOnlineVerificationEmail(input.email, token, townHall.location, title);
   } catch (e) {
-    // Without its link the testimony could never be published: it goes, and
-    // so does its quota row (an address mistyped must not be locked out for
-    // a week). The month's audition goes with it if nobody else has joined
-    // it meanwhile (the database never leaves an audition empty).
-    log.error({ err: e }, "online testimony: verification email failed");
+    if (e instanceof EmailRetryableError) {
+      // Resend may well have accepted the email (a timeout past its answer):
+      // the testimony stays, its link may be in the inbox. Only its quota
+      // row goes, so that the visitor, told to try again in a moment, is not
+      // refused for a week by the weekly quota — one more pending testimony
+      // at worst, never a dead link.
+      log.error({ err: e }, "online testimony: verification email not sent, retryable");
+      const quota = await client
+        .from("online_testimony_submissions")
+        .delete()
+        .eq("testimony_id", result.testimony_id);
+      if (quota.error) {
+        log.error(
+          { quota: quota.error, testimonyId: result.testimony_id },
+          "online testimony: quota row not freed after a retryable email failure",
+        );
+      }
+      return { kind: "emailRetryable", retryAfterSeconds: e.retryAfterSeconds ?? 60 };
+    }
+    // Refused for good — the address, most likely. Without its link the
+    // testimony could never be published: it goes, and so does its quota row
+    // (an address mistyped must not be locked out for a week). The month's
+    // audition goes with it if nobody else has joined it meanwhile (the
+    // database never leaves an audition empty).
+    log.error({ err: e }, "online testimony: verification email refused");
     const quota = await client
       .from("online_testimony_submissions")
       .delete()

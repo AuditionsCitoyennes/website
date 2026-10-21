@@ -1,5 +1,15 @@
 import { config } from "../../config";
-import { esc, FROM, REPLY_TO, requireKey, resendPost, wrapBrandedEmail } from "./resend";
+import {
+  EmailRejectedError,
+  EmailRetryableError,
+  EmailsDisabledError,
+  esc,
+  FROM,
+  REPLY_TO,
+  requireKey,
+  resendPost,
+  wrapBrandedEmail,
+} from "./resend";
 
 export interface VerificationRecipient {
   email: string;
@@ -206,17 +216,51 @@ export async function sendOnlineVerificationEmail(
     "Vous n'êtes pas à l'origine de ce message ? Ignorez-le : rien ne sera publié. Le même lien permet aussi de supprimer ce témoignage.",
   ].join("\n");
 
-  const res = await resendPost(
-    "/emails",
-    {
-      from: FROM,
-      reply_to: REPLY_TO,
-      to: [email],
-      subject: "Validez votre témoignage",
-      text,
-      html: wrapBrandedEmail("Validez votre témoignage", body),
-    },
-    `online-testimony-${verificationToken}`,
-  );
-  if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
+  const post = () =>
+    resendPost(
+      "/emails",
+      {
+        from: FROM,
+        reply_to: REPLY_TO,
+        to: [email],
+        subject: "Validez votre témoignage",
+        text,
+        html: wrapBrandedEmail("Validez votre témoignage", body),
+      },
+      // The same key on both tries: an email Resend had accepted is not sent twice.
+      `online-testimony-${verificationToken}`,
+    );
+  // Once more, a second later, when the first try may or may not have gone
+  // through (a timeout past Resend's answer, a 5xx, the network). A refusal
+  // (a 4xx other than 429) is final: EmailRejectedError at once.
+  try {
+    await sendOnce(post);
+  } catch (e) {
+    if (!(e instanceof EmailRetryableError)) throw e;
+    await new Promise((r) => setTimeout(r, RETRY_AFTER_MS));
+    await sendOnce(post);
+  }
+}
+
+const RETRY_AFTER_MS = 1000;
+
+/** One try, its outcome typed: ok, EmailRetryableError or EmailRejectedError. */
+async function sendOnce(post: () => Promise<Response>): Promise<void> {
+  let res: Response;
+  try {
+    res = await post();
+  } catch (e) {
+    if (e instanceof EmailsDisabledError) throw e;
+    throw new EmailRetryableError(e instanceof Error ? e.message : String(e));
+  }
+  if (res.ok) return;
+  const detail = await res.text().catch(() => "");
+  if (res.status === 429 || res.status >= 500) {
+    const after = Number(res.headers.get("retry-after"));
+    throw new EmailRetryableError(
+      `Resend ${res.status}: ${detail}`,
+      Number.isFinite(after) && after > 0 ? after : null,
+    );
+  }
+  throw new EmailRejectedError(`Resend ${res.status}: ${detail}`, res.status);
 }

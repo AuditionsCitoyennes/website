@@ -75,6 +75,37 @@ export function getCachedEntry(name: string): GeoEntry | null | undefined {
   return cache.has(name) ? cache.get(name)! : undefined;
 }
 
+// A BAN call that never answered wedged this serial chain for the life of the
+// process: the warm pass stayed "running", every /api/map hit returned early,
+// the admin list's lookups hung. BAN answers in ~100 ms; five seconds is wide.
+const BAN_TIMEOUT_MS = 5000;
+
+/** BAN answered with an error status: 429 and 5xx are passing, another 4xx says the query itself is no good. */
+class BanError extends Error {
+  constructor(
+    public status: number,
+    what: string,
+  ) {
+    super(`BAN ${what} ${status}`);
+    this.name = "BanError";
+  }
+}
+
+// Lookups that failed, remembered in memory only — never in the file, where
+// "no match" is final — and tried again further apart each time. Without
+// this, one lieu BAN could not resolve made every /api/map hit start a warm
+// pass, each issuing BAN calls and then dropping the cached map: per-poll
+// upstream traffic, the very thing the cache is for.
+const BACKOFF_FIRST_MS = 30_000;
+const BACKOFF_MAX_MS = 60 * 60_000;
+const backoff = new Map<string, { until: number; tries: number }>();
+
+/** When a lieu whose lookup failed may be tried again (undefined: it may now). */
+export function backoffUntil(name: string): number | undefined {
+  const b = backoff.get(name);
+  return b && b.until > Date.now() ? b.until : undefined;
+}
+
 // Single-flight throttle: chain external calls so only one runs at a time.
 let chain: Promise<unknown> = Promise.resolve();
 let lastCall = 0;
@@ -124,9 +155,12 @@ async function queryBan(name: string, municipalityOnly = false): Promise<BanHit 
   const type = municipalityOnly ? "&type=municipality" : "";
   const res = await fetch(
     `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(name)}&limit=1&lat=45.6&lon=5.1${type}`,
-    { headers: { "User-Agent": "AuditionsCitoyennes/1.0" } },
+    {
+      headers: { "User-Agent": "AuditionsCitoyennes/1.0" },
+      signal: AbortSignal.timeout(BAN_TIMEOUT_MS),
+    },
   );
-  if (!res.ok) throw new Error(`BAN ${res.status}`);
+  if (!res.ok) throw new BanError(res.status, "search");
   const data = (await res.json()) as {
     features?: {
       geometry: { coordinates: [number, number] };
@@ -153,8 +187,9 @@ async function reverseBan([lat, lon]: Coords): Promise<{
 } | null> {
   const res = await fetch(`https://api-adresse.data.gouv.fr/reverse/?lat=${lat}&lon=${lon}`, {
     headers: { "User-Agent": "AuditionsCitoyennes/1.0" },
+    signal: AbortSignal.timeout(BAN_TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`BAN reverse ${res.status}`);
+  if (!res.ok) throw new BanError(res.status, "reverse");
   const data = (await res.json()) as {
     features?: { properties?: { context?: string; city?: string; citycode?: string } }[];
   };
@@ -212,6 +247,9 @@ export async function resolve(name: string): Promise<GeoEntry | null> {
     await persist();
     return null;
   }
+
+  // Failed a moment ago: no slot in the throttle, no call, until its backoff ends.
+  if (backoffUntil(name) !== undefined) return null;
 
   // One lookup per name at a time: several callers asking for the same lieu
   // (the admin list, the warm pass, a creation) share it instead of each
@@ -299,10 +337,23 @@ function lookUp(name: string): Promise<GeoEntry | null> {
       }
 
       cache.set(name, entry);
+      backoff.delete(name);
       await persist();
       return entry;
-    } catch {
-      return null; // transient — retry on a later warm pass
+    } catch (e) {
+      // A query BAN itself refuses (a 4xx other than 429) will never match:
+      // as final as "no match", and kept like one. Anything else — a timeout,
+      // the network, a 5xx, a 429 — is tried again later, further apart each
+      // time; nothing of it reaches the file.
+      if (e instanceof BanError && e.status >= 400 && e.status < 500 && e.status !== 429) {
+        cache.set(name, null);
+        await persist();
+        return null;
+      }
+      const tries = (backoff.get(name)?.tries ?? 0) + 1;
+      const wait = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** (tries - 1));
+      backoff.set(name, { until: Date.now() + wait, tries });
+      return null;
     }
   });
 }

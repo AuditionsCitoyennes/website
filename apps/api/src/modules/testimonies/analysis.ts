@@ -64,30 +64,46 @@ Réponse : ["Démocratie et institutions", "Médias et information"]
 Témoignage : "La réforme des retraites est injuste. Ceux qui ont des métiers pénibles ne pourront jamais tenir jusqu'à 64 ans."
 Réponse : ["Retraites", "Justice sociale et inégalités", "Emploi et conditions de travail"]`;
 
+// Claude answers a testimony in a few seconds. A call that never answered
+// held the admin's sequential "analyser tout" loop until undici gave up (300 s).
+const ANALYSIS_TIMEOUT_MS = 60_000;
+
 /** Analyze a testimony's content; returns the identified theme names. */
 export async function analyzeContent(content: string): Promise<string[]> {
   if (!config.ANTHROPIC_API_KEY) throw new AnalysisDisabledError();
 
-  const aiResponse = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": config.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: ANALYSIS_MODEL,
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Voici le témoignage d'un(e) citoyen(ne). Identifie tous les thèmes abordés :\n\n${content}`,
-        },
-      ],
-      temperature: 0.1,
-    }),
-  });
+  let aiResponse: Response;
+  try {
+    aiResponse = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": config.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: ANALYSIS_MODEL,
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `Voici le témoignage d'un(e) citoyen(ne). Identifie tous les thèmes abordés :\n\n${content}`,
+          },
+        ],
+        temperature: 0.1,
+      }),
+      signal: AbortSignal.timeout(ANALYSIS_TIMEOUT_MS),
+    });
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    throw new AnalysisError(
+      timedOut
+        ? "L'API Anthropic n'a pas répondu dans le délai imparti (60 s), réessayez."
+        : "L'API Anthropic est injoignable pour le moment, réessayez plus tard.",
+      timedOut ? 504 : 502,
+    );
+  }
 
   if (!aiResponse.ok) {
     if (aiResponse.status === 429) {

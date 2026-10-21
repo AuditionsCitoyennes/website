@@ -14,6 +14,32 @@ export class EmailsDisabledError extends Error {
   }
 }
 
+/** Resend refused this email for good (a 4xx other than 429): sending it again would not help. */
+export class EmailRejectedError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = "EmailRejectedError";
+  }
+}
+
+/**
+ * The send may or may not have gone through — a timeout, the network, a 5xx,
+ * a 429: safe to try again with the same Idempotency-Key (Resend dedups), and
+ * to tell the sender to come back after `retryAfterSeconds` when known.
+ */
+export class EmailRetryableError extends Error {
+  constructor(
+    message: string,
+    public retryAfterSeconds: number | null = null,
+  ) {
+    super(message);
+    this.name = "EmailRetryableError";
+  }
+}
+
 export function requireKey(): string {
   if (!config.RESEND_API_KEY) throw new EmailsDisabledError();
   return config.RESEND_API_KEY;
