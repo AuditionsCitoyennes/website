@@ -46,6 +46,13 @@ export default async function onlineTestimonyRoutes(app: FastifyInstance) {
         );
       case "notSaved":
         return reply.internalServerError("Votre témoignage n'a pas pu être enregistré.");
+      case "emailRetryable":
+        // When the form may be sent again — the weekly quota does not stand
+        // in the way, see the service.
+        reply.header("Retry-After", String(result.retryAfterSeconds));
+        return reply.serviceUnavailable(
+          "L'email de validation n'a pas pu être envoyé pour le moment : le service d'envoi ne répond pas. Réessayez dans quelques minutes.",
+        );
       case "emailFailed":
         return reply.badGateway(
           result.rolledBack
