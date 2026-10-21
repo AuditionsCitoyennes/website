@@ -27,6 +27,9 @@ import { getCachedEntry, loadGeocodeCache, resolve as resolveLocation } from "..
 
 type Client = SupabaseClient<Database>;
 
+// PostgREST's cap: past it a bare select is silently cut short.
+const PAGE = 1000;
+
 /** The database refused: its message, for the route to send back. */
 export interface DbError {
   kind: "dbError";
@@ -57,18 +60,40 @@ export function onlinePlaceOf(a: {
 export async function fetchPublishedAuditions(): Promise<AuditionWithCount[]> {
   const { data, error } = await publicClient
     .from("auditions")
-    .select("*, testimonies(count)")
+    .select("*")
     .eq("status", "published")
     .order("date", { ascending: false });
   if (error) throw new Error(error.message);
 
+  // The counts come from the audition_testimony_counts view: the public API
+  // may only read some columns of testimonies, which an embedded
+  // `testimonies(count)` does not survive. One row per audition that has
+  // testimonies (drafts included), paged past PostgREST's cap all the same.
+  const counts = new Map<string, { total: number; verified: number }>();
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error: countError } = await publicClient
+      .from("audition_testimony_counts")
+      .select("audition_id, total_count, verified_count")
+      .order("audition_id")
+      .range(from, from + PAGE - 1);
+    if (countError) throw new Error(countError.message);
+    for (const c of page ?? []) {
+      if (c.audition_id) {
+        counts.set(c.audition_id, { total: c.total_count ?? 0, verified: c.verified_count ?? 0 });
+      }
+    }
+    if (!page || page.length < PAGE) break;
+  }
+
   return (
     (data ?? [])
-      .map((row) => {
-        const { testimonies, ...audition } = row as typeof row & {
-          testimonies?: { count: number }[];
-        };
-        return { ...audition, testimony_count: testimonies?.[0]?.count ?? 0 };
+      .map((audition) => {
+        const c = counts.get(audition.id);
+        // What the public sees: every testimony of an ordinary audition, only
+        // the verified ones of an online audition. The view does not apply the
+        // testimonies policies that hide the others, so the rule is restated.
+        const testimony_count = (audition.audition_en_ligne ? c?.verified : c?.total) ?? 0;
+        return { ...audition, testimony_count };
       })
       // An online audition is public once it holds a verified testimony. The
       // database already hides it until then; this holds even if it did not.

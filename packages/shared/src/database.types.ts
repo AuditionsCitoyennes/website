@@ -178,9 +178,31 @@ export type Database = {
       };
     };
     Views: {
-      [_ in never]: never;
+      audition_testimony_counts: {
+        Row: {
+          audition_id: string | null;
+          total_count: number | null;
+          verified_count: number | null;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
+      admin_testimonies: {
+        Args: { p_audition_id?: string | null; p_id?: string | null };
+        Returns: {
+          id: string;
+          audition_id: string | null;
+          person_name: string;
+          person_info: string | null;
+          content: string;
+          topics: string[] | null;
+          email: string | null;
+          verification_status: string | null;
+          created_by: string | null;
+          created_at: string | null;
+        }[];
+      };
       get_audit_log: {
         Args: {
           p_limit?: number;
@@ -231,8 +253,25 @@ export type Database = {
         Returns: Json;
       };
       is_super_admin: { Args: Record<string, never>; Returns: boolean };
+      reject_testimony_by_token: { Args: { p_token: string }; Returns: boolean };
+      testimony_for_verification: {
+        Args: { p_token: string };
+        Returns: {
+          id: string;
+          person_name: string;
+          person_info: string | null;
+          content: string;
+          verification_status: string | null;
+          audition_id: string | null;
+          created_at: string | null;
+        }[];
+      };
       verify_testimony: {
         Args: { p_action: string; p_token: string };
+        Returns: boolean;
+      };
+      verify_testimony_by_token: {
+        Args: { p_token: string; p_edits?: Json | null };
         Returns: boolean;
       };
     };
