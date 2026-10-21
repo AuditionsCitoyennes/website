@@ -167,7 +167,7 @@ function onCheck() {
   border: none;
   text-align: left;
   color: hsl(var(--foreground));
-  font-size: 0.88rem;
+  font-size: var(--text-ui);
   cursor: pointer;
 }
 
@@ -208,7 +208,7 @@ function onCheck() {
 
 .tn-hint {
   flex-shrink: 0;
-  font-size: 0.72rem;
+  font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
   font-variant-numeric: tabular-nums;
 }
@@ -221,7 +221,7 @@ function onCheck() {
   border-radius: 999px;
   background: hsl(var(--secondary));
   color: hsl(var(--secondary-foreground));
-  font-size: 0.7rem;
+  font-size: var(--text-caption);
   font-weight: 600;
   text-align: center;
   font-variant-numeric: tabular-nums;

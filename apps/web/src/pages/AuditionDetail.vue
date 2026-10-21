@@ -2,8 +2,10 @@
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
+import { themesOf } from "@ac/shared";
 import { api } from "@/lib/api";
-import { formatDateLong, formatTestimonyText } from "@/lib/format";
+import { formatDateLong } from "@/lib/format";
+import TestimonyText from "@/components/TestimonyText.vue";
 
 interface DetailTestimony {
   id: string;
@@ -82,10 +84,14 @@ const testimonies = computed(() => {
             <span v-if="t.verification_status === 'verified'" class="t-badge">Vérifié</span>
           </header>
 
-          <blockquote class="t-quote">{{ formatTestimonyText(t.content) }}</blockquote>
+          <TestimonyText :content="t.content" format />
 
-          <div v-if="t.topics && t.topics.length" class="t-topics">
-            <span v-for="topic in t.topics" :key="topic" class="t-topic">{{ topic }}</span>
+          <!-- The grid themes, as on the map and in the filters: the old tags
+               ("démocratie", "ruralité"…) stay for the admin only. -->
+          <div v-if="themesOf(t.topics).length" class="t-topics">
+            <span v-for="theme in themesOf(t.topics)" :key="theme" class="t-topic">{{
+              theme
+            }}</span>
           </div>
         </article>
       </div>
@@ -102,6 +108,7 @@ const testimonies = computed(() => {
 .back-link {
   display: inline-block;
   color: hsl(var(--muted-foreground));
+  font-size: var(--text-ui);
   font-weight: 500;
   margin-bottom: 1.6rem;
   transition: var(--transition-smooth);
@@ -122,7 +129,7 @@ const testimonies = computed(() => {
 }
 
 .notfound-title {
-  font-size: 1.9rem;
+  font-size: var(--text-section);
   text-transform: uppercase;
   color: hsl(var(--foreground));
 }
@@ -132,7 +139,7 @@ const testimonies = computed(() => {
 }
 
 .head h1 {
-  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-size: var(--text-page);
   text-transform: uppercase;
   color: hsl(var(--foreground));
   margin-bottom: 0.7rem;
@@ -144,6 +151,7 @@ const testimonies = computed(() => {
   align-items: center;
   gap: 0.5rem;
   color: hsl(var(--muted-foreground));
+  font-size: var(--text-caption);
 }
 
 .dot {
@@ -171,11 +179,11 @@ const testimonies = computed(() => {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.35rem 0.5rem;
+  font-size: var(--text-ui); /* name · info, and the dot between them */
 }
 
 .t-name {
   font-weight: 600;
-  font-size: 1.15rem;
   color: hsl(var(--foreground));
 }
 
@@ -184,7 +192,6 @@ const testimonies = computed(() => {
 }
 
 .t-info {
-  font-size: 0.95rem;
   font-style: italic;
   color: hsl(var(--muted-foreground));
 }
@@ -193,31 +200,32 @@ const testimonies = computed(() => {
   align-self: center;
   padding: 0.05rem 0.5rem;
   border-radius: 999px;
-  font-size: 0.68rem;
+  font-size: var(--text-caption);
   font-weight: 600;
   background: hsl(var(--civic-green) / 0.12);
   color: hsl(var(--civic-green));
   border: 1px solid hsl(var(--civic-green) / 0.25);
 }
 
-/* Content as a quotation: hanging coloured guillemets + soft left accent. */
-.t-quote {
+/* Content as a quotation: hanging coloured guillemets + soft left accent.
+   (Rendered by TestimonyText — one per answer for a testimony sent online.) */
+.t :deep(.t-quote) {
   margin: 0;
   padding-left: 1rem;
   border-left: 2px solid hsl(var(--primary) / 0.25);
   color: hsl(var(--foreground) / 0.92);
-  font-size: 1.02rem;
-  line-height: 1.7;
+  font-size: var(--text-body);
+  line-height: var(--lh-body);
   white-space: pre-wrap;
 }
 
-.t-quote::before {
+.t :deep(.t-quote)::before {
   content: "«\00a0";
   color: hsl(var(--primary));
   font-weight: 600;
 }
 
-.t-quote::after {
+.t :deep(.t-quote)::after {
   content: "\00a0»";
   color: hsl(var(--primary));
   font-weight: 600;
@@ -234,6 +242,6 @@ const testimonies = computed(() => {
   border-radius: 999px;
   background: hsl(var(--secondary) / 0.7);
   color: hsl(var(--secondary-foreground));
-  font-size: 0.72rem;
+  font-size: var(--text-caption);
 }
 </style>

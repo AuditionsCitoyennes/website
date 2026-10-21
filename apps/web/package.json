@@ -11,20 +11,22 @@
   },
   "dependencies": {
     "@ac/shared": "*",
-    "@supabase/supabase-js": "^2.112.4",
-    "@tanstack/vue-query": "^5.102.8",
-    "mapbox-gl": "^3.29.0",
+    "@supabase/supabase-js": "^2.109.0",
+    "@tanstack/vue-query": "^5.101.2",
+    "earcut": "^3.2.3",
+    "mapbox-gl": "^3.25.0",
     "pinia": "^2.2.6",
     "vue": "^3.5.42",
     "vue-router": "^4.4.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/earcut": "^3.0.0",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^22.20.0",
-    "@vitejs/plugin-vue": "^5.2.0",
+    "@vitejs/plugin-vue": "^6.0.8",
     "typescript": "^5.8.3",
-    "vite": "^6.0.3",
+    "vite": "^8.1.5",
     "vue-tsc": "^2.1.10"
   }
 }

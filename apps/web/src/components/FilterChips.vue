@@ -54,7 +54,7 @@ const emit = defineEmits<{ remove: [id: string] }>();
   border: 1px solid hsl(var(--primary) / 0.35);
   background: hsl(var(--primary) / 0.12);
   color: hsl(var(--primary));
-  font-size: 0.76rem;
+  font-size: var(--text-caption);
   font-weight: 600;
   cursor: pointer;
   transition: var(--transition-smooth);

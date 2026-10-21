@@ -174,7 +174,7 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   color: hsl(var(--foreground));
-  font-size: 0.9rem;
+  font-size: var(--text-input);
   text-align: left;
 }
 
@@ -229,7 +229,7 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
 .ms-empty {
   padding: 0.6rem;
   color: hsl(var(--muted-foreground));
-  font-size: 0.85rem;
+  font-size: var(--text-ui);
   text-align: center;
 }
 
@@ -241,7 +241,7 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
   border-top: 1px solid hsl(var(--border));
   background: transparent;
   color: hsl(var(--muted-foreground));
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   font-weight: 500;
   cursor: pointer;
 }
