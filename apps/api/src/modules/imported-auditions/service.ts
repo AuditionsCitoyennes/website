@@ -1,8 +1,8 @@
 import { type SupabaseClient } from "@supabase/supabase-js";
 import {
   normalizeLocation,
-  type AuditionWithCount,
   type LocationGroup,
+  type MapAudition,
   type PublicTestimony,
 } from "@ac/shared";
 import { adminClient, publicClient } from "../../lib/supabase";
@@ -97,20 +97,16 @@ export async function buildImportedGroups(): Promise<LocationGroup[]> {
   return rows.map((r) => {
     const depCode = departementFromPostcode(r.postcode);
     const dep = depCode ? FR_DEPARTMENTS[depCode] : undefined;
-    // Synthesize an AuditionWithCount so the existing popup renders as-is. NOTE
-    // `content` is deliberately empty: the map popup shows only title + date,
-    // and the text is fetched per audition when one is opened.
+    // The map's view of an audition (title + date for the popup, the text is
+    // fetched per audition when one is opened). `held_on` may be null; the map
+    // treats a missing date as such.
     const audition = {
       id: r.id,
       title: r.title,
       date: r.held_on,
       location: placeKey(r),
-      content: "",
-      status: "published",
-      created_at: null,
-      updated_at: null,
       testimony_count: 1,
-    } as AuditionWithCount;
+    } as MapAudition;
 
     return {
       canonicalName: placeKey(r),

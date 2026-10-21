@@ -1,4 +1,9 @@
-import { getKnownCoordinates, type AuditionWithCount, type LocationGroup } from "@ac/shared";
+import {
+  getKnownCoordinates,
+  type AuditionWithCount,
+  type LocationGroup,
+  type MapAudition,
+} from "@ac/shared";
 import { fetchPublishedAuditions, onlinePlaceOf, placeKeyOf } from "../auditions/service";
 import { resolve, getCachedEntry } from "../geo/geocode";
 import { cached, invalidate } from "../../lib/cache";
@@ -15,6 +20,17 @@ function groupByCanonical(auds: AuditionWithCount[]): Map<string, AuditionWithCo
   return map;
 }
 
+/** What the map is told of an audition: no text, no author id, no timestamps. */
+function toMapAudition(a: AuditionWithCount): MapAudition {
+  return {
+    id: a.id,
+    title: a.title,
+    date: a.date,
+    location: a.location,
+    testimony_count: a.testimony_count,
+  };
+}
+
 /** Build map groups from known coords + the cached geocode entries (no
  *  network). Prefers hardcoded rule coordinates for precise markers, and
  *  attaches the administrative area from the cached BAN entry. */
@@ -28,7 +44,7 @@ export async function buildLocationGroups(): Promise<LocationGroup[]> {
       groups.push({
         canonicalName: canonical,
         coordinates: [online.lat, online.lng],
-        auditions: list,
+        auditions: list.map(toMapAudition),
         totalTestimonies: list.reduce((s, a) => s + a.testimony_count, 0),
         city: online.commune,
         citycode: online.insee,
@@ -45,7 +61,7 @@ export async function buildLocationGroups(): Promise<LocationGroup[]> {
     groups.push({
       canonicalName: canonical,
       coordinates: coords,
-      auditions: list,
+      auditions: list.map(toMapAudition),
       totalTestimonies: list.reduce((s, a) => s + a.testimony_count, 0),
       city: entry?.city ?? null,
       citycode: entry?.citycode ?? null,
