@@ -8,7 +8,7 @@ import {
 import { adminClient, publicClient } from "../../lib/supabase";
 import { hasServiceRole } from "../../config";
 import { arrondissementFromCitycode } from "../geo/geocode";
-import { FR_DEPARTMENTS, departementFromPostcode } from "./frDepartments";
+import { FR_DEPARTMENTS, departementFromPostcode } from "../geo/frDepartments";
 
 // Imported, located citizen-participation events (data-ingestion → the
 // `imported_auditions` table). Served in the SAME shapes the map already

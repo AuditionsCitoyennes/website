@@ -5,6 +5,7 @@ import sensible from "@fastify/sensible";
 import { config } from "./config";
 import authPlugin from "./lib/auth";
 import { setCacheLogger } from "./lib/cache";
+import { setGeocodeLogger } from "./modules/geo/geocode";
 import healthRoutes from "./modules/health/routes";
 import auditionRoutes from "./modules/auditions/routes";
 import testimonyRoutes from "./modules/testimonies/routes";
@@ -20,6 +21,7 @@ import onlineTestimonyRoutes from "./modules/online-testimonies/routes";
 export function buildServer() {
   const app = Fastify({ logger: true, trustProxy: config.TRUST_PROXY || false });
   setCacheLogger(app.log);
+  setGeocodeLogger(app.log);
 
   // Production pins the single web origin; in dev, accept any localhost port so
   // multiple dev servers (e.g. parallel Vite instances) can reach the API.

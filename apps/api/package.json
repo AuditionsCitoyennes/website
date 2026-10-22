@@ -8,7 +8,7 @@
     "start": "tsx src/index.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/lib/cache.test.ts"
+    "test": "node --import tsx --test src/lib/cache.test.ts src/modules/geo/match.test.ts"
   },
   "dependencies": {
     "@ac/shared": "*",
