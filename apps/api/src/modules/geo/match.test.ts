@@ -4,6 +4,7 @@ import { FR_DEPARTMENTS } from "./frDepartments";
 import {
   isHomonyms,
   locate,
+  placementOf,
   settleHomonyms,
   type BanFeature,
   type BanSearch,
@@ -316,4 +317,40 @@ test("a commune far bigger than every namesake is the one meant", async () => {
   const serres = settled.get("Serres");
   assert.equal(serres?.citycode, "05166");
   assert.ok(serres && !("population" in serres), "a settled entry is a plain GeoEntry");
+});
+
+test("the admins are told how a lieu is placed, and why one is not", async () => {
+  const ban = fakeBan({
+    municipality: {
+      "Saint-Denis": SAINT_DENIS,
+      Serres: [
+        commune("Serres", "05166", HAUTES_ALPES, 1298),
+        commune("Serres", "54502", "54, Meurthe-et-Moselle, Grand Est", 254),
+      ],
+      Ribiers: [],
+    },
+  });
+  const located = new Map<string, Located>([
+    ["Saint-Denis", await locate("Saint-Denis", ban)],
+    ["Serres", await locate("Serres", ban)],
+    ["Hautes-Alpes", await locate("Hautes-Alpes", ban)],
+    ["Ribiers", await locate("Ribiers", ban)],
+  ]);
+  const settled = settleHomonyms(located);
+  const told = (name: string) => placementOf(located.get(name), settled.get(name));
+
+  assert.deepEqual(placementOf(undefined, undefined), { placement: "pending" });
+  assert.deepEqual(told("Ribiers"), { placement: "unplaced" });
+  assert.deepEqual(told("Hautes-Alpes"), { placement: "departement" });
+  // Settled by population: placed, the namesakes no longer matter.
+  assert.deepEqual(told("Serres"), { placement: "commune" });
+  // Not settled: the communes it could be, as an admin would write them.
+  assert.deepEqual(told("Saint-Denis"), {
+    placement: "unplaced",
+    candidates: [
+      { name: "Saint-Denis", departementCode: "974" },
+      { name: "Saint-Denis", departementCode: "93" },
+      { name: "Saint-Denis", departementCode: "11" },
+    ],
+  });
 });

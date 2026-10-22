@@ -56,6 +56,33 @@ export interface LocationGroup {
 }
 
 /**
+ * How precisely the Témoignages map places a lieu: at a point, its commune,
+ * only its département or région — or nowhere. "unplaced": no place by that
+ * name, or same-named communes the other lieux did not settle; "pending":
+ * never looked up yet (it is being, in the background).
+ */
+export type LieuPlacement =
+  "address" | "commune" | "departement" | "region" | "unplaced" | "pending";
+
+/** One of the same-named communes an unplaced lieu may mean: Saint-Denis (93). */
+export interface LieuCandidate {
+  name: string;
+  departementCode: string | null;
+}
+
+/** Région, département, ville, lieu: the places the Témoignages map files an audition under (admin list). */
+export interface AuditionArea {
+  canonicalName: string;
+  city: string | null;
+  departementCode: string | null;
+  departementName: string | null;
+  region: string | null;
+  placement: LieuPlacement;
+  /** For an unplaced lieu several communes answer to: those communes. */
+  candidates?: LieuCandidate[];
+}
+
+/**
  * Where an audition of the association's own comes from: met in the street
  * (terrain), copied from a 2019 cahier de doléances, or the archive of old
  * testimonies with no place of their own. OWN auditions only.

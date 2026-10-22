@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
-import { answersText, type Testimony } from "@ac/shared";
+import { answersText, type AuditionArea, type Testimony } from "@ac/shared";
 import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import { useAuthStore } from "@/features/auth";
@@ -17,13 +17,14 @@ import {
   useFilters,
   FiltersDialog,
   FilterChips,
-  type Area,
   type TestimonyContent,
 } from "@/features/filters";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import LocationCombobox from "./LocationCombobox.vue";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
 import TestimonyManager from "../testimonies/TestimonyManager.vue";
+import PlacementMark from "./PlacementMark.vue";
+import { placementNote } from "./placement";
 
 interface AdminAudition {
   id: string;
@@ -33,8 +34,8 @@ interface AdminAudition {
   content: string;
   status: string | null;
   created_by: string | null;
-  /** Where the Témoignages map files it (région, département, ville, lieu). */
-  area?: Area | null;
+  /** Where the Témoignages map files it (région, département, ville, lieu), and how precisely. */
+  area?: AuditionArea | null;
   /** Gathers the testimonies sent from the site for one town hall and month. */
   audition_en_ligne?: boolean;
 }
@@ -224,6 +225,7 @@ const sections = computed(() => [
 const openAudition = computed(
   () => reachableAuditions.value.find((a) => a.id === selectedAudition.value) ?? null,
 );
+const openNote = computed(() => placementNote(openAudition.value?.area));
 
 async function fetchAuditions() {
   try {
@@ -532,7 +534,10 @@ defineExpose({ refresh: fetchAuditions });
         >
           <div class="item-info">
             <h3 class="item-title">{{ audition.title }}</h3>
-            <p class="item-meta">{{ formatDateShort(audition.date) }} — {{ audition.location }}</p>
+            <p class="item-meta">
+              {{ formatDateShort(audition.date) }} — {{ audition.location }}
+              <PlacementMark :area="audition.area" />
+            </p>
             <p class="item-status">
               Statut : {{ audition.status === "published" ? "Publié" : "Brouillon" }}
               <span v-if="audition.audition_en_ligne" class="chip chip--outline online-tag"
@@ -590,7 +595,16 @@ defineExpose({ refresh: fetchAuditions });
           >
             {{ openAudition.status === "published" ? "Publiée" : "Brouillon" }}
           </span>
+          <span v-if="openNote?.off" class="chip chip--amber">{{ openNote.label }}</span>
         </div>
+        <!-- Where the fix is made (Modifier): what the line's tooltip says. -->
+        <p
+          v-if="openNote"
+          class="popup-placement"
+          :class="{ 'popup-placement--off': openNote.off }"
+        >
+          {{ openNote.hint }}
+        </p>
 
         <section>
           <h3 class="popup-label">Contexte de l'audition</h3>
@@ -849,6 +863,20 @@ defineExpose({ refresh: fetchAuditions });
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
+}
+
+.popup-placement {
+  font-size: var(--text-ui);
+  line-height: var(--lh-body);
+  color: hsl(var(--muted-foreground));
+}
+
+.popup-placement--off {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid hsl(38 80% 50% / 0.3);
+  border-radius: 0.6rem;
+  background: hsl(38 80% 50% / 0.08);
+  color: hsl(var(--foreground) / 0.9);
 }
 
 .popup-label {

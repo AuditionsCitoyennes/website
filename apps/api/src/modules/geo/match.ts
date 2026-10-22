@@ -1,3 +1,4 @@
+import type { LieuCandidate, LieuPlacement } from "@ac/shared";
 import { FR_DEPARTMENTS, FR_REGIONS, departementFromPostcode } from "./frDepartments";
 
 // Where a lieu goes on the map, from what BAN answers about it. No I/O here:
@@ -465,4 +466,30 @@ export function pickHomonym(v: Homonyms, support: Map<string, number>): GeoEntry
     return withoutPopulation(byPopulation[0]);
   }
   return null;
+}
+
+// ---- Placement, as the admins are told it ------------------------------------
+
+/**
+ * How a lieu ends up on the map, for the admin list — so that a lieu left off
+ * it is never so silently: its level, "pending" (never looked up), or
+ * "unplaced", with the same-named communes when those are why. `raw` is the
+ * cached lookup, `settled` what settleHomonyms made of it.
+ */
+export function placementOf(
+  raw: Located | undefined,
+  settled: GeoEntry | null | undefined,
+): { placement: LieuPlacement; candidates?: LieuCandidate[] } {
+  if (raw === undefined) return { placement: "pending" };
+  const entry = isHomonyms(raw) ? settled : raw;
+  if (entry) return { placement: entry.level };
+  if (!isHomonyms(raw)) return { placement: "unplaced" };
+  const seen = new Set<string>();
+  const candidates = raw.homonyms.flatMap((h) => {
+    const key = `${h.city}|${h.depCode}`;
+    if (!h.city || seen.has(key)) return [];
+    seen.add(key);
+    return [{ name: h.city, departementCode: h.depCode }];
+  });
+  return { placement: "unplaced", candidates };
 }
