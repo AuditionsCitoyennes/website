@@ -76,6 +76,11 @@ Côté **API** (`apps/api/.env`) — voir `apps/api/.env.example` :
 | `SUPABASE_SERVICE_ROLE_KEY` | Opérations privilégiées (rôles, suppression de compte, emails) — **secret** |
 | `ANTHROPIC_API_KEY` | Analyse thématique des témoignages (Claude) — **secret** |
 | `RESEND_API_KEY` | Envoi des emails de vérification / inscription — **secret** |
+| `APP_ENV` | `local`, `staging` ou `production` (défaut). Tout sauf `local` se comporte comme la production : aucun raccourci de développement |
+| `EMAIL_MODE` / `EMAIL_REDIRECT_TO` | `live` (défaut en production), `redirect` (tous les emails vers une seule adresse : staging) ou `log` (rien n'est envoyé : défaut ailleurs) |
+| `LOG_LEVEL` | `info` par défaut ; les en-têtes d'authentification ne sont jamais journalisés |
+
+L'API se déploie en conteneur (Node 24) : `docker build -f apps/api/Dockerfile -t auditions-api .` depuis la racine. `npm run build --workspace=@ac/api` produit `apps/api/dist/index.js` ; un `SIGTERM` la fait s'arrêter proprement (les requêtes en cours se terminent).
 
 Côté **web** (`apps/web/.env`) : `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_URL`, et `VITE_MAPBOX_TOKEN` (token public Mapbox — sans lui, les pages affichent un encart « Carte indisponible »).
 

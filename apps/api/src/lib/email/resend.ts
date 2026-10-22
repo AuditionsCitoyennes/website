@@ -1,4 +1,4 @@
-import { config } from "../../config";
+import { config, emailMode } from "../../config";
 
 // Resend email service — templates ported verbatim from the previous
 // edge functions (send-verification-email, handle-registration).
@@ -55,11 +55,59 @@ export function esc(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+interface OutgoingEmail {
+  to: string | string[];
+  subject: string;
+  [field: string]: unknown;
+}
+
+interface EmailLogger {
+  info: (obj: object, msg: string) => void;
+}
+
+let log: EmailLogger = { info: (obj, msg) => console.info(msg, obj) };
+
+/** Route EMAIL_MODE=log's lines through the app's logger. */
+export function setEmailLogger(logger: EmailLogger): void {
+  log = logger;
+}
+
+/** EMAIL_MODE=redirect: to the one inbox, its subject saying who it was for. */
+function redirected(email: OutgoingEmail): OutgoingEmail {
+  const to = ([] as string[]).concat(email.to);
+  const rest = { ...email };
+  delete rest.cc;
+  delete rest.bcc;
+  return {
+    ...rest,
+    to: [config.EMAIL_REDIRECT_TO!],
+    subject: `[${config.APP_ENV} → ${to.join(", ")}] ${email.subject}`,
+  };
+}
+
+/**
+ * Every email goes through here (one, or a batch on "/emails/batch"), so
+ * EMAIL_MODE holds everywhere: "redirect" rewrites the recipients, "log"
+ * sends nothing and answers as Resend would.
+ */
 export async function resendPost(
   path: string,
   body: unknown,
   idempotencyKey?: string,
 ): Promise<Response> {
+  const batch = path === "/emails/batch";
+  const emails = (batch ? body : [body]) as OutgoingEmail[];
+  if (emailMode === "log") {
+    for (const e of emails) {
+      log.info({ to: e.to, subject: e.subject }, "email not sent (EMAIL_MODE=log)");
+    }
+    const ids = emails.map(() => ({ id: "logged" }));
+    return Response.json(batch ? { data: ids } : ids[0]);
+  }
+  if (emailMode === "redirect") {
+    const out = emails.map(redirected);
+    body = batch ? out : out[0];
+  }
   return fetch(`https://api.resend.com${path}`, {
     method: "POST",
     headers: {

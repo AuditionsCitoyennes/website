@@ -28,6 +28,8 @@ const child = spawn("npm", ["run", "dev"], {
     SUPABASE_SERVICE_ROLE_KEY: secret,
     VITE_SUPABASE_URL: status.API_URL,
     VITE_SUPABASE_PUBLISHABLE_KEY: publishable,
+    APP_ENV: "local",
+    EMAIL_MODE: "log",
     RESEND_API_KEY: "",
     ANTHROPIC_API_KEY: "",
   },

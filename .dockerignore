@@ -1,0 +1,19 @@
+# Only what apps/api/Dockerfile copies matters; keep secrets, caches and the
+# rest of the monorepo out of the build context.
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+**/*.local
+.git
+.github
+.claude
+apps/api/.geocode-cache*.json
+apps/api/.boundaries-cache.json
+# The web app's manifest only: npm checks the lockfile against every workspace.
+apps/web/*
+!apps/web/package.json
+supabase
+scripts
+docs

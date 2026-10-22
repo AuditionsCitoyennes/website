@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
-    "build": "tsc --noEmit",
+    "dev": "APP_ENV=local tsx watch src/index.ts",
+    "start": "node --enable-source-maps dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --packages=external --alias:@ac/shared=../../packages/shared/src/index.ts --sourcemap --outfile=dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/lib/cache.test.ts src/modules/geo/match.test.ts"
   },
@@ -23,7 +23,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
+    "esbuild": "^0.28.1",
     "tsx": "^4.23.1",
     "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

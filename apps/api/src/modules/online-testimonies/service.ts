@@ -8,7 +8,7 @@ import {
   type Json,
   type OnlineTestimonyInput,
 } from "@ac/shared";
-import { config, hasEmail, hasServiceRole, isDev } from "../../config";
+import { config, emailMode, hasEmail, hasServiceRole, isDev } from "../../config";
 import { logAudit } from "../../lib/audit";
 import { EmailRetryableError } from "../../lib/email/resend";
 import { sendOnlineVerificationEmail } from "../../lib/email/verification";
@@ -33,17 +33,17 @@ type Client = SupabaseClient<Database>;
 export const HOUR = 60 * 60 * 1000;
 
 /**
- * Development without an email key: no email; the link the email would have
+ * Local development, emails only logged: the link the email would have
  * carried goes back to the page (and to the log) instead, so the form can be
- * tried end to end.
+ * tried end to end. Never anywhere else (APP_ENV fails closed).
  */
-export const devLink = isDev && !hasEmail;
+export const devLink = isDev && emailMode === "log";
 
 /**
  * Without the service role nothing can be written, and without emails nothing
  * could ever be validated: refuse before writing anything.
  */
-export const available = hasServiceRole && (hasEmail || devLink);
+export const available = hasServiceRole && hasEmail;
 
 const MONTHS = [
   "janvier",
