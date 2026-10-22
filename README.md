@@ -46,11 +46,11 @@ npm run db:stop
 
 `supabase/migrations/` part d'un état de référence de la production (`…_baseline.sql`, 21/10/2026) : la structure seule, jamais de données.
 
-Les données locales et de staging sont **fictives** et propres à Auditions Citoyennes, générées par `scripts/seed/` dans `supabase/seed.sql` (non versionné) : textes inventés, adresses `@example.org`, aucun jeu de données importé. Toujours les mêmes pour un profil donné :
+Les données locales et de staging sont **fictives** et propres à Auditions Citoyennes, générées par `scripts/seed/` dans `supabase/seed.sql` (non versionné) : textes inventés, adresses `@example.org`, aucun jeu de données importé. Toujours les mêmes pour un profil donné. Le script refuse de se charger dans une base qui contient des auditions qu'il n'a pas écrites (la production, par exemple) ; rechargé sur ses propres données, il les remplace :
 
 | `SEED_PROFILE` | Contenu |
 |---|---|
-| `france` (défaut) | ~80 auditions et ~1 400 témoignages à la forme du corpus réel (Lyon/Villeurbanne, villages des Hautes-Alpes, grandes villes, fourre-tout « France »), brouillons, auditions en ligne, et des cas limites (emoji, HTML, textes très longs, homonymes, outre-mer) |
+| `france` (défaut) | ~65 auditions et ~300 témoignages à la forme du corpus réel actuel (surtout Villeurbanne, Lyon, Bron, La Tour-du-Pin, quelques villes et villages ailleurs), brouillons, auditions en ligne, et des cas limites (emoji, HTML, texte très long, homonymes, outre-mer) |
 | `world` | Chaque pays sauf la France : plusieurs villes, 2–3 auditions de 3–4 témoignages, en partie dans la langue locale |
 | `all` | Les deux |
 
