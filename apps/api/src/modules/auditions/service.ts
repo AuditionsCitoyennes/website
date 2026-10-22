@@ -3,9 +3,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import {
   getCanonicalLocation,
+  getKnownCoordinates,
   normalizeLocation,
   sanitizeText,
   type Audition,
+  type AuditionArea,
   type AuditionStatus,
   type AuditionWithCount,
   type CreateAuditionInput,
@@ -29,6 +31,7 @@ import {
   placeLieux,
   resolve as resolveLocation,
 } from "../geo/geocode";
+import { placementOf } from "../geo/match";
 
 type Client = SupabaseClient<Database>;
 
@@ -161,15 +164,6 @@ export async function fetchPublishedAudition(
 
 // ---- Admin list -----------------------------------------------------------
 
-/** Région, département, ville, lieu: the places the Témoignages map files an audition under. */
-export interface AuditionArea {
-  canonicalName: string;
-  city: string | null;
-  departementCode: string | null;
-  departementName: string | null;
-  region: string | null;
-}
-
 export type AdminAudition = Pick<
   Audition,
   | "id"
@@ -190,8 +184,9 @@ export type AdminAudition = Pick<
  *
  * Each audition comes with its `area`, read from the geocode cache (no
  * network), for the list's place filter: the same places the Témoignages map
- * files it under. A lieu never geocoded yet (a draft's, say) is looked up in
- * the background, for the next time.
+ * files it under — and how precisely it is placed there, so that a lieu left
+ * off the map is seen, and its text fixed. A lieu never geocoded yet (a
+ * draft's, say) is looked up in the background, for the next time.
  */
 export async function fetchAdminAuditions(
   client: Client,
@@ -205,24 +200,19 @@ export async function fetchAdminAuditions(
   if (error) return { kind: "dbError", message: error.message };
   await loadGeocodeCache();
   const rows = data ?? [];
+  // The lieux the geocoder places, as on the map: not an online audition's
+  // whose town hall is stored with it.
+  const lieux = rows.filter((a) => !onlinePlaceOf(a)).map(placeKeyOf);
   // Each lieu never geocoded, once, one after the other, in the background.
-  // (Not an online audition's: its town hall is stored with it.)
-  const missing = new Set(
-    rows
-      .filter((a) => !a.audition_en_ligne)
-      .map((a) => getCanonicalLocation(a.location))
-      .filter((c) => getCachedEntry(c) === undefined),
-  );
+  const missing = new Set(lieux.filter((c) => getCachedEntry(c) === undefined));
   if (missing.size) {
     void (async () => {
       for (const c of missing) await resolveLocation(c).catch(() => null);
     })();
   }
   // Settled together, as the map does: same-named communes against the rest.
-  const placed = placeLieux(
-    rows.filter((a) => !a.audition_en_ligne).map((a) => getCanonicalLocation(a.location)),
-  );
-  const auditions = rows.map((a) => {
+  const placed = placeLieux(lieux);
+  const auditions = rows.map((a): AdminAudition => {
     const canonical = placeKeyOf(a);
     const online = onlinePlaceOf(a);
     if (online) {
@@ -234,6 +224,7 @@ export async function fetchAdminAuditions(
           departementCode: online.departementCode,
           departementName: online.departementName,
           region: online.region,
+          placement: "address",
         },
       };
     }
@@ -246,6 +237,11 @@ export async function fetchAdminAuditions(
         departementCode: entry?.depCode ?? null,
         departementName: entry?.depName ?? null,
         region: entry?.region ?? null,
+        // A curated point puts it on the map whatever the lookup said, as
+        // buildLocationGroups does.
+        ...(getKnownCoordinates(canonical)
+          ? { placement: "address" }
+          : placementOf(getCachedEntry(canonical), entry)),
       },
     };
   });
