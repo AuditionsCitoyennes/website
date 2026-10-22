@@ -57,7 +57,7 @@ jobs:
         run: npm ci
 
       - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v2
         with:
           version: 2.75.0
 
@@ -68,10 +68,42 @@ jobs:
         env:
           SEED_PROFILE: all
 
+      # Supabase's postgres image (~500 MB) is published on Docker Hub, ghcr.io
+      # and public.ecr.aws, and each of them throttles GitHub's shared runners
+      # at times ("toomanyrequests", "Data limit exceeded"). It is kept in the
+      # Actions cache between runs (one key per CLI version); when the cache is
+      # cold, the pull takes turns across the three registries, Docker keeping
+      # the layers each attempt got.
+      - name: Restore the database image
+        id: image
+        uses: actions/cache@v6
+        with:
+          path: /tmp/supabase-postgres.tar
+          key: supabase-postgres-cli-2.75.0
+
+      - name: Load the cached image
+        if: steps.image.outputs.cache-hit == 'true'
+        run: docker load --input /tmp/supabase-postgres.tar
+
       # Builds a blank Postgres from supabase/migrations + seed.sql: a migration
       # that does not apply on top of the others fails here, not on staging.
       - name: Apply every migration and the fake data to a blank database
-        run: supabase db start
+        run: |
+          attempt=0
+          for registry in docker.io ghcr.io public.ecr.aws docker.io ghcr.io public.ecr.aws; do
+            attempt=$((attempt + 1))
+            SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry supabase db start && exit 0
+            echo "::warning::attempt $attempt ($registry) failed, retrying"
+            supabase stop --no-backup || true
+            sleep $((attempt * 15))
+          done
+          exit 1
+
+      - name: Keep the database image for the next runs
+        if: steps.image.outputs.cache-hit != 'true'
+        run: |
+          docker save --output /tmp/supabase-postgres.tar \
+            $(docker images --format '{{.Repository}}:{{.Tag}}' | grep 'supabase/postgres')
 
       - name: Lint the schema
         run: supabase db lint --level error

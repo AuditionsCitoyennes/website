@@ -24,25 +24,55 @@ permissions: {}
 jobs:
   backup:
     name: Encrypted backup of production
-    runs-on: ubuntu-latest
+    # Pinned: the PostgreSQL apt repository may lag behind a new Ubuntu,
+    # and ubuntu-latest moves to Ubuntu 26 from October 2026.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v2
         with:
           version: 2.75.0
 
-      - name: Install age
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+      # pg_dump 17 runs on the runner itself. The CLI's own way runs it from
+      # Supabase's postgres image, and pulling that image from GitHub's shared
+      # runners is throttled on both registries it is published on.
+      - name: Install age and the PostgreSQL 17 client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
+      # `supabase db dump --dry-run` prints the exact pg_dump script the CLI
+      # would run (Supabase's exclusions and clean-ups included); it is run
+      # here with the local pg_dump. The script carries the password in its
+      # environment and is piped, never printed.
       - name: Dump roles, schema and data
         env:
           DB_URL: ${{ secrets.PROD_DB_URL }}
         run: |
+          set -o pipefail
+          dump() {
+            local out=$1
+            shift
+            supabase db dump --db-url "$DB_URL" --dry-run "$@" | bash > "$out"
+          }
+          # Three tries each: a passing network hiccup must not cost a night.
+          retry() {
+            for attempt in 1 2 3; do
+              "$@" && return 0
+              echo "::warning::attempt $attempt failed, retrying"
+              sleep $((attempt * 30))
+            done
+            return 1
+          }
+          pg_dump --version
           mkdir -p backup
-          supabase db dump --db-url "$DB_URL" -f backup/roles.sql --role-only
-          supabase db dump --db-url "$DB_URL" -f backup/schema.sql
-          supabase db dump --db-url "$DB_URL" -f backup/data.sql --use-copy --data-only \
+          retry dump backup/roles.sql --role-only
+          retry dump backup/schema.sql
+          retry dump backup/data.sql --use-copy --data-only \
             -x "storage.buckets_vectors" -x "storage.vector_indexes"
 
       # A dump that came out empty must fail the run, not be kept as a backup.
