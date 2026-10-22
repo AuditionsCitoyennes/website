@@ -5,7 +5,13 @@ import {
   type MapAudition,
 } from "@ac/shared";
 import { fetchPublishedAuditions, onlinePlaceOf, placeKeyOf } from "../auditions/service";
-import { backoffUntil, getCachedEntry, loadGeocodeCache, resolve } from "../geo/geocode";
+import {
+  backoffUntil,
+  getCachedEntry,
+  loadGeocodeCache,
+  placeLieux,
+  resolve,
+} from "../geo/geocode";
 import { cached, invalidate } from "../../lib/cache";
 import {
   PUBLIC_CACHE_KEYS,
@@ -50,6 +56,11 @@ export async function buildLocationGroups(): Promise<LocationGroup[]> {
     fetchPublishedAuditions,
   );
   const grouped = groupByCanonical(auditions);
+  // Every geocoded lieu at once: a same-named commune is settled against the
+  // others (the Saint-Denis where the association already is, if it is).
+  const placed = placeLieux(
+    [...grouped].filter(([, list]) => !onlinePlaceOf(list[0])).map(([canonical]) => canonical),
+  );
   const groups: LocationGroup[] = [];
   for (const [canonical, list] of grouped) {
     // An online audition's town hall was located when it was created.
@@ -69,7 +80,7 @@ export async function buildLocationGroups(): Promise<LocationGroup[]> {
       });
       continue;
     }
-    const entry = getCachedEntry(canonical) ?? null;
+    const entry = placed.get(canonical) ?? null;
     const coords = getKnownCoordinates(canonical) ?? entry?.coords ?? null;
     if (!coords) continue;
     groups.push({

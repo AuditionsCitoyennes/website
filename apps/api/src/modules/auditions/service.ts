@@ -23,7 +23,12 @@ import {
   type SendReport,
   type VerificationRecipient,
 } from "../../lib/email/verification";
-import { getCachedEntry, loadGeocodeCache, resolve as resolveLocation } from "../geo/geocode";
+import {
+  getCachedEntry,
+  loadGeocodeCache,
+  placeLieux,
+  resolve as resolveLocation,
+} from "../geo/geocode";
 
 type Client = SupabaseClient<Database>;
 
@@ -213,6 +218,10 @@ export async function fetchAdminAuditions(
       for (const c of missing) await resolveLocation(c).catch(() => null);
     })();
   }
+  // Settled together, as the map does: same-named communes against the rest.
+  const placed = placeLieux(
+    rows.filter((a) => !a.audition_en_ligne).map((a) => getCanonicalLocation(a.location)),
+  );
   const auditions = rows.map((a) => {
     const canonical = placeKeyOf(a);
     const online = onlinePlaceOf(a);
@@ -228,7 +237,7 @@ export async function fetchAdminAuditions(
         },
       };
     }
-    const entry = getCachedEntry(canonical);
+    const entry = placed.get(canonical);
     return {
       ...a,
       area: {
