@@ -29,7 +29,7 @@ import {
   THEME_WEIGHTS,
   type Theme,
 } from "./texts";
-import { CATCH_ALL, COUNTRIES, FRANCE_CLUSTERS, ONLINE_TOWN_HALLS } from "./places";
+import { COUNTRIES, FRANCE_CLUSTERS, ONLINE_TOWN_HALLS } from "./places";
 
 type Profile = "france" | "world" | "all";
 
@@ -219,18 +219,20 @@ function weightsWith(boost: Partial<Record<Theme, number>>, among?: Theme[]) {
 /**
  * Tags as stored: mostly the old lowercase vocabulary, some in the 16-theme
  * grid (testimonies tagged since the AI analysis), a few capitalized as the
- * oldest rows are. Counts follow the real corpus (2 to 5, a tail up to 12).
+ * oldest rows are. Counts follow the real corpus (4 to 8 mostly, median 6,
+ * from none up to 12).
  */
 function tagsFor(r: Random, used: Theme[], boost: Partial<Record<Theme, number>>): string[] {
   const x = r.next();
-  const want =
-    x < 0.02 ? 1 : x < 0.14 ? 2 : x < 0.37 ? 3 : x < 0.65 ? 4 : x < 0.92 ? 5 : r.int(6, 12);
+  const steps = [0.04, 0.05, 0.12, 0.21, 0.33, 0.47, 0.61, 0.78, 0.88, 0.95];
+  const want = steps.findIndex((s) => x < s);
+  if (want === 0) return [];
   const tags = [...used];
-  while (tags.length < want) {
+  while (tags.length < (want === -1 ? 12 : want)) {
     const t = r.weighted(weightsWith(boost));
     if (!tags.includes(t)) tags.push(t);
   }
-  const chosen = tags.slice(0, want);
+  const chosen = tags.slice(0, want === -1 ? r.int(10, 12) : want);
   const style = r.next();
   if (style < 0.85) return chosen;
   if (style < 0.95) {
@@ -239,32 +241,33 @@ function tagsFor(r: Random, used: Theme[], boost: Partial<Record<Theme, number>>
   return chosen.map((t) => t.charAt(0).toUpperCase() + t.slice(1));
 }
 
-function personName(r: Random, firstNames: readonly string[], anonymous = 0.75): string {
+/** Three in four give a first name, most others a full name (real corpus). */
+function personName(r: Random, firstNames: readonly string[], anonymous = 0.02): string {
   const x = r.next();
   if (x < anonymous) return "Anonyme";
-  if (x < anonymous + (1 - anonymous) * 0.84) return r.pick(firstNames);
-  if (x < anonymous + (1 - anonymous) * 0.96) return `${r.pick(firstNames)} ${r.pick(LAST_NAMES)}`;
+  if (x < anonymous + (1 - anonymous) * 0.75) return r.pick(firstNames);
+  if (x < anonymous + (1 - anonymous) * 0.99) return `${r.pick(firstNames)} ${r.pick(LAST_NAMES)}`;
   return `${r.pick(firstNames)} ${r.pick(LAST_NAMES).charAt(0)}.`;
 }
 
-/** Testimonies per audition: the real spread (median 4, a long tail). */
+/** Testimonies per audition: the real spread (median 3, rarely past 10). */
 function testimonyCount(r: Random): number {
   const x = r.next();
   if (x < 0.25) return 1;
-  if (x < 0.5) return r.int(2, 4);
-  if (x < 0.75) return r.int(5, 6);
-  if (x < 0.9) return r.int(7, 13);
-  return r.int(14, 30);
+  if (x < 0.5) return r.int(2, 3);
+  if (x < 0.75) return r.int(4, 6);
+  if (x < 0.9) return r.int(7, 9);
+  return r.int(10, 13);
 }
 
-/** How a testimony stands with its witness, given how old its audition is:
- *  most have no email (never asked), recent ones wait for the witness,
- *  older pending links have expired (14 days), a few were confirmed. */
+/** How a testimony stands with its witness: three in four left no email
+ *  (never asked); of the others, recent ones wait for the witness, older
+ *  pending links have expired (14 days), and some were confirmed. */
 function verificationFor(r: Random, daysAgo: number) {
-  if (daysAgo <= 10 && r.chance(0.3)) return "pending" as const;
-  if (daysAgo >= 15 && daysAgo <= 60 && r.chance(0.12)) return "pending" as const;
-  if (daysAgo <= 730 && r.chance(0.02)) return "verified" as const;
-  return null;
+  const x = r.next();
+  if (daysAgo <= 10)
+    return x < 0.3 ? ("pending" as const) : x < 0.35 ? ("verified" as const) : null;
+  return x < 0.15 ? ("pending" as const) : x < 0.25 ? ("verified" as const) : null;
 }
 
 function makeTestimony(
@@ -280,7 +283,7 @@ function makeTestimony(
     const t = r.weighted(weightsWith(boost));
     if (!primary.includes(t)) primary.push(t);
   }
-  const target = opts.target ?? Math.min(16000, Math.max(80, r.logNormal(6.96, 1.12)));
+  const target = opts.target ?? Math.min(8000, Math.max(120, r.logNormal(7.2, 0.95)));
   const { text, used } = composeText(r, primary, target, boost);
   const name = personName(r, opts.firstNames ?? FIRST_NAMES, opts.anonymous);
   const verification = verificationFor(r, daysAgo);
@@ -289,7 +292,7 @@ function makeTestimony(
     id: r.uuid(),
     auditionId,
     personName: name,
-    personInfo: r.chance(0.46) ? r.pick(PERSON_INFOS) : null,
+    personInfo: r.chance(0.37) ? r.pick(PERSON_INFOS) : null,
     content: text,
     topics: r.chance(0.02) ? null : tagsFor(r, used, boost),
     email: verification ? fakeEmail(name) : null,
@@ -319,7 +322,7 @@ function franceProfile(): Dataset {
           cluster.name === "lyon" && forcedDays.length > 0
             ? forcedDays.shift()!
             : r.int(cluster.daysAgo[0], cluster.daysAgo[1]);
-        const draft = cluster.name === "elsewhere" && draftsLeft > 0 && r.chance(0.2);
+        const draft = cluster.name === "elsewhere" && draftsLeft > 0 && r.chance(0.45);
         if (draft) draftsLeft -= 1;
         const audition: Audition = {
           id: r.uuid(),
@@ -339,21 +342,7 @@ function franceProfile(): Dataset {
     }
   }
 
-  // The catch-all bucket of old testimonies, as on the real site.
-  const catchAll: Audition = {
-    id: r.uuid(),
-    title: `Audition citoyenne - ${CATCH_ALL.location}`,
-    daysAgo: CATCH_ALL.daysAgo,
-    location: CATCH_ALL.location,
-    content: "Témoignages recueillis avant la mise en ligne du site, sans lieu précis.",
-    status: "published",
-  };
-  auditions.push(catchAll);
-  for (let i = 0; i < CATCH_ALL.testimonies; i++) {
-    testimonies.push(makeTestimony(r, catchAll.id, CATCH_ALL.daysAgo + r.int(-150, 150), {}));
-  }
-
-  testimonies.push(...edgeCases(r, auditions[0], catchAll));
+  testimonies.push(...edgeCases(r, auditions[0], auditions[1]));
   const { online, testimonies: onlineTestimonies, submissions } = onlineAuditions(r);
   return {
     auditions,
@@ -364,7 +353,7 @@ function franceProfile(): Dataset {
 }
 
 /** Rows that check how the site copes with what people really type. */
-function edgeCases(r: Random, recent: Audition, catchAll: Audition): Testimony[] {
+function edgeCases(r: Random, recent: Audition, other: Audition): Testimony[] {
   const base = (auditionId: string, daysAgo: number) => ({
     id: r.uuid(),
     auditionId,
@@ -414,19 +403,19 @@ function edgeCases(r: Random, recent: Audition, catchAll: Audition): Testimony[]
       topics: ["pouvoir d'achat", "démocratie"],
     },
     {
-      ...base(catchAll.id, catchAll.daysAgo),
+      ...base(other.id, other.daysAgo),
       personName: "Anonyme",
       content: huge.text,
       topics: huge.used,
     },
     {
-      ...base(catchAll.id, catchAll.daysAgo),
+      ...base(other.id, other.daysAgo),
       personName: "Anonyme",
       content: composeText(r, ["économie"], 400, {}).text,
       topics: [],
     },
     {
-      ...base(catchAll.id, catchAll.daysAgo),
+      ...base(other.id, other.daysAgo),
       personName: "Anonyme",
       content: composeText(r, ["démocratie", "écologie", "travail"], 2500, {}).text,
       topics: [
@@ -445,7 +434,7 @@ function edgeCases(r: Random, recent: Audition, catchAll: Audition): Testimony[]
       ],
     },
     {
-      ...base(catchAll.id, catchAll.daysAgo),
+      ...base(other.id, other.daysAgo),
       personName: "Anonyme",
       content: composeText(r, ["pouvoir d'achat"], 600, {}).text,
       topics: ["consommation", "pouvoir d'achat"],
@@ -535,7 +524,7 @@ function worldProfile(): Dataset {
             {
               target: Math.min(6000, Math.max(80, r.logNormal(6.4, 0.9))),
               firstNames,
-              anonymous: 0.6,
+              anonymous: 0.1,
             },
           );
           if (foreign) {
@@ -579,6 +568,19 @@ function toSql(profile: Profile, data: Dataset): string {
     "-- run `npm run db:seed` instead. Fake Auditions Citoyennes data only.",
     "",
     "begin;",
+    "",
+    "-- Never on a database with real data: only a blank one, or one this seed",
+    "-- already filled (it leaves a fake_seed_loaded entry in audit_log).",
+    "do $$",
+    "begin",
+    "  if exists (select 1 from public.auditions)",
+    "     and not exists (select 1 from public.audit_log where action = 'fake_seed_loaded') then",
+    "    raise exception 'This database holds auditions this seed did not write: refusing to load fake data into it.';",
+    "  end if;",
+    "end $$;",
+    "",
+    "-- Loading again replaces the previous fake data (accounts and roles stay).",
+    "truncate public.online_testimony_submissions, public.testimonies, public.auditions;",
     "",
   ];
 
@@ -643,7 +645,13 @@ function toSql(profile: Profile, data: Dataset): string {
     );
   }
 
-  out.push("commit;", "");
+  out.push(
+    "insert into public.audit_log (action, target_type, metadata)",
+    `values ('fake_seed_loaded', 'database', jsonb_build_object('profile', ${str(profile)}));`,
+    "",
+    "commit;",
+    "",
+  );
   return out.join("\n");
 }
 

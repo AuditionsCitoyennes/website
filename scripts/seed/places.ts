@@ -19,10 +19,11 @@ export interface Cluster {
   places: FrancePlace[];
 }
 
-/** Lyon and its suburbs: markets and squares, recent, several times each. */
+/** Lyon and its suburbs: markets and squares, several times each — where the
+ *  real auditions are held (plus La Tour-du-Pin). */
 const LYON: Cluster = {
   name: "lyon",
-  daysAgo: [0, 600],
+  daysAgo: [0, 420],
   boost: {
     logement: 3,
     transports: 2,
@@ -53,13 +54,14 @@ const LYON: Cluster = {
     { location: "Place Sathonay, Lyon", times: 1 },
     { location: "Quai Saint-Vincent, Lyon", times: 1 },
     { location: "Place Carnot, Lyon", times: 1 },
+    { location: "La Tour-du-Pin", times: 4 },
   ],
 };
 
-/** Hautes-Alpes villages, typed as bare commune names, years ago. */
+/** Hautes-Alpes villages, typed as bare commune names: the map's rural side. */
 const ALPS: Cluster = {
   name: "alps",
-  daysAgo: [2200, 2650],
+  daysAgo: [30, 420],
   boost: {
     ruralité: 3,
     agriculture: 3,
@@ -69,23 +71,13 @@ const ALPS: Cluster = {
     climat: 3,
   },
   places: [
-    "Gap",
     "Embrun",
     "Briançon",
-    "Chorges",
     "Guillestre",
     "Veynes",
-    "Serres",
-    "Laragne-Montéglin",
-    "Tallard",
     "Saint-Bonnet-en-Champsaur",
-    "Aspres-sur-Buëch",
     "L'Argentière-la-Bessée",
-    "Savines-le-Lac",
-    "Ribiers",
     "Orpierre",
-    "Ancelle",
-    "La Roche-de-Rame",
     "Remollon",
   ].map((location) => ({ location, times: 1 })),
 };
@@ -93,29 +85,19 @@ const ALPS: Cluster = {
 /** Elsewhere in France, so the map has to show the whole country. */
 const ELSEWHERE: Cluster = {
   name: "elsewhere",
-  daysAgo: [20, 1100],
+  daysAgo: [20, 420],
   boost: {},
   places: [
     "Place de la République, Paris",
-    "Marché d'Aligre, Paris",
     "Vieux-Port, Marseille",
     "Place du Capitole, Toulouse",
     "Marché de Wazemmes, Lille",
     "Place Kléber, Strasbourg",
     "Place Royale, Nantes",
-    "Place Sainte-Anne, Rennes",
-    "Place de la Bourse, Bordeaux",
     "Place Grenette, Grenoble",
-    "Place de la Comédie, Montpellier",
     "Place de Jaude, Clermont-Ferrand",
-    "Place Stanislas, Nancy",
-    "Place du Martroi, Orléans",
     "Aurillac",
     "Mende",
-    "Guéret",
-    "Millau",
-    "Lannion",
-    "Die",
   ].map((location) => ({ location, times: 1 })),
 };
 
@@ -126,7 +108,7 @@ const ELSEWHERE: Cluster = {
  */
 const EDGES: Cluster = {
   name: "edges",
-  daysAgo: [60, 900],
+  daysAgo: [60, 420],
   boost: {},
   places: [
     "Hautes-Alpes",
@@ -140,9 +122,6 @@ const EDGES: Cluster = {
 };
 
 export const FRANCE_CLUSTERS: Cluster[] = [LYON, ALPS, ELSEWHERE, EDGES];
-
-/** The catch-all bucket the real corpus has: old testimonies under "France". */
-export const CATCH_ALL = { location: "France", daysAgo: 2500, testimonies: 900 };
 
 /** Online auditions: one per town hall and month (see submit_online_testimony). */
 export interface OnlineTownHall {
