@@ -19,8 +19,7 @@ concurrency:
   group: backup
   cancel-in-progress: false
 
-permissions:
-  packages: read
+permissions: {}
 
 jobs:
   backup:
@@ -36,17 +35,14 @@ jobs:
       - name: Install age
         run: sudo apt-get update -qq && sudo apt-get install -y -qq age
 
-      # The dump runs pg_dump from Supabase's image on GitHub's registry, where
-      # anonymous pulls from shared runners get throttled ("toomanyrequests").
-      # Signed in with the run's own token, they are not.
-      - name: Sign in to GitHub's image registry
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
       - name: Dump roles, schema and data
         env:
           DB_URL: ${{ secrets.PROD_DB_URL }}
+          # pg_dump runs from Supabase's postgres image. The setup action points
+          # the CLI at ghcr.io, which throttles pulls from GitHub's shared
+          # runners ("toomanyrequests", signed in or not); the same image is
+          # published on Amazon's public registry, the CLI's own default.
+          SUPABASE_INTERNAL_IMAGE_REGISTRY: public.ecr.aws
         run: |
           # Three tries each: a passing network or registry hiccup must not cost a night.
           retry() {
