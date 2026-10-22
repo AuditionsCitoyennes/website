@@ -5,8 +5,7 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*",
-    "data-ingestion"
+    "apps/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=@ac/api & npm run dev --workspace=@ac/web",

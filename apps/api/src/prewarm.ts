@@ -1,13 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
-import { cached, cachedResponse } from "./lib/cache";
+import { cachedResponse } from "./lib/cache";
 import { PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "./lib/publicCache";
 import { fetchPublishedAuditions } from "./modules/auditions/service";
-import {
-  buildImportedGroups,
-  buildImportedTestimonies,
-  IMPORTED_CACHE_KEYS,
-  IMPORTED_CACHE_TTL_MS,
-} from "./modules/imported-auditions/service";
 import { buildLocationGroups } from "./modules/map/locationGroups";
 import { fetchPublicTestimonies } from "./modules/testimonies/service";
 
@@ -43,16 +37,6 @@ export async function prewarmPublicCaches(log: FastifyBaseLogger): Promise<void>
     [
       PUBLIC_CACHE_KEYS.map,
       () => cachedResponse(PUBLIC_CACHE_KEYS.map, PUBLIC_CACHE_TTL_MS.map, buildLocationGroups),
-    ],
-    [
-      IMPORTED_CACHE_KEYS.map,
-      () => cachedResponse(IMPORTED_CACHE_KEYS.map, IMPORTED_CACHE_TTL_MS, buildImportedGroups),
-    ],
-    // Filtered per request on its route: the value, not bytes.
-    [
-      IMPORTED_CACHE_KEYS.testimonies,
-      () =>
-        cached(IMPORTED_CACHE_KEYS.testimonies, IMPORTED_CACHE_TTL_MS, buildImportedTestimonies),
     ],
   ];
   const results = await Promise.allSettled(fills.map(([, run]) => run()));

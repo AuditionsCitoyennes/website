@@ -380,7 +380,7 @@ interface AuditionGroup {
 
 /** Audition ordering — newest first by default, oldest first when asked. */
 function bySort(a: { date: string | null }, b: { date: string | null }): number {
-  // Undated ones (some imported meetings) go last whichever way the dates run.
+  // Undated ones go last whichever way the dates run.
   if (!a.date !== !b.date) return a.date ? -1 : 1;
   const cmp = (a.date ?? "").localeCompare(b.date ?? "");
   return props.sort === "ancien" ? cmp : -cmp;
@@ -791,7 +791,7 @@ function toMapUnit(u: GeoUnit, geometryOf: (u: GeoUnit) => unknown = geometryFor
 // micropins whatever their location, so the reader can hop from place to place
 // directly.
 //
-// VIEWPORT-SCOPED: with thousands of imported lieux, emitting every leaf spawns
+// VIEWPORT-SCOPED: with thousands of lieux, emitting every leaf spawns
 // one DOM marker each and makes panning crawl. Off-screen pins are invisible
 // anyway, so restricting to the current view (padded, so edge pins don't pop)
 // changes nothing visually and keeps the marker count in the dozens. The
@@ -880,13 +880,12 @@ interface PanelAudition {
   /** The lieu it was held at. */
   canonical: string;
   count: number;
-  /** null: not in memory — an imported audition, whose text is fetched when it
-   *  is opened (see `openTextQuery`). */
+  /** null: not in memory yet (the testimonies are still loading). */
   testimonies: PublicTestimony[] | null;
 }
 
-/** The panel's line for an audition of a group. The association's own carry
- *  their testimonies (all loaded with the page); an imported one carries none. */
+/** The panel's line for an audition of a group, with its testimonies (all
+ *  loaded with the page) once they are here. */
 function panelAudition(g: LocationGroup, a: LocationGroup["auditions"][number]): PanelAudition {
   const mine = ownAuditions.value.get(a.id);
   return {
@@ -901,7 +900,6 @@ function panelAudition(g: LocationGroup, a: LocationGroup["auditions"][number]):
 
 // The open lieu's auditions: listed at once from what the map already knows of
 // them (title, date, how many testimonies) — nothing is fetched to open a lieu.
-// Its own auditions first, then the imported ones, as before.
 const placeAuditions = computed<PanelAudition[]>(() => {
   const canonical = selectedPlace.value?.canonical;
   if (!canonical) return [];
@@ -910,10 +908,7 @@ const placeAuditions = computed<PanelAudition[]>(() => {
     if (g.canonicalName !== canonical) continue;
     for (const a of g.auditions) rows.push(panelAudition(g, a));
   }
-  return [
-    ...rows.filter((a) => a.testimonies).sort(bySort),
-    ...rows.filter((a) => !a.testimonies).sort(bySort),
-  ];
+  return rows.sort(bySort);
 });
 
 const placeByCanonical = computed(() => {
@@ -929,8 +924,8 @@ const resultAuditions = computed<PanelAudition[]>(() => {
   return out.sort(bySort);
 });
 
-// Thousands of imported auditions can match a wide filter: the list is filled
-// a page at a time as the reader scrolls down it.
+// Many auditions can match a wide filter: the list is filled a page at a time
+// as the reader scrolls down it.
 const RESULTS_PAGE = 50;
 const shownCount = ref(RESULTS_PAGE);
 const moreResults = computed(() => resultAuditions.value.length > shownCount.value);
@@ -968,18 +963,7 @@ function auditionMeta(a: PanelAudition): string {
 
 /** An audition's testimonies — null while they are not here (yet). */
 function testimoniesOf(a: PanelAudition): PublicTestimony[] | null {
-  if (a.testimonies) return a.testimonies;
-  // An imported audition: its text is asked for once it is the open one.
-  if (a.id !== openTextId.value) return null;
-  // Pending, not merely fetching: offline the fetch is paused, and the text is
-  // still on its way.
-  if (openTextQuery.isPending.value) return null;
-  return openText.value ?? [];
-}
-
-/** Its text could not be fetched (and none is cached): say so, offer again. */
-function textFailed(a: PanelAudition): boolean {
-  return !a.testimonies && a.id === openTextId.value && openTextQuery.isLoadingError.value;
+  return a.testimonies;
 }
 
 // The map frames every lieu of the results. Not on each keystroke of a search:
@@ -1296,35 +1280,6 @@ function isAudOpen(id: string) {
   return openAuditions.value.has(id);
 }
 
-// Imported report text is fetched ONE AUDITION AT A TIME, when it is opened
-// (the whole corpus is ~3 MB, and only one audition is ever open). vue-query
-// keeps each answer, so re-opening one is instant.
-/** The audition being read, when its text is not in memory. */
-const openTextId = computed(() => {
-  const id = [...openAuditions.value][0];
-  if (!id) return null;
-  const row = panelAuditions.value.find((a) => a.id === id);
-  return row && !row.testimonies ? id : null;
-});
-const openTextQuery = useQuery({
-  queryKey: computed(() => ["imported-audition-testimonies", openTextId.value ?? ""]),
-  // From the query's OWN key, not from whichever audition is open when it runs:
-  // a fetch paused offline may only run later, under another audition.
-  queryFn: ({ queryKey }) =>
-    api.get<PublicTestimony[]>(
-      `/api/imported-auditions/testimonies?audition=${encodeURIComponent(String(queryKey[1]))}`,
-    ),
-  enabled: computed(() => Boolean(openTextId.value)),
-  staleTime: 5 * 60_000,
-});
-/** The open audition's fetched text, in the order it was given. */
-const openText = computed(() =>
-  openTextQuery.data.value
-    ? [...openTextQuery.data.value].sort((x, y) =>
-        (x.created_at ?? "").localeCompare(y.created_at ?? ""),
-      )
-    : undefined,
-);
 const panelListEl = ref<HTMLElement | null>(null);
 // True only while ANOTHER audition is being closed to open this one — that
 // collapse is incidental to the click, so it drops in one step instead of
@@ -2019,8 +1974,7 @@ const HANDS_ON = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
 /**
  * Keeps an audition's line at the top of the list while its text unfolds
  * beneath it: a line near the end of the list only has enough below it to be
- * scrolled up to the top once that text is there — for an imported audition,
- * once it has been fetched. Re-pinned each time the audition grows, until a
+ * scrolled up to the top once that text is there. Re-pinned each time the audition grows, until a
  * moment after its text is in. The reader taking the list in hand ends it at
  * once: the list is theirs. (Not "has its scroll position moved?": the browser
  * nudges it by itself as content grows at the bottom.)
@@ -2672,30 +2626,17 @@ watch(
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
               </button>
-              <!-- Its text is on its way (an imported audition, opened for the
-                 first time): the dots, right under its line. The text then
-                 unfolds to its own height — measured once it is there. -->
+              <!-- Its testimonies are still loading: the dots, right under its
+                 line. The text then unfolds to its own height — measured once
+                 it is there. -->
               <LoadingDots
-                v-if="isAudOpen(g.id) && !textFailed(g) && testimoniesOf(g) === null"
+                v-if="isAudOpen(g.id) && testimoniesOf(g) === null"
                 class="aud-loading"
                 label="Chargement des témoignages…"
               />
               <ExpandTransition :instant-leave="audSwapping">
-                <div
-                  v-if="isAudOpen(g.id) && (textFailed(g) || testimoniesOf(g) !== null)"
-                  class="aud-body"
-                >
-                  <p v-if="textFailed(g)" class="aud-failed">
-                    Impossible de charger les témoignages.
-                    <button
-                      type="button"
-                      class="ac-btn ac-btn--ghost ac-btn--sm"
-                      @click="openTextQuery.refetch()"
-                    >
-                      Réessayer
-                    </button>
-                  </p>
-                  <p v-else-if="!testimoniesOf(g)?.length" class="aud-empty">
+                <div v-if="isAudOpen(g.id) && testimoniesOf(g) !== null" class="aud-body">
+                  <p v-if="!testimoniesOf(g)?.length" class="aud-empty">
                     Aucun témoignage à afficher.
                   </p>
                   <TestimonyCard
@@ -3291,16 +3232,6 @@ watch(
     overflow: hidden;
     text-overflow: ellipsis;
   }
-}
-
-.aud-failed {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0;
-  font-size: var(--text-body);
-  color: hsl(var(--muted-foreground));
 }
 
 .aud-count {

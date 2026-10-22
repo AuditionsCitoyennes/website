@@ -10,7 +10,6 @@ import healthRoutes from "./modules/health/routes";
 import auditionRoutes from "./modules/auditions/routes";
 import testimonyRoutes from "./modules/testimonies/routes";
 import mapRoutes from "./modules/map/routes";
-import importedAuditionRoutes from "./modules/imported-auditions/routes";
 import boundaryRoutes from "./modules/boundaries/routes";
 import demRoutes from "./modules/dem/routes";
 import adminRoutes from "./modules/admin/routes";
@@ -33,8 +32,7 @@ export function buildServer() {
       : config.WEB_ORIGIN,
     credentials: true,
   });
-  // The map/boundary payloads are large JSON with very high entropy overlap —
-  // gzip takes the imported-places payload from ~440 KB to ~80 KB.
+  // The map/boundary payloads are large JSON with very high entropy overlap.
   app.register(compress, { global: true, threshold: 1024 });
   app.register(sensible);
   app.register(authPlugin);
@@ -43,7 +41,6 @@ export function buildServer() {
   app.register(auditionRoutes, { prefix: "/api/auditions" });
   app.register(testimonyRoutes, { prefix: "/api/testimonies" });
   app.register(mapRoutes, { prefix: "/api/map" });
-  app.register(importedAuditionRoutes, { prefix: "/api/imported-auditions" });
   app.register(boundaryRoutes, { prefix: "/api/boundaries" });
   app.register(demRoutes, { prefix: "/api/dem" });
   app.register(adminRoutes, { prefix: "/api/admin" });
