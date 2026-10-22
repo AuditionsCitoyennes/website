@@ -2,9 +2,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import sensible from "@fastify/sensible";
-import { config } from "./config";
+import { config, isDev } from "./config";
 import authPlugin from "./lib/auth";
 import { setCacheLogger } from "./lib/cache";
+import { setEmailLogger } from "./lib/email/resend";
 import { setGeocodeLogger } from "./modules/geo/geocode";
 import healthRoutes from "./modules/health/routes";
 import auditionRoutes from "./modules/auditions/routes";
@@ -18,13 +19,21 @@ import meRoutes from "./modules/account/routes";
 import onlineTestimonyRoutes from "./modules/online-testimonies/routes";
 
 export function buildServer() {
-  const app = Fastify({ logger: true, trustProxy: config.TRUST_PROXY || false });
+  const app = Fastify({
+    logger: {
+      level: config.LOG_LEVEL,
+      // A request's bearer token or cookie never reaches the logs.
+      redact: ["req.headers.authorization", "req.headers.cookie"],
+    },
+    trustProxy: config.TRUST_PROXY || false,
+  });
   setCacheLogger(app.log);
   setGeocodeLogger(app.log);
+  setEmailLogger(app.log);
 
-  // Production pins the single web origin; in dev, accept any localhost port so
-  // multiple dev servers (e.g. parallel Vite instances) can reach the API.
-  const isDev = process.env.NODE_ENV !== "production";
+  // Production pins the single web origin; in local development, accept any
+  // localhost port so several dev servers (e.g. parallel Vite instances) can
+  // reach the API.
   app.register(cors, {
     origin: isDev
       ? (origin, cb) =>

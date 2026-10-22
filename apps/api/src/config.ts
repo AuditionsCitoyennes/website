@@ -3,27 +3,41 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
-const schema = z.object({
-  PORT: z.coerce.number().default(3000),
-  WEB_ORIGIN: z.string().default("http://localhost:5173"),
-  PUBLIC_APP_URL: z.string().default("http://localhost:5173"),
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_ANON_KEY: z.string().min(1),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
-  ANTHROPIC_API_KEY: z.string().optional().default(""),
-  RESEND_API_KEY: z.string().optional().default(""),
-  // The reverse proxies the API sits behind, as a comma-separated list of IP
-  // addresses or CIDR ranges (in production: the proxy's addresses, e.g.
-  // Cloudflare's published ranges or the private network between the proxy
-  // and the container). Only X-Forwarded-* headers written by one of them are
-  // believed when reading the visitor's address (rate limits of the public
-  // "Témoigner" form), so a client can't spoof it. Empty when the API is
-  // reached directly; "0", the old hop-count spelling, also means no proxy.
-  TRUST_PROXY: z
-    .string()
-    .default("")
-    .transform((s) => (s.trim() === "0" ? "" : s.trim())),
-});
+const schema = z
+  .object({
+    // Where the API runs. Anything but "local" behaves as production: a server
+    // whose environment was forgotten fails closed (no development shortcut).
+    APP_ENV: z.enum(["local", "staging", "production"]).default("production"),
+    // How emails leave: "live" to their recipients; "redirect" all of them to
+    // EMAIL_REDIRECT_TO (staging: testers never email real people); "log" not
+    // at all, only written to the log. Default: live in production, log elsewhere.
+    EMAIL_MODE: z.enum(["live", "redirect", "log"]).optional(),
+    EMAIL_REDIRECT_TO: z.string().email().optional(),
+    LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+    PORT: z.coerce.number().default(3000),
+    WEB_ORIGIN: z.string().default("http://localhost:5173"),
+    PUBLIC_APP_URL: z.string().default("http://localhost:5173"),
+    SUPABASE_URL: z.string().url(),
+    SUPABASE_ANON_KEY: z.string().min(1),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
+    ANTHROPIC_API_KEY: z.string().optional().default(""),
+    RESEND_API_KEY: z.string().optional().default(""),
+    // The reverse proxies the API sits behind, as a comma-separated list of IP
+    // addresses or CIDR ranges (in production: the proxy's addresses, e.g.
+    // Cloudflare's published ranges or the private network between the proxy
+    // and the container). Only X-Forwarded-* headers written by one of them are
+    // believed when reading the visitor's address (rate limits of the public
+    // "Témoigner" form), so a client can't spoof it. Empty when the API is
+    // reached directly; "0", the old hop-count spelling, also means no proxy.
+    TRUST_PROXY: z
+      .string()
+      .default("")
+      .transform((s) => (s.trim() === "0" ? "" : s.trim())),
+  })
+  .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
+    message: "EMAIL_MODE=redirect needs EMAIL_REDIRECT_TO",
+    path: ["EMAIL_REDIRECT_TO"],
+  });
 
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
@@ -40,8 +54,11 @@ export const config = {
 /** Whether privileged operations (analysis, emails, role mgmt) are available. */
 export const hasServiceRole = config.SUPABASE_SERVICE_ROLE_KEY.length > 0;
 
-/** Whether emails can be sent (Resend). */
-export const hasEmail = config.RESEND_API_KEY.length > 0;
+/** Local development, and nothing else: the only place shortcuts are allowed. */
+export const isDev = config.APP_ENV === "local";
 
-/** Not production (local development). */
-export const isDev = process.env.NODE_ENV !== "production";
+/** How emails leave (see EMAIL_MODE above). */
+export const emailMode = config.EMAIL_MODE ?? (config.APP_ENV === "production" ? "live" : "log");
+
+/** Whether emails go out (or, in log mode, are accounted for without a Resend key). */
+export const hasEmail = emailMode === "log" || config.RESEND_API_KEY.length > 0;
