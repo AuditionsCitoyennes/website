@@ -1,0 +1,77 @@
+name: Backup
+
+# Every night: production's database (roles, schema, data) dumped as Supabase
+# documents it, encrypted with age to a public key whose private half only the
+# owners hold, and uploaded to Scaleway Object Storage in Paris. The Supabase
+# Free plan keeps no backup of its own.
+#
+# Secrets: PROD_DB_URL (session pooler URI), SCW_ACCESS_KEY / SCW_SECRET_KEY
+# (an IAM application that may only write objects in the prod project: it
+# cannot read, list or delete backups). Variables: BACKUP_BUCKET,
+# BACKUP_AGE_RECIPIENT (the age public key). Restoring: docs/backups.md.
+
+on:
+  schedule:
+    - cron: "17 2 * * *" # 02:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  backup:
+    name: Encrypted backup of production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+
+      - name: Install age
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+
+      - name: Dump roles, schema and data
+        env:
+          DB_URL: ${{ secrets.PROD_DB_URL }}
+        run: |
+          mkdir -p backup
+          supabase db dump --db-url "$DB_URL" -f backup/roles.sql --role-only
+          supabase db dump --db-url "$DB_URL" -f backup/schema.sql
+          supabase db dump --db-url "$DB_URL" -f backup/data.sql --use-copy --data-only \
+            -x "storage.buckets_vectors" -x "storage.vector_indexes"
+
+      # A dump that came out empty must fail the run, not be kept as a backup.
+      - name: Check the dump
+        run: |
+          grep -q 'CREATE TABLE IF NOT EXISTS "public"."testimonies"' backup/schema.sql
+          count() { awk -v t="COPY \"$1\".\"$2\"" 'index($0, t) == 1 { on = 1; next } $0 == "\\." { on = 0 } on' backup/data.sql | wc -l; }
+          auditions=$(count public auditions)
+          testimonies=$(count public testimonies)
+          users=$(count auth users)
+          echo "auditions: $auditions, testimonies: $testimonies, accounts: $users"
+          test "$auditions" -gt 0 && test "$testimonies" -gt 0
+
+      - name: Encrypt
+        env:
+          RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+        run: |
+          name="prod-$(date -u +%Y-%m-%dT%H%MZ).tar.gz.age"
+          tar -C backup -czf - . | age --recipient "$RECIPIENT" --output "$name"
+          rm -rf backup
+          echo "NAME=$name" >> "$GITHUB_ENV"
+          ls -l "$name"
+
+      - name: Upload to Scaleway (Paris)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCW_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          AWS_DEFAULT_REGION: fr-par
+          BUCKET: ${{ vars.BACKUP_BUCKET }}
+        run: >-
+          aws s3 cp "$NAME" "s3://$BUCKET/prod/$NAME"
+          --endpoint-url https://s3.fr-par.scw.cloud --only-show-errors
