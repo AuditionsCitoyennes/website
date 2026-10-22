@@ -13,6 +13,18 @@ const schema = z
     // at all, only written to the log. Default: live in production, log elsewhere.
     EMAIL_MODE: z.enum(["live", "redirect", "log"]).optional(),
     EMAIL_REDIRECT_TO: z.string().email().optional(),
+    // Redirect mode only: recipients still reached directly — the testers' own
+    // addresses, so each gets their own links. Comma-separated addresses or
+    // "@domain" entries; every other recipient is redirected.
+    EMAIL_ALLOWLIST: z
+      .string()
+      .default("")
+      .transform((s) =>
+        s
+          .split(",")
+          .map((entry) => entry.trim().toLowerCase())
+          .filter(Boolean),
+      ),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
     PORT: z.coerce.number().default(3000),
     WEB_ORIGIN: z.string().default("http://localhost:5173"),

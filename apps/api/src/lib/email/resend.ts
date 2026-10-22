@@ -72,6 +72,28 @@ export function setEmailLogger(logger: EmailLogger): void {
   log = logger;
 }
 
+/** "Name <a@b.c>" or "a@b.c" → "a@b.c", lowercased. */
+function addressOf(recipient: string): string {
+  const angled = /<([^>]+)>/.exec(recipient);
+  return (angled ? angled[1] : recipient).trim().toLowerCase();
+}
+
+/** Listed in EMAIL_ALLOWLIST, as is or under a listed "@domain". */
+function allowed(recipient: string): boolean {
+  const address = addressOf(recipient);
+  return config.EMAIL_ALLOWLIST.some((entry) =>
+    entry.startsWith("@") ? address.endsWith(entry) : address === entry,
+  );
+}
+
+/** An email every recipient of which (to, cc, bcc) is allowed goes out as is. */
+function allAllowed(email: OutgoingEmail): boolean {
+  const recipients = [email.to, email.cc, email.bcc].flatMap((r) =>
+    r === undefined ? [] : ([] as string[]).concat(r as string | string[]),
+  );
+  return recipients.length > 0 && recipients.every(allowed);
+}
+
 /** EMAIL_MODE=redirect: to the one inbox, its subject saying who it was for. */
 function redirected(email: OutgoingEmail): OutgoingEmail {
   const to = ([] as string[]).concat(email.to);
@@ -87,8 +109,9 @@ function redirected(email: OutgoingEmail): OutgoingEmail {
 
 /**
  * Every email goes through here (one, or a batch on "/emails/batch"), so
- * EMAIL_MODE holds everywhere: "redirect" rewrites the recipients, "log"
- * sends nothing and answers as Resend would.
+ * EMAIL_MODE holds everywhere: "redirect" sends an email to its own
+ * recipients only when they are all in EMAIL_ALLOWLIST and to the one inbox
+ * otherwise, "log" sends nothing and answers as Resend would.
  */
 export async function resendPost(
   path: string,
@@ -105,7 +128,7 @@ export async function resendPost(
     return Response.json(batch ? { data: ids } : ids[0]);
   }
   if (emailMode === "redirect") {
-    const out = emails.map(redirected);
+    const out = emails.map((e) => (allAllowed(e) ? e : redirected(e)));
     body = batch ? out : out[0];
   }
   return fetch(`https://api.resend.com${path}`, {
