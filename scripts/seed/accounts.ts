@@ -9,8 +9,8 @@
 //   npm run db:accounts      local stack: URL and key from `supabase status`;
 //                            the password is SEED_PASSWORD, or a random one printed once
 //   SUPABASE_PROJECT_REF=<ref> SEED_PASSWORD=… npm run db:accounts
-//                            a hosted project (staging): its secret key is read
-//                            through the logged-in Supabase CLI
+//                            a hosted project (staging): its service_role key is
+//                            read through the logged-in Supabase CLI
 //   SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… SEED_PASSWORD=… npm run db:accounts
 //                            or everything from the environment
 //
@@ -59,10 +59,11 @@ function hostedProject(ref: string): { url: string; key: string } {
       stdio: ["ignore", "pipe", "ignore"],
     }).toString(),
   ) as { name: string; type: string; api_key: string }[];
-  const secret =
-    keys.find((k) => k.type === "secret") ?? keys.find((k) => k.name === "service_role");
-  if (!secret) throw new Error(`No secret key found for project ${ref}`);
-  return { url: `https://${ref}.supabase.co`, key: secret.api_key };
+  // The CLI prints the new-style secret key masked; the legacy service_role
+  // key comes back whole.
+  const serviceRole = keys.find((k) => k.name === "service_role");
+  if (!serviceRole) throw new Error(`No service_role key found for project ${ref}`);
+  return { url: `https://${ref}.supabase.co`, key: serviceRole.api_key };
 }
 
 const ref = process.env.SUPABASE_PROJECT_REF;
