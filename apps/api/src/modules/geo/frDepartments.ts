@@ -8,10 +8,9 @@
 
 // Département code → { name, region, centre }. Names from geo.api.gouv.fr
 // (/departements?fields=nom,code,region), overseas collectivities BAN covers
-// added by hand (975, 977, 978: each its own région). Used to place imported
-// events on the region→département→ville geo-drill, which needs an admin
-// hierarchy the raw import lacks, and by the geocoder for a lieu that names a
-// département or a région, not a town. Static so the API makes no runtime call.
+// added by hand (975, 977, 978: each its own région). Used by the geocoder for
+// a lieu that names a département or a région, not a town. Static so the API
+// makes no runtime call.
 //
 // `centre` ([lat, lng]) is where a lieu placed at that level sits: the centre
 // boundaries/geometry gives the unit (of its largest ring), computed over

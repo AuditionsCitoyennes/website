@@ -35,10 +35,3 @@ supabase/seed.sql
 
 # Claude Code (local settings, launch config)
 .claude/
-
-# Ingested open data (see data-ingestion/) — raw snapshots, interim files and
-# processed exports stay local; only the source registry and the generated
-# attribution file are tracked.
-data/**
-!data/sources.yml
-!data/DATA_LICENSES.md

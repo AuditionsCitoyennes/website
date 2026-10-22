@@ -36,9 +36,6 @@ const testimoniesQuery = useQuery({
   shallow: true,
 });
 
-// Imported report TEXT is not loaded here — it is ~3 MB across the corpus and
-// only ever shown for one audition at a time, so GeoNav fetches it per audition
-// when one is opened (/api/imported-auditions/testimonies?audition=…).
 const allTestimonies = computed(() => testimoniesQuery.data.value ?? []);
 const loading = computed(() => testimoniesQuery.isLoading.value);
 const isError = computed(() => testimoniesQuery.isError.value);
@@ -63,24 +60,13 @@ const mapQuery = useQuery({
   shallow: true,
 });
 
-// Imported open-data events (e.g. Grand Débat), served in the same LocationGroup
-// shape. Immutable + pre-baked, so no polling — one fetch, generously cached.
-const importedQuery = useQuery({
-  queryKey: ["imported-map"],
-  queryFn: () => api.get<LocationGroup[]>("/api/imported-auditions/map"),
-  staleTime: 5 * 60_000,
-  shallow: true,
-});
-
 const ownGroups = computed(() => mapQuery.data.value ?? []);
-const importedGroups = computed(() => importedQuery.data.value ?? []);
 
 // ---- Filter state (the page owns it: one filtered set drives BOTH the map
 // pins/counts and the testimonies panel) --------------------------------------
-const allGroups = computed(() => [...ownGroups.value, ...importedGroups.value]);
 // The place picker: every lieu that has something, weighted by its testimonies.
 const locationTree = computed(() =>
-  buildLocationTree(allGroups.value.map((g) => ({ area: g, weight: g.totalTestimonies }))),
+  buildLocationTree(ownGroups.value.map((g) => ({ area: g, weight: g.totalTestimonies }))),
 );
 
 const {
@@ -114,12 +100,6 @@ function passesContent(t: PublicTestimony): boolean {
     needle: needle.value,
   });
 }
-
-// A content filter (free text or themes) cannot be evaluated for imported
-// places: their report text is fetched one audition at a time, so it simply is not
-// here to search. Rather than pretend they match, they drop out while such a
-// filter is active — and the UI says so.
-const contentFilterActive = computed(() => Boolean(needle.value) || topics.value.length > 0);
 
 const auditionGroup = computed(() => {
   const m = new Map<string, LocationGroup>();
@@ -164,26 +144,15 @@ const filteredOwnGroups = computed<LocationGroup[]>(() => {
   return out;
 });
 
-const filteredImportedGroups = computed<LocationGroup[]>(() => {
-  // Imported reports are collective and never went through the verification
-  // flow, so "verified only" excludes them by definition.
-  if (contentFilterActive.value || verified.value) return [];
-  return importedGroups.value.filter(
-    (g) => passesLocation(g) && g.auditions.some((a) => passesDate(a.date)),
-  );
-});
+const groups = filteredOwnGroups;
 
-const groups = computed(() => [...filteredOwnGroups.value, ...filteredImportedGroups.value]);
-
-const resultCount = computed(() =>
-  props.preview ? 0 : filteredTestimonies.value.length + filteredImportedGroups.value.length,
-);
+const resultCount = computed(() => (props.preview ? 0 : filteredTestimonies.value.length));
 
 // ---- Filter option sources ---------------------------------------------------
 // Earliest/latest audition date present — the picker is bounded by these so a
 // range that can only ever return nothing is not offered in the first place.
 const dateBounds = computed(() =>
-  dateBoundsOf(allGroups.value.flatMap((g) => g.auditions.map((a) => a.date))),
+  dateBoundsOf(ownGroups.value.flatMap((g) => g.auditions.map((a) => a.date))),
 );
 
 const topicOptions = computed(() => buildTopicOptions(allTestimonies.value.map((t) => t.topics)));
@@ -296,11 +265,6 @@ watch(
 
       <template #head-below>
         <FilterChips v-if="chips.length" :chips="chips" class="head-chips" @remove="removeChip" />
-
-        <p v-if="contentFilterActive && importedGroups.length" class="filter-note">
-          Les témoignages importés (Grand Débat) sont masqués pendant une recherche par texte ou par
-          thème : leur contenu n'est chargé qu'à l'ouverture d'une audition.
-        </p>
       </template>
     </GeoNav>
 
@@ -407,11 +371,5 @@ watch(
 }
 .head-chips {
   margin-top: 0.55rem;
-}
-.filter-note {
-  margin: 0.55rem 0 0;
-  font-size: var(--text-ui);
-  line-height: 1.35;
-  color: hsl(var(--muted-foreground));
 }
 </style>

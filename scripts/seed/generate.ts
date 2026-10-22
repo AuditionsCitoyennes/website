@@ -1,7 +1,6 @@
 // Writes supabase/seed.sql: fake Auditions Citoyennes data for the local stack
 // and staging. Pure fake data: invented texts (texts.ts), example.org
-// addresses, no imported dataset (imported_auditions stays empty), never a
-// row of the real database.
+// addresses, no imported dataset, never a row of the real database.
 //
 //   npm run db:seed                      profile "france" (default): shaped like
 //                                        the real corpus, plus edge cases
