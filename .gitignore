@@ -35,3 +35,5 @@ supabase/seed.sql
 
 # Claude Code (local settings, launch config)
 .claude/
+# Wrangler (Cloudflare) local state
+.wrangler/

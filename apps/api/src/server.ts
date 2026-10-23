@@ -25,8 +25,8 @@ export function buildServer() {
   const app = Fastify({
     logger: {
       level: config.LOG_LEVEL,
-      // A request's bearer token or cookie never reaches the logs.
-      redact: ["req.headers.authorization", "req.headers.cookie"],
+      // A request's bearer token, cookie or proxy secret never reaches the logs.
+      redact: ["req.headers.authorization", "req.headers.cookie", 'req.headers["x-proxy-secret"]'],
     },
     trustProxy: config.TRUST_PROXY || false,
   });
