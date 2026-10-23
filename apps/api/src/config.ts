@@ -8,13 +8,25 @@ const schema = z
     // Where the API runs. Anything but "local" behaves as production: a server
     // whose environment was forgotten fails closed (no development shortcut).
     APP_ENV: z.enum(["local", "staging", "production"]).default("production"),
-    // How emails leave: "live" to their recipients; "redirect" all of them to
-    // EMAIL_REDIRECT_TO; "outbox" not at all, kept in the database for the
+    // How emails leave: "live" to their recipients; "redirect" to
+    // EMAIL_REDIRECT_TO but for EMAIL_ALLOWLIST's; "outbox" not at all, kept in the database for the
     // site's test outbox (staging: testers read what their actions sent, and
     // never email real people); "log" not at all, only written to the log.
     // Default: live in production, log elsewhere. Never outbox in production.
     EMAIL_MODE: z.enum(["live", "redirect", "outbox", "log"]).optional(),
     EMAIL_REDIRECT_TO: z.string().email().optional(),
+    // Redirect mode only: recipients still reached directly — the testers' own
+    // addresses, so each gets their own links. Comma-separated addresses or
+    // "@domain" entries; every other recipient is redirected.
+    EMAIL_ALLOWLIST: z
+      .string()
+      .default("")
+      .transform((s) =>
+        s
+          .split(",")
+          .map((entry) => entry.trim().toLowerCase())
+          .filter(Boolean),
+      ),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
     PORT: z.coerce.number().default(3000),
     WEB_ORIGIN: z.string().default("http://localhost:5173"),

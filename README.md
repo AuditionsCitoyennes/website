@@ -79,7 +79,7 @@ Côté **API** (`apps/api/.env`) — voir `apps/api/.env.example` :
 | `ANTHROPIC_API_KEY` | Analyse thématique des témoignages (Claude) — **secret** |
 | `RESEND_API_KEY` | Envoi des emails de vérification / inscription — **secret** |
 | `APP_ENV` | `local`, `staging` ou `production` (défaut). Tout sauf `local` se comporte comme la production : aucun raccourci de développement |
-| `EMAIL_MODE` / `EMAIL_REDIRECT_TO` | `live` (défaut en production), `outbox` (rien n'est envoyé, tout va dans la boîte de test du site : local et staging ; refusé en production), `redirect` (tous les emails vers une seule adresse) ou `log` (rien n'est envoyé, seulement journalisé : défaut hors production) |
+| `EMAIL_MODE` / `EMAIL_REDIRECT_TO` / `EMAIL_ALLOWLIST` | `live` (défaut en production), `outbox` (rien n'est envoyé, tout va dans la boîte de test du site : local et staging ; refusé en production), `redirect` (les adresses de `EMAIL_ALLOWLIST` — adresses ou `@domaine` — reçoivent leurs emails, tous les autres partent vers `EMAIL_REDIRECT_TO`) ou `log` (rien n'est envoyé, seulement journalisé : défaut hors production) |
 | `SEND_EMAIL_HOOK_SECRET` | Secret du *Send Email hook* de Supabase Auth (`v1,whsec_…`, page Auth Hooks du projet) : renseigné, l'API reçoit les emails d'Auth et les envoie comme les siens — **secret** |
 | `LOG_LEVEL` | `info` par défaut ; les en-têtes d'authentification ne sont jamais journalisés |
 
