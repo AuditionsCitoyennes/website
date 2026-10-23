@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { outboxNudge, outboxViewer } from "./outbox";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
@@ -29,7 +30,13 @@ export async function apiFetch<T = unknown>(path: string, options: ApiOptions = 
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
+  // Only a write may send an email: the test outbox tags it with this
+  // browser, and looks again once it is done.
+  const write = __OUTBOX__ && (options.method ?? "GET") !== "GET";
+  if (write) headers.set("X-Outbox-Viewer", outboxViewer());
+
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  if (write) outboxNudge.value++;
 
   if (!res.ok) {
     let message = res.statusText;

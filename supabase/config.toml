@@ -261,6 +261,15 @@ max_frequency = "5s"
 # Force log out if the user has been inactive longer than the specified duration.
 # inactivity_timeout = "8h"
 
+# Auth sends no email itself: it hands each one (sign-up confirmation, password
+# reset…) to the API, which keeps it in the site's test outbox like its own.
+# `npm run dev:local` starts the API with this secret (a local-only value,
+# read from here) on port 3000. Without the API running, local sign-ups fail.
+[auth.hook.send_email]
+enabled = true
+uri = "http://host.docker.internal:3000/api/hooks/send-email"
+secrets = "v1,whsec_o80H7U595xNSdnLOnB33xEIk2inF6ayEKtIZ7w8SQRg="
+
 # This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
 # [auth.hook.before_user_created]
 # enabled = true

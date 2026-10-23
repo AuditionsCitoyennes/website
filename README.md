@@ -40,7 +40,7 @@ Le développement se fait sur une base Supabase locale (Docker), jamais sur la p
 npm run db:start      # démarre Supabase en local (Docker Desktop doit tourner)
 npm run db:reset      # repart d'une base vide : migrations + données fictives
 npm run db:accounts   # crée les comptes de test (mot de passe affiché une fois)
-npm run dev:local     # API + web branchés sur la base locale, sans emails ni IA
+npm run dev:local     # API + web branchés sur la base locale, sans IA ; les emails vont dans la boîte de test
 npm run db:stop
 ```
 
@@ -56,7 +56,9 @@ Les données locales et de staging sont **fictives** et propres à Auditions Cit
 
 Comptes de test (`npm run db:accounts`) : `superadmin@example.org`, `admin@example.org`, `inscription@example.org` (inscription en attente), `non-confirme@example.org`. Sur staging : `SUPABASE_PROJECT_REF=<ref> SEED_PASSWORD=… npm run db:accounts` (la clé est lue via la CLI Supabase connectée). Le script refuse de s'exécuter sur la production.
 
-Studio : http://127.0.0.1:54323 — emails reçus en local : http://127.0.0.1:54324.
+Studio : http://127.0.0.1:54323.
+
+**Emails de test.** En local et sur staging, aucun email ne part : l'API les garde (table `captured_emails`) et le site les affiche via le bouton « Emails de test », en bas à gauche, liens cliquables. Chaque testeur y retrouve d'abord les siens (« Les miens » : ce que ses actions ont envoyé, même à une adresse inventée), et ceux de tous (« Tous »). Les emails de Supabase Auth (confirmation d'inscription, mot de passe oublié…) y arrivent aussi, par le *Send Email hook* d'Auth, qui les confie à l'API (`/api/hooks/send-email`, configuré dans `supabase/config.toml`). Ils sont gardés 30 jours. La production refuse ce mode au démarrage, et un build de production n'en contient rien.
 
 ### Scripts
 
@@ -77,12 +79,13 @@ Côté **API** (`apps/api/.env`) — voir `apps/api/.env.example` :
 | `ANTHROPIC_API_KEY` | Analyse thématique des témoignages (Claude) — **secret** |
 | `RESEND_API_KEY` | Envoi des emails de vérification / inscription — **secret** |
 | `APP_ENV` | `local`, `staging` ou `production` (défaut). Tout sauf `local` se comporte comme la production : aucun raccourci de développement |
-| `EMAIL_MODE` / `EMAIL_REDIRECT_TO` / `EMAIL_ALLOWLIST` | `live` (défaut en production), `redirect` (staging : les adresses de `EMAIL_ALLOWLIST` — les testeurs, adresses ou `@domaine` — reçoivent leurs emails, tous les autres partent vers `EMAIL_REDIRECT_TO`) ou `log` (rien n'est envoyé : défaut ailleurs) |
+| `EMAIL_MODE` / `EMAIL_REDIRECT_TO` / `EMAIL_ALLOWLIST` | `live` (défaut en production), `outbox` (rien n'est envoyé, tout va dans la boîte de test du site : local et staging ; refusé en production), `redirect` (les adresses de `EMAIL_ALLOWLIST` — adresses ou `@domaine` — reçoivent leurs emails, tous les autres partent vers `EMAIL_REDIRECT_TO`) ou `log` (rien n'est envoyé, seulement journalisé : défaut hors production) |
+| `SEND_EMAIL_HOOK_SECRET` | Secret du *Send Email hook* de Supabase Auth (`v1,whsec_…`, page Auth Hooks du projet) : renseigné, l'API reçoit les emails d'Auth et les envoie comme les siens — **secret** |
 | `LOG_LEVEL` | `info` par défaut ; les en-têtes d'authentification ne sont jamais journalisés |
 
 L'API se déploie en conteneur (Node 24) : `docker build -f apps/api/Dockerfile -t auditions-api .` depuis la racine. `npm run build --workspace=@ac/api` produit `apps/api/dist/index.js` ; un `SIGTERM` la fait s'arrêter proprement (les requêtes en cours se terminent).
 
-Côté **web** (`apps/web/.env`) : `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_URL`, et `VITE_MAPBOX_TOKEN` (token public Mapbox — sans lui, les pages affichent un encart « Carte indisponible »).
+Côté **web** (`apps/web/.env`) : `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_URL`, et `VITE_MAPBOX_TOKEN` (token public Mapbox — sans lui, les pages affichent un encart « Carte indisponible »). `VITE_APP_ENV=staging` au build de staging y ajoute la boîte « Emails de test » (toujours présente avec `npm run dev`, jamais dans un autre build).
 
 > ⚠️ Ne committez **jamais** de vraies clés secrètes. Les fichiers `.env` sont ignorés par git ; seuls les `.env.example` (sans valeurs) sont versionnés.
 

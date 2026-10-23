@@ -2,9 +2,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import sensible from "@fastify/sensible";
-import { config, isDev } from "./config";
+import { config, emailMode, isDev } from "./config";
 import authPlugin from "./lib/auth";
 import { setCacheLogger } from "./lib/cache";
+import { runActing } from "./lib/email/outbox";
 import { setEmailLogger } from "./lib/email/resend";
 import { setGeocodeLogger } from "./modules/geo/geocode";
 import healthRoutes from "./modules/health/routes";
@@ -17,6 +18,8 @@ import adminRoutes from "./modules/admin/routes";
 import verifyRoutes from "./modules/verification/routes";
 import meRoutes from "./modules/account/routes";
 import onlineTestimonyRoutes from "./modules/online-testimonies/routes";
+import outboxRoutes from "./modules/outbox/routes";
+import hookRoutes from "./modules/hooks/routes";
 
 export function buildServer() {
   const app = Fastify({
@@ -45,6 +48,11 @@ export function buildServer() {
   app.register(compress, { global: true, threshold: 1024 });
   app.register(sensible);
   app.register(authPlugin);
+  // The test outbox tags each email with whoever's action sent it: the rest
+  // of every request runs knowing the request (see lib/email/outbox).
+  if (emailMode === "outbox") {
+    app.addHook("preHandler", (req, _reply, done) => runActing({ req }, done));
+  }
 
   app.register(healthRoutes);
   app.register(auditionRoutes, { prefix: "/api/auditions" });
@@ -56,6 +64,8 @@ export function buildServer() {
   app.register(verifyRoutes, { prefix: "/api/verify" });
   app.register(meRoutes, { prefix: "/api/me" });
   app.register(onlineTestimonyRoutes, { prefix: "/api/online-testimonies" });
+  if (emailMode === "outbox") app.register(outboxRoutes, { prefix: "/api/outbox" });
+  if (config.SEND_EMAIL_HOOK_SECRET) app.register(hookRoutes, { prefix: "/api/hooks" });
 
   return app;
 }

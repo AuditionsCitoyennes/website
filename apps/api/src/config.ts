@@ -8,10 +8,12 @@ const schema = z
     // Where the API runs. Anything but "local" behaves as production: a server
     // whose environment was forgotten fails closed (no development shortcut).
     APP_ENV: z.enum(["local", "staging", "production"]).default("production"),
-    // How emails leave: "live" to their recipients; "redirect" all of them to
-    // EMAIL_REDIRECT_TO (staging: testers never email real people); "log" not
-    // at all, only written to the log. Default: live in production, log elsewhere.
-    EMAIL_MODE: z.enum(["live", "redirect", "log"]).optional(),
+    // How emails leave: "live" to their recipients; "redirect" to
+    // EMAIL_REDIRECT_TO but for EMAIL_ALLOWLIST's; "outbox" not at all, kept in the database for the
+    // site's test outbox (staging: testers read what their actions sent, and
+    // never email real people); "log" not at all, only written to the log.
+    // Default: live in production, log elsewhere. Never outbox in production.
+    EMAIL_MODE: z.enum(["live", "redirect", "outbox", "log"]).optional(),
     EMAIL_REDIRECT_TO: z.string().email().optional(),
     // Redirect mode only: recipients still reached directly — the testers' own
     // addresses, so each gets their own links. Comma-separated addresses or
@@ -33,6 +35,11 @@ const schema = z
     SUPABASE_ANON_KEY: z.string().min(1),
     SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
     ANTHROPIC_API_KEY: z.string().optional().default(""),
+    // Supabase Auth's Send Email hook ("v1,whsec_…", from the project's Auth
+    // Hooks page): set, the API takes Auth's emails (sign-up confirmation,
+    // password reset…) at /api/hooks/send-email and sends them like its own —
+    // into the outbox on staging.
+    SEND_EMAIL_HOOK_SECRET: z.string().optional().default(""),
     RESEND_API_KEY: z.string().optional().default(""),
     // The reverse proxies the API sits behind, as a comma-separated list of IP
     // addresses or CIDR ranges (in production: the proxy's addresses, e.g.
@@ -49,6 +56,12 @@ const schema = z
   .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
     message: "EMAIL_MODE=redirect needs EMAIL_REDIRECT_TO",
     path: ["EMAIL_REDIRECT_TO"],
+  })
+  // The outbox shows every email to whoever opens the site: real people's
+  // emails must never land there.
+  .refine((c) => !(c.EMAIL_MODE === "outbox" && c.APP_ENV === "production"), {
+    message: "EMAIL_MODE=outbox is refused in production",
+    path: ["EMAIL_MODE"],
   });
 
 const parsed = schema.safeParse(process.env);
@@ -72,5 +85,7 @@ export const isDev = config.APP_ENV === "local";
 /** How emails leave (see EMAIL_MODE above). */
 export const emailMode = config.EMAIL_MODE ?? (config.APP_ENV === "production" ? "live" : "log");
 
-/** Whether emails go out (or, in log mode, are accounted for without a Resend key). */
-export const hasEmail = emailMode === "log" || config.RESEND_API_KEY.length > 0;
+/** Whether emails go out (or, in log and outbox modes, are accounted for without a Resend key). */
+export const hasEmail =
+  emailMode === "log" ||
+  (emailMode === "outbox" ? hasServiceRole : config.RESEND_API_KEY.length > 0);

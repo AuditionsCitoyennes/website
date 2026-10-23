@@ -134,6 +134,42 @@ export type Database = {
           },
         ];
       };
+      captured_emails: {
+        Row: {
+          id: string;
+          created_at: string;
+          source: string;
+          recipients: string[];
+          subject: string;
+          body_html: string | null;
+          body_text: string | null;
+          viewer: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          source: string;
+          recipients: string[];
+          subject: string;
+          body_html?: string | null;
+          body_text?: string | null;
+          viewer?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          source?: string;
+          recipients?: string[];
+          subject?: string;
+          body_html?: string | null;
+          body_text?: string | null;
+          viewer?: string | null;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
       online_testimony_submissions: {
         Row: {
           id: number;

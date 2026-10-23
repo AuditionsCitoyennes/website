@@ -1,4 +1,5 @@
 import { config, emailMode } from "../../config";
+import { captureEmails } from "./outbox";
 
 // Resend email service — templates ported verbatim from the previous
 // edge functions (send-verification-email, handle-registration).
@@ -111,7 +112,9 @@ function redirected(email: OutgoingEmail): OutgoingEmail {
  * Every email goes through here (one, or a batch on "/emails/batch"), so
  * EMAIL_MODE holds everywhere: "redirect" sends an email to its own
  * recipients only when they are all in EMAIL_ALLOWLIST and to the one inbox
- * otherwise, "log" sends nothing and answers as Resend would.
+ * otherwise; "outbox" and "log" send nothing and answer as Resend would —
+ * "outbox" with the ids of the emails it kept, or a 503 when it could not
+ * keep them.
  */
 export async function resendPost(
   path: string,
@@ -125,6 +128,18 @@ export async function resendPost(
       log.info({ to: e.to, subject: e.subject }, "email not sent (EMAIL_MODE=log)");
     }
     const ids = emails.map(() => ({ id: "logged" }));
+    return Response.json(batch ? { data: ids } : ids[0]);
+  }
+  if (emailMode === "outbox") {
+    let ids: { id: string }[];
+    try {
+      ids = (await captureEmails(emails)).map((id) => ({ id }));
+    } catch (e) {
+      return Response.json(
+        { message: e instanceof Error ? e.message : String(e) },
+        { status: 503 },
+      );
+    }
     return Response.json(batch ? { data: ids } : ids[0]);
   }
   if (emailMode === "redirect") {
