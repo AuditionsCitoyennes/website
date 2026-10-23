@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { z } from "zod";
 import { supabase } from "@/shared/api/supabase";
+import { noteOutboxAddress } from "@/shared/api/outbox";
 import { useToast } from "@/shared/ui/toast/useToast";
 import { passwordSchema, PASSWORD_REQUIREMENTS } from "../lib/password";
 import { mapAuthError } from "../authErrors";
@@ -120,6 +121,7 @@ async function handleProfileComplete(username: string, bio: string) {
       },
     });
     if (error) throw error;
+    if (__OUTBOX__) noteOutboxAddress(pendingSignup.email);
     signupEmail.value = pendingSignup.email;
     signupDone.value = true;
   } catch (error) {
@@ -137,6 +139,7 @@ async function handleProfileComplete(username: string, bio: string) {
 async function handleResendVerification() {
   if (resendCooldown.value > 0) return;
   const { error } = await supabase.auth.resend({ type: "signup", email: signupEmail.value });
+  if (__OUTBOX__) noteOutboxAddress(signupEmail.value);
   if (error) {
     toast({ title: "Erreur", description: error.message, variant: "destructive" });
   } else {
@@ -162,6 +165,7 @@ async function handleForgotPassword() {
   await supabase.auth.resetPasswordForEmail(trimmedEmail, {
     redirectTo: `${window.location.origin}/reset-password`,
   });
+  if (__OUTBOX__) noteOutboxAddress(trimmedEmail);
   resetLoading.value = false;
   toast({
     title: "Email envoyé",

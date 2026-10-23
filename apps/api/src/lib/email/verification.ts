@@ -1,4 +1,4 @@
-import { config } from "../../config";
+import { config, hasEmail } from "../../config";
 import {
   EmailRejectedError,
   EmailRetryableError,
@@ -6,7 +6,6 @@ import {
   esc,
   FROM,
   REPLY_TO,
-  requireKey,
   resendPost,
   wrapBrandedEmail,
 } from "./resend";
@@ -119,14 +118,15 @@ function buildVerificationText(
 
 /**
  * Batch-send testimony verification emails (chunks of 100 via Resend's batch
- * API). Returns a per-recipient report; throws EmailsDisabledError without a key.
+ * API). Returns a per-recipient report; throws EmailsDisabledError when
+ * emails cannot go out (no Resend key in live or redirect mode).
  */
 export async function sendVerificationEmails(
   recipients: VerificationRecipient[],
   auditionLocation: string,
   auditionDate: string,
 ): Promise<SendReport> {
-  requireKey();
+  if (!hasEmail) throw new EmailsDisabledError();
   const results: SendReport["results"] = [];
 
   for (let i = 0; i < recipients.length; i += 100) {

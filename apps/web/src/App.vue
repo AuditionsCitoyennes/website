@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { defineAsyncComponent, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import AppHeader from "@/app/header/AppHeader.vue";
 import AppDialogs from "@/app/AppDialogs.vue";
 import MapStage from "@/components/MapStage.vue";
 import ToastHost from "@/shared/ui/toast/ToastHost.vue";
 import { useAuthStore } from "@/features/auth";
+import { loadOutboxLauncher } from "@/features/outbox";
 
 const auth = useAuthStore();
 const route = useRoute();
+
+// Staging and local development: the emails the site "sent" (see features/outbox).
+const OutboxLauncher = __OUTBOX__ ? defineAsyncComponent(loadOutboxLauncher) : null;
 
 onMounted(() => {
   auth.init();
@@ -27,6 +31,7 @@ onMounted(() => {
        downloaded only once it is first asked for. -->
   <AppDialogs />
   <ToastHost />
+  <OutboxLauncher v-if="OutboxLauncher" />
 </template>
 
 <style>

@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { isAuthError } from "@supabase/supabase-js";
 import { supabase } from "@/shared/api/supabase";
+import { noteOutboxAddress } from "@/shared/api/outbox";
 import { useAuthStore } from "@/features/auth";
 import {
   checkCurrentPassword,
@@ -77,6 +78,7 @@ async function updateEmail() {
   savingEmail.value = true;
   const { error } = await supabase.auth.updateUser({ email: editEmail.value.trim() });
   savingEmail.value = false;
+  if (__OUTBOX__ && !error) noteOutboxAddress(editEmail.value);
   if (error) {
     toast({ title: "Erreur", description: error.message, variant: "destructive" });
   } else {
