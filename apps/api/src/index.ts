@@ -4,7 +4,7 @@ import { warmLocationGeocodes } from "./modules/map/locationGroups";
 import { prewarmPublicCaches } from "./prewarm";
 
 const app = buildServer();
-app.log.info({ env: config.APP_ENV, emailMode }, "starting");
+app.log.info({ env: config.APP_ENV, version: config.APP_VERSION, emailMode }, "starting");
 
 // Warm the location geocode cache, then the public read caches, in the
 // background on boot (the second needs the first's persisted entries, which

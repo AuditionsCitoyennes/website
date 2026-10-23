@@ -28,6 +28,9 @@ const schema = z
           .filter(Boolean),
       ),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+    // The version running: the commit its image was built from (the Dockerfile
+    // sets it), "dev" otherwise. /health shows it, so a deploy can wait for it.
+    APP_VERSION: z.string().default("dev"),
     PORT: z.coerce.number().default(3000),
     WEB_ORIGIN: z.string().default("http://localhost:5173"),
     PUBLIC_APP_URL: z.string().default("http://localhost:5173"),
