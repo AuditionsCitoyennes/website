@@ -28,8 +28,14 @@ updates:
       actions:
         patterns: ["*"]
 
-  # L'image de base de l'API (node:24-slim, apps/api/Dockerfile)
+  # L'image de base de l'API (node:24-slim, apps/api/Dockerfile) : correctifs
+  # seulement. Une version majeure de Node se choisit à la main, et seulement
+  # une LTS (paire) : Dependabot proposerait aussi les impaires, sans support
+  # long (node:25 a fini le sien en juin 2026).
   - package-ecosystem: "docker"
     directory: "/apps/api"
     schedule:
       interval: "monthly"
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]

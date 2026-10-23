@@ -6,7 +6,7 @@
 # Configuration comes from the environment (see apps/api/.env.example);
 # APP_ENV defaults to production.
 
-FROM node:25-slim AS build
+FROM node:24-slim AS build
 WORKDIR /repo
 # Manifests first, so the dependency layer is reused while only code changes.
 COPY package.json package-lock.json ./
@@ -18,7 +18,7 @@ COPY apps/api apps/api
 COPY packages/shared packages/shared
 RUN npm run build --workspace=@ac/api
 
-FROM node:25-slim
+FROM node:24-slim
 ENV NODE_ENV=production \
     PORT=8080
 WORKDIR /repo
