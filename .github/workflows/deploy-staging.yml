@@ -103,9 +103,10 @@ jobs:
           ENV_WEB_ORIGIN: https://staging.auditionscitoyennes.com
           ENV_SUPABASE_URL: https://papnqtvugzqtllcwigfi.supabase.co
           ENV_SUPABASE_ANON_KEY: sb_publishable_uqMDtN2yFb6Y6h3gHPfYOA_Xa6lAmHK
-          # Scaleway's own front proxies reach the container from private
-          # addresses: the visitor's is the one they forward.
-          ENV_TRUST_PROXY: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
+          # Scaleway's proxies: one inside the container itself (the API sees
+          # every request come from 127.0.0.1), the others in front of it on
+          # private addresses. The visitor's address is the one they forward.
+          ENV_TRUST_PROXY: 127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
           SECRET_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
           SECRET_SEND_EMAIL_HOOK_SECRET: ${{ secrets.STAGING_SEND_EMAIL_HOOK_SECRET }}
         run: |
