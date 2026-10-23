@@ -1,0 +1,134 @@
+name: Deploy staging API
+
+# Every merge into dev that touches the API puts it on staging: an image is
+# built from the commit and pushed to Scaleway's registry, the Serverless
+# Container is created or updated with it, and the deploy waits until that
+# version answers and reaches its database. Also runnable by hand (Actions →
+# Deploy staging API → Run workflow). Setup and secrets: docs/staging.md.
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "apps/api/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/deploy/**"
+      - ".github/workflows/deploy-staging.yml"
+  workflow_dispatch:
+
+# One deploy at a time: a newer merge waits for the running one rather than
+# cutting it off halfway.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SCW_REGION: fr-par
+  SCW_PROJECT_ID: ${{ vars.STAGING_SCW_PROJECT_ID }}
+  SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY }}
+  REGISTRY_NAMESPACE: ${{ vars.STAGING_SCW_REGISTRY_NAMESPACE }}
+  CONTAINERS_NAMESPACE: staging
+  CONTAINER_NAME: api
+  VERSION: ${{ github.sha }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the settings
+        env:
+          SUPABASE_SECRET: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
+        run: |
+          missing=""
+          for name in SCW_PROJECT_ID SCW_SECRET_KEY REGISTRY_NAMESPACE SUPABASE_SECRET; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Not set:$missing — see docs/staging.md"
+            exit 1
+          fi
+
+      - name: Registry
+        id: registry
+        run: echo "endpoint=$(scripts/deploy/scaleway.sh registry)" >> "$GITHUB_OUTPUT"
+
+      # Docker Hub (the node base image) throttles shared runners at times:
+      # three tries. The layers come back from the registry's build cache.
+      - name: Build and push the image
+        env:
+          REGISTRY: ${{ steps.registry.outputs.endpoint }}
+        run: |
+          echo "$SCW_SECRET_KEY" | docker login "${REGISTRY%%/*}" -u nologin --password-stdin
+          docker buildx create --use --name ci >/dev/null
+          for attempt in 1 2 3; do
+            docker buildx build . --file apps/api/Dockerfile \
+              --build-arg APP_VERSION="$VERSION" \
+              --tag "$REGISTRY/api:$VERSION" \
+              --cache-from "type=registry,ref=$REGISTRY/api:buildcache" \
+              --cache-to "type=registry,ref=$REGISTRY/api:buildcache,mode=max" \
+              --push && exit 0
+            echo "::warning::build attempt $attempt failed"
+            sleep $((attempt * 20))
+          done
+          exit 1
+
+      - name: Deploy
+        id: deploy
+        env:
+          IMAGE: ${{ steps.registry.outputs.endpoint }}/api:${{ github.sha }}
+          # One instance, always on: Supabase Auth gives its email hook 5 s,
+          # less than a cold start (~€7 a month at 512 MB). The rate limits
+          # are per process, hence one instance at most.
+          MIN_SCALE: ${{ vars.STAGING_MIN_SCALE || '1' }}
+          MAX_SCALE: 1
+          MEMORY_MB: 512
+          # The container's environment (apps/api/.env.example). Public
+          # values only here; secrets below, from the repository's secrets.
+          ENV_APP_ENV: staging
+          ENV_EMAIL_MODE: outbox
+          ENV_LOG_LEVEL: info
+          ENV_PUBLIC_APP_URL: https://staging.auditionscitoyennes.com
+          ENV_WEB_ORIGIN: https://staging.auditionscitoyennes.com
+          ENV_SUPABASE_URL: https://papnqtvugzqtllcwigfi.supabase.co
+          ENV_SUPABASE_ANON_KEY: sb_publishable_uqMDtN2yFb6Y6h3gHPfYOA_Xa6lAmHK
+          # Scaleway's own front proxies reach the container from private
+          # addresses: the visitor's is the one they forward.
+          ENV_TRUST_PROXY: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
+          SECRET_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
+          SECRET_SEND_EMAIL_HOOK_SECRET: ${{ secrets.STAGING_SEND_EMAIL_HOOK_SECRET }}
+        run: echo "url=$(scripts/deploy/scaleway.sh deploy)" >> "$GITHUB_OUTPUT"
+
+      # The new version answers; now it must reach its database with its own
+      # key (the outbox is readable by the service role only).
+      - name: Check the deployed API
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          health=$(curl -sS --fail --max-time 15 "$URL/health")
+          echo "$health" | jq .
+          [ "$(jq -r .serviceRole <<<"$health")" = "true" ]
+          curl -sS --fail --max-time 15 -o /dev/null "$URL/api/outbox"
+          curl -sS --fail --max-time 30 -o /dev/null "$URL/api/auditions"
+          {
+            echo "### Staging API deployed"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| URL | $URL |"
+            echo "| Version | \`$VERSION\` |"
+            echo "| Address seen by /health | \`$(jq -r .ip <<<"$health")\` |"
+            echo "| Supabase Auth email hook URL | $URL/api/hooks/send-email |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the 10 latest images
+        continue-on-error: true
+        env:
+          KEEP_TAGS: 10
+        run: scripts/deploy/scaleway.sh prune

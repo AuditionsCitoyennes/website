@@ -27,3 +27,9 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # L'image de base de l'API (node:24-slim, apps/api/Dockerfile)
+  - package-ecosystem: "docker"
+    directory: "/apps/api"
+    schedule:
+      interval: "monthly"
