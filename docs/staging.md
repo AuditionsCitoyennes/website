@@ -16,7 +16,7 @@ gives the URL, the version, and the Supabase Auth email hook's URL.
 
 | | |
 |---|---|
-| Where | Scaleway, Paris (`fr-par`), project `auditions-citoyennes-staging`: containers namespace `staging`, container `api` |
+| Where | Scaleway, Paris (`fr-par`), project `auditions-citoyennes-staging`: containers namespace `staging`, container `auditions-api` |
 | Size | 512 MB, one instance, always on (`STAGING_MIN_SCALE`, default 1). At 0 it costs nearly nothing but starts cold, slower than the 5 s Supabase Auth gives its email hook, so a sign-up after a quiet spell fails |
 | Configuration | All of it in the workflow (`ENV_*` public, `SECRET_*` from the repository's secrets), applied at every deploy: change it there, never in the console |
 | Images | Tagged with the commit; the 10 latest are kept |

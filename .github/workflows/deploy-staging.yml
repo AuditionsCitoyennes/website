@@ -32,7 +32,8 @@ env:
   SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY }}
   REGISTRY_NAMESPACE: ${{ vars.STAGING_SCW_REGISTRY_NAMESPACE }}
   CONTAINERS_NAMESPACE: staging
-  CONTAINER_NAME: api
+  # Scaleway: 4 to 34 characters.
+  CONTAINER_NAME: auditions-api
   VERSION: ${{ github.sha }}
 
 jobs:
@@ -57,7 +58,11 @@ jobs:
 
       - name: Registry
         id: registry
-        run: echo "endpoint=$(scripts/deploy/scaleway.sh registry)" >> "$GITHUB_OUTPUT"
+        # Assigned first: a failing script then fails the step (an echo of
+        # its output would succeed whatever happened).
+        run: |
+          endpoint=$(scripts/deploy/scaleway.sh registry)
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
 
       # Docker Hub (the node base image) throttles shared runners at times:
       # three tries. The layers come back from the registry's build cache.
@@ -103,7 +108,9 @@ jobs:
           ENV_TRUST_PROXY: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
           SECRET_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
           SECRET_SEND_EMAIL_HOOK_SECRET: ${{ secrets.STAGING_SEND_EMAIL_HOOK_SECRET }}
-        run: echo "url=$(scripts/deploy/scaleway.sh deploy)" >> "$GITHUB_OUTPUT"
+        run: |
+          url=$(scripts/deploy/scaleway.sh deploy)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
 
       # The new version answers; now it must reach its database with its own
       # key (the outbox is readable by the service role only).
