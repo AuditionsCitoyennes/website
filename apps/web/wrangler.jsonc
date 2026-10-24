@@ -1,0 +1,26 @@
+// The web app on Cloudflare Workers: its files (dist/, built by
+// `npm run build --workspace=@ac/web`) served by Cloudflare, /api/* through
+// worker/index.ts to the API. Deployed by .github/workflows/deploy-staging-web.yml
+// (setup: docs/staging.md). For now staging only; production will get its own
+// environment here.
+{
+  "name": "auditions-staging",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-10-23",
+  "assets": {
+    "directory": "./dist",
+    // A path that is no file is a page of the app: index.html, and the
+    // router takes it from there.
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "routes": [{ "pattern": "staging.auditionscitoyennes.com", "custom_domain": true }],
+  // The site lives on its own domain; workers.dev only for the previews of
+  // pull requests (pr-<number>-auditions-staging.<account>.workers.dev).
+  "workers_dev": false,
+  "preview_urls": true,
+  "vars": {
+    "API_ORIGIN": "https://staging325b852a-auditions-api.functions.fnc.fr-par.scw.cloud",
+  },
+  "observability": { "enabled": true },
+}

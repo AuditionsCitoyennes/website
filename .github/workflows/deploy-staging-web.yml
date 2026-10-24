@@ -1,0 +1,171 @@
+name: Deploy staging site
+
+# The web app on Cloudflare (apps/web/wrangler.jsonc). Every merge into dev
+# that touches it goes to https://staging.auditionscitoyennes.com; every pull
+# request gets its own preview, pr-<number>-auditions-staging.<account>.workers.dev,
+# linked from the pull request's checks ("Staging preview"). Both talk to the
+# staging API through the Worker's /api. Setup: docs/staging.md.
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-staging-web.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-staging-web.yml"
+  workflow_dispatch:
+
+# A newer push to the same pull request (or to dev) replaces the running one.
+concurrency:
+  group: deploy-staging-web-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+env:
+  WRANGLER: wrangler@4.152.0
+  WORKER: auditions-staging
+  SITE: https://staging.auditionscitoyennes.com
+  CLOUDFLARE_API_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+jobs:
+  deploy:
+    # Dependabot's pull requests get no secrets: no preview for them.
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Check the settings
+        env:
+          PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
+        run: |
+          missing=""
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID PROXY_SECRET; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Not set:$missing — see docs/staging.md"
+            exit 1
+          fi
+
+      - run: npm ci --no-audit --no-fund
+
+      # Public values only: what the browser gets anyway.
+      - name: Build
+        env:
+          VITE_APP_ENV: staging
+          VITE_SUPABASE_URL: https://papnqtvugzqtllcwigfi.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_uqMDtN2yFb6Y6h3gHPfYOA_Xa6lAmHK
+          # Empty: the API is the site's own /api (the Worker forwards it).
+          VITE_API_URL: ""
+          VITE_MAPBOX_TOKEN: ${{ vars.MAPBOX_TOKEN }}
+          VITE_MAPBOX_STYLE: ${{ vars.MAPBOX_STYLE }}
+        run: |
+          npm run build --workspace=@ac/web
+          # Staging is not for search engines.
+          printf '/*\n  X-Robots-Tag: noindex, nofollow\n' > apps/web/dist/_headers
+          printf 'User-agent: *\nDisallow: /\n' > apps/web/dist/robots.txt
+
+      - name: Deploy
+        id: deploy
+        working-directory: apps/web
+        env:
+          PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          secrets="$RUNNER_TEMP/secrets.env"
+          trap 'rm -f "$secrets"' EXIT
+          printf 'PROXY_SECRET=%s\n' "$PROXY_SECRET" > "$secrets"
+
+          # A preview is a version of the Worker: the very first run, from a
+          # pull request, creates the Worker first (404: none yet).
+          exists=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/settings")
+          if [ -z "$PR" ] || [ "$exists" = 404 ]; then
+            npx --yes "$WRANGLER" deploy --secrets-file "$secrets" --message "$GITHUB_SHA"
+          fi
+
+          if [ -n "$PR" ]; then
+            out=$(npx --yes "$WRANGLER" versions upload --preview-alias "pr-$PR" \
+              --secrets-file "$secrets" --message "PR #$PR $GITHUB_SHA")
+            echo "$out"
+            url=$(grep -oE "https://pr-$PR-$WORKER\.[a-z0-9-]+\.workers\.dev" <<<"$out" | head -1)
+          else
+            url=$SITE
+          fi
+          if [ -z "$url" ]; then
+            echo "::error::no preview URL in wrangler's output"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # The site answers, its pages are the app's, and its /api reaches the
+      # API with the visitor's address: Cloudflare's /cdn-cgi/trace says what
+      # address it saw, /api/health what the API saw — the same, or the rate
+      # limits would put every visitor together.
+      - name: Check the site
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          # A new domain waits for its certificate (minutes, the first time).
+          for _ in $(seq 1 60); do
+            curl -4 -sf --max-time 10 -o /dev/null "$URL/" && break
+            sleep 10
+          done
+          curl -4 -sSf --max-time 10 "$URL/" | grep -q '<div id="app"'
+          curl -4 -sSf --max-time 10 "$URL/temoignages" | grep -q '<div id="app"'
+          seen=$(curl -4 -sSf --max-time 10 "$URL/cdn-cgi/trace" | sed -n 's/^ip=//p')
+          # The API may be redeploying at the same time (a merge touching
+          # both): it has a few minutes to come back with the shared secret.
+          for _ in $(seq 1 30); do
+            health=$(curl -4 -sSf --max-time 20 "$URL/api/health")
+            api=$(jq -r .ip <<<"$health")
+            [ "$api" = "$seen" ] && break
+            sleep 10
+          done
+          echo "$health" | jq .
+          [ "$(jq -r .serviceRole <<<"$health")" = "true" ]
+          if [ "$api" != "$seen" ]; then
+            echo "::error::the API sees $api, Cloudflare saw $seen: the visitor's address is lost (STAGING_PROXY_SECRET on both sides?)"
+            exit 1
+          fi
+          {
+            echo "### Staging site deployed"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| URL | $URL |"
+            echo "| Commit | \`$GITHUB_SHA\` |"
+            echo "| API version | \`$(jq -r .version <<<"$health")\` |"
+            echo "| Visitor's address, as Cloudflare and the API see it | \`$api\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Link the preview from the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ steps.deploy.outputs.url }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
+            -f state=success -f context="Staging preview" \
+            -f description="Open this pull request's site" -f target_url="$URL" >/dev/null

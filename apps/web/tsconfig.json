@@ -10,5 +10,5 @@
     "jsx": "preserve",
     "noEmit": true
   },
-  "include": ["src", "env.d.ts", "vite.config.ts"]
+  "include": ["src", "worker", "env.d.ts", "vite.config.ts"]
 }

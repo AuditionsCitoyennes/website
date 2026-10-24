@@ -55,6 +55,14 @@ const schema = z
       .string()
       .default("")
       .transform((s) => (s.trim() === "0" ? "" : s.trim())),
+    // Shared with the site's own proxy (the Cloudflare Worker in front of the
+    // web app, apps/web/worker): requests through it come from Cloudflare, so
+    // it passes the visitor's address in X-Visitor-IP, believed only with this
+    // secret (see lib/visitor). At least 32 characters; empty: no such proxy.
+    PROXY_SECRET: z
+      .string()
+      .default("")
+      .refine((s) => s === "" || s.length >= 32, "PROXY_SECRET: 32 characters at least"),
   })
   .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
     message: "EMAIL_MODE=redirect needs EMAIL_REDIRECT_TO",

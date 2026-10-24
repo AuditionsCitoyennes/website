@@ -109,6 +109,9 @@ jobs:
           ENV_TRUST_PROXY: 127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
           SECRET_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
           SECRET_SEND_EMAIL_HOOK_SECRET: ${{ secrets.STAGING_SEND_EMAIL_HOOK_SECRET }}
+          # Shared with the site's Worker (deploy-staging-web.yml): vouches for
+          # the visitor's address it passes on.
+          SECRET_PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
         run: |
           url=$(scripts/deploy/scaleway.sh deploy)
           echo "url=$url" >> "$GITHUB_OUTPUT"
