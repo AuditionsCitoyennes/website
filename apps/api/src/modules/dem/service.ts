@@ -20,6 +20,21 @@ interface Selection {
 const store = new Map<string, Selection>();
 const MAX_VERSIONS = 40;
 
+// A selection is raised polygon by polygon, scanline by scanline, per tile: its
+// vertex count is the render cost. A département's union is budgeted at
+// 20 000 (boundaries), the métropole's contour is a few thousand; a quarter of
+// a million is far above anything the site sends and below what would stall
+// the server on each tile.
+export const MAX_SELECTION_VERTICES = 250_000;
+
+/** The POSTed selection holds more vertices than the server will raise. */
+export class SelectionTooLarge extends Error {
+  constructor(vertices: number) {
+    super(`selection too large: ${vertices} vertices (max ${MAX_SELECTION_VERTICES})`);
+    this.name = "SelectionTooLarge";
+  }
+}
+
 // Folded into every version key. Tiles are served immutable for a year, so a
 // client that drilled a territory keeps the tiles it got: bump this whenever
 // the bytes rendered for the SAME selection change (encoding, erosion,
@@ -55,6 +70,9 @@ export function setSelection(features: GeoFeatureLike[], height: number): string
     ) as Polygon[];
     for (const poly of list) polys.push(poly);
   }
+  let vertices = 0;
+  for (const poly of polys) for (const ring of poly) vertices += ring.length;
+  if (vertices > MAX_SELECTION_VERTICES) throw new SelectionTooLarge(vertices);
   const key = versionKey(polys, Math.round(height));
   // True LRU: a hit refreshes recency (Map preserves insertion order), so a
   // version still being rendered by clients can't age out behind their back.

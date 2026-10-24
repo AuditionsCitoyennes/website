@@ -24,16 +24,12 @@ export default async function auditionRoutes(app: FastifyInstance) {
     // writes (which invalidate it). Public API only: the website itself no
     // longer reads it (its analyses are built from /api/map + /api/testimonies).
     // `no-cache`: a client revalidates (304) rather than keep a copy past a write.
-    try {
-      const res = await cachedResponse(
-        PUBLIC_CACHE_KEYS.auditions,
-        PUBLIC_CACHE_TTL_MS.auditions,
-        fetchPublishedAuditions,
-      );
-      return sendCached(req, reply, res, "no-cache");
-    } catch (e) {
-      return reply.internalServerError((e as Error).message);
-    }
+    const res = await cachedResponse(
+      PUBLIC_CACHE_KEYS.auditions,
+      PUBLIC_CACHE_TTL_MS.auditions,
+      fetchPublishedAuditions,
+    );
+    return sendCached(req, reply, res, "no-cache");
   });
 
   // ---- Admin (role-gated; queries RLS-scoped to the caller) ----
@@ -54,16 +50,11 @@ export default async function auditionRoutes(app: FastifyInstance) {
     // Cached per id, dropped with the other public caches on any write: this
     // was the only public read that went to Supabase on every request. A
     // failed read is not kept.
-    let result;
-    try {
-      result = await cached(auditionCacheKey(id), PUBLIC_CACHE_TTL_MS.auditions, async () => {
-        const r = await fetchPublishedAudition(publicClient, id);
-        if (r.kind === "dbError") throw new Error(r.message);
-        return r;
-      });
-    } catch (e) {
-      return reply.internalServerError((e as Error).message);
-    }
+    const result = await cached(auditionCacheKey(id), PUBLIC_CACHE_TTL_MS.auditions, async () => {
+      const r = await fetchPublishedAudition(publicClient, id);
+      if (r.kind === "dbError") throw new Error(r.message);
+      return r;
+    });
     if (result.kind === "notFound") return reply.notFound("Audition introuvable");
     return result.audition;
   });

@@ -30,16 +30,12 @@ export default async function testimonyRoutes(app: FastifyInstance) {
     // per request. `no-cache`: a returning visitor asks whether it changed and
     // is told so in a 304 instead of downloading 1.5 MB again, while an admin's
     // write still shows at the next load.
-    try {
-      const res = await cachedResponse(
-        PUBLIC_CACHE_KEYS.testimonies,
-        PUBLIC_CACHE_TTL_MS.testimonies,
-        fetchPublicTestimonies,
-      );
-      return sendCached(req, reply, res, "no-cache");
-    } catch (e) {
-      return reply.internalServerError((e as Error).message);
-    }
+    const res = await cachedResponse(
+      PUBLIC_CACHE_KEYS.testimonies,
+      PUBLIC_CACHE_TTL_MS.testimonies,
+      fetchPublicTestimonies,
+    );
+    return sendCached(req, reply, res, "no-cache");
   });
 
   // ---- Admin (RLS-scoped to the caller) ----
@@ -144,7 +140,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
         if (e instanceof AnalysisError) {
           return reply.code(e.statusCode).send({ error: e.message });
         }
-        return reply.internalServerError(e instanceof Error ? e.message : "Erreur inconnue");
+        throw e;
       }
     },
   );
