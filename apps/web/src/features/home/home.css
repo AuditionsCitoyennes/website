@@ -1,0 +1,167 @@
+/* The home page's shared classes: what several of its sections are made of
+   (the bands and their two columns, a column's eyebrow / title / lead, the
+   photo credits, the call-to-action buttons, the reveal on scroll). Not
+   scoped — a section's scoped block would not reach its siblings — and every
+   selector starts with .landing (HomePage's root), so that nothing here
+   reaches another page, with the specificity a scoped rule had (one class
+   where the scope attribute was). */
+
+.landing .credit {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.7rem;
+  margin: 0;
+  font-size: var(--text-caption);
+  color: rgb(255 255 255 / 0.6);
+}
+
+/* Inside the project's photo card: at the top, out of its caption's way. */
+.landing .credit--in {
+  top: 0.8rem;
+  bottom: auto;
+}
+
+/* ---- Bands --------------------------------------------------------------- */
+.landing .band {
+  padding-block: clamp(4rem, 9vw, 7.5rem);
+  scroll-margin-top: 4rem;
+}
+
+/* Focused only by script (the "Découvrir" link): no ring around the band. */
+.landing .band:focus {
+  outline: none;
+}
+
+.landing .band--alt {
+  background: var(--gradient-surface);
+}
+
+.landing .split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: clamp(2.5rem, 6vw, 5.5rem);
+}
+
+/* The other side first: the bands alternate. */
+.landing .split--reverse > :first-child {
+  order: 2;
+}
+
+.landing .eyebrow {
+  margin: 0 0 0.8rem;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: hsl(var(--primary));
+}
+
+.landing .title {
+  margin: 0 0 1.4rem;
+  font-size: var(--text-page);
+  line-height: 0.95;
+  color: hsl(var(--foreground));
+}
+
+.landing .lead {
+  font-size: var(--text-lead);
+  line-height: var(--lh-body);
+  color: hsl(var(--foreground) / 0.85);
+}
+
+/* A second paragraph after the intro: reading text, no longer the lead. */
+.landing .lead--next {
+  margin-top: 0.9rem;
+  font-size: var(--text-body);
+  line-height: var(--lh-body);
+}
+
+/* ---- Buttons ---------------------------------------------------------------- */
+.landing .cta-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding: 0.55rem 1.4rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  text-align: center;
+  background: #fff;
+  color: hsl(270 60% 35%);
+  font-weight: 700;
+  font-size: var(--text-ui);
+  cursor: pointer;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    filter 0.25s ease;
+}
+
+.landing .cta-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.3);
+}
+
+.landing .cta-btn--primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.landing .cta-btn--primary:hover {
+  filter: brightness(1.08);
+  box-shadow: var(--shadow-glow);
+}
+
+.landing .cta-btn--ghost {
+  background: transparent;
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+.landing .cta-btn--ghost:hover {
+  background: hsl(var(--accent) / 0.5);
+  box-shadow: none;
+}
+
+/* ---- Coming in on scroll ------------------------------------------------------ */
+.landing .reveal {
+  opacity: 0;
+  translate: 0 28px;
+  transition:
+    opacity 0.8s ease,
+    translate 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.landing .reveal.revealed {
+  opacity: 1;
+  translate: 0 0;
+}
+
+.landing .split > .reveal:nth-child(2) {
+  transition-delay: 0.12s;
+}
+
+/* ---- Phones and tablets ------------------------------------------------------- */
+@media (max-width: 899px) {
+  .landing .split {
+    grid-template-columns: 1fr;
+  }
+
+  .landing .split--reverse > :first-child {
+    order: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing .reveal {
+    opacity: 1;
+    translate: none;
+    transition: none;
+  }
+
+  .landing .cta-btn {
+    transition: none;
+  }
+}
