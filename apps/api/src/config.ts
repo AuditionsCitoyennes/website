@@ -63,10 +63,23 @@ const schema = z
       .string()
       .default("")
       .refine((s) => s === "" || s.length >= 32, "PROXY_SECRET: 32 characters at least"),
+    // "true": the API answers only requests that come through the site's
+    // proxy (with PROXY_SECRET), so that the gate in front of the site
+    // (Cloudflare Access) cannot be walked around by calling the API's own
+    // address. Still open: /health, /api/health, and the Supabase Auth hook
+    // (signed with its own secret).
+    REQUIRE_PROXY: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
   })
   .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
     message: "EMAIL_MODE=redirect needs EMAIL_REDIRECT_TO",
     path: ["EMAIL_REDIRECT_TO"],
+  })
+  .refine((c) => !c.REQUIRE_PROXY || c.PROXY_SECRET, {
+    message: "REQUIRE_PROXY=true needs PROXY_SECRET",
+    path: ["PROXY_SECRET"],
   })
   // The outbox shows every email to whoever opens the site: real people's
   // emails must never land there.

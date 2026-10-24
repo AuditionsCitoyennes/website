@@ -7,6 +7,7 @@ import authPlugin from "./lib/auth";
 import { setCacheLogger } from "./lib/cache";
 import { runActing } from "./lib/email/outbox";
 import { setEmailLogger } from "./lib/email/resend";
+import { fromProxy } from "./lib/visitor";
 import { setGeocodeLogger } from "./modules/geo/geocode";
 import healthRoutes from "./modules/health/routes";
 import auditionRoutes from "./modules/auditions/routes";
@@ -48,6 +49,20 @@ export function buildServer() {
   app.register(compress, { global: true, threshold: 1024 });
   app.register(sensible);
   app.register(authPlugin);
+  // REQUIRE_PROXY: nothing but the site's proxy gets through (see config),
+  // apart from the health check and Supabase Auth's signed hook.
+  if (config.REQUIRE_PROXY) {
+    app.addHook("onRequest", async (req, reply) => {
+      // The route Fastify matched, not the raw URL: no path trick
+      // ("/api/hooks/../outbox") can borrow an open route's pass.
+      const route = req.routeOptions.url ?? "";
+      const open =
+        route === "/health" || route === "/api/health" || route.startsWith("/api/hooks/");
+      if (!open && !fromProxy(req)) {
+        return reply.code(403).send({ error: "Only reachable through the site." });
+      }
+    });
+  }
   // The test outbox tags each email with whoever's action sent it: the rest
   // of every request runs knowing the request (see lib/email/outbox).
   if (emailMode === "outbox") {
