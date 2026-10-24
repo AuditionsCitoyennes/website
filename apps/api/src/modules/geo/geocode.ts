@@ -1,7 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { getKnownCoordinates, isGenericLocation } from "@ac/shared";
 import { config } from "../../config";
+import { readJson, writeAtomic } from "../../lib/diskCache";
 import {
   arrondissementFromCitycode,
   isHomonyms,
@@ -34,35 +35,83 @@ type Coords = [number, number];
 // commune names, départements and régions, overseas, homonyms kept as
 // candidates); v3 entries hold the mis-pins it fixes, and lack `level`.
 const CACHE_FILE = join(config.CACHE_DIR, ".geocode-cache-v4.json");
+// The files the bumps left behind: never read again, removed once at boot.
+const STALE_FILES = [".geocode-cache.json", ".geocode-cache-v2.json", ".geocode-cache-v3.json"];
 
 const cache = new Map<string, Located>();
-let loaded = false;
 
-async function load(): Promise<void> {
-  if (loaded) return;
-  loaded = true;
-  try {
-    const raw = await readFile(CACHE_FILE, "utf8");
-    const obj = JSON.parse(raw) as Record<string, Located>;
-    for (const [k, v] of Object.entries(obj)) cache.set(k, v);
-  } catch {
-    /* no cache file yet */
-  }
+// The read, memoised as a promise: every caller before it lands waits on the
+// SAME read. A flag set before the await let the first callers see an empty
+// map on every cold start and re-query BAN for lieux the file already held.
+let loading: Promise<{ entries: number }> | undefined;
+
+function load(): Promise<{ entries: number }> {
+  return (loading ??= readCache());
 }
 
-async function persist(): Promise<void> {
-  const obj: Record<string, Located> = {};
-  for (const [k, v] of cache) obj[k] = v;
+async function readCache(): Promise<{ entries: number }> {
   try {
-    await writeFile(CACHE_FILE, JSON.stringify(obj, null, 2));
+    const obj = await readJson<Record<string, Located>>(CACHE_FILE);
+    if (obj) for (const [k, v] of Object.entries(obj)) cache.set(k, v);
   } catch {
-    /* ignore write errors */
+    /* unreadable: a cold cache */
   }
+  await Promise.all(STALE_FILES.map((f) => rm(join(config.CACHE_DIR, f), { force: true })));
+  return { entries: cache.size };
 }
 
-/** Makes sure the persisted cache has been read (before `getCachedEntry`). */
-export async function loadGeocodeCache(): Promise<void> {
-  await load();
+// Writes are coalesced (a warm pass resolves dozens of lieux in a row, and
+// each used to rewrite the whole file), serialised (a later snapshot never
+// lands under an earlier one), atomic (tmp + rename: a crash mid-write leaves
+// the previous file whole) and compact. flushGeocodeCache() writes what is
+// pending now — for a shutdown.
+const PERSIST_DEBOUNCE_MS = 1000;
+let dirty = false;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let writing: Promise<void> = Promise.resolve();
+
+function schedulePersist(): void {
+  dirty = true;
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    void persist();
+  }, PERSIST_DEBOUNCE_MS);
+  // A pending cache write must never hold the process open (scripts, tests).
+  persistTimer.unref?.();
+}
+
+function persist(): Promise<void> {
+  writing = writing.then(async () => {
+    if (!dirty) return;
+    dirty = false;
+    const obj: Record<string, Located> = {};
+    for (const [k, v] of cache) obj[k] = v;
+    try {
+      await writeAtomic(CACHE_FILE, JSON.stringify(obj));
+    } catch {
+      // Kept for the next write (or the flush): the entries are still in memory.
+      dirty = true;
+    }
+  });
+  return writing;
+}
+
+/**
+ * Makes sure the persisted cache has been read (before `getCachedEntry`).
+ * Awaited once at boot, before the server listens; instant afterwards.
+ */
+export function loadGeocodeCache(): Promise<{ entries: number }> {
+  return load();
+}
+
+/** Write any entries not yet on disk, now. Nothing to do when none are. */
+export async function flushGeocodeCache(): Promise<void> {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  schedulePersist();
 }
 
 /** Cached lookup (homonyms unsettled), or `undefined` if this name has never been resolved. */
@@ -222,7 +271,7 @@ export async function resolve(name: string): Promise<Located> {
 
   if (isGenericLocation(name)) {
     cache.set(name, null);
-    await persist();
+    schedulePersist();
     return null;
   }
 
@@ -294,7 +343,7 @@ function lookUp(name: string): Promise<Located> {
 
       cache.set(name, entry);
       backoff.delete(name);
-      await persist();
+      schedulePersist();
       return entry;
     } catch (e) {
       // A query BAN itself refuses (a 4xx other than 429) will never match:
@@ -303,7 +352,7 @@ function lookUp(name: string): Promise<Located> {
       // time; nothing of it reaches the file.
       if (e instanceof BanError && e.status >= 400 && e.status < 500 && e.status !== 429) {
         cache.set(name, null);
-        await persist();
+        schedulePersist();
         return null;
       }
       const tries = (backoff.get(name)?.tries ?? 0) + 1;

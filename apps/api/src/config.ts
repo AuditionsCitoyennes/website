@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
@@ -72,6 +72,9 @@ const schema = z
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
+    // Where the geocode and boundary caches live on disk (a volume, in a
+    // container). Empty: the apps/api directory, as always for a developer.
+    CACHE_DIR: z.string().optional().default(""),
   })
   .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
     message: "EMAIL_MODE=redirect needs EMAIL_REDIRECT_TO",
@@ -94,10 +97,15 @@ if (!parsed.success) {
   process.exit(1);
 }
 
+/** The apps/api directory: src/.. for tsx, dist/.. once bundled. */
+const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
+
 export const config = {
   ...parsed.data,
-  /** The apps/api directory, where the geocode and boundary caches are kept on disk. */
-  CACHE_DIR: join(dirname(fileURLToPath(import.meta.url)), ".."),
+  /** The directory the geocode and boundary caches are kept in (CACHE_DIR, else apps/api). */
+  CACHE_DIR: parsed.data.CACHE_DIR ? resolve(parsed.data.CACHE_DIR) : APP_DIR,
+  /** Static data shipped with the API (apps/api/data): the france-geojson levels. */
+  DATA_DIR: join(APP_DIR, "data"),
 };
 
 /** Whether privileged operations (analysis, emails, role mgmt) are available. */

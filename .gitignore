@@ -30,7 +30,9 @@ supabase/seed.sql
 # Server-side geocode cache (persisted BAN results; the filename is version-bumped)
 .geocode-cache*.json
 
-# Server-side boundary geometry cache (france-geojson / Géo API)
+# Server-side boundary geometry cache (Géo API): one file per key in the
+# directory; the one-file form of earlier versions is migrated at boot.
+.boundaries-cache/
 .boundaries-cache.json
 
 # Claude Code (local settings, launch config)
