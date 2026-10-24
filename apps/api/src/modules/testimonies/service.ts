@@ -137,14 +137,16 @@ export async function createTestimony(
   const email = input.email || null;
   const verificationToken = email ? randomUUID() : null;
 
+  // The audition, read once: the online rule below, then the verification
+  // email's context and the audit entry (best effort for those two).
   // An online audition's testimonies are public only once validated by
   // email: without one, it would never be shown.
-  const { data: target } = await client
+  const { data: audition } = await client
     .from("auditions")
-    .select("audition_en_ligne")
+    .select("audition_en_ligne, title, location, date")
     .eq("id", input.audition_id)
     .maybeSingle();
-  if (target?.audition_en_ligne && !email) return { kind: "onlineNeedsEmail" };
+  if (audition?.audition_en_ligne && !email) return { kind: "onlineNeedsEmail" };
 
   const testimony: NewTestimony = {
     id: randomUUID(),
@@ -165,14 +167,6 @@ export async function createTestimony(
   const { error } = await client.from("testimonies").insert(testimony);
   if (error) return { kind: "dbError", message: error.message };
   invalidatePublicCaches();
-
-  // The audition is context for the verification email and for the audit
-  // entry — best effort for both.
-  const { data: audition } = await client
-    .from("auditions")
-    .select("title, location, date")
-    .eq("id", input.audition_id)
-    .maybeSingle();
 
   // Best-effort verification email — the testimony is kept even if it fails.
   let emailSent = false;
