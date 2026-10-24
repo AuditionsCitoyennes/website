@@ -5,10 +5,12 @@ import { z } from "zod";
 import { supabase } from "@/shared/api/supabase";
 import { noteOutboxAddress } from "@/shared/api/outbox";
 import { useToast } from "@/shared/ui/toast/useToast";
-import { passwordSchema, PASSWORD_REQUIREMENTS } from "../lib/password";
+import { passwordSchema } from "../lib/password";
 import { mapAuthError } from "../authErrors";
 import OAuthButtons from "../components/OAuthButtons.vue";
 import UsernamePromptDialog from "../components/UsernamePromptDialog.vue";
+import AuthCard from "../components/AuthCard.vue";
+import PasswordRequirements from "../components/PasswordRequirements.vue";
 
 const loginSchema = z.object({
   email: z.string().email("Email invalide").max(255, "Email trop long"),
@@ -177,10 +179,8 @@ async function handleForgotPassword() {
 
 <template>
   <div class="auth-page">
-    <div class="backdrop gradient-hero" aria-hidden="true"></div>
-
     <!-- "Vérifiez votre email" screen after signup -->
-    <div v-if="signupDone" class="card glass-strong elevation-2xl fade-in">
+    <AuthCard v-if="signupDone">
       <div class="icon-wrap">
         <svg
           viewBox="0 0 24 24"
@@ -223,10 +223,10 @@ async function handleForgotPassword() {
           ← Retour
         </button>
       </div>
-    </div>
+    </AuthCard>
 
     <!-- Login / signup card -->
-    <div v-else class="card glass-strong elevation-2xl fade-in">
+    <AuthCard v-else>
       <div class="icon-wrap">
         <svg
           viewBox="0 0 24 24"
@@ -337,33 +337,12 @@ async function handleForgotPassword() {
             autocomplete="new-password"
           />
         </div>
-        <ul class="requirements">
-          <li
-            v-for="req in PASSWORD_REQUIREMENTS"
-            :key="req.label"
-            class="requirement"
-            :class="{ ok: req.test(password) }"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              width="15"
-              height="15"
-            >
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            {{ req.label }}
-          </li>
-        </ul>
+        <PasswordRequirements :password="password" />
         <button type="submit" class="btn-primary-block" :disabled="loading">
           {{ loading ? "Inscription..." : "S'inscrire" }}
         </button>
       </form>
-    </div>
+    </AuthCard>
 
     <UsernamePromptDialog
       :open="showProfileDialog"
@@ -382,21 +361,6 @@ async function handleForgotPassword() {
   justify-content: center;
   padding: 2.5rem 1.5rem;
   overflow: hidden;
-}
-
-.backdrop {
-  position: absolute;
-  inset: 0;
-  opacity: 0.3;
-}
-
-.card {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: 28rem;
-  border-radius: 1rem;
-  padding: 2rem;
 }
 
 .icon-wrap {
@@ -465,36 +429,6 @@ async function handleForgotPassword() {
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
-}
-
-.requirements {
-  list-style: none;
-  padding: 0;
-  margin: -0.3rem 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.requirement {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: var(--text-ui);
-  color: hsl(var(--muted-foreground));
-}
-
-.requirement svg {
-  color: hsl(var(--muted-foreground) / 0.4);
-  flex-shrink: 0;
-}
-
-.requirement.ok {
-  color: hsl(var(--civic-green));
-}
-
-.requirement.ok svg {
-  color: hsl(var(--civic-green));
 }
 
 .link-btn {
