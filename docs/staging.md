@@ -85,8 +85,8 @@ secrets).
 
 Cloudflare serves the app's files; only `/api/*` runs the Worker
 (`apps/web/worker/index.ts`), which forwards it to the API on Scaleway. For the
-browser it is all one site: no CORS, and one gate in front of both (Cloudflare
-Access, next). Every request then reaches the API from Cloudflare, so the
+browser it is all one site: no CORS, and one gate in front of both (see The
+gate). Every request then reaches the API from Cloudflare, so the
 Worker passes the visitor's address along (`X-Visitor-IP`), and the API
 believes it only with the secret they share (`PROXY_SECRET`). Each deploy
 checks it: the address Cloudflare saw (`/cdn-cgi/trace`) must be the one the
@@ -132,6 +132,61 @@ In Supabase, staging project → **Authentication → URL Configuration**:
 Without them, the links of the sign-up and password emails lead to
 `localhost`.
 
+## The gate
+
+Staging is closed to everyone but its testers, by Cloudflare Access (Zero
+Trust, free up to 50 people), in front of the site and of every preview — its
+`/api` with it. A tester opens the link, types their email, receives a
+6-digit code, and is in for a week, in that browser.
+
+**Who may come in is a list in Cloudflare, nowhere else** (never in this
+repository: it will be public): Zero Trust → **Reusable components → Lists →
+« Testeurs staging »**. Add or remove an address (or a whole `@domain`) there,
+it applies at once to new sign-ins. Someone removed keeps their pass until it
+expires (a week): to cut them off now, Zero Trust → **Users** → them →
+**Revoke**.
+
+The Supabase Auth email hook is not behind it: Supabase calls the API on
+Scaleway directly.
+
+The deploys check the site through the gate with their own pass, a service
+token (`STAGING_ACCESS_CLIENT_ID` / `_SECRET`), allowed by a « Service Auth »
+policy. A check that meets the sign-in page instead says so and fails.
+
+### Setup (once)
+
+In Cloudflare, **Zero Trust** (left menu). The first time, it asks for a team
+name (e.g. `auditionscitoyennes`, the sign-in page will be
+`auditionscitoyennes.cloudflareaccess.com`) and a plan: **Free**.
+
+1. **Reusable components → Lists → Create list**: name `Testeurs staging`,
+   type *Emails*; add the testers (and yourself).
+2. **Access → Service credentials → Service Tokens → Create**: name
+   `github-deploy`, duration 1 year. Copy the Client ID and the Client Secret
+   (shown once) straight into GitHub:
+
+   ```bash
+   gh secret set STAGING_ACCESS_CLIENT_ID
+   gh secret set STAGING_ACCESS_CLIENT_SECRET
+   ```
+
+3. **Access → Applications → Add an application → Self-hosted**:
+   - name `Staging`, session duration **1 week**;
+   - public hostname `staging.auditionscitoyennes.com` (all paths);
+   - policy `Testeurs`: action *Allow*, include *Emails in list* →
+     `Testeurs staging`;
+   - policy `Déploiements`: action *Service Auth*, include *Service Token* →
+     `github-deploy`;
+   - login method: *One-time PIN*.
+4. The previews: **Workers & Pages → auditions-staging → Settings → Domains &
+   Routes** → on *Preview URLs* (and *workers.dev*), **Enable Cloudflare
+   Access**. Cloudflare creates an application for them: open it in Zero Trust
+   → Access → Applications and give it the same session duration and the same
+   two policies.
+5. Check: Actions → Deploy staging site → Run workflow (branch `dev`): green
+   means the deploy's pass works. A private window on the site must ask for an
+   email.
+
 ### Keys
 
 | Key | Can | Lives in |
@@ -141,6 +196,7 @@ Without them, the links of the sign-up and password emails lead to
 | `STAGING_SEND_EMAIL_HOOK_SECRET` | Sign Auth's emails to the API | Supabase + GitHub secret → the container |
 | `STAGING_CLOUDFLARE_API_TOKEN` | Workers of the account, and Worker routes of `auditionscitoyennes.com` | GitHub secret |
 | `STAGING_PROXY_SECRET` | Vouch for a visitor's address to the API | GitHub secret → the Worker's and the container's secrets |
+| `STAGING_ACCESS_CLIENT_ID` / `_SECRET` | Pass the gate (the deploys' checks only) | Cloudflare Zero Trust + GitHub secrets |
 
 To rotate one: generate a new one, `gh secret set` it, run the workflow, then
 revoke the old one.

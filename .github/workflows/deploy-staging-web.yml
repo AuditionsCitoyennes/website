@@ -125,19 +125,36 @@ jobs:
       - name: Check the site
         env:
           URL: ${{ steps.deploy.outputs.url }}
+          # The deploy's own pass through the gate (Cloudflare Access): a
+          # service token, allowed by the gate's "Service Auth" policy.
+          ACCESS_ID: ${{ secrets.STAGING_ACCESS_CLIENT_ID }}
+          ACCESS_SECRET: ${{ secrets.STAGING_ACCESS_CLIENT_SECRET }}
         run: |
+          get() {
+            if [ -n "$ACCESS_ID" ]; then
+              curl -4 -H "CF-Access-Client-Id: $ACCESS_ID" -H "CF-Access-Client-Secret: $ACCESS_SECRET" "$@"
+            else
+              curl -4 "$@"
+            fi
+          }
           # A new domain waits for its certificate (minutes, the first time).
           for _ in $(seq 1 60); do
-            curl -4 -sf --max-time 10 -o /dev/null "$URL/" && break
+            code=$(get -s --max-time 10 -o /dev/null -w '%{http_code}' "$URL/" || true)
+            [ "$code" = 200 ] && break
+            # Sent to the gate's sign-in page: the deploy has no pass.
+            if [ "$code" = 302 ] || [ "$code" = 401 ] || [ "$code" = 403 ]; then
+              echo "::error::$URL answers $code: behind the gate, and STAGING_ACCESS_CLIENT_ID / _SECRET are missing or not allowed by its Service Auth policy (docs/staging.md)"
+              exit 1
+            fi
             sleep 10
           done
-          curl -4 -sSf --max-time 10 "$URL/" | grep -q '<div id="app"'
-          curl -4 -sSf --max-time 10 "$URL/temoignages" | grep -q '<div id="app"'
-          seen=$(curl -4 -sSf --max-time 10 "$URL/cdn-cgi/trace" | sed -n 's/^ip=//p')
+          get -sSf --max-time 10 "$URL/" | grep -q '<div id="app"'
+          get -sSf --max-time 10 "$URL/temoignages" | grep -q '<div id="app"'
+          seen=$(get -sSf --max-time 10 "$URL/cdn-cgi/trace" | sed -n 's/^ip=//p')
           # The API may be redeploying at the same time (a merge touching
           # both): it has a few minutes to come back with the shared secret.
           for _ in $(seq 1 30); do
-            health=$(curl -4 -sSf --max-time 20 "$URL/api/health")
+            health=$(get -sSf --max-time 20 "$URL/api/health")
             api=$(jq -r .ip <<<"$health")
             [ "$api" = "$seen" ] && break
             sleep 10
