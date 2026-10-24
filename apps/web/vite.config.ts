@@ -8,9 +8,10 @@ export default defineConfig(({ command, mode }) => ({
     // Every component is `<script setup>`, so the Options API runtime is dead
     // weight — flagging it lets the minifier drop that branch of Vue.
     __VUE_OPTIONS_API__: "false",
-    // The test outbox (features/outbox): in local development, and in a build
-    // with VITE_APP_ENV=staging. Any other build has none of it, not a byte.
-    __OUTBOX__: JSON.stringify(
+    // The testing tools — the outbox (features/outbox), the analyses' DEV
+    // switches (lib/slabDev): in local development, and in a build with
+    // VITE_APP_ENV=staging. Any other build has none of them, not a byte.
+    __TEST_TOOLS__: JSON.stringify(
       command === "serve" || loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging",
     ),
   },

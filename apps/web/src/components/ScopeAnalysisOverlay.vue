@@ -104,6 +104,8 @@ const emit = defineEmits<{
 
 const uid = useId();
 const isDev = import.meta.env.DEV;
+// The DEV switch below: the dev server and staging (the testing tools).
+const testTools = __TEST_TOOLS__;
 
 // ---- Content -------------------------------------------------------------------
 
@@ -1135,12 +1137,12 @@ onBeforeUnmount(() => {
       </ul>
     </div>
 
-    <!-- DEV only: the slabs' lid, words and size, the territory's framing,
-         the ring's band (lib/slabDev). Apart from them; on a phone folded, see
-         switchStyle. -->
+    <!-- Testing tools only (dev server, staging): the slabs' lid, words and
+         size, the territory's framing, the ring's band (lib/slabDev). Apart
+         from them; on a phone folded, see switchStyle. -->
     <component
       :is="compact ? 'details' : 'div'"
-      v-if="isDev"
+      v-if="testTools"
       v-show="visible"
       class="slab-switch"
       :style="switchStyle"

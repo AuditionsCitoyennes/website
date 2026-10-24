@@ -32,7 +32,7 @@ export async function apiFetch<T = unknown>(path: string, options: ApiOptions = 
 
   // Only a write may send an email: the test outbox tags it with this
   // browser, and looks again once it is done.
-  const write = __OUTBOX__ && (options.method ?? "GET") !== "GET";
+  const write = __TEST_TOOLS__ && (options.method ?? "GET") !== "GET";
   if (write) headers.set("X-Outbox-Viewer", outboxViewer());
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });

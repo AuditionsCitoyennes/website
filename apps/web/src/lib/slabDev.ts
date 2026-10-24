@@ -1,7 +1,8 @@
-// DEV-only choices for the analyses' slabs, compared live (the overlay's DEV
-// switch): shared by GeoNav (the camera's room, the slabs' spec) and the
-// overlay (the words' ground). Production keeps the defaults, which these
-// refs never leave there (no switch is drawn).
+// The analyses' slabs' choices, compared live (the overlay's DEV switch), in
+// the builds with the testing tools — the dev server and staging
+// (__TEST_TOOLS__, vite.config): shared by GeoNav (the camera's room, the
+// slabs' spec) and the overlay (the words' ground). Production keeps the
+// defaults, which these refs never leave there (no switch is drawn).
 //
 // - The lid of the words' pieces (the label's box, the plaque): "verre" (the
 //   default) — glass, the map under it seen blurred and brightened, the words
@@ -31,7 +32,7 @@ export type SlabLidMode = "verre" | "opaque" | "carte";
 export type SlabTextMode = "redresse" | "plat";
 export type RingBandMode = "fin" | "moyen" | "epais";
 
-const isDev = import.meta.env.DEV;
+const enabled = __TEST_TOOLS__;
 // (Not "ac:slab-lid", which kept the choice made while Opaque was the
 // default: Verre is shown first once again.)
 const LID_KEY = "ac:slab-lid-verre";
@@ -51,7 +52,7 @@ export const RING_BANDS: Readonly<Record<RingBandMode, number>> = {
 };
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-  if (!isDev) return fallback;
+  if (!enabled) return fallback;
   try {
     const raw = localStorage.getItem(key);
     return (allowed as readonly string[]).includes(raw ?? "") ? (raw as T) : fallback;
@@ -85,31 +86,31 @@ export const frameFill = ref<number>(storedShare(FILL_KEY, FRAME_FILL));
 export const ringBandMode = ref<RingBandMode>(stored(RING_KEY, ["fin", "moyen", "epais"], "moyen"));
 
 export function setSlabLidMode(m: SlabLidMode) {
-  if (!isDev) return;
+  if (!enabled) return;
   slabLidMode.value = m;
   store(LID_KEY, m);
 }
 
 export function setSlabTextMode(m: SlabTextMode) {
-  if (!isDev) return;
+  if (!enabled) return;
   slabTextMode.value = m;
   store(TEXT_KEY, m);
 }
 
 export function setSlabTextScale(v: number) {
-  if (!isDev || !SCALE_CHOICES.includes(v as (typeof SCALE_CHOICES)[number])) return;
+  if (!enabled || !SCALE_CHOICES.includes(v as (typeof SCALE_CHOICES)[number])) return;
   slabTextScale.value = v;
   store(SIZE_KEY, String(Math.round(v * 100)));
 }
 
 export function setFrameFill(v: number) {
-  if (!isDev || !SCALE_CHOICES.includes(v as (typeof SCALE_CHOICES)[number])) return;
+  if (!enabled || !SCALE_CHOICES.includes(v as (typeof SCALE_CHOICES)[number])) return;
   frameFill.value = v;
   store(FILL_KEY, String(Math.round(v * 100)));
 }
 
 export function setRingBandMode(m: RingBandMode) {
-  if (!isDev) return;
+  if (!enabled) return;
   ringBandMode.value = m;
   store(RING_KEY, m);
 }

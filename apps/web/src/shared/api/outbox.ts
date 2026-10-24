@@ -3,7 +3,7 @@ import { ref } from "vue";
 // The test outbox (staging and local development; see features/outbox): no
 // email leaves those sites, the API keeps them and the site shows them. What
 // the rest of the site tells it lives here: which browser acted, and when
-// something it did may have sent an email. Every caller checks __OUTBOX__
+// something it did may have sent an email. Every caller checks __TEST_TOOLS__
 // first, so that a build without the outbox drops all of this.
 
 const VIEWER_KEY = "ac-outbox-viewer";

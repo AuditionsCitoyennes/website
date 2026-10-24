@@ -78,7 +78,7 @@ async function updateEmail() {
   savingEmail.value = true;
   const { error } = await supabase.auth.updateUser({ email: editEmail.value.trim() });
   savingEmail.value = false;
-  if (__OUTBOX__ && !error) noteOutboxAddress(editEmail.value);
+  if (__TEST_TOOLS__ && !error) noteOutboxAddress(editEmail.value);
   if (error) {
     toast({ title: "Erreur", description: error.message, variant: "destructive" });
   } else {
