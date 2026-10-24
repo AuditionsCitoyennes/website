@@ -3,7 +3,7 @@ import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { noteOutboxAddress } from "@/shared/api/outbox";
 import { useAuthStore } from "@/features/auth";
-import { PASSWORD_REQUIREMENTS } from "@/features/auth/account";
+import { PasswordRequirements } from "@/features/auth/account";
 import { ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
@@ -227,28 +227,7 @@ async function handleDeleteAccount() {
             maxlength="72"
             autocomplete="new-password"
           />
-          <ul class="requirements">
-            <li
-              v-for="req in PASSWORD_REQUIREMENTS"
-              :key="req.label"
-              class="requirement"
-              :class="{ ok: req.test(editPassword) }"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                width="13"
-                height="13"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              {{ req.label }}
-            </li>
-          </ul>
+          <PasswordRequirements compact :password="editPassword" />
           <label class="form-label" for="acct-password-confirm">Confirmer le mot de passe</label>
           <input
             id="acct-password-confirm"
@@ -319,32 +298,5 @@ async function handleDeleteAccount() {
 .hint {
   font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
-}
-
-.requirements {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.requirement {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: var(--text-ui);
-  color: hsl(var(--muted-foreground));
-}
-
-.requirement svg {
-  color: hsl(var(--muted-foreground) / 0.4);
-  flex-shrink: 0;
-}
-
-.requirement.ok,
-.requirement.ok svg {
-  color: hsl(var(--civic-green));
 }
 </style>
