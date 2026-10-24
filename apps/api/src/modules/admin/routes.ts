@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { adminClient } from "../../lib/supabase";
 import { hasServiceRole } from "../../config";
-import { requireSuperAdmin } from "../../lib/auth";
+import { invalidateRoles, requireSuperAdmin } from "../../lib/auth";
 import { sendApprovalEmail, sendDeclineEmail } from "../../lib/email/registration";
 import { logAudit } from "../../lib/audit";
 
@@ -52,6 +52,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (insertError) {
         return reply.internalServerError(`Failed to insert role: ${insertError.message}`);
       }
+      invalidateRoles(userId);
 
       await logAudit(req.supabase, req.log, {
         actorId: req.user.id,
@@ -92,6 +93,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (deleteError) {
       return reply.internalServerError(`Failed to delete user: ${deleteError.message}`);
     }
+    invalidateRoles(userId);
 
     await logAudit(req.supabase, req.log, {
       actorId: req.user.id,
@@ -115,36 +117,32 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { id: string } }>("/roles/:id", async (req, reply) => {
     if (!(await requireSuperAdmin(req, reply))) return reply;
-
-    // Look the role up first for the audit-log metadata.
-    const { data: roles } = await req.supabase.rpc("get_user_roles_with_details" as never);
-    const role = (
-      (roles ?? []) as {
-        id: string;
-        user_id: string;
-        role: string;
-        email: string | null;
-        username: string | null;
-      }[]
-    ).find((r) => r.id === req.params.id);
-    if (!role) return reply.notFound("Rôle introuvable");
-    if (role.role === "super_admin") {
-      return reply.forbidden("Impossible de supprimer un rôle super admin");
+    // A non-UUID compared to the uuid column would surface as a raw 500.
+    if (!z.string().uuid().safeParse(req.params.id).success) {
+      return reply.notFound("Rôle introuvable");
     }
 
-    const { error } = await req.supabase.from("user_roles").delete().eq("id", req.params.id);
+    // One statement: the delete itself, never of a super admin's role, and
+    // what it removed (for the audit entry) — instead of loading every role
+    // to find this one first.
+    const { data: role, error } = await req.supabase
+      .from("user_roles")
+      .delete()
+      .eq("id", req.params.id)
+      .neq("role", "super_admin")
+      .select("id, user_id, role")
+      .maybeSingle();
     if (error) return reply.badRequest(error.message);
+    // Unknown — or a super admin's, which stays.
+    if (!role) return reply.notFound("Rôle introuvable, ou rôle super admin (non supprimable)");
+    invalidateRoles(role.user_id);
 
     await logAudit(req.supabase, req.log, {
       actorId: req.user.id,
       action: "role_deleted",
       targetType: "user",
       targetId: role.user_id,
-      metadata: {
-        target_email: role.email,
-        target_username: role.username,
-        role: role.role,
-      },
+      metadata: { role: role.role },
     });
 
     return { success: true };

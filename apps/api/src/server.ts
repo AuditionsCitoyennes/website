@@ -44,6 +44,9 @@ export function buildServer() {
           cb(null, !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))
       : config.WEB_ORIGIN,
     credentials: true,
+    // A browser may keep a preflight's answer 2 h (Chrome's cap): the admin
+    // UI's mutations stop paying an OPTIONS round trip each.
+    maxAge: 7200,
   });
   // The map/boundary payloads are large JSON with very high entropy overlap.
   app.register(compress, { global: true, threshold: 1024 });
