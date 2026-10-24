@@ -137,14 +137,15 @@ Without them, the links of the sign-up and password emails lead to
 Staging is closed to everyone but its testers, by Cloudflare Access (Zero
 Trust, free up to 50 people), in front of the site and of every preview — its
 `/api` with it. A tester opens the link, types their email, receives a
-6-digit code, and is in for a week, in that browser.
+6-digit code (from `noreply@notify.cloudflare.com`, in English, valid 10
+minutes), and is in for a week, in that browser. The sign-in page is
+`auditionscitoyennes.cloudflareaccess.com`, in the site's colours.
 
 **Who may come in is a list in Cloudflare, nowhere else** (never in this
 repository: it will be public): Zero Trust → **Reusable components → Lists →
-« Testeurs staging »**. Add or remove an address (or a whole `@domain`) there,
-it applies at once to new sign-ins. Someone removed keeps their pass until it
-expires (a week): to cut them off now, Zero Trust → **Users** → them →
-**Revoke**.
+Staging testers**. Add or remove an address there, it applies at once to new
+sign-ins. Someone removed keeps their pass until it expires (a week): to cut
+them off now, Zero Trust → **Team & Resources → Users** → them → **Revoke**.
 
 The Supabase Auth email hook is not behind it: Supabase calls the API on
 Scaleway directly. That address is otherwise closed: with `REQUIRE_PROXY`, the
@@ -153,43 +154,29 @@ shared `PROXY_SECRET`), apart from `/health` and the signed hook — the gate
 cannot be walked around by calling the API itself. Each API deploy checks
 both sides.
 
-The deploys check the site through the gate with their own pass, a service
-token (`STAGING_ACCESS_CLIENT_ID` / `_SECRET`), allowed by a « Service Auth »
-policy. A check that meets the sign-in page instead says so and fails.
+The deploys check the site and the previews through the gate with their own
+pass, a service token (`STAGING_ACCESS_CLIENT_ID` / `_SECRET`), allowed by the
+**Deployments** policy. A check that meets the sign-in page instead says so
+and fails.
 
-### Setup (once)
+### As set up (2026-10-24)
 
-In Cloudflare, **Zero Trust** (left menu). The first time, it asks for a team
-name (e.g. `auditionscitoyennes`, the sign-in page will be
-`auditionscitoyennes.cloudflareaccess.com`) and a plan: **Free**.
+| What | Where in Zero Trust | Setting |
+|---|---|---|
+| List `Staging testers` | Reusable components → Lists | type *User email addresses*: the testers, and the owners |
+| Policy `Testers` | Access controls → Policies (reusable) | *Allow*, include *Emails* in list `Staging testers` |
+| Policy `Deployments` | Access controls → Policies (reusable) | *Service Auth*, include *Service Token* `github-deploy` |
+| Service token `github-deploy` | Access controls → Service credentials → Service Tokens | 1 year (renew before October 2027: new token, `gh secret set` both, then revoke the old one) |
+| Application `Staging` | Access controls → Applications | hostname `staging.auditionscitoyennes.com` (all paths), policies Testers + Deployments, identity provider **One-time PIN** only, instant authentication, session 1 week |
+| The previews | Cloudflare → Workers & Pages → `auditions-staging` → **Access** tab → Worker policies → Manage Worker access | scope **All traffic**, policies Testers + Deployments, session 1 week |
+| Login method | Integrations → Identity providers | **One-time PIN** (added by hand: it was not there). Not the *Cloudflare* provider: that one wants a Cloudflare account |
+| Sign-in page | Reusable components → Custom pages → Access login page | organisation name, header and footer in French, purple background; no logo yet (the page shows « Cloudflare Access » until one is set) |
+| Team name | Settings | `auditionscitoyennes` |
 
-1. **Reusable components → Lists → Create list**: name `Testeurs staging`,
-   type *Emails*; add the testers (and yourself).
-2. **Access → Service credentials → Service Tokens → Create**: name
-   `github-deploy`, duration 1 year. Copy the Client ID and the Client Secret
-   (shown once) straight into GitHub:
-
-   ```bash
-   gh secret set STAGING_ACCESS_CLIENT_ID
-   gh secret set STAGING_ACCESS_CLIENT_SECRET
-   ```
-
-3. **Access → Applications → Add an application → Self-hosted**:
-   - name `Staging`, session duration **1 week**;
-   - public hostname `staging.auditionscitoyennes.com` (all paths);
-   - policy `Testeurs`: action *Allow*, include *Emails in list* →
-     `Testeurs staging`;
-   - policy `Déploiements`: action *Service Auth*, include *Service Token* →
-     `github-deploy`;
-   - login method: *One-time PIN*.
-4. The previews: **Workers & Pages → auditions-staging → Settings → Domains &
-   Routes** → on *Preview URLs* (and *workers.dev*), **Enable Cloudflare
-   Access**. Cloudflare creates an application for them: open it in Zero Trust
-   → Access → Applications and give it the same session duration and the same
-   two policies.
-5. Check: Actions → Deploy staging site → Run workflow (branch `dev`): green
-   means the deploy's pass works. A private window on the site must ask for an
-   email.
+To set it up again from nothing: in that order — list, service token (and its
+two GitHub secrets), the two policies, the application, the previews, then
+run « Deploy staging site » by hand: green means the deploys' pass works. A
+private window on the site must ask for an email.
 
 ### Keys
 
