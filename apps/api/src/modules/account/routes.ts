@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { getRoles } from "../../lib/auth";
+import { getRoles, invalidateRoles } from "../../lib/auth";
 import { adminClient } from "../../lib/supabase";
 import { hasServiceRole } from "../../config";
 import { logAudit } from "../../lib/audit";
@@ -7,7 +7,7 @@ import { logAudit } from "../../lib/audit";
 export default async function meRoutes(app: FastifyInstance) {
   // Current user + role flags.
   app.get("/", { preHandler: app.authenticate }, async (req) => {
-    const roles = await getRoles(req.supabase);
+    const roles = await getRoles(req);
     return {
       user: {
         id: req.user.id,
@@ -28,10 +28,10 @@ export default async function meRoutes(app: FastifyInstance) {
       });
     }
 
-    // Roles first (service client bypasses RLS), then the auth user.
-    await adminClient.from("user_roles").delete().eq("user_id", req.user.id);
+    // The auth user; its roles go with it (user_roles.user_id cascades).
     const { error } = await adminClient.auth.admin.deleteUser(req.user.id);
     if (error) return reply.internalServerError(error.message);
+    invalidateRoles(req.user.id);
 
     // The account is gone, and so is the caller's session: no actor (the
     // column references auth.users), written with the service client.

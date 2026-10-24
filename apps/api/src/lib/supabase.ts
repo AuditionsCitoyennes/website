@@ -26,10 +26,15 @@ export const publicClient: DB = createClient<Database>(
 /**
  * Per-request client carrying the caller's JWT, so existing RLS policies
  * enforce exactly as before (admins scoped to their content, etc.).
+ *
+ * Built with `accessToken`, not a header: supabase-js then skips building a
+ * GoTrue client for the request and no longer awaits `auth.getSession()`
+ * before every query. The price: `req.supabase.auth.*` MUST NEVER be used —
+ * supabase-js throws on it. The caller is already known (lib/auth.ts), and
+ * anything about users goes through `adminClient.auth.admin`.
  */
 export function clientForToken(token: string): DB {
   return createClient<Database>(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
+    accessToken: async () => token,
   });
 }
