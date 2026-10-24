@@ -11,13 +11,17 @@ import { config } from "../config";
  * Any other request — straight to the API — is what TRUST_PROXY makes of it.
  */
 export function visitorIp(req: FastifyRequest): string {
+  const ip = req.headers["x-visitor-ip"];
+  if (typeof ip === "string" && isIP(ip) && fromProxy(req)) return ip;
+  return req.ip;
+}
+
+/** The request came through the site's proxy: it carries PROXY_SECRET. */
+export function fromProxy(req: FastifyRequest): boolean {
   const secret = config.PROXY_SECRET;
   const given = req.headers["x-proxy-secret"];
-  const ip = req.headers["x-visitor-ip"];
-  if (secret && typeof given === "string" && typeof ip === "string" && isIP(ip)) {
-    const a = Buffer.from(given);
-    const b = Buffer.from(secret);
-    if (a.length === b.length && timingSafeEqual(a, b)) return ip;
-  }
-  return req.ip;
+  if (!secret || typeof given !== "string") return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
 }

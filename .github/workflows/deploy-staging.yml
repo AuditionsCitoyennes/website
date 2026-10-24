@@ -112,6 +112,9 @@ jobs:
           # Shared with the site's Worker (deploy-staging-web.yml): vouches for
           # the visitor's address it passes on.
           SECRET_PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
+          # The API answers the site's Worker only (behind the gate), apart
+          # from /health and Supabase Auth's signed hook.
+          ENV_REQUIRE_PROXY: "true"
         run: |
           url=$(scripts/deploy/scaleway.sh deploy)
           echo "url=$url" >> "$GITHUB_OUTPUT"
@@ -121,12 +124,21 @@ jobs:
       - name: Check the deployed API
         env:
           URL: ${{ steps.deploy.outputs.url }}
+          PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
         run: |
           health=$(curl -sS --fail --max-time 15 "$URL/health")
           echo "$health" | jq .
           [ "$(jq -r .serviceRole <<<"$health")" = "true" ]
-          curl -sS --fail --max-time 15 -o /dev/null "$URL/api/outbox"
-          curl -sS --fail --max-time 30 -o /dev/null "$URL/api/auditions"
+          # As the site's Worker: answered (the outbox is readable by the
+          # service role only, so this also proves the database key).
+          curl -sS --fail --max-time 15 -o /dev/null -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/outbox"
+          curl -sS --fail --max-time 30 -o /dev/null -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/auditions"
+          # As anyone else, straight to the API's address: refused.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$URL/api/outbox")
+          if [ "$code" != 403 ]; then
+            echo "::error::$URL/api/outbox answers $code without the site's secret: the gate can be walked around"
+            exit 1
+          fi
           {
             echo "### Staging API deployed"
             echo ""

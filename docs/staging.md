@@ -147,7 +147,11 @@ expires (a week): to cut them off now, Zero Trust → **Users** → them →
 **Revoke**.
 
 The Supabase Auth email hook is not behind it: Supabase calls the API on
-Scaleway directly.
+Scaleway directly. That address is otherwise closed: with `REQUIRE_PROXY`, the
+API answers only requests that come through the site's Worker (they carry the
+shared `PROXY_SECRET`), apart from `/health` and the signed hook — the gate
+cannot be walked around by calling the API itself. Each API deploy checks
+both sides.
 
 The deploys check the site through the gate with their own pass, a service
 token (`STAGING_ACCESS_CLIENT_ID` / `_SECRET`), allowed by a « Service Auth »
