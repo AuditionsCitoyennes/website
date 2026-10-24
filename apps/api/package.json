@@ -8,7 +8,7 @@
     "start": "node --enable-source-maps dist/index.js",
     "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --packages=external --alias:@ac/shared=../../packages/shared/src/index.ts --sourcemap --outfile=dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/lib/cache.test.ts src/lib/email/outbox.test.ts src/lib/visitor.test.ts src/lib/proxyOnly.test.ts src/modules/geo/match.test.ts src/lib/diskCache.test.ts"
+    "test": "node --import tsx --test src/lib/cache.test.ts src/lib/email/outbox.test.ts src/lib/visitor.test.ts src/lib/proxyOnly.test.ts src/modules/geo/match.test.ts src/lib/diskCache.test.ts src/server.test.ts"
   },
   "dependencies": {
     "@ac/shared": "*",

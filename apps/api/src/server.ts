@@ -1,4 +1,5 @@
-import Fastify from "fastify";
+import Fastify, { LogController } from "fastify";
+import { STATUS_CODES } from "node:http";
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import sensible from "@fastify/sensible";
@@ -22,6 +23,9 @@ import onlineTestimonyRoutes from "./modules/online-testimonies/routes";
 import outboxRoutes from "./modules/outbox/routes";
 import hookRoutes from "./modules/hooks/routes";
 
+/** Past this, a request that succeeded is still logged (with its duration). */
+const SLOW_REQUEST_MS = 500;
+
 export function buildServer() {
   const app = Fastify({
     logger: {
@@ -30,10 +34,53 @@ export function buildServer() {
       redact: ["req.headers.authorization", "req.headers.cookie", 'req.headers["x-proxy-secret"]'],
     },
     trustProxy: config.TRUST_PROXY || false,
+    // The lines below (onResponse) replace Fastify's two per request: the map
+    // poll every 2.5 s and a drill's tile burst wrote hundreds for nothing.
+    logController: new LogController({ disableRequestLogging: true }),
+    // A proxy's request id, when it sends one, so a screenshot of the generic
+    // error (see setErrorHandler) maps to a log line.
+    requestIdHeader: "x-request-id",
+    // A client that stops sending halfway is dropped after 30 s instead of
+    // holding its socket; keep-alive outlives the proxies' idle timeout (a
+    // socket the proxy still believes open must not be closed under it).
+    requestTimeout: 30_000,
+    keepAliveTimeout: 65_000,
   });
   setCacheLogger(app.log);
   setGeocodeLogger(app.log);
   setEmailLogger(app.log);
+
+  // One line per request that failed or dawdled, none for the rest. The route
+  // pattern, not the URL: a verification token in the path never reaches the
+  // logs.
+  app.addHook("onResponse", (req, reply, done) => {
+    const status = reply.statusCode;
+    const ms = reply.elapsedTime;
+    if (status >= 400 || ms > SLOW_REQUEST_MS) {
+      const line = { method: req.method, route: req.routeOptions.url ?? req.url, status, ms };
+      if (status >= 500) req.log.error(line, "request failed");
+      else if (status >= 400) req.log.warn(line, "request refused");
+      else req.log.info(line, "slow request");
+    }
+    done();
+  });
+
+  // What a client is told when a request fails. A 4xx (sensible's helpers,
+  // the body parser, validation) and a deliberate 502/503/504 say what was
+  // wrong, in their own words, as before. A plain 500 — an upstream's raw
+  // error text, an exception nobody mapped — is logged whole and answered
+  // with one generic line and the request id to quote: PostgREST's constraint
+  // names and column lists used to reach the screen.
+  app.setErrorHandler((err: Error & { statusCode?: number }, req, reply) => {
+    const status = typeof err.statusCode === "number" ? err.statusCode : 500;
+    if (status !== 500) return reply.send(err);
+    req.log.error({ err }, "request failed");
+    return reply.code(500).send({
+      statusCode: 500,
+      error: STATUS_CODES[500],
+      message: `Une erreur est survenue (référence : ${req.id}).`,
+    });
+  });
 
   // Production pins the single web origin; in local development, accept any
   // localhost port so several dev servers (e.g. parallel Vite instances) can

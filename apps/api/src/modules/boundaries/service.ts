@@ -199,7 +199,7 @@ const NOT_FOUND_TTL_MS = 24 * 60 * 60 * 1000;
 const failures = new Map<string, { until: number; error: unknown }>();
 
 /** Upstream has no such unit (404). */
-class UpstreamNotFound extends Error {}
+export class UpstreamNotFound extends Error {}
 
 /** `run` for `key`, once however many ask at the same time; its failure is
  *  thrown again to whoever asks before it expires, without a new call. */

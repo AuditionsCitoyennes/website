@@ -3,11 +3,25 @@ import { AUDITION_QUESTIONS, ONLINE_ANSWER_MAX } from "./answers";
 
 export const auditionStatusSchema = z.enum(["published", "draft"]);
 
+// Ceilings for what an admin types: the same 20 000 characters the witness
+// may verify (routes/verify), and a bound on one audition's inline list — a
+// body no longer carries a megabyte of testimonies to insert and email in one
+// request.
+export const TESTIMONY_CONTENT_MAX = 20000;
+export const AUDITION_TESTIMONIES_MAX = 200;
+
 // A testimony as entered by an admin (inline in the audition builder or standalone).
 export const testimonyInputSchema = z.object({
   person_name: z.string().trim().min(1, "Le nom est requis").max(200),
   person_info: z.string().trim().max(500).optional().nullable(),
-  content: z.string().trim().min(1, "Le témoignage est requis"),
+  content: z
+    .string()
+    .trim()
+    .min(1, "Le témoignage est requis")
+    .max(
+      TESTIMONY_CONTENT_MAX,
+      `Le témoignage est trop long (${TESTIMONY_CONTENT_MAX} caractères au plus)`,
+    ),
   email: z.string().trim().email("Email invalide").optional().nullable().or(z.literal("")),
   topics: z.array(z.string()).optional().nullable(),
 });
@@ -19,7 +33,7 @@ export const createTestimonySchema = testimonyInputSchema.extend({
 export const updateTestimonySchema = z.object({
   person_name: z.string().trim().min(1).max(200).optional(),
   person_info: z.string().trim().max(500).nullable().optional(),
-  content: z.string().trim().min(1).optional(),
+  content: z.string().trim().min(1).max(TESTIMONY_CONTENT_MAX).optional(),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
   topics: z.array(z.string()).nullable().optional(),
 });
@@ -30,7 +44,11 @@ export const createAuditionSchema = z.object({
   location: z.string().trim().min(1, "Le lieu est requis"),
   content: z.string().trim().default(""),
   status: auditionStatusSchema.default("published"),
-  testimonies: z.array(testimonyInputSchema).optional().default([]),
+  testimonies: z
+    .array(testimonyInputSchema)
+    .max(AUDITION_TESTIMONIES_MAX, `${AUDITION_TESTIMONIES_MAX} témoignages au plus par audition`)
+    .optional()
+    .default([]),
 });
 
 export const updateAuditionSchema = z.object({

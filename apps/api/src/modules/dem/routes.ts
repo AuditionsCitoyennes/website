@@ -1,15 +1,29 @@
 import type { FastifyInstance } from "fastify";
-import { renderTile, setSelection } from "./service";
+import { renderTile, SelectionTooLarge, setSelection } from "./service";
+
+// The largest selection the site sends (a département's union of communes)
+// is ~150 KB of JSON; the server-wide 1 MB would let anyone POST seven of
+// them in one body.
+const SELECTION_BODY_LIMIT = 512 * 1024;
 
 // Custom DEM tiles for the "Plateau" elevation mode: the client POSTs the selected
 // polygons + a height, gets back a version key, then points a raster-dem source at
 // /:version/{z}/{x}/{y}. Tiles raise the selection as a flat-topped plateau.
 export default async function demRoutes(app: FastifyInstance) {
-  app.post<{ Body: { features?: unknown[]; height?: number } }>("/", async (req) => {
-    const features = (req.body?.features ?? []) as Parameters<typeof setSelection>[0];
-    const height = Number(req.body?.height) || 4000;
-    return { version: setSelection(features, height) };
-  });
+  app.post<{ Body: { features?: unknown[]; height?: number } }>(
+    "/",
+    { bodyLimit: SELECTION_BODY_LIMIT },
+    async (req, reply) => {
+      const features = (req.body?.features ?? []) as Parameters<typeof setSelection>[0];
+      const height = Number(req.body?.height) || 4000;
+      try {
+        return { version: setSelection(features, height) };
+      } catch (e) {
+        if (e instanceof SelectionTooLarge) return reply.badRequest(e.message);
+        throw e;
+      }
+    },
+  );
 
   app.get<{ Params: { version: string; z: string; x: string; y: string } }>(
     "/:version/:z/:x/:y",

@@ -19,16 +19,12 @@ export default async function mapRoutes(app: FastifyInstance) {
   // served itself would freeze it. It asks every time, and is told "unchanged"
   // (304, no body) until the groups move.
   app.get("/", async (req, reply) => {
-    try {
-      const res = await cachedResponse(
-        PUBLIC_CACHE_KEYS.map,
-        PUBLIC_CACHE_TTL_MS.map,
-        buildLocationGroups,
-      );
-      void warmLocationGeocodes();
-      return sendCached(req, reply, res, "no-cache");
-    } catch (e) {
-      return reply.internalServerError((e as Error).message);
-    }
+    const res = await cachedResponse(
+      PUBLIC_CACHE_KEYS.map,
+      PUBLIC_CACHE_TTL_MS.map,
+      buildLocationGroups,
+    );
+    void warmLocationGeocodes();
+    return sendCached(req, reply, res, "no-cache");
   });
 }
