@@ -14,19 +14,19 @@
 //   proportions —, or "plat": the slab as wide as tall in metres as its box,
 //   its words squashed by the tilt like any ground.
 // - "Taille": the words right after a fit, as a share of the type scale's
-//   sizes — the slabs drawn that much smaller (lib/slabs: TEXT_SCALE, the
+//   sizes — the slabs drawn that much smaller (map/lib/slabs: TEXT_SCALE, the
 //   default).
 // - "Cadrage": how much of its rectangle a clicked territory fills once
-//   framed, on the axis that limits it (lib/slabs: FRAME_FILL, the default) —
+//   framed, on the axis that limits it (map/lib/slabs: FRAME_FILL, the default) —
 //   every territory's fit, the analyses shown or not (the switch is drawn
 //   with them).
 // - "Anneau": the themes' ring's band, per px of its outer diameter — "fin"
-//   (the band of before, its hole the larger), "moyen" (lib/analysisPlates:
+//   (the band of before, its hole the larger), "moyen" (analyses/content/analysisPlates:
 //   RING_THICK, the default) or "epais". The ring's box stays as it is: no
 //   room, no slab moves.
 import { ref } from "vue";
-import { RING_THICK } from "@/lib/analysisPlates";
-import { FRAME_FILL, TEXT_SCALE } from "@/lib/slabs";
+import { RING_THICK } from "./content/analysisPlates";
+import { FRAME_FILL, TEXT_SCALE } from "@/features/map/lib";
 
 export type SlabLidMode = "verre" | "opaque" | "carte";
 export type SlabTextMode = "redresse" | "plat";

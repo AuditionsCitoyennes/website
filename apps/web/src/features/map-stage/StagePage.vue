@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
-import { useMapStage } from "@/composables/useMapStage";
+import { useMapStage } from "./useMapStage";
 
 // /temoignages: the map page. The map itself is not mounted here — it lives
 // once, above the pages (MapStage), and this page lends it its whole area:

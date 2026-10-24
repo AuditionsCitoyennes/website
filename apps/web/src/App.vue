@@ -3,7 +3,7 @@ import { defineAsyncComponent, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import AppHeader from "@/app/header/AppHeader.vue";
 import AppDialogs from "@/app/AppDialogs.vue";
-import MapStage from "@/components/MapStage.vue";
+import { MapStage } from "@/features/map-stage";
 import ToastHost from "@/shared/ui/toast/ToastHost.vue";
 import { useAuthStore } from "@/features/auth";
 import { loadOutboxLauncher } from "@/features/outbox";

@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted, watch, type Ref } from "vue";
-import { useMapStage } from "@/composables/useMapStage";
+import { useMapStage } from "@/features/map-stage";
 
 // The map card: lent to the one testimonies map (MapStage).
 // Taken once the page itself is in — the document loaded, the hero photograph

@@ -56,8 +56,8 @@ export default defineConfigWithVueTs(
     // features/ reach the legacy flat folders through nothing: what a feature
     // needs is in shared/, in another feature's barrel, or moved with it; and
     // nothing imports app/ except main.ts (rules 1 and 3). A warning while the
-    // layout is being migrated (the map features are still flat); an error
-    // once the last step lands (step 14).
+    // layout is being migrated (the giants still split, steps 10 to 13); an
+    // error once the last step lands (step 14).
     name: "app/features-import-boundary",
     files: ["apps/web/src/features/**/*.{ts,mts,vue}"],
     rules: {

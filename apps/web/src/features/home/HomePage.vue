@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useMapStage } from "@/composables/useMapStage";
+import { useMapStage } from "@/features/map-stage";
 // First: the classes the sections share must come before the sections' own
 // styles in the cascade (a section's modifier of one of them wins by order).
 import "./home.css";

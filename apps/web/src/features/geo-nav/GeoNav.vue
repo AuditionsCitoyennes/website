@@ -19,39 +19,36 @@ import {
   SPAN_DESCEND,
   type UnitGeo,
   unitsByLevelKey,
-} from "@/lib/geo";
+} from "@/features/geo";
 import {
-  analyseScope,
-  buildUnitStats,
-  type ScopeAnalysis,
-  type UnitStatsIndex,
-} from "@/lib/scopeStats";
-import GeoDrillMap, {
+  GeoDrillMap,
   type CameraCmd,
   type MapUnit,
   type OutlineFC,
   type SlabSpec,
-} from "@/components/GeoDrillMap.vue";
-import ScopeAnalysisOverlay from "@/components/ScopeAnalysisOverlay.vue";
+} from "@/features/map";
 import {
+  analyseScope,
+  buildUnitStats,
   edgeMargin,
   FRAME_MIN_COMPACT,
   FRAME_MIN_WIDE,
-  plateRoom,
-  slabGap,
-  slabSizes,
-  type PlateRoom,
-  type ScreenOpts,
-  type SlabSizes,
-} from "@/lib/analysisPlates";
-import {
   frameFill,
+  plateRoom,
   RING_BANDS,
   ringBandMode,
+  ScopeAnalysisOverlay,
+  slabGap,
   slabLidMode,
+  slabSizes,
   slabTextMode,
   slabTextScale,
-} from "@/lib/slabDev";
+  type PlateRoom,
+  type ScopeAnalysis,
+  type ScreenOpts,
+  type SlabSizes,
+  type UnitStatsIndex,
+} from "@/features/analyses";
 import TestimonyCard from "@/shared/testimony/TestimonyCard.vue";
 import ExpandTransition from "@/shared/ui/transition/ExpandTransition.vue";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
@@ -1186,7 +1183,7 @@ function childSpans(unit: GeoUnit): { lng: number; lat: number } | undefined {
 // Fly so a unit becomes the scope: FIT its whole boundary into the visible area, so
 // the boundary is always fully on screen (no over-zoom) and the viewport-containment
 // scope then resolves to that unit. Not edge to edge: its silhouette fills
-// FRAME_FILL of the rectangle (lib/slabs; DEV: "Cadrage"), the map around it
+// FRAME_FILL of the rectangle (map/lib/slabs; DEV: "Cadrage"), the map around it
 // in sight — its own fill still well over the scope's hold (SPAN_ASCEND).
 function flyToUnit(unit: GeoUnit, animate: boolean, fresh = false) {
   let bounds = unit.bounds;
@@ -1741,7 +1738,7 @@ function rootRem(): number {
 // The safe rect: the map clear of the panel — on a phone, below the header's
 // floating tiles and above the lowered sheet. Right after a camera command
 // the slabs stand inside it, their own margin from its edges, clear of
-// mapbox's logo (lib/analysisPlates): the ring leaves them room.
+// mapbox's logo (analyses/content/analysisPlates): the ring leaves them room.
 const overlayInsets = computed<Insets>(() => {
   if (isDesktop.value) {
     return {
@@ -2114,7 +2111,7 @@ document.fonts?.ready.then(onFontsLoaded).catch(() => {});
 document.fonts?.addEventListener?.("loadingdone", onFontsLoaded);
 onBeforeUnmount(() => document.fonts?.removeEventListener?.("loadingdone", onFontsLoaded));
 
-/** The slabs' content boxes for the territory in scope (lib/analysisPlates):
+/** The slabs' content boxes for the territory in scope (analyses/content/analysisPlates):
  *  what the overlay draws, the room the camera leaves, the size on the map. */
 const slabSizesNow = computed<SlabSizes | null>(() => {
   const a = scopeAnalysis.value;
