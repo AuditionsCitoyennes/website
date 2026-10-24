@@ -12,7 +12,7 @@ const auth = useAuthStore();
 const route = useRoute();
 
 // Staging and local development: the emails the site "sent" (see features/outbox).
-const OutboxLauncher = __OUTBOX__ ? defineAsyncComponent(loadOutboxLauncher) : null;
+const OutboxLauncher = __TEST_TOOLS__ ? defineAsyncComponent(loadOutboxLauncher) : null;
 
 onMounted(() => {
   auth.init();

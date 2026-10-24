@@ -121,7 +121,7 @@ async function handleProfileComplete(username: string, bio: string) {
       },
     });
     if (error) throw error;
-    if (__OUTBOX__) noteOutboxAddress(pendingSignup.email);
+    if (__TEST_TOOLS__) noteOutboxAddress(pendingSignup.email);
     signupEmail.value = pendingSignup.email;
     signupDone.value = true;
   } catch (error) {
@@ -139,7 +139,7 @@ async function handleProfileComplete(username: string, bio: string) {
 async function handleResendVerification() {
   if (resendCooldown.value > 0) return;
   const { error } = await supabase.auth.resend({ type: "signup", email: signupEmail.value });
-  if (__OUTBOX__) noteOutboxAddress(signupEmail.value);
+  if (__TEST_TOOLS__) noteOutboxAddress(signupEmail.value);
   if (error) {
     toast({ title: "Erreur", description: error.message, variant: "destructive" });
   } else {
@@ -165,7 +165,7 @@ async function handleForgotPassword() {
   await supabase.auth.resetPasswordForEmail(trimmedEmail, {
     redirectTo: `${window.location.origin}/reset-password`,
   });
-  if (__OUTBOX__) noteOutboxAddress(trimmedEmail);
+  if (__TEST_TOOLS__) noteOutboxAddress(trimmedEmail);
   resetLoading.value = false;
   toast({
     title: "Email envoyé",

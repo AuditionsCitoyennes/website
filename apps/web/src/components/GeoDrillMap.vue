@@ -6368,9 +6368,10 @@ function syncSlabs(atSwap = false) {
     buildMs,
     rects,
   };
-  // The words' pieces' lid: glass, the card's colour, or (DEV) the raised
-  // map's snapshot over it — which must then take in the slabs' rectangles too.
-  const carte = import.meta.env.DEV && spec.lid === "carte";
+  // The words' pieces' lid: glass, the card's colour, or (the DEV switch, in
+  // the testing tools) the raised map's snapshot over it — which must then
+  // take in the slabs' rectangles too.
+  const carte = __TEST_TOOLS__ && spec.lid === "carte";
   layer.setSlabLid(carte ? "carte" : spec.lid === "opaque" ? "opaque" : "verre");
   lidExtra = carte && rects.length ? rects.map(rectBounds).reduce(unionBounds) : null;
   if (lidExtra && !(lidCovered && boundsContain(lidCovered, lidExtra))) {
