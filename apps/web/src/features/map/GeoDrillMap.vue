@@ -1,19 +1,13 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import mapboxgl from "mapbox-gl";
-import type * as GeoJSON from "geojson";
 import { FRANCE_CENTER } from "@ac/shared";
 import type { Bounds } from "@/features/geo";
-import { SnapshotManager, type Snapshot } from "./plateau/mapSnapshot";
 import {
   FIT_PITCH_DEG,
   fitSilhouette,
-  homography,
-  latOf,
-  lngOf,
   slabRects,
   solveSlabScales,
-  unapplyHomography,
   type FitShape,
   type SlabCam,
   type SlabRect,
@@ -33,16 +27,15 @@ import {
   type HitRing,
   type InteriorHit,
 } from "./lib/polygon";
-import { STRIDE, fitHullOf } from "./lib/projection";
+import { fitHullOf } from "./lib/projection";
 import { WALL_OVERSHOOT } from "./gl/mesh";
-import {
-  NO_RING,
-  PlateauWallLayer,
-  type SlabQuad,
-  type SlabRingState,
-} from "./gl/PlateauWallLayer";
-import { MASK_OPACITY, ScopeTintLayer, sameGeoms, type MaskGeom } from "./gl/ScopeTintLayer";
-import type { CameraCmd, MapUnit, OutlineFC, PlateauFrame, SlabFrame, SlabSpec } from "./types";
+import { NO_RING, PlateauWallLayer, type SlabRingState } from "./gl/PlateauWallLayer";
+import { useMapView, zoomForFill, type MapView } from "./composables/useMapView";
+import { useScopeMask } from "./composables/useScopeMask";
+import { usePlateauFrames } from "./composables/usePlateauFrames";
+import { useSlabOcclusion } from "./composables/useSlabOcclusion";
+import { usePlateauLid } from "./composables/usePlateauLid";
+import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 
 const props = defineProps<{
@@ -71,74 +64,12 @@ const props = defineProps<{
   slabs?: SlabSpec | null;
 }>();
 
-const EMPTY_FC: OutlineFC = { type: "FeatureCollection", features: [] };
-const OUTLINE_SOURCE = "scope-outline";
-
-// ---- "Everything but the plateau" grey: dims the map outside the raised area so
-// the selection reads as the subject.
-//
-// One shape in both renderers: a world-sized sheet with the raised rings as
-// HOLES, so the plateau is excluded by geometry the moment the selection
-// changes. WHO draws that sheet depends on the projection mapbox is running:
-//
-//  - FLAT (zoom ≥ GLOBE_MAX_ZOOM): `ScopeTintLayer`, a custom GL layer. The
-//    sheet is a mesh in the map's own coordinates, so it has no tiles, no worker
-//    and no terrain re-drape — it is on screen in the frame it changes and cannot
-//    be outrun by the camera.
-//  - GLOBE (below): a draped fill on the GeoJSON source below, as before. A flat
-//    mesh cannot follow the sphere, and a world-sized draped sheet never needs
-//    rebuilding on camera movement there anyway.
-//
-// The draped sheet used to serve the flat view too, bounded to the viewport and
-// rebuilt whenever the camera left it. Every rebuild was a worker re-tile plus a
-// terrain re-drape, so a fast zoom-out showed un-greyed map until it landed.
-//
-// Earlier designs worth remembering:
-//  1. A draped polygon with the whole WORLD as its outer ring, four corners
-//     only. Tessellated per tile it produced triangles spanning the globe, which
-//     projected as flat angular slabs. `maskRing` densifies the ring instead.
-//  2. A `background` layer — no geometry, so no artifacts, but nothing can be
-//     cut out of it. The plateau could only be un-greyed by its LID drawing over
-//     it, and the lid is an async capture (~1 s), so either the incoming
-//     selection sat grey until its texture landed or the outgoing one stayed lit.
-//     A hole has no such wait: it is the reason this is geometry.
-const MASK_SOURCE = "scope-mask";
-const MASK_LAYER = "scope-mask-fill";
-const MASK_COLOR = "#8b9098"; // neutral grey — desaturates without heavy darkening
-// Its opacity, and what it looks like on screen (the GL sheet reproduces both):
-// gl/ScopeTintLayer's MASK_OPACITY and TINT_RGB.
-/**
- * Mapbox renders the style's globe below this zoom and the flat (mercator)
- * pipeline from it up — custom layers get a different `render` call on each side.
- */
-const GLOBE_MAX_ZOOM = 6;
-// The draped sheet's tiles take a worker round trip to appear, so they have to
-// exist a little BEFORE the camera reaches the globe. This is its layer's
-// `maxzoom`: from here down mapbox keeps the tiles loaded (transparent until the
-// globe takes over); above it the source is unused and holds none, so nothing in
-// the flat view pays for it — every tile that loads, visible or not, makes
-// mapbox re-drape the terrain under it.
-const MASK_ARM_ZOOM = 7;
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
 const emit = defineEmits<{
   unitClick: [id: string];
-  viewChange: [
-    view: {
-      zoom: number;
-      center: [number, number];
-      /** Flat symmetric box — what the SCOPE logic measures span against. */
-      bounds: Bounds;
-      /** What is actually on screen, pitch included — use this to cull pins. */
-      screen: Bounds;
-      /** The insets `bounds` was measured inside: the layout this view is OF.
-       *  A view measured for another layout than the current one is stale. */
-      insets: { top: number; bottom: number; left: number; right: number };
-      /** The user is moving the camera (gesture or its glide) — as opposed to a
-       *  flight landing, the padding ease, a resize or a re-measure. */
-      byUser: boolean;
-    },
-  ];
+  /** The view, measured (composables/useMapView): what the scope is read from. */
+  viewChange: [view: MapView];
   /**
    * The basemap is painted and the intro is about to play — i.e. the map is
    * presentable. Fires once. Also fires when the map is declared unavailable, so
@@ -412,179 +343,6 @@ function applyActivePin() {
   if (id) markerById.get(id)?.el.classList.add("geo-pin-active");
 }
 
-// Geo bbox of the VISIBLE map rectangle (canvas minus the panel padding, minus an
-// optional inset margin). Shared by the scope derivation (emitView) and pin
-// placement (updateSticky) so both reason about the same on-screen area.
-// Built from the inset CENTRE (stable under pitch — a mid-screen point never nears
-// the horizon) plus a span sized from the zoom and the tilt, NOT by unprojecting
-// the corners (which blow up toward the horizon once the camera is pitched).
-/** Insets of the rectangle that is clear of the panel right now (see `viewPadding`). */
-function viewInsets() {
-  const pad = props.viewPadding ?? props.padding ?? 50;
-  return typeof pad === "number" ? { top: pad, bottom: pad, left: pad, right: pad } : pad;
-}
-
-/**
- * The ground under a screen point — the FLAT ground, not the terrain. The
- * plateau rises and sinks (its height animated, kilometres at région scale):
- * a ray through the screen hits its raised surface far up the slope from the
- * point actually looked at, and the scope read from there landed on another
- * unit (the 9e raised while the user looked at Lyon 1er). mapbox's `unproject`
- * follows the terrain, and its flat `transform.pointLocation` returns NaN on the
- * globe — so: the camera's own centre, moved by the pixels between it and the
- * point at the ground scale there. Exact at rest when the two centres meet (the
- * panel narrow), first-order across the wide panel's offset.
- */
-function groundAt(x: number, y: number): { lat: number; lng: number } {
-  const m = map!;
-  const c = m.getContainer();
-  const { top = 0, bottom = 0, left = 0, right = 0 } = m.getPadding();
-  const dx = x - (left + c.clientWidth - right) / 2;
-  const dy = y - (top + c.clientHeight - bottom) / 2;
-  const at = m.getCenter();
-  if (dx === 0 && dy === 0) return { lat: at.lat, lng: at.lng };
-  const cosLat = Math.cos((at.lat * Math.PI) / 180) || 1e-6;
-  const mPerPx = (40075016.686 * cosLat) / (512 * Math.pow(2, m.getZoom()));
-  // Up the screen is the bearing; a pitched camera stretches the ground along it.
-  const b = (m.getBearing() * Math.PI) / 180;
-  const along = mPerPx / Math.max(Math.cos((Math.min(m.getPitch(), 80) * Math.PI) / 180), 0.17);
-  const east = dx * mPerPx * Math.cos(b) - dy * along * Math.sin(b);
-  const north = -dx * mPerPx * Math.sin(b) - dy * along * Math.cos(b);
-  return { lat: at.lat + north / 110574, lng: at.lng + east / (111320 * cosLat) };
-}
-
-function visibleBounds(margin: number): Bounds | null {
-  if (!map) return null;
-  const c = map.getContainer();
-  const ins = viewInsets();
-  const left = ins.left + margin;
-  const right = c.clientWidth - ins.right - margin;
-  const top = ins.top + margin;
-  const bottom = c.clientHeight - ins.bottom - margin;
-  if (right - left < 8 || bottom - top < 8) return null;
-  const ctr = groundAt((left + right) / 2, (top + bottom) / 2);
-  const cosLat = Math.cos((ctr.lat * Math.PI) / 180) || 1e-6;
-  // Web-Mercator ground resolution (m/px) at the centre, for Mapbox 512px tiles.
-  const mPerPx = (40075016.686 * cosLat) / (512 * Math.pow(2, map.getZoom()));
-  // Up the screen, a tilted camera sees more ground per pixel (1/cos pitch at
-  // the centre row): measured flat, a unit just framed by `fitBounds` at
-  // ELEV_PITCH came out 1.27× the view, and its biggest child already "filled"
-  // it — clicking Lyon landed in an arrondissement. Capped so a steep tilt
-  // cannot balloon the box. The bearing is left out on purpose: the box of a
-  // turned rectangle swells and shrinks as the map turns, and a twist of the
-  // fingers while pinching would raise and sink the plateau.
-  const pitch = (Math.min(map.getPitch(), 60) * Math.PI) / 180;
-  const halfLat = ((bottom - top) * mPerPx) / Math.cos(pitch) / 2 / 110574; // ~m per ° latitude
-  const halfLng = ((right - left) * mPerPx) / 2 / (111320 * cosLat); // ~m per ° longitude
-  return {
-    minLat: ctr.lat - halfLat,
-    maxLat: ctr.lat + halfLat,
-    minLng: ctr.lng - halfLng,
-    maxLng: ctr.lng + halfLng,
-  };
-}
-
-/**
- * The zoom at which a box `lng` × `lat` degrees fills `fill` of the view the
- * scope is read off (visibleBounds' measure, `ins` the rectangle's insets in
- * a map w × h, at `pitch`, about latitude `lat0`). Infinity: no such zoom.
- */
-function zoomForFill(
-  box: { lng: number; lat: number; fill: number },
-  ins: { top: number; bottom: number; left: number; right: number },
-  w: number,
-  h: number,
-  pitch: number,
-  lat0: number,
-): number {
-  const cosLat = Math.cos((lat0 * Math.PI) / 180) || 1e-6;
-  const tilt = Math.cos((Math.min(pitch, 60) * Math.PI) / 180);
-  const mPerPx =
-    Math.max(
-      (box.lng * 111320 * cosLat) / (w - ins.left - ins.right),
-      (box.lat * 110574 * tilt) / (h - ins.top - ins.bottom),
-    ) / box.fill;
-  if (!(mPerPx > 0) || !Number.isFinite(mPerPx)) return Infinity;
-  return Math.log2((40075016.686 * cosLat) / (512 * mPerPx));
-}
-
-/**
- * The TRUE on-screen bbox, pitch included.
- *
- * `visibleBounds` above is a symmetric box ON PURPOSE — scope derivation
- * needs a span that cannot swing toward the horizon. But a pitched camera shows
- * far more ground above the screen centre than that box covers, so anything
- * culled against it vanishes while still plainly on screen. Mapbox's own
- * `getBounds()` walks the view trapezoid, clamps it at the horizon, and already
- * accounts for the camera padding — use it for anything about what the user can
- * actually SEE, and keep `visibleBounds` for what the scope logic measures.
- */
-function screenBounds(): Bounds | null {
-  if (!map) return null;
-  // `getBounds` can THROW. Past the globe, with terrain, it lifts the top
-  // corners to the highest visible DEM tile — and while none of those tiles has
-  // its data yet (new tiles after a resize, a fresh DEM slot mid-flight) that
-  // height is Number.MAX_VALUE: the corners land at infinity and come back as
-  // "Invalid LngLat object: (NaN, …)". Thrown on, it took the whole view emit
-  // with it (and the `moveend` handler around it), so the parent's pinned scope
-  // was never released. Every caller already falls back on null.
-  let b: mapboxgl.LngLatBounds | null;
-  try {
-    b = map.getBounds();
-  } catch {
-    return null;
-  }
-  if (!b) return null;
-  const box = {
-    minLat: b.getSouth(),
-    maxLat: b.getNorth(),
-    minLng: b.getWest(),
-    maxLng: b.getEast(),
-  };
-  // Infinity passes mapbox's NaN check: a blown-up box is no box either.
-  if (!Object.values(box).every(Number.isFinite)) return null;
-  // `getBounds` stops at the CAMERA's padding, and more of the map can be in
-  // sight than that: the panel folded (`viewPadding`), or a padding the camera
-  // has not eased to yet (owed under a gesture, or cut short by one). Take in
-  // the corners of what is really clear, or the area just uncovered would be
-  // left without pins. At rest the two rectangles are the same one.
-  const c = map.getContainer();
-  const ins = viewInsets();
-  for (const x of [ins.left, c.clientWidth - ins.right]) {
-    for (const y of [ins.top, c.clientHeight - ins.bottom]) {
-      // Same failure, one corner at a time: skip it, the box keeps the rest.
-      let at: mapboxgl.LngLat;
-      try {
-        at = map.unproject([x, y]);
-      } catch {
-        continue;
-      }
-      if (!Number.isFinite(at.lat) || !Number.isFinite(at.lng)) continue;
-      box.minLat = Math.min(box.minLat, at.lat);
-      box.maxLat = Math.max(box.maxLat, at.lat);
-      box.minLng = Math.min(box.minLng, at.lng);
-      box.maxLng = Math.max(box.maxLng, at.lng);
-    }
-  }
-  return box;
-}
-
-/** `screenBounds` pulled in by `margin` screen pixels — proportional, because
- *  under pitch a pixel is not a fixed ground distance. */
-function screenBoundsInset(margin: number): Bounds | null {
-  const b = screenBounds();
-  if (!b || !map || margin <= 0) return b;
-  const c = map.getContainer();
-  const dLat = (b.maxLat - b.minLat) * Math.min(0.4, margin / Math.max(c.clientHeight, 1));
-  const dLng = (b.maxLng - b.minLng) * Math.min(0.4, margin / Math.max(c.clientWidth, 1));
-  return {
-    minLat: b.minLat + dLat,
-    maxLat: b.maxLat - dLat,
-    minLng: b.minLng + dLng,
-    maxLng: b.maxLng - dLng,
-  };
-}
-
 const STICKY_MARGIN = 28; // keep pins this far inside the visible edge
 
 // Re-centre each macro pin on the centre of its unit's VISIBLE part, so the pin
@@ -697,7 +455,7 @@ function hidePinsUnderSlabs() {
   const was = pinsUnderSlab;
   const now = new Set<string>();
   if (slabsOnScreen()) {
-    const boxes = slabDotBoxes();
+    const boxes = slabDotBoxes(DOT_RADIUS_PX);
     for (const [id, e] of markerById) {
       const dot = e.sig === "leaf";
       if (dot ? !mayBeUnderSlab(boxes, e.lng, e.lat) : id !== hoveredUnitId) continue;
@@ -845,7 +603,7 @@ function onCameraSettled() {
   // Run the exact pass the mid-move throttle skipped.
   scheduleSticky(true);
   // …and bring the plateau's lid texture up to the camera's resolution.
-  scheduleLidRefresh();
+  lid.scheduleRefresh();
   syncDrapedMask(); // a gesture can end on a zoom no `move` reported
   emitView();
 }
@@ -1063,7 +821,7 @@ function fitCamera(
     pitch,
     w,
     h,
-    globe: globeStyle,
+    globe: isGlobeStyle(),
     maxZoom,
   });
 }
@@ -1210,88 +968,6 @@ function runCamera(cmd: CameraCmd) {
 }
 
 // Boundary outline of the current scope's children (added once the style loads).
-function setupOutline() {
-  if (!map || map.getSource(OUTLINE_SOURCE)) return;
-  map.addSource(OUTLINE_SOURCE, {
-    type: "geojson",
-    data: EMPTY_FC as unknown as GeoJSON.FeatureCollection,
-  });
-  // Grey everything outside the raised area (see MASK_LAYER's note). It must
-  // land ABOVE the basemap's fills but BELOW its labels — greying the map is the
-  // point, illegible place names are not.
-  //
-  // Anchoring it takes BOTH mechanisms, because the configured style decides
-  // which one exists. This project's style imports `mapbox://styles/mapbox/
-  // standard`, and a Standard style keeps its layers inside that import:
-  // `getStyle().layers` is EMPTY, so there is no symbol layer to put a beforeId
-  // in front of, and the layer would silently append above the labels. Slots are
-  // the Standard mechanism; `beforeId` is the classic one and is what applies if
-  // VITE_MAPBOX_STYLE ever points at a non-Standard style. Each is ignored by
-  // the style that does not use it.
-  const firstSymbol = map.getStyle()?.layers?.find((l) => l.type === "symbol")?.id;
-  map.addSource(MASK_SOURCE, {
-    type: "geojson",
-    data: EMPTY_FC as unknown as GeoJSON.FeatureCollection,
-    // Only ever SEEN on the globe, whose tiles stop at this zoom anyway — no
-    // point indexing the sheet any deeper.
-    maxzoom: GLOBE_MAX_ZOOM - 1,
-  });
-  map.addLayer(
-    {
-      id: MASK_LAYER,
-      type: "fill",
-      source: MASK_SOURCE,
-      slot: "middle",
-      maxzoom: MASK_ARM_ZOOM,
-      paint: {
-        "fill-color": MASK_COLOR,
-        // Starts hidden: `syncDrapedMask` shows it on the globe only.
-        "fill-opacity": 0,
-        // The switch to/from the GL sheet must land in ONE frame. A fade would
-        // leave both greys (or neither) on screen for its duration, and mapbox
-        // re-drapes the whole terrain on every frame of a paint transition.
-        "fill-opacity-transition": { duration: 0, delay: 0 },
-        // The hole's edge is the selection's boundary, which the plateau wall
-        // already draws — antialiasing it too leaves a pale seam along it.
-        "fill-antialias": false,
-      },
-    },
-    firstSymbol,
-  );
-  drapedGeoms = [];
-  drapedShown = false;
-  // A style with no globe is flat at every zoom: the draped sheet never shows.
-  globeStyle = map.getProjection()?.name === "globe";
-  // The flat view's grey (see ScopeTintLayer). Same anchoring as the draped
-  // sheet: the slot on a Standard style, `beforeId` on a classic one.
-  scopeTint.onRegimeChange = syncDrapedMask;
-  map.addLayer(scopeTint, firstSymbol);
-  // The plateau's violet wall: our custom WebGL layer (see PlateauWallLayer) —
-  // exact quads on the vector boundary, depth-tested against the terrain.
-  map.addLayer(plateauWall);
-  // The analyses' slabs: right after it, a layer of their own — drawn over the
-  // map's labels (see PlateauWallLayer.slabLayer).
-  map.addLayer(plateauWall.slabLayer);
-  // Hovered-zone highlight FALLBACK for the no-plateau case only (world scope):
-  // with a plateau up, BOTH focus and context highlights come from the GL sweep
-  // pass in PlateauWallLayer (draped paint can't reach the lid, and the sweep
-  // animation only exists there).
-  map.addLayer({
-    id: "scope-hover-fill",
-    type: "fill",
-    source: OUTLINE_SOURCE,
-    filter: ["==", ["get", "id"], "__none__"],
-    paint: { "fill-color": "#7c5cff", "fill-opacity": 0.6 },
-  });
-  // NO draped line layer: with terrain active (which is nearly always — every
-  // selection stands a plateau, and even teardown revives the style fragment's
-  // own terrain), mapbox rasterises draped lines into per-tile textures at
-  // INTEGER zooms and magnifies them by up to 2× with the fractional zoom, so
-  // their width visibly breathed while zooming. ALL boundary lines — focus,
-  // context siblings, and the world-scope country outline — are GL quads in
-  // PlateauWallLayer instead (true constant screen-space width).
-}
-
 // ---- Plateau elevation: raise the SELECTED area's real map as a flat-topped
 // plateau (custom DEM served by the API). The camera tilts so the relief reads. ----
 const ELEV_PITCH = FIT_PITCH_DEG; // 45: the slabs' words are sized for it
@@ -1407,815 +1083,46 @@ function animateTerrain(to: number, ms: number): Promise<void> {
   return done;
 }
 
-const scopeTint = new ScopeTintLayer();
 const plateauWall = new PlateauWallLayer();
-const snapshotMgr = new SnapshotManager();
+const getMap = () => map;
 
-// ---- Frame bus: where the plateau stands on screen, every frame drawn ---------
-// For what is laid over the map and must move WITH the plateau (the analyses
-// plates, their leader lines, labels on the lid). mapbox fires `render` at the
-// end of every frame it draws, in the same task as the draw: camera moves, the
-// rise and sink (camera still — `move` misses those), resizes (drawNow) and the
-// halo's paced repaints. The plateau layer keeps the camera each frame was
-// drawn with, and the rim is projected with it — never with map.project (see
-// projectInto). Per frame nothing allocates and nothing touches Vue state, and
-// a frame that would come out identical to the last one is not sent at all:
-// that is the halo's 25 Hz while the map stands still.
-interface FrameBuf {
-  frame: PlateauFrame;
-  okTop: Uint8Array;
-  okBase: Uint8Array;
-  box: { minX: number; minY: number; maxX: number; maxY: number };
-  /** The boxes of words' frames, handed out (or not) as frame.slabs.ring,
-   *  .label, .plaque. */
-  slabRing: SlabFrame;
-  slabLabel: SlabFrame;
-  slabPlaque: SlabFrame;
-  slabOk: Uint8Array;
-}
-const makeSlabFrame = (): SlabFrame => ({ w: 0, h: 0, lid: new Float32Array(8), ok: false });
-function makeFrameBuf(): FrameBuf {
-  return {
-    frame: {
-      scopeId: "",
-      rise: 0,
-      w: 0,
-      h: 0,
-      pitch: 0,
-      bearing: 0,
-      zoom: 0,
-      centre: [0, 0],
-      n: 0,
-      top: new Float32Array(0),
-      base: new Float32Array(0),
-      ok: new Uint8Array(0),
-      box: null,
-      slabs: { scopeId: "", rise: 0, version: 0, ring: null, label: null, plaque: null },
-    },
-    okTop: new Uint8Array(0),
-    okBase: new Uint8Array(0),
-    box: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-    slabRing: makeSlabFrame(),
-    slabLabel: makeSlabFrame(),
-    slabPlaque: makeSlabFrame(),
-    slabOk: new Uint8Array(4),
-  };
-}
-
-/** The boxes of words on screen (see PlateauSlabs), at their lids' height,
- *  at their rise this frame. */
-function fillSlabs(buf: FrameBuf, camValid: boolean, w: number, h: number) {
-  const layer = plateauWall;
-  const s = buf.frame.slabs;
-  s.scopeId = layer.slabScopeId;
-  s.rise = layer.slabRise;
-  s.version = layer.slabVersion;
-  s.ring = null;
-  s.label = null;
-  s.plaque = null;
-  const alt = layer.slabHeightM * WALL_OVERSHOOT * layer.slabRise;
-  for (let i = 0; i < layer.slabQuads.length; i++) {
-    const q = layer.slabQuads[i];
-    const out =
-      q.name === "ring"
-        ? buf.slabRing
-        : q.name === "label"
-          ? buf.slabLabel
-          : q.name === "plaque"
-            ? buf.slabPlaque
-            : null;
-    if (!out) continue; // the bar: no words
-    out.w = q.w;
-    out.h = q.h;
-    out.ok = false;
-    if (camValid) {
-      layer.projectInto(layer.slabCorners, 4, alt, w, h, out.lid, buf.slabOk, q.at);
-      out.ok = (buf.slabOk[0] & buf.slabOk[1] & buf.slabOk[2] & buf.slabOk[3]) === 1;
-    }
-    if (q.name === "ring") s.ring = out;
-    else if (q.name === "label") s.label = out;
-    else s.plaque = out;
-  }
-}
-const frameBuf = makeFrameBuf();
-/** Subscribers; replaced (never mutated) on change, so a callback that
- *  unsubscribes mid-delivery cannot disturb the loop delivering to it. */
-let frameSubs: { cb: (f: PlateauFrame) => void; live: boolean }[] = [];
-/** Send the next frame even if it matches the last (a new subscriber). */
-let frameForce = true;
-/** The plateau layer's capture count at the last `render` (see emitFrame). */
-let seenCamSeq = 0;
-/** Whether the last `render` was drawn with a camera the layer captured. */
-let camFresh = false;
-// The container's CSS size: mapbox's transform has what its matrices were built
-// for (CSS transforms on ancestors already divided out); the ResizeObserver's
-// last numbers stand in should those internals ever move.
-let roW = 0;
-let roH = 0;
-let frameW = 0;
-let frameH = 0;
-// The last frame sent, as numbers: camera, rise, rim, size, padding.
-const frameSig = new Float64Array(64).fill(NaN);
-let sigAt = 0;
-let sigDiff = false;
-function sigPut(v: number) {
-  if (frameSig[sigAt] !== v) {
-    frameSig[sigAt] = v;
-    sigDiff = true;
-  }
-  sigAt++;
-}
-// DEV probe counters (plain numbers).
-let framesSent = 0;
-let framesSkipped = 0;
-
-function readFrameSize() {
-  const tr = (map as unknown as { transform?: { width?: unknown; height?: unknown } } | null)
-    ?.transform;
-  const w = tr?.width;
-  const h = tr?.height;
-  if (typeof w === "number" && typeof h === "number" && w > 0 && h > 0) {
-    frameW = w;
-    frameH = h;
-  } else {
-    frameW = roW;
-    frameH = roH;
-  }
-}
-
-interface Insets {
-  top: number;
-  bottom: number;
-  left: number;
-  right: number;
-}
-/** The camera's padding, without the copy getPadding() allocates. */
-function cameraInsets(): Insets | null {
-  const ei = (map as unknown as { transform?: { _edgeInsets?: Insets } } | null)?.transform
-    ?._edgeInsets;
-  if (ei && typeof ei.top === "number" && typeof ei.left === "number") return ei;
-  return map ? (map.getPadding() as Insets) : null;
-}
-
-/** Fill a frame from the last captured camera (`camValid` false: no camera). */
-function fillFrame(buf: FrameBuf, camValid: boolean, pad: Insets | null) {
-  const f = buf.frame;
-  const layer = plateauWall;
-  const n = layer.rimCount;
-  // Sized to the rim: reallocated only when the rim changes length.
-  if (f.ok.length !== n) {
-    f.top = new Float32Array(2 * n);
-    f.base = new Float32Array(2 * n);
-    f.ok = new Uint8Array(n);
-    buf.okTop = new Uint8Array(n);
-    buf.okBase = new Uint8Array(n);
-  }
-  const w = frameW;
-  const h = frameH;
-  f.scopeId = layer.scopeId;
-  f.rise = layer.rise;
-  f.w = w;
-  f.h = h;
-  f.pitch = map ? map.getPitch() : 0;
-  f.bearing = map ? map.getBearing() : 0;
-  f.zoom = map ? map.getZoom() : 0;
-  // mapbox's own padded centre (EdgeInsets.getCenter), clamped to the view.
-  const pl = pad?.left ?? 0;
-  const pr = pad?.right ?? 0;
-  const pt = pad?.top ?? 0;
-  const pb = pad?.bottom ?? 0;
-  f.centre[0] = Math.min(w, Math.max(0, (pl + w - pr) / 2));
-  f.centre[1] = Math.min(h, Math.max(0, (pt + h - pb) / 2));
-  f.n = n;
-  f.box = null;
-  fillSlabs(buf, camValid, w, h);
-  if (!camValid || !n) {
-    f.ok.fill(0);
-    return;
-  }
-  const rise = layer.rise;
-  layer.projectInto(layer.rim, n, layer.heightM * WALL_OVERSHOOT * rise, w, h, f.top, buf.okTop);
-  layer.projectInto(layer.rim, n, 0, w, h, f.base, buf.okBase);
-  let any = false;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (let i = 0; i < n; i++) {
-    const v = buf.okTop[i] & buf.okBase[i];
-    f.ok[i] = v;
-    if (!v) continue;
-    any = true;
-    const tx = f.top[2 * i];
-    const ty = f.top[2 * i + 1];
-    const bx = f.base[2 * i];
-    const by = f.base[2 * i + 1];
-    minX = Math.min(minX, tx, bx);
-    maxX = Math.max(maxX, tx, bx);
-    minY = Math.min(minY, ty, by);
-    maxY = Math.max(maxY, ty, by);
-  }
-  if (any && rise >= 0.02) {
-    const b = buf.box;
-    b.minX = minX;
-    b.minY = minY;
-    b.maxX = maxX;
-    b.maxY = maxY;
-    f.box = b;
-  }
-}
-
-/** The `render` listener: send this frame's plateau to every subscriber. */
-function emitFrame() {
-  const cam = plateauWall.cam;
-  // The plateau layer is drawn in every frame mapbox renders once the style is
-  // up; a frame it was NOT drawn in (style loading or being replaced) has no
-  // camera of its own to project with — the plateau isn't on screen either.
-  camFresh = cam.seq !== seenCamSeq;
-  seenCamSeq = cam.seq;
-  const subs = frameSubs;
-  if (!subs.length || !map) return;
-  readFrameSize();
-  const pad = cameraInsets();
-  sigAt = 0;
-  sigDiff = frameForce;
-  frameForce = false;
-  sigPut(camFresh ? 1 : 0);
-  for (let i = 0; i < 16; i++) sigPut(cam.m[i]);
-  sigPut(cam.globe ? 1 : 0);
-  if (cam.globe) {
-    for (let i = 0; i < 16; i++) sigPut(cam.g2m[i]);
-    sigPut(cam.t);
-    sigPut(cam.cx);
-    sigPut(cam.cy);
-    sigPut(cam.r);
-  }
-  sigPut(plateauWall.rise);
-  sigPut(plateauWall.rimVersion);
-  sigPut(plateauWall.slabVersion);
-  sigPut(plateauWall.slabPresence);
-  sigPut(frameW);
-  sigPut(frameH);
-  if (pad) {
-    sigPut(pad.top);
-    sigPut(pad.bottom);
-    sigPut(pad.left);
-    sigPut(pad.right);
-  }
-  if (!sigDiff) {
-    framesSkipped++;
-    return;
-  }
-  fillFrame(frameBuf, camFresh, pad);
-  framesSent++;
-  for (let i = 0; i < subs.length; i++) {
-    const s = subs[i];
-    if (!s.live) continue;
-    // Inside mapbox's frame: a throwing subscriber must not abort the rest of it.
-    try {
-      s.cb(frameBuf.frame);
-    } catch (err) {
-      if (import.meta.env.DEV) console.warn("[plateau] frame subscriber failed:", err);
-    }
-  }
-}
-
-/** Subscribe to the plateau's frames; the first arrives with the next render. */
-function onFrame(cb: (f: PlateauFrame) => void): () => void {
-  const sub = { cb, live: true };
-  frameSubs = [...frameSubs, sub];
-  frameForce = true; // even if nothing has moved since the last frame sent
-  map?.triggerRepaint();
-  return () => {
-    if (!sub.live) return;
-    sub.live = false;
-    frameSubs = frameSubs.filter((s) => s !== sub);
-  };
-}
-
-// ---- What the slabs hide on screen ------------------------------------------
-// A raised piece hides what is behind it: the map's pins, HTML over the canvas,
-// are hidden there (hidePinsUnderSlabs) and nothing is picked there (unitAt) —
-// under a glass lid too, which shows the map only blurred. Read off the pieces
-// as the layer drew them in the last frame, with the frame bus's own
-// projection (projectInto: exactly). A box (the label's, the plaque, the bar):
-// its lid, its foot and the walls between — the near one shows under the
-// lid's edge, the taller the closer. The ring: its box's plane at RING_LEVELS
-// heights from the ground to the lid, a point on it wherever one of them has
-// it between the ring's hole and its picked part's outer edge (its walls stand
-// between those planes, a pixel or so apart; the gaps between its parts, a
-// pixel, count as ring).
-/** Per box: its lid's corners (NW, NE, SE, SW), then its foot's; px. */
-const slabShapes = [new Float32Array(16), new Float32Array(16), new Float32Array(16)];
-const slabShapeLids = slabShapes.map((s) => s.subarray(0, 8));
-const slabShapeFeet = slabShapes.map((s) => s.subarray(8, 16));
-const slabShapeOk = new Uint8Array(4);
-/** A box's faces, by corner (0–3 its lid's, 4–7 its foot's): lid, foot, walls. */
-const SLAB_FACES = [
-  [0, 1, 2, 3],
-  [4, 5, 6, 7],
-  [0, 1, 5, 4],
-  [1, 2, 6, 5],
-  [2, 3, 7, 6],
-  [3, 0, 4, 7],
-] as const;
-const RING_LEVELS = 5;
-/** The ring's box's plane at each level, ground to lid: its projective map
- *  (see homography), and those levels' corners' box on screen, px. */
-const ringPlanes = Array.from({ length: RING_LEVELS }, () => new Float64Array(8));
-const ringQuad = new Float32Array(8);
-const ringScreen = { x0: 0, y0: 0, x1: 0, y1: 0 };
-const ringPt = [0, 0];
-/** What slabsOnScreen found: how many boxes, whether the ring. */
-let shapesOn = 0;
-let ringOn = false;
-
-/** The pieces on screen (into slabShapes, ringPlanes): how many (0: none). As
- *  they stand, from the moment they are built to the moment they go — their
- *  rise and sink are a few hundred milliseconds, and nothing would come back
- *  to look once over. */
-function slabsOnScreen(): number {
-  const layer = plateauWall;
-  shapesOn = 0;
-  ringOn = false;
-  if (!layer.slabQuads.length || !(layer.cam.seq > 0) || !camFresh) return 0;
-  readFrameSize();
-  const lift = layer.slabHeightM * WALL_OVERSHOOT;
-  const ok = slabShapeOk;
-  const all = () => (ok[0] & ok[1] & ok[2] & ok[3]) === 1;
-  for (const q of layer.slabQuads) {
-    if (q.name === "ring") {
-      ringOn = ringOnScreen(q, lift);
-      continue;
-    }
-    if (shapesOn >= slabShapes.length) continue;
-    layer.projectInto(
-      layer.slabCorners,
-      4,
-      lift,
-      frameW,
-      frameH,
-      slabShapeLids[shapesOn],
-      ok,
-      q.at,
-    );
-    if (!all()) continue;
-    layer.projectInto(layer.slabCorners, 4, 0, frameW, frameH, slabShapeFeet[shapesOn], ok, q.at);
-    if (!all()) continue;
-    shapesOn++;
-  }
-  return shapesOn + (ringOn ? 1 : 0);
-}
-
-/** The ring's box `q` at each level (see ringPlanes): false if any is off. */
-function ringOnScreen(q: SlabQuad, lift: number): boolean {
-  const layer = plateauWall;
-  if (!layer.slabRingCover) return false;
-  const ok = slabShapeOk;
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (let k = 0; k < RING_LEVELS; k++) {
-    const alt = (lift * k) / (RING_LEVELS - 1);
-    layer.projectInto(layer.slabCorners, 4, alt, frameW, frameH, ringQuad, ok, q.at);
-    if (!(ok[0] & ok[1] & ok[2] & ok[3])) return false;
-    if (!homography(ringQuad, q.w, q.h, ringPlanes[k])) return false;
-    for (let i = 0; i < 8; i += 2) {
-      x0 = Math.min(x0, ringQuad[i]);
-      x1 = Math.max(x1, ringQuad[i]);
-      y0 = Math.min(y0, ringQuad[i + 1]);
-      y1 = Math.max(y1, ringQuad[i + 1]);
-    }
-  }
-  ringScreen.x0 = x0;
-  ringScreen.y0 = y0;
-  ringScreen.x1 = x1;
-  ringScreen.y1 = y1;
-  return true;
-}
-
-/** Whether screen point (x, y) is on a piece slabsOnScreen found: on a face
- *  of a box (each convex on screen, turning either way), or on the ring. */
-function onSlab(x: number, y: number): boolean {
-  for (let i = 0; i < shapesOn; i++) {
-    const p = slabShapes[i];
-    for (const f of SLAB_FACES) {
-      let sign = 0;
-      let inside = true;
-      for (let k = 0; k < 4 && inside; k++) {
-        const a = 2 * f[k];
-        const b = 2 * f[(k + 1) % 4];
-        const cross = (p[b] - p[a]) * (y - p[a + 1]) - (p[b + 1] - p[a + 1]) * (x - p[a]);
-        if (cross === 0) continue;
-        const s = cross > 0 ? 1 : -1;
-        if (sign && s !== sign) inside = false;
-        sign = s;
-      }
-      if (inside) return true;
-    }
-  }
-  const ring = plateauWall.slabRingCover;
-  if (ringOn && ring) {
-    for (const m of ringPlanes) {
-      if (!unapplyHomography(m, x, y, ringPt)) continue;
-      const d = Math.hypot(ringPt[0] - ring.c, ringPt[1] - ring.c);
-      if (d >= ring.rIn && d <= ring.rOut) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Per piece slabsOnScreen found: the lng/lat box of the ground a lieu dot can
- * stand on and still be drawn on it — what is seen within its box on screen,
- * out by a dot's radius, from the flat ground up to the plateau's lid (a dot
- * stands on the one, or under the other). That takes in the slab's lift and
- * the tilt (its lid is seen over ground farther off), at any bearing, and a
- * dot on the plateau in front of the slab as well as behind it. Null
- * (anywhere) where groundSeenIn has no box.
- */
-function slabDotBoxes(): (Bounds | null)[] {
-  const layer = plateauWall;
-  // The lid's height in mercator, where it is greatest: z per metre grows
-  // toward the pole, so at the rim's poleward-most sample. A dot, though,
-  // stands on mapbox's terrain, raised (as a marker is) by the z per metre at
-  // the camera centre's latitude, not its own — beyond the rim's once the map
-  // is panned poleward of the plateau: the greater of the two.
-  let zPerM = map ? mapboxgl.MercatorCoordinate.fromLngLat(map.getCenter(), 1).z : 0;
-  for (let i = 0; i < layer.rimCount; i++) zPerM = Math.max(zPerM, layer.rim[i * STRIDE + 2]);
-  const top = layer.heightM * WALL_OVERSHOOT * zPerM;
-  const r = DOT_RADIUS_PX;
-  const boxes: (Bounds | null)[] = [];
-  for (let i = 0; i < shapesOn; i++) {
-    const p = slabShapes[i];
-    let x0 = Infinity;
-    let y0 = Infinity;
-    let x1 = -Infinity;
-    let y1 = -Infinity;
-    for (let k = 0; k < p.length; k += 2) {
-      x0 = Math.min(x0, p[k]);
-      x1 = Math.max(x1, p[k]);
-      y0 = Math.min(y0, p[k + 1]);
-      y1 = Math.max(y1, p[k + 1]);
-    }
-    boxes.push(groundSeenIn(x0 - r, y0 - r, x1 + r, y1 + r, top));
-  }
-  if (ringOn) {
-    const b = ringScreen;
-    boxes.push(groundSeenIn(b.x0 - r, b.y0 - r, b.x1 + r, b.y1 + r, top));
-  }
-  return boxes;
-}
-
-/** Whether a dot at (lng, lat) may be drawn on a slab: within one of `boxes`
- *  (slabDotBoxes). */
-function mayBeUnderSlab(boxes: (Bounds | null)[], lng: number, lat: number): boolean {
-  for (const b of boxes) {
-    if (!b || (lng >= b.minLng && lng <= b.maxLng && lat >= b.minLat && lat <= b.maxLat)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * The lng/lat box of what is seen within the screen box [x0, x1] × [y0, y1],
- * from the flat ground (z = 0) up to mercator height `top`, with the camera of
- * the last frame drawn: projectInto's mercator matrix, solved on both planes
- * for each corner. A box on screen sees a convex quad of a plane, which its
- * corners bound, and a corner's point runs straight along its ray from one
- * plane to the other: the 8 bound every height between. Null on the globe (no
- * such plane: every dot is looked at there, and few show — the open lieu's,
- * the results'), or for a box reaching past the horizon.
- */
-function groundSeenIn(x0: number, y0: number, x1: number, y1: number, top: number): Bounds | null {
-  const { m, globe } = plateauWall.cam;
-  if (globe) return null;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const sx of [x0, x1]) {
-    for (const sy of [y0, y1]) {
-      const nx = (2 * sx) / frameW - 1;
-      const ny = 1 - (2 * sy) / frameH;
-      const a = m[0] - nx * m[3];
-      const b = m[4] - nx * m[7];
-      const d = m[1] - ny * m[3];
-      const e = m[5] - ny * m[7];
-      const det = a * e - b * d;
-      for (const z of [0, top]) {
-        // M·[x, y, z, 1] lands on (nx, ny): two linear equations in x, y.
-        const wz = m[11] * z + m[15];
-        const c = nx * wz - (m[8] * z + m[12]);
-        const f = ny * wz - (m[9] * z + m[13]);
-        const x = (c * e - b * f) / det;
-        const y = (a * f - c * d) / det;
-        // Behind the camera (w ≤ 0): the corner is above the horizon.
-        if (!Number.isFinite(x) || !Number.isFinite(y) || !(m[3] * x + m[7] * y + wz > 0)) {
-          return null;
-        }
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
-      }
-    }
-  }
-  return { minLng: lngOf(minX), maxLng: lngOf(maxX), minLat: latOf(maxY), maxLat: latOf(minY) };
-}
-
-/** DEV probe (window.__acFrame): a copy of the frame as it stands now, and a
- *  cross-check against mapbox's own projection on the rim. In mercator
- *  map.project adds the terrain sampled under the point, which the eroded DEM
- *  keeps at ~0 on the rim itself — so there `base` should match map.project(ll)
- *  and `top` map.project(ll, lidAltM) to within a pixel or so. On the globe
- *  map.project adds the centre's altitude instead: expect a drift there. */
-function probeFrame() {
-  if (!map) return null;
-  const buf = makeFrameBuf();
-  readFrameSize();
-  fillFrame(buf, plateauWall.cam.seq > 0 && camFresh, cameraInsets());
-  const f = buf.frame;
-  const lidAltM = plateauWall.heightM * WALL_OVERSHOOT * plateauWall.rise;
-  let checked = 0;
-  let baseMax = 0;
-  let topMax = 0;
-  let baseSum = 0;
-  let topSum = 0;
-  for (let i = 0; i < f.n; i++) {
-    if (!f.ok[i]) continue;
-    const o = i * STRIDE;
-    const ll: [number, number] = [plateauWall.rim[o + 9], plateauWall.rim[o + 10]];
-    const pb = map.project(ll);
-    const pt = map.project(ll, lidAltM);
-    if (Math.abs(pb.x) > 1e6 || Math.abs(pt.x) > 1e6) continue;
-    const db = Math.hypot(pb.x - f.base[2 * i], pb.y - f.base[2 * i + 1]);
-    const dt = Math.hypot(pt.x - f.top[2 * i], pt.y - f.top[2 * i + 1]);
-    checked++;
-    baseSum += db;
-    topSum += dt;
-    baseMax = Math.max(baseMax, db);
-    topMax = Math.max(topMax, dt);
-  }
-  const cam = plateauWall.cam;
-  const round = (v: number) => Math.round(v * 100) / 100;
-  return {
-    scopeId: f.scopeId,
-    rise: round(f.rise),
-    heightM: round(plateauWall.heightM),
-    lidAltM: round(lidAltM),
-    w: f.w,
-    h: f.h,
-    pitch: round(f.pitch),
-    bearing: round(f.bearing),
-    zoom: round(f.zoom),
-    centre: [round(f.centre[0]), round(f.centre[1])],
-    regime: cam.globe ? `globe(t=${cam.t.toFixed(2)})` : "mercator",
-    n: f.n,
-    valid: f.ok.reduce((a, v) => a + v, 0),
-    box: f.box && {
-      minX: round(f.box.minX),
-      minY: round(f.box.minY),
-      maxX: round(f.box.maxX),
-      maxY: round(f.box.maxY),
-    },
-    top: Array.from(f.top, round),
-    base: Array.from(f.base, round),
-    ok: Array.from(f.ok),
-    slabs: {
-      scopeId: f.slabs.scopeId,
-      rise: round(f.slabs.rise),
-      version: f.slabs.version,
-      ...Object.fromEntries(
-        (["ring", "label", "plaque"] as const).map((k) => {
-          const b = f.slabs[k];
-          return [k, b && { w: b.w, h: b.h, ok: b.ok, lid: Array.from(b.lid, round) }];
-        }),
-      ),
-    },
-    subscribers: frameSubs.length,
-    framesSent,
-    framesSkipped,
-    vsMapProject: {
-      checked,
-      baseMeanPx: checked ? round(baseSum / checked) : null,
-      baseMaxPx: round(baseMax),
-      topMeanPx: checked ? round(topSum / checked) : null,
-      topMaxPx: round(topMax),
-    },
-  };
-}
-
-// Snapshot the PURE basemap over the selection and hand it to the lid (outlines
-// are drawn over it as constant-width GL vector lines, not baked). Fire-and-forget:
-// the plateau rises on the draped terrain as before; when the snapshot lands (and
-// the selection hasn't changed) the lid appears and fills the rim gap with
-// identical map content — no visible pop.
-// The lid is a FIXED-resolution snapshot of the selection's bounds, so raising a
-// whole région froze its top at ~z8 detail: zooming in showed no more map until
-// you drilled a level down. These track the current texture's ground resolution
-// so the lid can be re-captured over the visible part as the camera closes in —
-// fragments outside a capture discard and fall back to the draped terrain, which
-// is still the real map, so a tighter texture is always safe.
-const EARTH_CIRCUMFERENCE_M = 40075016.686;
-let lidMpp = Infinity; // metres per texel of the lid currently displayed
-let lidPx = 0; // backing-store width the current lid was captured at
-let lidRaised: OutlineFC["features"] = [];
-let lidCaptureInFlight = false;
-let lidRecaptureTimer: ReturnType<typeof setTimeout> | null = null;
-// Bounds the current (or in-flight) lid texture covers. Guards against
-// re-shooting a texture we already have — snapshotMgr.capture() bumps its own
-// seq, so a redundant capture CANCELS an in-flight refine and then overwrites
-// lidMpp with the coarse full-selection value, which is exactly what made
-// zooming appear to never sharpen.
-let lidTargetKey = "";
-// Geographic rectangle the current lid texture covers — the lid discards outside
-// it, so the visible plateau must stay inside this or the wall shows through.
-let lidCovered: Bounds | null = null;
-// Diagnostic for __acPlateau(): the lid is coarser than the screen, but the
-// rectangle a refine would capture is no smaller than the one we already have,
-// so re-shooting would not sharpen anything.
-let lidRefineBlockedByGain = false;
-const boundsKey = (b: Bounds) =>
-  `${b.minLat.toFixed(4)},${b.maxLat.toFixed(4)},${b.minLng.toFixed(4)},${b.maxLng.toFixed(4)}`;
-// Re-capture once the lid is this much coarser than the screen, or this much
-// finer (zoomed back out, so the crisp patch no longer covers the view).
-// 1.3, not 2: a texture coarser than the screen is visibly soft, and at 2× a
-// département's lid (~46 m/texel) stayed blurry until the view dropped under
-// ~23 km — roughly two zoom levels of "zooming does nothing", which is exactly
-// the reported symptom. A refine lands at ~0.73× the screen resolution, so 1.3
-// is still comfortably clear of a re-trigger (no thrash).
-const LID_REFINE_RATIO = 1.3;
-const LID_WIDEN_RATIO = 4;
-// Fraction of the visible slice added on each side of a refine capture.
-const LID_MARGIN = 0.35;
-
-/** Ground metres spanned by the LONGER side of `b` — what the square capture fits. */
-function boundsGroundSpanM(b: Bounds): number {
-  const lat = (b.minLat + b.maxLat) / 2;
-  const wM =
-    ((b.maxLng - b.minLng) / 360) * EARTH_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180);
-  const hM = ((b.maxLat - b.minLat) / 360) * EARTH_CIRCUMFERENCE_M;
-  return Math.max(wM, hM);
-}
-
-/**
- * Backing-store pixels the capture of `b` needs to resolve as finely as the
- * screen: span / px <= metres-per-device-pixel. Demand-driven on purpose — it
- * scales down on a phone and up on a large HiDPI display, and SnapshotManager
- * clamps it by the device's memory tier and GL_MAX_TEXTURE_SIZE.
- */
-function lidPixelBudget(b: Bounds): number {
-  const mpp = viewMpp();
-  if (!Number.isFinite(mpp) || mpp <= 0) return 2048;
-  return Math.ceil(boundsGroundSpanM(b) / mpp);
-}
-
-/** Ground metres per texel of a snapshot. */
-function snapshotMpp(snap: Snapshot, b: Bounds): number {
-  const lat = (b.minLat + b.maxLat) / 2;
-  const groundSpanM = snap.merc.spanX * EARTH_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180);
-  return groundSpanM / snap.bitmap.width;
-}
-
-/**
- * Ground metres per screen pixel at the current camera — DEVICE pixels, to match
- * `snapshotMpp`, which divides by the snapshot's backing-store width.
- *
- * This used `clientWidth` (CSS pixels), so on a HiDPI display the screen looked
- * `devicePixelRatio`× coarser than it is and the lid read as sharp enough when it
- * was not: at dpr 2 the refine threshold was effectively 2.6, not 1.3, and the
- * plateau top stayed visibly softer than the live map around it.
- */
-function viewMpp(): number {
-  if (!map) return Infinity;
-  const b = map.getBounds();
-  const w = map.getCanvas().width;
-  if (!b || !w) return Infinity;
-  const lat = (b.getNorth() + b.getSouth()) / 2;
-  const spanM =
-    ((b.getEast() - b.getWest()) / 360) * EARTH_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180);
-  return spanM / w;
-}
-
-async function captureLid(seq: number, raised: OutlineFC["features"], over?: Bounds) {
-  const shot = over ?? boundsOfFeatures(raised);
-  if (!shot) return;
-  // "Carte" (DEV): the slabs' lids show the snapshot too.
-  const b = lidExtra ? unionBounds(shot, lidExtra) : shot;
-  // Resolve the pixel budget HERE so it can go in the identity key below: the
-  // same rectangle at a bigger budget is a genuinely sharper texture, and
-  // keying on bounds alone would suppress that re-capture as a duplicate.
-  const px = snapshotMgr.pixelBudget(lidPixelBudget(b), plateauWall.maxTextureSize);
-  // Already showing (or fetching) exactly this rectangle at this resolution →
-  // don't cancel it to re-shoot the same thing.
-  const key = `${boundsKey(b)}@${px}`;
-  if (key === lidTargetKey && Number.isFinite(lidMpp)) return;
-  lidTargetKey = key;
-  lidCaptureInFlight = true;
-  try {
-    const snap = await snapshotMgr.capture(STYLE, b, px, plateauWall.maxTextureSize);
-    if (!snap) return;
-    if (seq !== plateauSeq) {
-      snap.bitmap.close();
-      return;
-    }
-    lidMpp = snapshotMpp(snap, b);
-    lidPx = snap.bitmap.width;
-    lidCovered = b;
-    lidRaised = raised;
-    plateauWall.setLidTexture(snap);
-  } catch {
-    /* no lid → status quo (walls + draped terrain) */
-  } finally {
-    lidCaptureInFlight = false;
-  }
-}
-
-/**
- * Keep the lid's resolution in step with the camera. Called (debounced) after a
- * gesture settles: if the texture is much coarser than the screen, re-capture
- * over the visible slice of the selection; if the camera pulled far back, widen
- * to the whole selection again.
- */
-function refreshLidForZoom() {
-  if (!map || !plateauActive || !lidRaised.length) return;
-  // A capture is running — come back rather than dropping this refine on the
-  // floor (the old code returned here and only retried on the NEXT gesture,
-  // so a refine lost to the initial capture never happened at all).
-  if (lidCaptureInFlight) {
-    scheduleLidRefresh();
-    return;
-  }
-  const own = boundsOfFeatures(lidRaised);
-  if (!own) return;
-  const sel = lidExtra ? unionBounds(own, lidExtra) : own;
-  const mpp = viewMpp();
-  if (!Number.isFinite(mpp)) return;
-
-  const v = map.getBounds();
-  if (!v) return;
-  // The visible slice of the selection — the region the lid MUST cover, because
-  // the lid shader discards fragments outside the captured rectangle and the
-  // hole shows the far wall's inner face straight through the plateau top.
-  const clip = {
-    minLat: Math.max(sel.minLat, v.getSouth()),
-    maxLat: Math.min(sel.maxLat, v.getNorth()),
-    minLng: Math.max(sel.minLng, v.getWest()),
-    maxLng: Math.min(sel.maxLng, v.getEast()),
-  };
-  if (clip.minLat >= clip.maxLat || clip.minLng >= clip.maxLng) return; // selection off-screen
-  // Generous margin: a capture takes ~1 s, so the texture must already cover
-  // where the camera is heading, not just where it is. Doubling the slice keeps
-  // ordinary pans and a zoom step inside the existing texture instead of
-  // punching a transient hole in the plateau.
-  const padLat = (clip.maxLat - clip.minLat) * LID_MARGIN;
-  const padLng = (clip.maxLng - clip.minLng) * LID_MARGIN;
-  const want: Bounds = {
-    minLat: Math.max(sel.minLat, clip.minLat - padLat),
-    maxLat: Math.min(sel.maxLat, clip.maxLat + padLat),
-    minLng: Math.max(sel.minLng, clip.minLng - padLng),
-    maxLng: Math.min(sel.maxLng, clip.maxLng + padLng),
-  };
-
-  // Re-capture when the texture is too coarse for the screen, when the camera
-  // pulled far enough back that a tight texture is wasteful — OR, the case the
-  // resolution test alone missed, when the visible plateau has moved OUTSIDE
-  // what the texture covers (a pan at constant zoom, or a fast zoom-out).
-  const covers =
-    lidCovered !== null &&
-    clip.minLat >= lidCovered.minLat &&
-    clip.maxLat <= lidCovered.maxLat &&
-    clip.minLng >= lidCovered.minLng &&
-    clip.maxLng <= lidCovered.maxLng;
-  // A capture is a fixed pixel budget over whatever rectangle we ask for, so a
-  // re-shoot only sharpens if the new rectangle is genuinely SMALLER than the
-  // current one. Comparing against the screen alone is canvas-dependent — on a
-  // wide display the snapshot can never beat it, and every settle would fire a
-  // fresh capture forever. Requiring a real improvement makes this self-limiting.
-  const spanOf = (b: Bounds) => {
-    const cos = Math.cos((((b.minLat + b.maxLat) / 2) * Math.PI) / 180) || 1e-6;
-    return Math.max((b.maxLng - b.minLng) * cos, b.maxLat - b.minLat);
-  };
-  const gain = lidCovered ? spanOf(lidCovered) / Math.max(spanOf(want), 1e-9) : Infinity;
-  const tooCoarse = lidMpp > mpp * LID_REFINE_RATIO;
-  const wantsFiner = tooCoarse && gain >= LID_REFINE_RATIO;
-  lidRefineBlockedByGain = tooCoarse && !wantsFiner;
-  const tooFine = lidMpp * LID_WIDEN_RATIO < mpp;
-  if (covers && !wantsFiner && !tooFine) return;
-  // Uncovered or zoomed back out → the whole unit; otherwise the padded slice.
-  void captureLid(plateauSeq, lidRaised, tooFine || !covers ? sel : want);
-}
-
-function scheduleLidRefresh() {
-  if (lidRecaptureTimer) clearTimeout(lidRecaptureTimer);
-  lidRecaptureTimer = setTimeout(() => {
-    lidRecaptureTimer = null;
-    refreshLidForZoom();
-  }, 350);
-}
+// ---- The composables (features/map/composables), in dependency order ------------
+// None of them registers a Vue watcher, so the order only says who reads whom:
+// the view; the grey (which installs the layers); the frame bus; what the slabs
+// hide (reads the frame bus); the lid. Each takes `getMap` and explicit getters
+// or callbacks, never the component. The flags they read across
+// responsibilities (`plateauActive`, `plateauSeq`, `userHolding`, `lidExtra`)
+// stay plain `let`s of their owner here, handed over as getters.
+const view = useMapView({
+  getMap,
+  padding: () => props.padding,
+  viewPadding: () => props.viewPadding,
+  userHolding: () => userHolding,
+  onView: (v) => emit("viewChange", v),
+});
+const { screenBoundsInset, emitView } = view;
+const mask = useScopeMask({
+  getMap,
+  wall: plateauWall,
+  outline: () => props.outline,
+  scopePending: () => props.scopePending,
+  plateauActive: () => plateauActive,
+});
+const { setupLayers, applyOutline, applyMask, syncDrapedMask, isGlobeStyle } = mask;
+const frames = usePlateauFrames({ getMap, wall: plateauWall });
+const { slabsOnScreen, onSlab, slabDotBoxes, mayBeUnderSlab } = useSlabOcclusion({
+  getMap,
+  wall: plateauWall,
+  frames,
+});
+const lid = usePlateauLid({
+  getMap,
+  wall: plateauWall,
+  style: STYLE,
+  plateauSeq: () => plateauSeq,
+  plateauActive: () => plateauActive,
+  lidExtra: () => lidExtra,
+});
 
 // The DEM's canonical tile zoom for a selection: one level past its fit zoom. The
 // source is capped there (maxzoom), so flying/zooming NEVER requests new terrain
@@ -2301,12 +1208,7 @@ async function ensurePlateau() {
     plateauActive = false;
     applyMask();
     // No lid any more — forget its resolution so a later plateau starts fresh.
-    lidMpp = Infinity;
-    lidPx = 0;
-    lidRaised = [];
-    lidTargetKey = "";
-    lidCovered = null;
-    lidRefineBlockedByGain = false;
+    lid.reset();
     return;
   }
   const scopeId = String(raised[0]?.properties?.id ?? "");
@@ -2328,7 +1230,7 @@ async function ensurePlateau() {
   // must not take them in (France's, some 900 km, around Lyon's lid). Its own
   // are added once they are built (syncSlabs).
   if (changed) lidExtra = null;
-  if (changed || !Number.isFinite(lidMpp)) void captureLid(seq, raised);
+  if (changed || !lid.hasTexture()) void lid.capture(seq, raised);
   // Selection changed → the old plateau starts sinking NOW, while the POST runs.
   // (A different scope id always hashes to a different DEM version, so this never
   // sinks a plateau that the same-version path would have kept up.)
@@ -2535,7 +1437,7 @@ function liveSlabCam(): SlabCam {
     pitch: m.getPitch(),
     w: m.getContainer().clientWidth,
     h: m.getContainer().clientHeight,
-    globe: globeStyle,
+    globe: isGlobeStyle(),
   };
 }
 
@@ -2719,12 +1621,10 @@ function syncSlabs(atSwap = false) {
   const carte = __TEST_TOOLS__ && spec.lid === "carte";
   layer.setSlabLid(carte ? "carte" : spec.lid === "opaque" ? "opaque" : "verre");
   lidExtra = carte && rects.length ? rects.map(rectBounds).reduce(unionBounds) : null;
-  if (lidExtra && !(lidCovered && boundsContain(lidCovered, lidExtra))) {
+  const covered = lid.covered();
+  if (lidExtra && !(covered && boundsContain(covered, lidExtra))) {
     const whole = boundsOfFeatures(plateauRaised);
-    if (whole) {
-      lidTargetKey = "";
-      void captureLid(plateauSeq, plateauRaised, unionBounds(whole, lidExtra));
-    }
+    if (whole) void lid.capture(plateauSeq, plateauRaised, unionBounds(whole, lidExtra), true);
   }
   // Their presence: at a swap they ride the plateau's rise; over a plateau
   // already up they rise alone.
@@ -2765,169 +1665,6 @@ function readCardRgb(): [number, number, number] {
 }
 let themeObserver: MutationObserver | null = null;
 
-// ---- Grey outside the selection: state shared by both renderers ----------------
-// The draped (globe) sheet: which selection its GeoJSON source holds ([] =
-// empty), and whether its layer is opaque right now.
-let drapedGeoms: MaskGeom[] = [];
-let drapedShown = false;
-// Whether the style renders a globe at all (decided once the style is loaded).
-let globeStyle = false;
-
-/**
- * The draped sheet covers the world. On the globe a lat/lng rectangle cannot
- * describe what is on screen — the visible region is a spherical cap, not a box
- * — so there is no smaller rectangle to compute; `maskRing` densifies this one
- * so its size costs nothing in tessellation quality.
- */
-const WORLD_RECT: Bounds = { minLat: -85, maxLat: 85, minLng: -180, maxLng: 180 };
-
-/**
- * Ring for `b`, carrying intermediate vertices rather than just four corners.
- *
- * A straight edge between two distant corners is drawn straight in SCREEN space,
- * so on the globe it cuts across the sphere instead of following it — that is
- * what turned the very first world-sized mask into flat angular slabs. Short
- * edges track the curvature closely enough to be invisible (~260 points).
- */
-function maskRing(b: Bounds): [number, number][] {
-  const STEP_DEG = 4;
-  const pts: [number, number][] = [];
-  const edge = (x0: number, y0: number, x1: number, y1: number) => {
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) / STEP_DEG));
-    for (let i = 0; i < n; i++) pts.push([x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n]);
-  };
-  edge(b.minLng, b.minLat, b.maxLng, b.minLat);
-  edge(b.maxLng, b.minLat, b.maxLng, b.maxLat);
-  edge(b.maxLng, b.maxLat, b.minLng, b.maxLat);
-  edge(b.minLng, b.maxLat, b.minLng, b.minLat);
-  pts.push([b.minLng, b.minLat]); // close
-  return pts;
-}
-
-/** The draped sheet for `geoms`: the world, minus their outer rings. */
-function worldMaskData(geoms: MaskGeom[]): GeoJSON.FeatureCollection {
-  // Outer rings become holes in the grey; a selection's INNER rings are enclaves
-  // of some other unit (the Enclave des Papes is Vaucluse, wholly surrounded by
-  // Drôme), which the plateau leaves un-raised — so they have to be greyed back
-  // in. A flat ring list cannot express that nesting: everything after the first
-  // ring is a hole, so an enclave ring added there would cut MORE out. They go in
-  // as separate polygons of a MultiPolygon instead, each sitting exactly inside a
-  // hole, so nothing overlaps and no area is double-darkened.
-  const holes: [number, number][][] = [];
-  const enclaves: [number, number][][] = [];
-  const addRings = (rings: [number, number][][]) => {
-    if (!rings?.[0]?.length) return;
-    holes.push(rings[0]);
-    for (let i = 1; i < rings.length; i++) if (rings[i]?.length) enclaves.push(rings[i]);
-  };
-  for (const g of geoms) {
-    if (g.type === "Polygon") {
-      addRings(g.coordinates as [number, number][][]);
-    } else if (g.type === "MultiPolygon") {
-      for (const poly of (g.coordinates as [number, number][][][]) ?? []) addRings(poly);
-    }
-  }
-  if (!holes.length) return EMPTY_FC as unknown as GeoJSON.FeatureCollection;
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        properties: {},
-        geometry: {
-          type: "MultiPolygon",
-          coordinates: [[maskRing(WORLD_RECT), ...holes], ...enclaves.map((e) => [e])],
-        },
-      },
-    ],
-  } as unknown as GeoJSON.FeatureCollection;
-}
-
-/**
- * Grey outside the plateau, cut around the current selection.
- *
- * Keyed on `plateauActive` (and held as-is while the next scope's boundary is
- * still loading). The hole is what keeps the selection clear, so this needs
- * nothing from the lid: in the flat view the sheet is re-cut right here,
- * synchronously, and clicking a zone colours it in that frame.
- */
-function applyMask() {
-  const src = map?.getSource(MASK_SOURCE) as mapboxgl.GeoJSONSource | undefined;
-  if (!src) return;
-  const geoms: MaskGeom[] = [];
-  if (plateauActive) {
-    for (const f of props.outline?.features ?? []) {
-      if (f.properties?.kind !== "scope") continue;
-      const g = f.geometry as MaskGeom | undefined;
-      if (g?.type === "Polygon" || g?.type === "MultiPolygon") geoms.push(g);
-    }
-    // The new scope's boundary is still loading: ensurePlateau keeps the old
-    // plateau standing meanwhile, so keep the grey that is up too (normally cut
-    // around that plateau). Clearing it here would flash the whole map in full
-    // colour until the geometry arrives.
-    if (!geoms.length && props.scopePending) return;
-  }
-  scopeTint.setSelection(geoms);
-  // The globe's sheet always holds the current selection, whatever the zoom:
-  // re-tiling only costs anything while its tiles are loaded (MASK_ARM_ZOOM), and
-  // having the data already indexed is what lets those tiles appear in time
-  // when a fast zoom-out or a flight heads for the globe.
-  if (!sameGeoms(geoms, drapedGeoms)) {
-    drapedGeoms = geoms;
-    src.setData(worldMaskData(geoms));
-  }
-  syncDrapedMask();
-}
-
-/**
- * Show the draped sheet on the globe and hide it everywhere else — the mirror
- * image of ScopeTintLayer, which draws in the flat view only.
- *
- * Called from `move`, it predicts the projection mapbox is about to render with
- * (same rule, same zoom) so that the opacity lands in the very frame the tint
- * starts or stops: `move` fires before mapbox restyles and paints. `regime` is
- * the projection a frame was ACTUALLY drawn with, reported by the tint layer —
- * the correction if the prediction was ever wrong (the zoom can be nudged
- * without a `move`, e.g. when a drag ends over the plateau).
- */
-function syncDrapedMask(regime?: boolean) {
-  if (!map) return;
-  // On every `move`, so the common case must stay this cheap: a zoom read and a
-  // comparison. (Both flags are false until setupOutline has added the layer.)
-  const show = regime ?? (globeStyle && map.getZoom() < GLOBE_MAX_ZOOM);
-  if (show === drapedShown) return;
-  try {
-    map.setPaintProperty(MASK_LAYER, "fill-opacity", show ? MASK_OPACITY : 0);
-    drapedShown = show;
-  } catch {
-    // The style is mid-reload: leave the flag as it was so the next call retries.
-  }
-}
-
-function applyOutline() {
-  // The outline source only feeds the draped hover-fill fallback now — the
-  // boundary LINES are GL geometry rebuilt by ensurePlateau (line widths are
-  // per-feature, derived from `level` inside setGeometry).
-  const src = map?.getSource(OUTLINE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
-  src?.setData((props.outline ?? EMPTY_FC) as unknown as GeoJSON.FeatureCollection);
-}
-
-function emitView() {
-  if (!map) return;
-  // Report the VISIBLE rectangle (canvas minus the panel), so scope derivation
-  // measures span against what the user actually sees beside the panel.
-  const vb = visibleBounds(0);
-  if (!vb) return;
-  emit("viewChange", {
-    zoom: map.getZoom(),
-    center: [(vb.minLat + vb.maxLat) / 2, (vb.minLng + vb.maxLng) / 2],
-    bounds: vb,
-    screen: screenBounds() ?? vb,
-    insets: viewInsets(),
-    byUser: userHolding,
-  });
-}
-
 onMounted(() => {
   if (!el.value || !TOKEN) {
     emitReady(); // no map will ever load — release the boot overlay
@@ -2957,7 +1694,6 @@ onMounted(() => {
     // runs in a real browser (never in a headless preview), so diagnosing "the
     // map looks low-detail" needs a way to read the live state from the console.
     (window as unknown as { __acPlateau?: () => unknown }).__acPlateau = () => {
-      const vm = viewMpp();
       return {
         zoom: map ? +map.getZoom().toFixed(2) : null,
         terrainActive: !!map?.getTerrain(),
@@ -2967,25 +1703,8 @@ onMounted(() => {
         demMaxzoom: (map?.getStyle().sources?.[terrainSrc] as { maxzoom?: number })?.maxzoom,
         dpr: window.devicePixelRatio || 1,
         canvasDevicePx: map?.getCanvas().width ?? null,
-        // Backing-store width the lid was captured at, vs what the current view
-        // would ask for and what the device/GL actually allow.
-        lidTexturePx: lidPx || null,
-        lidTexturePxWanted: lidCovered ? lidPixelBudget(lidCovered) : null,
-        lidTexturePxAllowed: lidCovered
-          ? snapshotMgr.pixelBudget(lidPixelBudget(lidCovered), plateauWall.maxTextureSize)
-          : null,
-        glMaxTextureSize: plateauWall.maxTextureSize,
-        metresPerDevicePixel: +vm.toFixed(2),
-        metresPerLidTexel: Number.isFinite(lidMpp) ? +lidMpp.toFixed(2) : null,
-        // >1 means the lid is COARSER than the screen (blurry top).
-        lidCoarserThanScreenBy: Number.isFinite(lidMpp) ? +(lidMpp / vm).toFixed(2) : null,
-        lidCovers: boundsOfFeatures(lidRaised),
-        // True when the lid IS too coarse but a refine cannot help: a capture is
-        // a fixed pixel budget over whatever rectangle we ask for, so it only
-        // sharpens if that rectangle shrinks — and there is nothing to shrink to
-        // while the whole selection is on screen. Separates "the refine never
-        // fired" from "the lid is capped at selectionSpan / SNAP_PX".
-        lidRefineBlockedByGain,
+        // The lid's texture: its size, resolution and cover (usePlateauLid).
+        ...lid.probe(),
         // The analyses' slabs standing (see syncSlabs).
         slabs: slabState && {
           scopeId: slabState.scopeId,
@@ -3025,11 +1744,11 @@ onMounted(() => {
     map.once("load", () => {
       initialLoadDone = true;
       mapReady = true;
-      setupOutline();
+      setupLayers();
       applyOutline();
       applyMask();
       buildMarkers();
-      snapshotMgr.warmup(STYLE); // hidden lid-snapshot map: pay style init now
+      lid.warmup(); // hidden lid-snapshot map: pay style init now
       if (props.camera) runCamera({ ...props.camera, animate: false });
       emitView();
       // INTRO: wait for the first idle (basemap fully painted, capped at 4 s),
@@ -3112,13 +1831,8 @@ onMounted(() => {
     window.addEventListener("pointerup", onMapPointerUp, true);
     window.addEventListener("pointercancel", onMapPointerUp, true);
     // A restored WebGL context comes back empty, and mapbox does not run onAdd
-    // again for custom layers. Its own layers recover by themselves — the draped
-    // grey used to — so without this the flat view would stay un-greyed until a
-    // reload.
-    map.on("webglcontextrestored", () => {
-      const gl = map?.getCanvas().getContext("webgl2");
-      if (map && gl) scopeTint.onAdd(map, gl);
-    });
+    // again for custom layers: the tint sheet is set up again (useScopeMask).
+    map.on("webglcontextrestored", () => mask.onContextRestored());
     // Hover inside a unit's boundary reveals its (possibly room-hidden) macro pin
     // and shows a pointer; clicking inside the boundary SELECTS the unit — the
     // whole territory is the click target, the pin is just its label.
@@ -3156,9 +1870,9 @@ onMounted(() => {
       }
     });
     // The frame bus (see emitFrame): fired at the end of every frame drawn.
-    map.on("render", emitFrame);
+    map.on("render", frames.emitFrame);
     if (import.meta.env.DEV) {
-      (window as unknown as { __acFrame?: () => unknown }).__acFrame = probeFrame;
+      (window as unknown as { __acFrame?: () => unknown }).__acFrame = frames.probe;
     }
 
     // The container can be laid out late (grid/flex settling, fonts) — keep the
@@ -3193,10 +1907,7 @@ onMounted(() => {
     resizeObserver = new ResizeObserver((entries) => {
       if (!map) return;
       const box = entries[entries.length - 1]?.contentRect;
-      if (box) {
-        roW = box.width;
-        roH = box.height;
-      }
+      if (box) frames.setContainerSize(box.width, box.height);
       map.resize();
       for (const e of markerById.values()) e.halfW = e.halfH = 0; // measured anew
       if (!userInteracted && lastCmd) runCamera({ ...lastCmd, animate: false });
@@ -3261,7 +1972,7 @@ onBeforeUnmount(() => {
   themeObserver?.disconnect();
   themeObserver = null;
   plateauSeq++; // abort any in-flight ensurePlateau
-  snapshotMgr.destroy();
+  lid.destroy();
   resizeObserver?.disconnect();
   visibilityObserver?.disconnect();
   visibilityObserver = null;
@@ -3273,11 +1984,10 @@ onBeforeUnmount(() => {
   map = null;
   mapReady = false;
   introPending = true;
-  for (const s of frameSubs) s.live = false;
-  frameSubs = [];
+  frames.dispose();
   if (import.meta.env.DEV) {
     const w = window as unknown as { __acFrame?: () => unknown };
-    if (w.__acFrame === probeFrame) delete w.__acFrame;
+    if (w.__acFrame === frames.probe) delete w.__acFrame;
   }
 });
 
@@ -3351,7 +2061,7 @@ defineExpose({
   inUserHands: () => pressed.size > 0 || (userHolding && Boolean(map?.isMoving())),
   /** Where the raised plateau stands on screen, once per frame drawn (see
    *  PlateauFrame); returns the unsubscribe. */
-  onFrame,
+  onFrame: frames.onFrame,
   /** The analyses' ring: the part picked and the one hovered on the unit
    *  `scopeId`'s — the raised parts and the bar follow. */
   setRing,
