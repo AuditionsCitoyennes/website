@@ -223,7 +223,7 @@ if has_step tile && ! skip_done tile; then
   done
   log "tile: tile-join → boundaries.mbtiles → boundaries.pmtiles"
   find "$OUT/tiles" -name '*.mbtiles' -print0 \
-    | xargs -0 tile-join --force -o "$OUT/boundaries.mbtiles" -n boundaries --no-tile-size-limit --no-feature-limit
+    | xargs -0 tile-join --force -o "$OUT/boundaries.mbtiles" -n boundaries -pk
   pmtiles convert "$OUT/boundaries.mbtiles" "$OUT/boundaries.pmtiles"
   touch "$(done_marker tile)"
 fi
