@@ -2,7 +2,7 @@
 
 Phase 0 of docs/map-roadmap-2026-10-25.md ("Plan as decided"): measure the map as it is, and size the boundary tileset phase 2 will serve. Nothing visitors see changed. Two tools came out of it, both in PR AuditionsCitoyennes/website#110:
 
-- **The perf probes** (`apps/web/src/shared/perf/perf.ts`), built only with the testing tools (`__TEST_TOOLS__`: the dev server and staging; production carries none of it). Four interactions are measured from the user's act to the frame that shows the result, as `performance.mark`/`performance.measure` pairs (`ac:select-plateau`, `ac:scope-mask`, `ac:drill-boundaries`, `ac:lieu-pins`, visible in DevTools' and Safari's timelines), with the steps between them as spans, a long-frames observer, and `window.__acPerf` to read everything. One console line per interaction.
+- **The perf probes** (`apps/web/src/shared/perf/perf.ts`, a generic engine; the map's vocabulary in `features/map/dev/perfVocabulary.ts`), built only with the testing tools (`__TEST_TOOLS__`: the dev server and staging). In production `perfOn` is false and every call site is gated on it, so the minifier drops the calls and their arguments and the module's install never runs; checked on the unminified production chunk, grepped for `__acPerf`, `ac:select-plateau`, `PerformanceObserver`, `long-animation-frame`, `perfSpan`, `perfBegin` and `perfVocabulary`: no match, nothing of the probes or of the map's vocabulary module is left in the chunk. Four interactions are measured from the user's act to the frame that shows the result, as `performance.mark`/`performance.measure` pairs (`ac:select-plateau`, `ac:scope-mask`, `ac:drill-boundaries`, `ac:lieu-pins`, visible in DevTools' and Safari's timelines), with the steps between them as spans, a long-frames observer, and `window.__acPerf` to read everything. One console line per interaction, printed a moment after it ends; an interaction nothing ends times out after 10 s.
 - **The tileset build** (`scripts/map-data/build-boundaries.sh`): Overture Maps divisions (the world) + Etalab contours-administratifs 2026 (France) → mapshaper per zoom band → tippecanoe → one `boundaries.pmtiles`, and a report. Run once here; the numbers are below.
 
 ## 1. The four measures
@@ -10,7 +10,7 @@ Phase 0 of docs/map-roadmap-2026-10-25.md ("Plan as decided"): measure the map a
 | measure | starts | ends |
 |---|---|---|
 | `select-plateau` | a unit is selected: a panel row, a pin, a click inside its territory, a breadcrumb (`geo-nav/model/useNavActions`) | the first frame `PlateauWallLayer` draws with the rise at 1 for that unit (read from the frame bus, `map/composables/usePlateauFrames`); for Monde, the moment the plateau is cleared |
-| `scope-mask` | `currentScope` is written (sync watcher in `GeoNav.vue`) | the grey is re-cut around the new selection: `ScopeTintLayer.setSelection` rebuilt its sheet (`useScopeMask.applyMask`); the draped sheet's worker indexing is noted apart (`mask.drapedIndexed`) |
+| `scope-mask` | `currentScope` is written (sync watcher in `GeoNav.vue`) | the grey is re-cut around the new selection: `ScopeTintLayer.setSelection` rebuilt its sheet (`useScopeMask.applyMask`), or found it had nothing to change (`unchanged`, the lieu zone); the draped sheet's worker indexing is noted apart (`mask.drapedIndexed`) |
 | `drill-boundaries` | same act as `select-plateau` | the outline has every geometry it will get: the scope's own (a département's merged outline), its children's and its neighbours' communes (`useMapFeed.outlineReady`) |
 | `lieu-pins` | a lieu is opened (`openPlace`) | `buildMarkers` placed a set of pins that are all dots (the micro zone's lieux) |
 
@@ -20,7 +20,7 @@ Long frames: `long-animation-frame` entries over 50 ms where Chrome provides the
 
 ## 2. Baseline in the Browser pane (laptop, 2026-10-25)
 
-Machine and conditions: Apple Silicon Mac (10 cores, 17 GB), Chrome 152 in the Claude desktop Browser pane, 1280 × 800 at DPR 2, dev server on the worktree of PR #110, API from the same worktree with its boundary cache seeded by the main checkout's (801 entries), production Supabase data (one région with testimonies: Auvergne-Rhône-Alpes). The pane throttles `requestAnimationFrame` to ~1 Hz, so the page ran under the virtual-clock pump described in §5: frames are flushed every 16 ms of wall clock from a MessageChannel loop, with a 1 × 1 `readPixels` after each flush so GPU time counts. Because the frames are not the browser's, `long-animation-frame` sees none of them: the "long frames" below are the pump's flushes over 50 ms, and `longtask` entries (which the Long Tasks API still reports) are given beside them.
+Machine and conditions: Apple Silicon Mac (10 cores, 17 GB), Chrome 152 in the Claude desktop Browser pane, 1280 × 800 at DPR 2, dev server on the worktree of PR #110, API from the same worktree with its boundary cache seeded by the main checkout's (801 entries), production Supabase data (one région with testimonies: Auvergne-Rhône-Alpes). The pane throttles `requestAnimationFrame` to ~1 Hz, so the page ran under the virtual-clock pump described in §5: frames are flushed every 16 ms of wall clock from a MessageChannel loop, with a 1 × 1 `readPixels` after each flush so GPU time counts. Because the frames are not the browser's, `long-animation-frame` sees few of them: the "long frames" below are the pump's flushes over 50 ms, and `longtask` entries are given beside them. The Long Tasks API reported the CPU-bound flushes (a département's mesh rebuild: 72–84 ms) and, in a check after the review, a deliberate 110 ms burn placed inside a pumped frame (one task of 116 ms, one frame of 117 ms, both visible 1.2 s after the interaction ended and absent when read at once — which is why attribution is computed at read time); it did not report flushes whose length was the GPU sync (`readPixels`, 62 ms), so the pump's own column is the more complete one here.
 
 Scenario: `/temoignages`, Monde → France → Auvergne-Rhône-Alpes → Rhône → Lyon → Lyon 7e, with a 220 px drag and three wheel notches at each level, a lieu opened (Place Carnot), `?analyses=1`, then Rhône and Auvergne-Rhône-Alpes again with the analyses on, and Isère. Every selection came from the panel's rows or crumbs; the pan at Lyon 7e moved the scope to Lyon 2e (the containment read off the view), which is the behaviour.
 
@@ -58,7 +58,7 @@ The API's département merge, measured apart with curl on the same API (the unio
 ### Where the time goes
 
 - **Select → plateau is 360–570 ms, and most of it is by design.** The rise animation is 300 ms (`RISE_MS`), preceded by a 150 ms sink when another plateau stood (`SINK_MS`); the DEM POST takes 40–80 ms; the geometry 4–11 ms for a région, a ville or an arrondissement and **60–70 ms for a département** (the merged outline: 20 000 vertices, 4 ms of earcut, the rest building wall, lid, line and halo meshes in `PlateauWallLayer.setGeometry`). Those 60–70 ms are the only long tasks a drill produces (72–84 ms, three of them in the run, all départements). Earcut itself is small everywhere (`projection.lidBases` ≤ 4 ms, `tint.setSelection` ≤ 10 ms); the per-geometry caches make a second selection of the same unit free.
-- **The DEM tiles are the slow network item.** 12–14 PNG tiles per selection, rendered by the API: 50–350 ms summed when the API has them, 1 151 ms for Rhône (≈ 96 ms per tile when rendering is cold); they do not delay the rise (it starts at once and the tiles were warmed during the sink), they show as a late re-tessellation. Phase 3's question (keep the API's DEM or not) is about this cost and the container it needs.
+- **The DEM tiles are the slow network item.** 6–14 PNG tiles per selection (6 for France, 12–14 below it), rendered by the API: 8–360 ms summed when the API has them, 675 ms for Isère and 1 151 ms for Rhône (≈ 96 ms per tile when rendering is cold); they do not delay the rise (it starts at once and the tiles were warmed during the sink), they show as a late re-tessellation. Phase 3's question (keep the API's DEM or not) is about this cost and the container it needs.
 - **The lid capture is the longest asynchronous item: 0.1–1.3 s per selection**, and 0.1–0.7 s again after a zoom (the texture is re-shot at the new resolution). It lands after the rise, so it is not inside `select-plateau`, but it is what makes the plateau look finished; a slow phone will show the rim gap longer.
 - **Scope → mask is 1–56 ms**: the flat GL sheet is cut synchronously (earcut 0–10 ms) and on screen next frame; the draped sheet the globe shows is indexed by the worker 19–43 ms later. The 56 ms of France is the DEM POST sharing the window.
 - **Drill → boundaries is 0–72 ms warm**: régions and the country have their outlines at boot; a département's merged outline cost 11 ms (cached) and Lyon's communes 2 ms of network plus ~70 ms of hierarchy rebuilds and outline recomputes. **Cold, the département merge is 0.5–1 s on the API** (the table above) and that wait is what `scopePending` holds the old plateau through (`DEP_WAIT_MS` 1 200 ms). A batch of 200 communes is 3.9 MB of uncompressed JSON: the largest payload the map asks for, and the one the PMTiles replace.
@@ -76,9 +76,10 @@ Built with `scripts/map-data/build-boundaries.sh` from Overture Maps release 202
 Choices made for this build (to revisit for the monthly job):
 - Land polygons only, one per division: the land-only variant when Overture has it, else land + territorial waters (most regions and every locality exist in that form only).
 - France's region, county, localadmin and locality rows from Overture are replaced by Etalab's régions (26, DROM and COM included), départements (109) and communes (35 014, Paris/Lyon/Marseille arrondissements included), with ids `fr:reg:84`, `fr:dep:69`, `fr:com:69123` (INSEE codes: what the site stores) and the Overture France id as the régions' parent.
-- Levels and zoom bands (mapshaper `-clean -simplify interval=<m> keep-shapes` per band): country 0–3 (3 000 m), 4–6 (300 m), 7–8 (30 m); region 2–5 (1 000 m), 6–9 (100 m); county 4–7 (300 m), 8–10 (20 m); localadmin 6–9 (100 m), 10 (10 m); locality 8–9 (20 m), 10 (5 m). **Every level stops between z8 and z10 and the client overzooms.** The first run went to z12–14 and crawled: a polygon layer emits a tile for every tile its polygons cover, and the world's land is about 6 million tiles at z12 and 100 million at z14 — a boundary tileset cannot be deep. tippecanoe keeps full detail at a level's last zoom (`-d 14`: 16 384 units per tile, about 1.7 m per unit at z10 in France), so a commune outline drawn at z15 from its z10 tile is still sub-pixel; the last band's mapshaper interval is the level's real resolution (5 m for communes, 20 m for départements, 100 m for régions).
+- Levels and zoom bands (mapshaper `-clean -simplify interval=<m> keep-shapes` per band): country 0–3 (3 000 m), 4–6 (300 m), 7–8 (30 m); region 2–5 (1 000 m), 6–9 (100 m); county 4–7 (300 m), 8–10 (20 m); localadmin 6–9 (100 m), 10 (10 m); locality 8–9 (20 m), 10 (5 m). **Every level stops between z8 and z10 and the client overzooms.** The first run went to z12–14 and crawled: a polygon layer emits a tile for every tile its polygons cover, and the world's land is about 6 million tiles at z12 and 100 million at z14 — a boundary tileset cannot be deep. tippecanoe keeps full detail at a level's last zoom (`-d 14`: 16 384 units per tile, about 1.7 m per unit at z10 in France), so a commune outline drawn at z15 from its z10 tile is still sub-pixel. The last band's mapshaper interval only caps a level's resolution; the source sets it: OSM-grade outlines from Overture for the world, and for France **Etalab's 50 m files for all three levels** (régions, départements, communes) — a 5 m interval on a 50 m source restores nothing. Etalab also publishes `communes-5m` (90 MB gzipped; probed, not used): the phase-2 option if commune edges at z15 need it.
 - mapshaper runs on the whole world for country and region, and per country for county, localadmin and locality (one country at a time fits in memory; shared borders are simplified together inside a chunk, not across two). tippecanoe: one layer per level, attributes id/name/level/parent/country, `--no-simplification-of-shared-nodes --detect-shared-borders`, no feature or tile-size limit (nothing is dropped; the biggest tiles are reported instead).
-- Timings of the build on the laptop: Overture extract 3 min 25 s, GeoJSON chunks ~4 min, Etalab ~1 min, mapshaper (1 016 chunk × band files, three at a time) ~8 min; tiling is in the report.
+- What Etalab replaces: every Overture row below the country for `FR`, and every row of the thirteen codes Overture gives the overseas départements and collectivités (GP, MQ, GF, RE, YT, PM, BL, MF, WF, PF, NC, TF, CP — their top-level polygons too, since Etalab's régions 01–06 and 975–989 are the same ground under France; Overture itself files them under France's id). What stays from Overture for France is its country polygon, which is the métropole only (bbox −5.1…9.6 × 41.3…51.1): the DROM show from z2 through the region layer. The 45 arrondissements municipaux of Paris, Lyon and Marseille are kept beside the three communes they divide, each with its commune as parent (`fr:com:69387` → `fr:com:69123`) — the site drills ville → arrondissement, so the tileset carries that edge; the three commune polygons stay (a ville is a unit of its own, raised whole), overlapping their arrondissements in the locality layer.
+- Timings of the build on the laptop: Overture extract 3 min 25 s, GeoJSON chunks ~4 min, Etalab 5 s, mapshaper (817 chunk × band files, three at a time) 5 min 51 s; tiling, joining and converting are in the report. The first tile-join of the day failed on a flag tile-join does not take and was run by hand; the committed script then ran `chunks → etalab → simplify → tile → report` end to end for the numbers below (a first run to z12–14 and the fixes to the French and overseas rows came before it).
 
 ### Features per level (Overture, world)
 
@@ -104,7 +105,7 @@ Of the 272 country codes with a polygon (219 countries, 53 dependencies):
 | region | 14 |
 | country only | 21 |
 
-So the roadmap's "deepest available level per country" gives a locality level in 229 of 272 codes; the 21 with nothing below the country are small dependencies and islands for the most part. The full table (a row per code with the counts at each level) is `depth-per-country.csv` in the build output and the report. A few, as a feel for the depth and its unevenness:
+So the roadmap's "deepest available level per country" gives a locality level in 229 of 272 codes. The 21 with nothing below the country are, for nine of them, Overture's own `X` codes for disputed claims (Habomai, the Liancourt Rocks, the Senkaku/Diaoyu islands, Abu Musa, Tunb, Bir Tawil, Abyei and two Sino-Indian areas): the source's view of contested ground, which the decision to follow the source brings into any per-country list the site shows; three more `X` codes are real places (Sint Eustatius, Saba, Jan Mayen); then the Vatican and eight small dependencies (Anguilla, Bonaire, Bouvet, Gibraltar, Heard and McDonald, the British Indian Ocean Territory, Norfolk, Pitcairn). The full table (a row per code with the counts at each level) is `depth-per-country.csv` in the build output and the report. A few, as a feel for the depth and its unevenness:
 
 | code | region | county | localadmin | locality |
 |---|---|---|---|---|
@@ -135,56 +136,57 @@ The levels skip (Brazil has no county, Switzerland's communes are localadmins), 
 
 ### Tile sizes
 
-`boundaries.pmtiles`: **783 MB** (the mbtiles 905 MB), z0–10, 288 706 addressed tiles for 194 504 distinct tile contents, gzip inside. Tiling took 7 min for the eleven level × band tilesets, 40 s to join, 6 s to convert.
+`boundaries.pmtiles`: **781 922 473 bytes (745.7 MiB; the mbtiles 861 MiB)**, z0–10, 288 392 addressed tiles for 194 191 distinct tile contents (identical tiles — open sea, a polygon's interior — are stored once), gzip inside. Tiling took 7 min for the eleven level × band tilesets, 40 s to join, 8 s to convert. The per-zoom column below sums to 767 MiB, more than the archive, because it counts addressed tiles.
 
 Bytes per zoom (all levels together; MiB are gzip-compressed vector tiles on the wire):
 
 | z | tiles | MiB | avg KiB | max KiB |
 |--:|--:|--:|--:|--:|
-| 0 | 1 | 0.05 | 51.6 | 51.6 |
-| 1 | 4 | 0.09 | 22.0 | 38.9 |
-| 2 | 16 | 0.69 | 44.3 | 258.1 |
-| 3 | 61 | 1.08 | 18.2 | 153.4 |
-| 4 | 218 | 7.32 | 34.4 | 530.2 |
-| 5 | 703 | 10.57 | 15.4 | 353.9 |
-| 6 | 2 366 | 20.15 | 8.7 | 486.5 |
-| 7 | 8 370 | 31.15 | 3.8 | 394.3 |
-| 8 | 30 793 | 118.61 | 3.9 | 294.8 |
-| 9 | 58 712 | 222.70 | 3.9 | 157.6 |
-| 10 | 187 462 | 356.47 | 1.9 | 187.4 |
+| 0 | 1 | 0.05 | 50.9 | 50.9 |
+| 1 | 4 | 0.08 | 21.7 | 38.9 |
+| 2 | 16 | 0.69 | 44.0 | 258.1 |
+| 3 | 61 | 1.07 | 18.0 | 153.4 |
+| 4 | 218 | 7.3 | 34.3 | 530.2 |
+| 5 | 702 | 10.53 | 15.4 | 353.9 |
+| 6 | 2 365 | 20.09 | 8.7 | 486.5 |
+| 7 | 8 365 | 31.06 | 3.8 | 394.3 |
+| 8 | 30 774 | 118.4 | 3.9 | 294.8 |
+| 9 | 58 653 | 222.33 | 3.9 | 157.6 |
+| 10 | 187 233 | 355.82 | 1.9 | 187.4 |
 
 Bytes per level and zoom band (each level's own tileset before the join):
 
 | level | band | z | tiles | MiB | max KiB |
 |---|---|--:|--:|--:|--:|
-| country | 0–3 | 0–3 | 82 | 0.47 | 51.6 |
-| country | 4–6 | 4–6 | 3 280 | 4.71 | 38.5 |
-| country | 7–8 | 7–8 | 39 075 | 15.46 | 15.7 |
-| region | 2–5 | 2–5 | 635 | 4.61 | 225.0 |
-| region | 6–9 | 6–9 | 79 988 | 53.59 | 54.3 |
-| county | 4–7 | 4–7 | 5 313 | 39.48 | 456.7 |
-| county | 8–10 | 8 | 12 896 | 34.12 | 63.3 |
-| county | 8–10 | 9 | 47 020 | 57.25 | 30.0 |
-| county | 8–10 | 10 | 177 500 | 132.84 | 20.4 |
+| country | 0–3 | 0–3 | 82 | 0.46 | 50.9 |
+| country | 4–6 | 4–6 | 3 249 | 4.67 | 38.5 |
+| country | 7–8 | 7–8 | 38 918 | 15.36 | 15.7 |
+| region | 2–5 | 2–5 | 633 | 4.58 | 225.0 |
+| region | 6–9 | 6–9 | 79 988 | 53.42 | 54.3 |
+| county | 4–7 | 4–7 | 5 311 | 39.38 | 456.7 |
+| county | 8–10 | 8 | 12 896 | 34.03 | 63.3 |
+| county | 8–10 | 9 | 47 019 | 57.12 | 30.0 |
+| county | 8–10 | 10 | 177 496 | 132.54 | 20.4 |
 | localadmin | 6–9 | 6–9 | 6 601 | 26.48 | 406.0 |
-| localadmin | 10 | 10 | 16 807 | 30.49 | 52.4 |
-| locality | 8–9 | 8 | 9 868 | 67.92 | 234.5 |
-| locality | 8–9 | 9 | 30 987 | 138.84 | 129.7 |
-| locality | 10 | 10 | 102 183 | 231.08 | 132.8 |
+| localadmin | 10–10 | 10 | 16 807 | 30.49 | 52.4 |
+| locality | 8–9 | 8 | 9 855 | 67.86 | 234.5 |
+| locality | 8–9 | 9 | 30 929 | 138.67 | 129.7 |
+| locality | 10–10 | 10 | 101 957 | 230.71 | 132.8 |
 
 What the sizes say:
-- **Three quarters of the archive is z9–10 of the two deepest levels** (locality z9–10: 370 MB; county z10: 133 MB). Those are the tiles a visitor fetches one or two at a time when zoomed on a département or a commune: 2–20 KB each on average, 130–190 KB at worst (a z10 tile full of small communes). The archive's total size only matters for R2 storage (free to 10 GB) and the monthly upload.
-- **The low-zoom bands of the deep levels are too detailed for their zoom**: a county tile at z4 reaches 457 KB and a localadmin tile at z6 406 KB, because every county of a continent falls in one tile and 300 m simplification keeps ~4 vertices per pixel there. The fix for phase 2 is cheap: raise the county minzoom to 6 and localadmin's to 8 (regions and countries are what a z4 view shows anyway), or coarsen those bands to ~1 km. The world view (z0–3) is 1.9 MB in total, 52 KB for the single z0 tile: fine.
-- **Per visit, the cost is small**: a drill Monde → France → région → département → commune touches ~1 tile at z0–3, 2–4 at z5–7, 4–6 at z8–10 — roughly 300–600 KB over the whole drill, against today's 360 KB of boundary levels at boot plus 300–430 KB per département outline plus up to 3.9 MB per batch of 200 communes.
-- At maxzoom 10 with `-d 14`, the z10 tiles carry the 5 m Etalab communes at ~1.7 m precision; overzooming to z15 showed no visible stair-stepping in the check below.
+- **Two thirds of the archive (67 %) is z9–10 of the two deepest levels** (locality z9–10: 369 MiB; county z10: 133 MiB; with county z9 it is 75 %). Those are the tiles a visitor fetches one or two at a time when zoomed on a département or a commune: 2–20 KiB each on average, 130–190 KiB at worst (a z10 tile full of small communes). The archive's total size only matters for R2 storage (free to 10 GB) and the monthly upload.
+- **The low-zoom bands of the deep levels are too detailed for their zoom**: a county tile at z4 reaches 457 KiB and a localadmin tile at z6 406 KiB, because every county of a continent falls in one tile and 300 m simplification keeps ~4 vertices per pixel there. The fix for phase 2 is cheap: raise the county minzoom to 6 and localadmin's to 8 (regions and countries are what a z4 view shows anyway), or coarsen those bands to ~1 km. The world view (z0–3) is 1.9 MiB in total, 51 KiB for the single z0 tile: fine.
+- **Per visit, the cost is small**: a drill Monde → France → région → département → commune touches ~1 tile at z0–3, 2–4 at z5–7, 4–6 at z8–10 — roughly 300–600 KiB over the whole drill, against today's 360 KB of boundary levels at boot plus 300–430 KB per département outline plus up to 3.9 MB per batch of 200 communes.
+- At maxzoom 10 with `-d 14`, the z10 tiles carry the 50 m Etalab communes at ~1.7 m coordinate precision; overzooming to z15 showed no visible stair-stepping in the check below.
+- These are the numbers of the final build (the committed script run end to end, after the overseas and arrondissement fixes); the first build of the day, before those fixes, was 783 462 243 bytes and 288 706 tiles — the fixes moved the archive by 1.5 MB and 314 tiles.
 
 ### Mapbox GL JS 3.33 and PMTiles
 
-Mapbox GL JS resolves a tile provider from a source URL's extension (`resolveTileProvider` in the 3.33 bundle: `.pmtiles` → the `pmtiles` provider, whose module `mapbox-gl-pmtiles-provider/v0.0.3` is loaded from api.mapbox.com into the worker on first use); `provider: "pmtiles"` on the source says it explicitly. There is no `pmtiles://` scheme: the source is `{ type: "vector", url: "https://…/boundaries.pmtiles", provider: "pmtiles" }`. The dev flag `?pmtiles=<url>` (`apps/web/src/features/map/dev/pmtiles.ts`, testing tools only) adds the archive to the current map and draws its five levels as lines; `window.__acPmtiles` reports the tiles that arrived and any error.
+Mapbox GL JS resolves a tile provider from a source URL's extension (`resolveTileProvider` in the 3.33 bundle: `.pmtiles` → the `pmtiles` provider, whose module `mapbox-gl-pmtiles-provider/v0.0.3` is loaded from api.mapbox.com into the worker on first use); `provider: "pmtiles"` on the source says it explicitly. There is no `pmtiles://` scheme: the source is `{ type: "vector", url: "https://…/boundaries.pmtiles", provider: "pmtiles" }`. The dev flag `?pmtiles=<url>` (`apps/web/src/features/map/dev/pmtiles.ts`, testing tools only) adds the archive to the current map and draws its five levels as lines; `window.__acPmtiles` gives the time to the first view's tiles, the tile requests made and the distinct tiles that arrived with data, and every error the source raised (a CORS refusal, a 404, a server without byte ranges), which are also warned in the console since the map's own error listeners keep mapbox quiet.
 
-Checked on 2026-10-25 with the 783 MB archive served from a local static server with range requests and CORS (`node serve.mjs <dir> 5199`, kept beside the build output), the dev server opened at `/temoignages?pmtiles=http://127.0.0.1:5199/boundaries.pmtiles`, under the pane's pump:
+Checked on 2026-10-25 with the first build of the day (783 MB; the final build differs by 1.5 MB in the French and overseas rows) served from a local static server with range requests and CORS (`node serve.mjs <dir> 5199`, kept beside the build output), the dev server opened at `/temoignages?pmtiles=http://127.0.0.1:5199/boundaries.pmtiles`, under the pane's pump:
 
-- The source resolved to `provider: "pmtiles"`, no error; the first tiles were in **445 ms** after `addSource` (the plugin fetched from api.mapbox.com, the archive's header and directories read by range requests, then the tiles); 18 tiles for the first view (France at z4), 21 after a jump to Lyon at z12.
+- The source resolved to `provider: "pmtiles"`, no error; the first view's tiles were in **445 ms** after `addSource` (the span `pmtiles.firstTiles`, ended when the source reported itself loaded: the plugin fetched from api.mapbox.com, the archive's header and directories read by range requests, then the tiles); 18 tile requests for the first view (France at z4), 21 after a jump to Lyon at z12.
 - At z4.1 the five line layers drew 13 045 features (every country, region and county of the view: the orange counties of the whole of Europe and North Africa are the 300 m band at z4 — the over-detailed low-zoom band noted above).
 - At z12.2 over Lyon, `querySourceFeatures` returned 179 communes from the two z10 tiles in view (Villeurbanne, Bron, Saint-Priest, Vaulx-en-Velin… with their `fr:com:` INSEE ids) and 17 were drawn.
 - At z15 on the Lyon 3e / Villeurbanne boundary, overzoomed five levels from the z10 tile, the line is drawn as straight segments with no visible quantization.
@@ -197,9 +199,9 @@ The probes exist on staging (its build has the testing tools) and on any dev ser
 
 **Mid-range Android (Chrome):**
 1. On the phone: Settings → About phone → tap "Build number" seven times (developer options), then Developer options → USB debugging on. Plug it into the laptop with a cable; accept "Allow USB debugging" on the phone.
-2. On the phone, in Chrome, open the staging site at `/temoignages` (or the dev server over the LAN: `http://<laptop IP>:5173/temoignages`, the API's CORS allowing localhost only means the dev server must proxy; staging is simpler).
+2. On the phone, in Chrome, open the staging site at `/temoignages` (staging only: the dev server binds 127.0.0.1 and the page calls the API by absolute URL, so it cannot be reached over the LAN).
 3. On the laptop, in Chrome: `chrome://inspect/#devices`, find the tab, click **inspect**. In the Console tab check `__acPerf.frameSource` prints `long-animation-frame`.
-4. On the phone, do the scenario with a finger: Monde (crumb) → France (row) → Auvergne-Rhône-Alpes → Rhône → Lyon → Lyon 7e, a one-finger pan and a pinch at each level, open a lieu (a row in the arrondissement's list), turn the analyses on (the chart button), then the Rhône crumb. One console line appears per step.
+4. On the phone, do the scenario with a finger: Monde (crumb) → France (row) → Auvergne-Rhône-Alpes → Rhône → Lyon → Lyon 7e, a one-finger pan and a pinch at each level, open a lieu (a row in the arrondissement's list), turn the analyses on (the chart button), then the Rhône crumb. One console line appears per interaction, a moment after it ends; a pan that does not change the scope prints nothing.
 5. In the console: `__acPerf.table()` shows the summary; then `copy(JSON.stringify(__acPerf.dump()))` puts the full JSON in the laptop's clipboard. Paste it in the PR (or a gist), with the phone model, Android and Chrome versions.
 
 **iPhone (Safari):**
