@@ -79,6 +79,11 @@ export function toPanelAudition(
   };
 }
 
+/** An audition's testimonies — null while they are not here (yet). */
+export function testimoniesOf(a: PanelAudition): PublicTestimony[] | null {
+  return a.testimonies;
+}
+
 // Many auditions can match a wide filter: the list is filled a page at a time
 // as the reader scrolls down it.
 export const RESULTS_PAGE = 50;

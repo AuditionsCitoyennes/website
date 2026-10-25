@@ -3,13 +3,14 @@
 // scrolls; the single-open accordion; the list's scroll kept where the
 // reader's eye is while an audition opens or the results change.
 import { computed, nextTick, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from "vue";
-import type { LocationGroup, PublicTestimony } from "@ac/shared";
+import type { LocationGroup } from "@ac/shared";
 import { formatDateShort } from "@/shared/format/dates";
 import type { GeoUnit } from "@/features/geo";
 import type { NavState } from "../navState";
 import {
   bySort,
   RESULTS_PAGE,
+  testimoniesOf,
   toPanelAudition,
   type AuditionGroup,
   type AuditionSort,
@@ -26,8 +27,10 @@ export interface PanelAuditionsInputs {
   ownAuditions: ComputedRef<Map<string, AuditionGroup>>;
   selectedPlace: ComputedRef<GeoUnit | null>;
   placeByCanonical: ComputedRef<Map<string, GeoUnit>>;
-  /** The list's scroller (`.panel-list`). */
+  /** The list's scroller (`.panel-list`, GeoPanel's). */
   panelListEl: Ref<HTMLElement | null>;
+  /** The "more results" sentinel at the end of the list (AuditionList's). */
+  moreEl: Ref<HTMLElement | null>;
   /** Flies the map onto a lieu — along an arc when asked, for a hop from
    *  another lieu (the camera's spotlightPlace). */
   spotlightPlace: (unit: GeoUnit, arc?: boolean) => void;
@@ -46,6 +49,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     selectedPlace,
     placeByCanonical,
     panelListEl,
+    moreEl,
     spotlightPlace,
     scheduleResultsFit,
   } = inputs;
@@ -84,7 +88,6 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   function showMoreResults() {
     shownCount.value += RESULTS_PAGE;
   }
-  const moreEl = ref<HTMLElement | null>(null);
   let moreObserver: IntersectionObserver | null = null;
   watch(moreEl, (el) => {
     moreObserver?.disconnect();
@@ -111,11 +114,6 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
       ? (placeByCanonical.value.get(a.canonical)?.label ?? a.canonical)
       : "";
     return [a.date ? formatDateShort(a.date) : "", place].filter(Boolean).join(" · ");
-  }
-
-  /** An audition's testimonies — null while they are not here (yet). */
-  function testimoniesOf(a: PanelAudition): PublicTestimony[] | null {
-    return a.testimonies;
   }
 
   const resultsSig = computed(() =>
@@ -281,10 +279,8 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     shownCount,
     moreResults,
     showMoreResults,
-    moreEl,
     panelAuditions,
     auditionMeta,
-    testimoniesOf,
     isAudOpen,
     audSwapping,
     toggleAud,
