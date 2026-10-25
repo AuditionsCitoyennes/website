@@ -3,7 +3,7 @@
 // frame (where the plateau and its slabs are on screen).
 
 import type { Bounds } from "@/features/geo";
-import type { PieceBox } from "./lib/slabs";
+import type { PieceBox } from "./lib";
 
 /** A pin to plot: an aggregated admin unit, or a leaf place. */
 export interface MapUnit {
@@ -152,7 +152,7 @@ export interface SlabSpec {
 }
 
 /**
- * The themes' row on its slab (analyses/content/analysisPlates: slabSizes), in CSS px of
+ * The themes' row on its slab (analyses/content/slabSizes), in CSS px of
  * its content box: the ring's box, the bar, the label's box — the bar and the
  * label's box each a raised piece, and each of the ring's parts. The ring, in
  * its box: its centre, its outer and inner radii, how much farther out the

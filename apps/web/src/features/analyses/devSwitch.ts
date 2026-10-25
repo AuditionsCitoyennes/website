@@ -21,11 +21,11 @@
 //   every territory's fit, the analyses shown or not (the switch is drawn
 //   with them).
 // - "Anneau": the themes' ring's band, per px of its outer diameter — "fin"
-//   (the band of before, its hole the larger), "moyen" (analyses/content/analysisPlates:
+//   (the band of before, its hole the larger), "moyen" (analyses/content/ring:
 //   RING_THICK, the default) or "epais". The ring's box stays as it is: no
 //   room, no slab moves.
 import { ref } from "vue";
-import { RING_THICK } from "./content/analysisPlates";
+import { RING_THICK } from "./content/ring";
 import { FRAME_FILL, TEXT_SCALE } from "@/features/map/lib";
 
 export type SlabLidMode = "verre" | "opaque" | "carte";

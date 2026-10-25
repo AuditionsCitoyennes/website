@@ -1738,7 +1738,7 @@ function rootRem(): number {
 // The safe rect: the map clear of the panel — on a phone, below the header's
 // floating tiles and above the lowered sheet. Right after a camera command
 // the slabs stand inside it, their own margin from its edges, clear of
-// mapbox's logo (analyses/content/analysisPlates): the ring leaves them room.
+// mapbox's logo (analyses/content/plateRoom): the ring leaves them room.
 const overlayInsets = computed<Insets>(() => {
   if (isDesktop.value) {
     return {
@@ -2111,7 +2111,7 @@ document.fonts?.ready.then(onFontsLoaded).catch(() => {});
 document.fonts?.addEventListener?.("loadingdone", onFontsLoaded);
 onBeforeUnmount(() => document.fonts?.removeEventListener?.("loadingdone", onFontsLoaded));
 
-/** The slabs' content boxes for the territory in scope (analyses/content/analysisPlates):
+/** The slabs' content boxes for the territory in scope (analyses/content/slabSizes):
  *  what the overlay draws, the room the camera leaves, the size on the map. */
 const slabSizesNow = computed<SlabSizes | null>(() => {
   const a = scopeAnalysis.value;

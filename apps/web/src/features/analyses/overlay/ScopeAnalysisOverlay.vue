@@ -20,7 +20,7 @@
 // Three boxes: the ring's (its parts' targets and focus ring, over the parts
 // raised: they are GeoDrillMap's, told the pick and the hover here, setRing),
 // the label's, the plaque's. Their boxes are laid out at the type scale's
-// sizes (analyses/content/analysisPlates), and the slabs are sized on the map so that right
+// sizes (analyses/content/slabSizes), and the slabs are sized on the map so that right
 // after the camera frames the territory the reader sees a set share of those
 // sizes (map/lib/slabs: TEXT_SCALE) — the CSS keeps its tokens, the map draws the
 // boxes smaller.
@@ -41,14 +41,9 @@ import {
 import type { AuditionTheme } from "@ac/shared";
 import type { PlateauFrame } from "@/features/map/types";
 import type { ScopeAnalysis } from "../stats/scopeStats";
-import {
-  emptyTextOf,
-  fmtN,
-  plural,
-  RING_LABEL,
-  shortName,
-  type SlabSizes,
-} from "../content/analysisPlates";
+import { emptyTextOf, fmtN, plural, shortName } from "../content/text";
+import { RING_LABEL } from "../content/ring";
+import type { SlabSizes } from "../content/slabSizes";
 import { homography, matrix3dOf } from "@/features/map/lib";
 import {
   frameFill,
@@ -134,7 +129,7 @@ const summaryLabel = computed(() => `Analyses : ${a.value.label}`);
 
 // ---- Themes --------------------------------------------------------------------
 
-/** The ring, as its content box was laid out for (analyses/content/analysisPlates:
+/** The ring, as its content box was laid out for (analyses/content/slabSizes:
  *  slabSizes) — the very parts GeoDrillMap raises. */
 const ring = computed(() => sz.value.themes?.ring ?? null);
 
@@ -938,7 +933,7 @@ onBeforeUnmount(() => {
   >
     <!-- 1. The plaque, on the slab under the middle of the territory: what
          this unit is, and how much was heard there. Its box is the size
-         estimate's (analyses/content/analysisPlates: slabSizes), mapped onto the lid. -->
+         estimate's (analyses/content/slabSizes), mapped onto the lid. -->
     <section data-slab="plaque" class="slab slab-plaque" :aria-labelledby="`${uid}-title`">
       <div class="slab-zoom">
         <div
@@ -1249,7 +1244,7 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-/* The box the estimate laid out (analyses/content/analysisPlates: slabSizes — keep in
+/* The box the estimate laid out (analyses/content/slabSizes — keep in
    step): every word at --text-caption, the title at --text-title. No
    transition: it fades with the lid's rise, frame by frame (written there).
    Its ground is its lid's — the map draws it exactly where the lid stands: a
