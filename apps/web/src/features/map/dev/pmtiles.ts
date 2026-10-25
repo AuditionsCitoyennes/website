@@ -5,8 +5,9 @@
 // provider from the file's extension and loads its PMTiles plugin in the
 // worker (config.TILE_PROVIDER_URLS) — and draws every level as lines.
 // `window.__acPmtiles` says what was asked and what came: the time to the
-// first view's tiles (also a perf span, `pmtiles.firstTiles`), the tiles
-// requested and the ones that arrived with data, and every error the source
+// first view's tiles (also a perf span, `pmtiles.firstTiles`), the tile loads
+// mapbox reported complete and the distinct tiles that arrived with data
+// (loads in flight or aborted never show), and every error the source
 // raised (a CORS refusal, a 404, a server without byte ranges), which are
 // also warned in the console — the map has error listeners, so mapbox itself
 // would print nothing.
@@ -46,8 +47,9 @@ export function installPmtilesProbe(map: mapboxgl.Map) {
     loaded: false,
     /** Since the source was added, ms. */
     firstViewMs: null as number | null,
-    /** Tile requests the source made (a reload counts again). */
-    requests: 0,
+    /** Tile loads mapbox reported complete, with data or in error (a reload
+     *  counts again; a load in flight or aborted never shows). */
+    tileLoads: 0,
     /** Distinct tiles that arrived with data. */
     tiles: 0,
     errors: [] as string[],
@@ -64,7 +66,7 @@ export function installPmtilesProbe(map: mapboxgl.Map) {
   map.on("sourcedata", (e: SourceEvent) => {
     if (e.sourceId !== SOURCE) return;
     if (e.tile) {
-      state.requests++;
+      state.tileLoads++;
       const key = e.tile.tileID?.key ?? e.coord?.key;
       if (e.sourceDataType !== "error" && key !== undefined && !seen.has(key)) {
         seen.add(key);
@@ -75,7 +77,7 @@ export function installPmtilesProbe(map: mapboxgl.Map) {
     if (!state.loaded && loaded && state.tiles > 0) {
       state.loaded = true;
       state.firstViewMs = Math.round(performance.now() - t0);
-      end?.({ tiles: state.tiles, requests: state.requests });
+      end?.({ tiles: state.tiles, tileLoads: state.tileLoads });
       console.info(`[pmtiles] ${url}: first view in ${state.firstViewMs} ms, ${state.tiles} tiles`);
     }
   });
