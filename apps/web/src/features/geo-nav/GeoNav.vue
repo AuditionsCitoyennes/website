@@ -1,36 +1,9 @@
 <script setup lang="ts">
-import {
-  computed,
-  markRaw,
-  nextTick,
-  onBeforeUnmount,
-  ref,
-  shallowRef,
-  toRaw,
-  toRef,
-  watch,
-} from "vue";
-import { useQuery } from "@tanstack/vue-query";
+import { computed, markRaw, nextTick, onBeforeUnmount, ref, shallowRef, toRef, watch } from "vue";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
-import { api } from "@/shared/api/client";
-import { formatDateShort } from "@/shared/format/dates";
 import { headerTilesBottomPx } from "@/shared/dom/header";
-import {
-  abbrevCount,
-  ancestorsOf,
-  applyBoundaries,
-  type Bounds,
-  buildGeoHierarchy,
-  centerInBounds,
-  depCodeOf,
-  geometryContains,
-  type GeoUnit,
-  scopeForView,
-  SPAN_DESCEND,
-  type UnitGeo,
-  unitsByLevelKey,
-} from "@/features/geo";
-import { GeoDrillMap, type CameraCmd, type MapUnit, type OutlineFC } from "@/features/map";
+import { abbrevCount, ancestorsOf, depCodeOf, type GeoUnit, SPAN_DESCEND } from "@/features/geo";
+import { GeoDrillMap, type CameraCmd } from "@/features/map";
 import {
   analysisSummary,
   edgeMargin,
@@ -47,6 +20,15 @@ import {
 import TestimonyCard from "@/shared/testimony/TestimonyCard.vue";
 import ExpandTransition from "@/shared/ui/transition/ExpandTransition.vue";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
+import { createNavState, type Insets } from "./navState";
+import { useBoundaryQueries } from "./data/useBoundaryQueries";
+import { useCommuneGeo } from "./data/useCommuneGeo";
+import { useDepFine } from "./data/useDepFine";
+import { useGeoHierarchy } from "./model/useGeoHierarchy";
+import { useScope } from "./model/useScope";
+import { useMapFeed } from "./model/useMapFeed";
+import { groupOwnAuditions, resultBounds } from "./model/auditions";
+import { usePanelAuditions } from "./model/usePanelAuditions";
 
 const props = defineProps<{
   groups: LocationGroup[];
@@ -76,356 +58,32 @@ const props = defineProps<{
  *  owns the toggle; the plates' own close button turns it off from here. */
 const analyses = defineModel<boolean>("analyses", { default: false });
 
-// ---- Boundary geometry (régions/départements outlines + real centroids) ----
-interface BoundaryFeature {
-  type: "Feature";
-  geometry: unknown;
-  properties: { code: string; nom: string; center: [number, number]; bounds: Bounds };
-}
-interface BoundaryFC {
-  type: "FeatureCollection";
-  features: BoundaryFeature[];
-}
+// ---- Data: the boundaries, the communes' contours, the raised départements' own ----
+const boundaries = useBoundaryQueries();
+const { regionsQuery, metroQuery } = boundaries;
+const communes = useCommuneGeo();
+const deps = useDepFine();
+const { ensureDepFine } = deps;
 
-const regionsQuery = useQuery({
-  queryKey: ["boundaries", "regions"],
-  queryFn: () => api.get<BoundaryFC>("/api/boundaries/regions"),
-  staleTime: Infinity,
-  // shallow: boundary geometry must never be Vue-proxied (the mesh/scanline hot
-  // paths iterate millions of coordinates and would pay a trap per access).
-  shallow: true,
-});
-const depsQuery = useQuery({
-  queryKey: ["boundaries", "departements"],
-  queryFn: () => api.get<BoundaryFC>("/api/boundaries/departements"),
-  staleTime: Infinity,
-  shallow: true,
-});
-// Metropolitan-France contour: the country is a selectable scope like any other
-// unit (its own plateau at world view).
-const metroQuery = useQuery({
-  queryKey: ["boundaries", "metropole"],
-  queryFn: () => api.get<BoundaryFC>("/api/boundaries/metropole"),
-  staleTime: Infinity,
-  shallow: true,
-});
-
-function lookupOf(fc?: BoundaryFC): Map<string, UnitGeo> {
-  const m = new Map<string, UnitGeo>();
-  for (const f of fc?.features ?? []) {
-    m.set(f.properties.nom, { center: f.properties.center, bounds: f.properties.bounds });
-  }
-  return m;
-}
-const regionByNom = computed(() => lookupOf(regionsQuery.data.value));
-const depByNom = computed(() => lookupOf(depsQuery.data.value));
-
-// Commune / arrondissement geometry, fetched on demand by INSEE code (the Géo API
-// serves precise contours one unit at a time) and cached.
-interface CommuneGeo {
-  center: [number, number];
-  bounds: Bounds;
-  geometry: unknown;
-}
-// shallowRef + markRaw: a deep ref would wrap every polygon coordinate array in
-// a reactive Proxy, and the hot paths (scanlineCentroid, geometryContains,
-// setGeometry's mesh rebuild) iterate MILLIONS of coords — each access paying a
-// Proxy `get` trap. Profiled at ~15% of total scripting during a pan. The
-// record is only ever replaced wholesale, so shallow reactivity is sufficient.
-const communeGeo = shallowRef<Record<string, CommuneGeo>>({});
-const pendingInsee = new Set<string>();
-// Codes whose fetch terminally failed — scopePending must resolve (not hold the
-// old plateau forever) when the scope's contour will never arrive. Cleared on
-// retry so a later visit gets another attempt.
-const failedInsee = ref(new Set<string>());
-
-async function ensureGeo(codes: string[]) {
-  const missing = codes.filter((c) => c && !communeGeo.value[c] && !pendingInsee.has(c));
-  if (!missing.length) return;
-  missing.forEach((c) => pendingInsee.add(c));
-  const fetched: Record<string, CommuneGeo> = {};
-  const failed: string[] = [];
-  // ONE request for the whole batch. Per-commune requests cost ~80 ms each and
-  // a pan brings dozens of new communes into view, so they serialised into
-  // seconds of stall — this was the dominant source of map lag.
-  const CHUNK = 200; // server caps a batch at 200 codes
-  try {
-    for (let i = 0; i < missing.length; i += CHUNK) {
-      const slice = missing.slice(i, i + CHUNK);
-      const fc = await api.get<BoundaryFC>(
-        `/api/boundaries/communes?codes=${encodeURIComponent(slice.join(","))}`,
-      );
-      for (const f of fc.features ?? []) {
-        const code = f.properties.code;
-        if (!code) continue;
-        // markRaw: geometry must stay a plain object — see communeGeo's note.
-        fetched[code] = markRaw({
-          center: f.properties.center,
-          bounds: f.properties.bounds,
-          geometry: f.geometry,
-        });
-      }
-    }
-    // Anything the batch didn't return is terminal (dead/merged INSEE code) —
-    // the unit keeps its data-derived centre and the pending hold lifts.
-    for (const c of missing) if (!fetched[c]) failed.push(c);
-  } catch {
-    failed.push(...missing);
-  } finally {
-    missing.forEach((c) => pendingInsee.delete(c));
-  }
-  // ONE reactive update for the whole batch: a per-contour write re-fired the
-  // outline watcher (→ plateau geometry rebuild + rise restart) for EVERY
-  // arriving commune — ~20× on a dense département like the Hautes-Alpes.
-  const okCodes = Object.keys(fetched);
-  if (okCodes.length) communeGeo.value = { ...communeGeo.value, ...fetched };
-  if (failed.length || okCodes.some((c) => failedInsee.value.has(c))) {
-    const next = new Set(failedInsee.value);
-    for (const c of okCodes) next.delete(c);
-    for (const c of failed) next.add(c);
-    failedInsee.value = next;
-  }
-}
-
-const inseeGeo = computed(() => {
-  const m = new Map<string, UnitGeo>();
-  for (const [code, g] of Object.entries(communeGeo.value)) {
-    m.set(code, { center: g.center, bounds: g.bounds });
-  }
-  return m;
-});
-
-// ---- A département as it is RAISED: the union of its communes' contours ----
-// The france-geojson départements are simplified to ~3 km segments, and one of
-// their chords can cut a commune off its own département: Saint-Mandé stood 99%
-// outside the raised Val-de-Marne (a third of Vincennes too), inside Paris's
-// outline. So the outline a département rises with, is framed by and holds the
-// view's centre with comes from the same source as the communes drawn on its
-// lid (the API merges their Géo API contours). Seen from its région (focus) it
-// keeps the france-geojson outline, which agrees with the région's; beside a
-// raised département (context) it takes its own once loaded, which agrees with
-// that one's raised edge — drawn and hit there alike. Fetched when the
-// département is framed or becomes the scope, or borders the scope (once the
-// scope's own is in), and kept.
-const depFine = shallowRef<Record<string, CommuneGeo>>({});
-const pendingDep = new Set<string>();
-// The plateau waits this long for a département's outline (the old one stands
-// meanwhile — see scopePending), then rises with the france-geojson outline and
-// takes the fine one when it lands (the map reshapes in place). Only a cold
-// server, fetching the communes upstream, takes that long.
-const DEP_WAIT_MS = 1200;
-/** Codes not waited for any more: the fetch failed or is slow. */
-const depGaveUp = ref(new Set<string>());
-function giveUpDep(code: string) {
-  if (depGaveUp.value.has(code)) return;
-  depGaveUp.value = new Set(depGaveUp.value).add(code);
-}
-/** One département's outline, fetched (null: had, on its way, or failed). */
-async function fetchDepFine(code: string | undefined): Promise<[string, CommuneGeo] | null> {
-  if (!code || depFine.value[code] || pendingDep.has(code)) return null;
-  pendingDep.add(code);
-  const timer = window.setTimeout(() => giveUpDep(code), DEP_WAIT_MS);
-  try {
-    const f = await api.get<BoundaryFeature>(
-      `/api/boundaries/departement/${encodeURIComponent(code)}`,
-    );
-    // markRaw: geometry must stay a plain object — see communeGeo's note.
-    return [
-      code,
-      markRaw({ center: f.properties.center, bounds: f.properties.bounds, geometry: f.geometry }),
-    ];
-  } catch {
-    giveUpDep(code);
-    return null;
-  } finally {
-    window.clearTimeout(timer);
-    pendingDep.delete(code);
-  }
-}
-/** Outlines in, in ONE write: each write rebuilds the hierarchy and the map's
- *  outline (and the plateau with it) — the neighbours come in together. */
-function addDepFine(got: ([string, CommuneGeo] | null)[]) {
-  const add = got.filter((e): e is [string, CommuneGeo] => e !== null);
-  if (add.length) depFine.value = { ...depFine.value, ...Object.fromEntries(add) };
-}
-async function ensureDepFine(code: string | undefined) {
-  addDepFine([await fetchDepFine(code)]);
-}
-const depFineGeo = computed(() => {
-  const m = new Map<string, UnitGeo>();
-  for (const [code, g] of Object.entries(depFine.value)) {
-    m.set(code, { center: g.center, bounds: g.bounds });
-  }
-  return m;
-});
-
-// ---- One hierarchy, both nav models read from it (enriched with real geometry) ----
-const hierarchy = computed(() => {
-  const h = buildGeoHierarchy(props.groups);
-  applyBoundaries(
-    h.index,
-    { region: regionByNom.value, dep: depByNom.value },
-    inseeGeo.value,
-    depFineGeo.value,
-  );
-  return h;
-});
-const root = computed(() => hierarchy.value.root);
-const index = computed(() => hierarchy.value.index);
-
-const EMPTY_FC: OutlineFC = { type: "FeatureCollection", features: [] };
-
-// Boundary geometry for a set of units: régions/départements from the bundled
-// FCs (by nom), villes/arrondissements from the on-demand commune geometry (by
-// INSEE), the country from the métropole contour. Only the world level has none.
-// The boundary polygon for a unit (régions/deps by nom, villes/arr by INSEE).
-function geometryFor(u: GeoUnit): unknown {
-  // toRaw: strip any reactive Proxy before geometry reaches the hot paths
-  // (mesh rebuild, scanlines, hit tests) — a no-op on already-plain objects.
-  if (u.levelKey === "country") {
-    return toRaw(metroQuery.data.value?.features[0]?.geometry);
-  }
-  if (u.levelKey === "region" || u.levelKey === "dep") {
-    const fc = u.levelKey === "region" ? regionsQuery.data.value : depsQuery.data.value;
-    return toRaw(fc?.features.find((x) => x.properties.nom === u.label)?.geometry);
-  }
-  if ((u.levelKey === "city" || u.levelKey === "arr") && u.insee) {
-    return toRaw(communeGeo.value[u.insee]?.geometry);
-  }
-  return undefined;
-}
-
-/** The outline a unit is RAISED with — framed, holding the view's centre:
- *  a département's own (depFine) once loaded, else its geometryFor. */
-function raisedGeometryFor(u: GeoUnit): unknown {
-  const code = depCodeOf(u);
-  const fine = code ? depFine.value[code] : undefined;
-  return fine ? fine.geometry : geometryFor(u);
-}
-
-/** The scope's plateau waits for its outline: a département whose own is on
- *  its way (or about to be asked for), and not given up on. */
-function raisedOutlineDue(u: GeoUnit): boolean {
-  const code = depCodeOf(u);
-  return !!code && !depFine.value[code] && !depGaveUp.value.has(code);
-}
-
-function outlineForUnits(
-  units: GeoUnit[],
-  kind: "scope" | "focus" | "context",
-  geometryOf: (u: GeoUnit) => unknown = geometryFor,
-): OutlineFC["features"] {
-  const features: OutlineFC["features"] = [];
-  for (const u of units) {
-    const geometry = geometryOf(u);
-    // `id` lets the map detect a selection change instantly (before any network
-    // round-trip) and start the plateau transition without dead time. `level`
-    // drives per-feature stroke width (country/région outlines are thinner).
-    if (geometry) {
-      features.push({
-        type: "Feature",
-        geometry,
-        properties: { kind, id: u.id, level: u.levelKey },
-      });
-    }
-  }
-  return features;
-}
-
-// The SELECTED unit (current scope) is what gets raised into the plateau ("scope").
-// Its children are outlined as subdivisions on top ("focus"); the surrounding
-// siblings are faint context. All cleared deep in the micropin zone — which is
-// where opening a lieu takes the camera.
-// NOTE: this deliberately returns a FRESH object on every recompute. The map
-// watches `props.outline` by identity and re-establishes the plateau (terrain +
-// wall mesh) when it changes; memoizing the identity meant a re-evaluation that
-// landed on the same content never re-fired that watcher, so after a teardown
-// (style reload, layer re-add) nothing rose again. Rebuilds are cheap now — the
-// per-geometry projection/mesh caches in GeoDrillMap absorb the real cost.
-const outline = computed<OutlineFC>(() => {
-  // Deep in the micropin zone → no plateau, no boundaries: the empty outline
-  // drives the map's animated teardown (sink, then clear). An open lieu does
-  // not decide this by itself: zoomed back out with it still open, the map is
-  // explored exactly as if nothing were open.
-  if (inMicroZone.value) return EMPTY_FC;
-  // The scope rises with its own outline (raisedGeometryFor) — none while that
-  // is still due: the map holds the plateau standing (scopePending) rather than
-  // raise one shape and reshape it a moment later.
-  const scope = currentScope.value;
-  return {
-    type: "FeatureCollection",
-    features: [
-      ...(raisedOutlineDue(scope) ? [] : outlineForUnits([scope], "scope", raisedGeometryFor)),
-      ...outlineForUnits(panelUnits.value, "focus"),
-      ...outlineForUnits(scopeSiblings.value, "context", raisedGeometryFor),
-    ],
-  };
-});
-
-interface AuditionGroup {
-  id: string;
-  title: string;
-  date: string | null;
-  location: string;
-  testimonies: PublicTestimony[];
-}
-
-/** Audition ordering — newest first by default, oldest first when asked. */
-function bySort(a: { date: string | null }, b: { date: string | null }): number {
-  // Undated ones go last whichever way the dates run.
-  if (!a.date !== !b.date) return a.date ? -1 : 1;
-  const cmp = (a.date ?? "").localeCompare(b.date ?? "");
-  return props.sort === "ancien" ? cmp : -cmp;
-}
+// ---- One hierarchy, both nav models read from it (model/useGeoHierarchy) ----
+const geo = useGeoHierarchy({ groups: toRef(props, "groups"), boundaries, communes, deps });
+const { root, index, raisedGeometryFor, containsPoint, allPlaceUnits, placeByCanonical } = geo;
 
 // The association's own testimonies (all loaded with the page), grouped by
-// audition. Found by ID, never by lieu: an audition whose lieu was just edited
-// sits under a different place in a snapshot taken a moment earlier — it is
-// still one of ours, with its testimonies right here.
-const ownAuditions = computed(() => {
-  const byAud = new Map<string, AuditionGroup>();
-  for (const t of props.testimonies) {
-    const a = t.audition;
-    if (!a) continue;
-    let g = byAud.get(a.id);
-    if (!g) {
-      g = { id: a.id, title: a.title, date: a.date, location: a.location, testimonies: [] };
-      byAud.set(a.id, g);
-    }
-    g.testimonies.push(t);
-  }
-  for (const g of byAud.values()) {
-    g.testimonies.sort((x, y) => (x.created_at ?? "").localeCompare(y.created_at ?? ""));
-  }
-  return byAud;
-});
+// audition (model/auditions).
+const ownAuditions = computed(() => groupOwnAuditions(props.testimonies));
 
-// ---- Nav state ----
-// One unified system: the map is free pan/zoom; the SCOPE is read off the live
-// view (zoom → level, centre → which unit). The panel shows the scope's children
-// + a breadcrumb to fly back out. Reaching a lieu opens its testimonies.
-const selectedPlaceId = ref<string | null>(null);
-// ---- Reading a lieu vs. using the map ----
-// With a lieu open the panel belongs to the reader: NOTHING the map does may
-// replace what it shows (only a crumb, or picking another lieu, leaves it). So
-// the two take turns. While the user's hands are on the map the panel folds out
-// of the way — on a desktop a wide panel slides aside until only a narrow strip
-// of it is left, on a phone the sheet lowers — and the map is explored as if
-// nothing were open. Coming back to the panel (a click, a key, the wheel, or
-// resting the pointer on it) unfolds it exactly as it was: same lieu, same
-// audition, same line.
-/** Desktop: a lieu is open and the user is on the map, not on the panel. */
-const mapEngaged = ref(false);
-/** What the map reports of its view (GeoDrillMap's `viewChange`). */
-interface MapView {
-  center: [number, number];
-  zoom: number;
-  bounds: Bounds;
-  screen: Bounds;
-  insets: { top: number; bottom: number; left: number; right: number };
-  byUser: boolean;
-}
-const mapView = ref<MapView | null>(null);
+// ---- Nav state (navState.ts): the one record every piece reads and writes ----
+const nav = createNavState(root.value);
+const {
+  currentScope,
+  selectedPlaceId,
+  mapEngaged,
+  sheetOpen,
+  inMicroZone,
+  openAuditions,
+  hoveredPanelId,
+} = nav;
 
 const desktopQuery = window.matchMedia("(min-width: 900px)");
 const isDesktop = ref(desktopQuery.matches);
@@ -444,145 +102,19 @@ const onViewportResize = () => {
 window.addEventListener("resize", onViewportResize);
 onBeforeUnmount(() => window.removeEventListener("resize", onViewportResize));
 
-// Scope = the unit the viewport is currently "inside", re-derived whenever the map
-// settles or the hierarchy reloads. Its own previous value seeds the span-ratio
-// hysteresis so the scope doesn't flip levels on a small nudge near a threshold.
-const currentScope = shallowRef<GeoUnit>(root.value);
-// Real polygon containment, used to break bbox ties in the scope walk (e.g. Lyon 3e
-// vs neighbouring Villeurbanne). Returns false when the unit's geometry isn't loaded
-// yet — the walk then falls back to bbox + nearest-centre.
-//
-// Above the commune, the outlines are france-geojson's (country, régions,
-// départements until their own lands), simplified to ~3 km segments — a commune
-// can cross them: Saint-Mandé lies 99% inside the Paris département's. So a
-// unit above the commune level holds a point exactly when it holds the deepest
-// loaded commune / arrondissement whose contour does; only where none does is
-// its own outline asked (inside its box: the box is that outline's).
-function containsPoint(u: GeoUnit, lat: number, lng: number): boolean {
-  if (u.levelKey === "country" || u.levelKey === "region" || u.levelKey === "dep") {
-    const hit = finestAt(lat, lng);
-    if (hit) return hit.id.startsWith(`${u.id}/`);
-  }
-  const b = u.bounds;
-  if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) return false;
-  const g = raisedGeometryFor(u);
-  return g ? geometryContains(g, lat, lng) : false;
-}
-/** Villes and arrondissements that can have a contour. */
-const communeUnits = computed(() =>
-  [...index.value.values()].filter(
-    (u) => (u.levelKey === "city" || u.levelKey === "arr") && u.insee,
-  ),
-);
-// A fit asks the same point of every unit down a chain, and of their rivals.
-let finestMemo: {
-  lat: number;
-  lng: number;
-  geo: Record<string, CommuneGeo>;
-  units: GeoUnit[];
-  hit: GeoUnit | null;
-} | null = null;
-/** The deepest ville / arrondissement whose loaded contour holds the point. */
-function finestAt(lat: number, lng: number): GeoUnit | null {
-  const geo = communeGeo.value;
-  const units = communeUnits.value;
-  const m = finestMemo;
-  if (m && m.lat === lat && m.lng === lng && m.geo === geo && m.units === units) return m.hit;
-  let hit: GeoUnit | null = null;
-  for (const u of units) {
-    if (hit && u.depth <= hit.depth) continue;
-    const g = geo[u.insee!];
-    if (!g) continue;
-    const b = g.bounds;
-    if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) continue;
-    if (geometryContains(g.geometry, lat, lng)) hit = u;
-  }
-  finestMemo = { lat, lng, geo, units, hit };
-  return hit;
-}
-// While a programmatic flight is in the air, view emits are suppressed and mapView
-// is STALE (the pre-click view). A mid-flight derivation — hierarchy rebuild or a
-// commune contour arriving, which on a cold cache happens exactly then — would walk
-// that old view away from the clicked unit, and every flip sinks/resurrects the
-// plateau ("dual down" on macropin clicks after a refresh). So the optimistic scope
-// is PINNED from camera command to the next view emit (flight end or user gesture).
-let scopePinned = false;
-/** A lieu is open and the reader is on the panel: the map is not being used. */
-function readingPlace(): boolean {
-  if (!selectedPlaceId.value) return false;
-  return isDesktop.value ? !mapEngaged.value : sheetOpen.value;
-}
-function deriveScope() {
-  if (scopePinned) return;
-  // While a lieu is being READ the map's scope holds still: the views that
-  // arrive then are not the user's doing (the panel changing size, the sheet
-  // rising over the map), and following them would raise and sink the plateau
-  // behind the text. A view the user IS still making — the map gliding on after
-  // a fling while they are already back on the text — is followed to its rest.
-  // The panel and the breadcrumb, which show the lieu, do not depend on any of it.
-  if (readingPlace() && !mapView.value?.byUser) return;
-  if (!mapView.value) {
-    currentScope.value = root.value;
-    return;
-  }
-  // A view measured inside another layout than the one on screen now (the panel
-  // has just folded or unfolded, the sheet has just moved) says nothing about
-  // what is in sight: the map sends a fresh one right behind it.
-  const want = mapViewPadding.value ?? mapPadding.value;
-  const got = mapView.value.insets;
-  if (
-    got.top !== want.top ||
-    got.bottom !== want.bottom ||
-    got.left !== want.left ||
-    got.right !== want.right
-  ) {
-    return;
-  }
-  // The current scope's ancestor chain (self included) = the incumbent branch,
-  // held sticky in the walk (horizontal + vertical hysteresis — see scopeForView).
-  const prefer = new Set(ancestorsOf(index.value, currentScope.value.id).map((u) => u.id));
-  currentScope.value = scopeForView(root.value, mapView.value.bounds, prefer, containsPoint);
-}
-// Re-derive when the map settles, the hierarchy reloads, OR a commune polygon
-// arrives (so the containment tie-break applies once the geometry is in).
-watch([mapView, root, communeGeo], deriveScope);
-
-// A NEW hierarchy (data reload, or the user changing a filter) leaves
-// `currentScope` / `selectedPlaceId` pointing at nodes from the PREVIOUS tree —
-// stale objects carrying stale counts. deriveScope alone cannot repair that: it
-// early-returns while the camera is pinned or a lieu is being read, so the panel
-// would keep rendering the old tree until the next map gesture. Re-resolve the same
-// ids against the fresh index instead (falling back to the nearest surviving
-// ancestor, then the root) so a filter takes effect immediately.
-watch(index, (idx) => {
-  const place = selectedPlaceId.value;
-  if (place && !idx.has(place)) selectedPlaceId.value = null;
-  const cur = currentScope.value;
-  const fresh = idx.get(cur.id);
-  if (fresh) {
-    if (fresh !== cur) currentScope.value = fresh;
-    return;
-  }
-  // The scope itself vanished from the filtered tree — walk up its path.
-  let id = cur.parentId;
-  while (id) {
-    const up = idx.get(id);
-    if (up) {
-      currentScope.value = up;
-      return;
-    }
-    id = id.includes("/") ? id.slice(0, id.lastIndexOf("/")) : null;
-  }
-  currentScope.value = root.value;
+// ---- Scope (model/useScope): read off the view, held still while a lieu is read ----
+const scope = useScope({
+  nav,
+  root,
+  index,
+  communeGeo: communes.communeGeo,
+  containsPoint,
+  isDesktop,
+  // The layout a view must have been measured in: the ring's view padding or
+  // the wide panel's when there is one, else the camera's — both set up below.
+  mapInsets: () => mapViewPadding.value ?? mapPadding.value,
 });
-const selectedPlace = computed(() =>
-  selectedPlaceId.value ? (index.value.get(selectedPlaceId.value) ?? null) : null,
-);
-// The trail ends at the OPEN lieu when there is one (Monde › … › Lyon 3e ›
-// Part-Dieu) — the micropin's location is part of the list of locations.
-const breadcrumb = computed(() =>
-  ancestorsOf(index.value, (selectedPlace.value ?? currentScope.value).id),
-);
+const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, panelUnits } = scope;
 
 // ---- Breadcrumb overflow: the trail must stay ONE line. When there's no room
 // left, the LEADING crumbs collapse into a single "…" (Monde › France › … ›
@@ -625,9 +157,6 @@ const visibleCrumbs = computed(() => breadcrumb.value.slice(crumbsCollapsed.valu
 const crumbsHidden = computed(() =>
   crumbsCollapsed.value > 0 ? breadcrumb.value[crumbsCollapsed.value - 1] : undefined,
 );
-
-// The list of units the panel shows = the scope's children.
-const panelUnits = computed<GeoUnit[]>(() => currentScope.value.children);
 
 // ---- Boot overlay ------------------------------------------------------------
 // A cold load shows an unstyled map, tiles popping in, and an empty panel before
@@ -675,186 +204,12 @@ watch(
 );
 const slideName = computed(() => (slideDir.value === "in" ? "level-in" : "level-out"));
 
-// Panel row under the pointer (or keyboard focus) — handed to the map so it runs
-// its own hover highlight for that unit.
-const hoveredPanelId = ref<string | null>(null);
 // A drill or a filter change can retire the hovered row without any mouseleave
 // firing, which would strand the highlight on a unit that is no longer listed.
 watch(panelUnits, (units) => {
   if (hoveredPanelId.value && !units.some((u) => u.id === hoveredPanelId.value)) {
     hoveredPanelId.value = null;
   }
-});
-
-// True while the scope SHOULD have boundary geometry but it hasn't loaded yet
-// (cold cache: commune contours / région outlines still streaming in). The map
-// holds the current plateau instead of tearing it down for a transient blank.
-const scopePending = computed(() => {
-  // Micropin zone → the map clears, it must never HOLD a plateau.
-  if (inMicroZone.value) return false;
-  const s = currentScope.value;
-  if (s.levelKey === "world") return false; // only the world level has no plateau
-  if (raisedOutlineDue(s)) return true; // a département's own outline (depFine)
-  if (raisedGeometryFor(s)) return false;
-  // Geometry absent: hold only while it can still ARRIVE — a terminal fetch
-  // failure must release the hold (teardown beats a stale wrong plateau).
-  if (s.levelKey === "country") return !metroQuery.isError.value;
-  if (s.levelKey === "region") return !regionsQuery.isError.value;
-  // Loaded without it: an overseas département (france-geojson has none) whose
-  // own outline was given up on — it rises when that lands.
-  if (s.levelKey === "dep") return !depsQuery.isError.value && !depsQuery.data.value;
-  if ((s.levelKey === "city" || s.levelKey === "arr") && s.insee) {
-    return !failedInsee.value.has(s.insee);
-  }
-  return false;
-});
-
-// Départements of OTHER régions, while they are on screen.
-//
-// A région border is not a wall: at département focus the neighbour across it is
-// just as plausible a target as the ones beside it, but the hierarchy only ever
-// offered same-parent siblings — so reaching it meant climbing back up to the
-// région and down again.
-//
-// Two constraints shape this. It is bounded by the VIEWPORT, because every
-// département in the data would otherwise be meshed and hit-tested at once. And
-// it is REFERENCE-STABLE while the visible set is unchanged: `outline` identity
-// is what re-runs ensurePlateau, so handing back a fresh array on every pan
-// frame would re-mesh the plateau continuously. Same trick as placesInView.
-let lastPeerSig = "";
-let lastPeerUnits: GeoUnit[] = [];
-const crossRegionDeps = computed<GeoUnit[]>(() => {
-  const s = currentScope.value;
-  if (s.levelKey !== "dep" || !s.parentId) return [];
-  const view = mapView.value?.screen;
-  if (!view) return [];
-  const out = unitsByLevelKey(root.value, "dep").filter((u) => {
-    if (u.parentId === s.parentId) return false; // same région → already a sibling
-    const b = u.bounds;
-    return (
-      !!b &&
-      b.minLat <= view.maxLat &&
-      b.maxLat >= view.minLat &&
-      b.minLng <= view.maxLng &&
-      b.maxLng >= view.minLng
-    );
-  });
-  const sig = out.map((u) => u.id).join("|");
-  if (sig === lastPeerSig) return lastPeerUnits;
-  lastPeerSig = sig;
-  lastPeerUnits = out;
-  return out;
-});
-
-// The scope's same-level neighbours (focus + context): kept on the MAP as macro
-// pins + boundaries so the surrounding units don't vanish when you drill in.
-const scopeSiblings = computed<GeoUnit[]>(() => {
-  const s = currentScope.value;
-  const parent = s.parentId ? index.value.get(s.parentId) : undefined;
-  if (!parent) return [];
-  const sibs = parent.children.filter((c) => c.id !== s.id);
-  // At ARRONDISSEMENT scope, the surrounding CITIES stay visible too (the parent
-  // ville's siblings) — without them, drilling past the ville level erased
-  // Villeurbanne & co. The parent itself is excluded: its polygon CONTAINS the
-  // scope, which would swallow every hover/click inside it.
-  if (s.levelKey === "arr" && parent.parentId) {
-    const gp = index.value.get(parent.parentId);
-    if (gp) sibs.push(...gp.children.filter((c) => c.id !== parent.id));
-  }
-  return [...sibs, ...crossRegionDeps.value];
-});
-
-/** `geometryOf`: the outline the unit is hit by — the one its line is drawn
- *  with (see outline). */
-function toMapUnit(u: GeoUnit, geometryOf: (u: GeoUnit) => unknown = geometryFor): MapUnit {
-  return {
-    id: u.id,
-    label: u.label,
-    count: u.count,
-    center: u.center,
-    isLeaf: u.levelKey === "place",
-    bounds: u.bounds,
-    geometry: u.levelKey === "place" ? undefined : geometryOf(u),
-  };
-}
-
-// Every lieu in the dataset. Deep in the micropin zone the map drops the
-// plateau and boundaries (outline is already empty then) and shows ALL
-// micropins whatever their location, so the reader can hop from place to place
-// directly.
-//
-// VIEWPORT-SCOPED: with thousands of lieux, emitting every leaf spawns
-// one DOM marker each and makes panning crawl. Off-screen pins are invisible
-// anyway, so restricting to the current view (padded, so edge pins don't pop)
-// changes nothing visually and keeps the marker count in the dozens. The
-// selected lieu is always kept so it can never vanish from under the panel.
-const VIEW_PAD = 0.15; // 15% of the span on each side
-
-// Walking the whole index is O(all units) and the view is emitted ~4×/s while
-// panning — so extract the leaves ONCE per hierarchy change, and only run the
-// (cheap, numeric) bounds filter per view.
-const allPlaceUnits = computed<GeoUnit[]>(() =>
-  [...index.value.values()].filter((u) => u.levelKey === "place"),
-);
-
-// The view is emitted ~4×/s mid-gesture, so a fresh array each time would make
-// `watch(() => props.units)` rebuild markers throughout every drag — which is
-// exactly the churn this is meant to avoid. Hand back the SAME array while the
-// visible set is unchanged, so the marker layer only reacts to real changes.
-let lastViewSig = "";
-let lastViewPlaces: GeoUnit[] = [];
-
-const placesInView = computed<GeoUnit[]>(() => {
-  const places = allPlaceUnits.value;
-  // `screen`, not `bounds`: `bounds` is the symmetric box the scope logic
-  // measures span against, which under pitch covers far less ground than the
-  // screen shows toward the horizon — culling against it made pins wink out
-  // well before they left the view.
-  const b = mapView.value?.screen;
-  if (!b) return places;
-  const padLat = (b.maxLat - b.minLat) * VIEW_PAD;
-  const padLng = (b.maxLng - b.minLng) * VIEW_PAD;
-  const padded: Bounds = {
-    minLat: b.minLat - padLat,
-    maxLat: b.maxLat + padLat,
-    minLng: b.minLng - padLng,
-    maxLng: b.maxLng + padLng,
-  };
-  const selected = selectedPlaceId.value;
-  const visible = places.filter((u) => u.id === selected || centerInBounds(u, padded));
-  const sig = visible.map((u) => u.id).join("|");
-  if (sig === lastViewSig) return lastViewPlaces;
-  lastViewSig = sig;
-  lastViewPlaces = visible;
-  return visible;
-});
-
-// The micropin zone is entered optimistically when a lieu is opened (see
-// spotlightPlace), before the camera has dived: until it has, `placesInView` is
-// still culled against the view being LEFT, which from afar holds the whole
-// dataset. The dots wait for a view close enough to hold only a neighbourhood.
-const MICRO_PINS_MIN_ZOOM = 12;
-
-// A boolean of its own: read inside `mapUnits`, the zoom would re-run it on
-// every view the map emits and rebuild the markers throughout each drag.
-const showMicroPins = computed(
-  () => inMicroZone.value && (mapView.value?.zoom ?? 0) >= MICRO_PINS_MIN_ZOOM,
-);
-
-const mapUnits = computed<MapUnit[]>(() => {
-  // Deep-zoomed into the micropin zone: every lieu in view.
-  if (showMicroPins.value) return placesInView.value.map((u) => toMapUnit(u));
-  // Focused level's units (detail) + surrounding siblings (context macro pins).
-  const units = [
-    ...panelUnits.value.map((u) => toMapUnit(u)),
-    ...scopeSiblings.value.map((u) => toMapUnit(u, raisedGeometryFor)),
-  ];
-  // The lieu being read keeps its dot (and its halo) wherever the map has gone:
-  // it is what the text belongs to, and clicking it flies back. Once only — it
-  // may already be in the list, and a pin handed over twice is never removed.
-  const open = selectedPlace.value;
-  if (open && !units.some((u) => u.id === open.id)) units.push(toMapUnit(open));
-  return units;
 });
 
 // ---- Filtered: every matching audition in ONE list ---------------------------
@@ -864,127 +219,50 @@ const mapUnits = computed<MapUnit[]>(() => {
 // one flies the map to its lieu (see toggleAud).
 const listMode = computed(() => Boolean(props.filtered));
 
-/** An audition as the panel lists it, in a lieu's detail or in the results. */
-interface PanelAudition {
-  id: string;
-  title: string;
-  date: string | null;
-  /** The lieu it was held at. */
-  canonical: string;
-  count: number;
-  /** null: not in memory yet (the testimonies are still loading). */
-  testimonies: PublicTestimony[] | null;
-}
-
-/** The panel's line for an audition of a group, with its testimonies (all
- *  loaded with the page) once they are here. */
-function panelAudition(g: LocationGroup, a: LocationGroup["auditions"][number]): PanelAudition {
-  const mine = ownAuditions.value.get(a.id);
-  return {
-    id: a.id,
-    title: a.title,
-    date: a.date,
-    canonical: g.canonicalName,
-    count: mine ? mine.testimonies.length : a.testimony_count,
-    testimonies: mine ? mine.testimonies : null,
-  };
-}
-
-// The open lieu's auditions: listed at once from what the map already knows of
-// them (title, date, how many testimonies) — nothing is fetched to open a lieu.
-const placeAuditions = computed<PanelAudition[]>(() => {
-  const canonical = selectedPlace.value?.canonical;
-  if (!canonical) return [];
-  const rows: PanelAudition[] = [];
-  for (const g of props.groups) {
-    if (g.canonicalName !== canonical) continue;
-    for (const a of g.auditions) rows.push(panelAudition(g, a));
-  }
-  return rows.sort(bySort);
+// ---- The panel's auditions (model/usePanelAuditions): a lieu's own, or the results ----
+const panelListEl = ref<HTMLElement | null>(null);
+const panel = usePanelAuditions({
+  nav,
+  groups: toRef(props, "groups"),
+  sort: toRef(props, "sort"),
+  listMode,
+  ownAuditions,
+  selectedPlace,
+  placeByCanonical,
+  panelListEl,
+  spotlightPlace,
+  scheduleResultsFit,
 });
+const {
+  resultAuditions,
+  shownCount,
+  moreResults,
+  showMoreResults,
+  moreEl,
+  panelAuditions,
+  auditionMeta,
+  testimoniesOf,
+  isAudOpen,
+  audSwapping,
+  toggleAud,
+  audToTop,
+  keepAtTop,
+} = panel;
 
-const placeByCanonical = computed(() => {
-  const map = new Map<string, GeoUnit>();
-  for (const u of allPlaceUnits.value) if (u.canonical) map.set(u.canonical, u);
-  return map;
+// ---- What the map is handed (model/useMapFeed): outline, pending hold, pins ----
+const { outline, scopePending, mapUnits } = useMapFeed({
+  nav,
+  geo,
+  boundaries,
+  communes,
+  deps,
+  panelUnits,
+  selectedPlace,
 });
-
-const resultAuditions = computed<PanelAudition[]>(() => {
-  if (!listMode.value) return [];
-  const out: PanelAudition[] = [];
-  for (const g of props.groups) for (const a of g.auditions) out.push(panelAudition(g, a));
-  return out.sort(bySort);
-});
-
-// Many auditions can match a wide filter: the list is filled a page at a time
-// as the reader scrolls down it.
-const RESULTS_PAGE = 50;
-const shownCount = ref(RESULTS_PAGE);
-const moreResults = computed(() => resultAuditions.value.length > shownCount.value);
-function showMoreResults() {
-  shownCount.value += RESULTS_PAGE;
-}
-const moreEl = ref<HTMLElement | null>(null);
-let moreObserver: IntersectionObserver | null = null;
-watch(moreEl, (el) => {
-  moreObserver?.disconnect();
-  moreObserver = null;
-  if (!el || typeof IntersectionObserver === "undefined") return;
-  moreObserver = new IntersectionObserver(
-    (entries) => {
-      if (entries.some((e) => e.isIntersecting)) showMoreResults();
-    },
-    { root: panelListEl.value, rootMargin: "200px" },
-  );
-  moreObserver.observe(el);
-});
-onBeforeUnmount(() => moreObserver?.disconnect());
-
-/** The auditions the panel shows: the results, or the open lieu's own. */
-const panelAuditions = computed<PanelAudition[]>(() =>
-  listMode.value ? resultAuditions.value.slice(0, shownCount.value) : placeAuditions.value,
-);
-
-/** Date, and in the results the lieu too (a lieu's own detail has it as title). */
-function auditionMeta(a: PanelAudition): string {
-  const place = listMode.value
-    ? (placeByCanonical.value.get(a.canonical)?.label ?? a.canonical)
-    : "";
-  return [a.date ? formatDateShort(a.date) : "", place].filter(Boolean).join(" · ");
-}
-
-/** An audition's testimonies — null while they are not here (yet). */
-function testimoniesOf(a: PanelAudition): PublicTestimony[] | null {
-  return a.testimonies;
-}
 
 // The map frames every lieu of the results. Not on each keystroke of a search:
 // once the list has stopped changing. And not from under someone reading an
 // audition — the map is on its lieu.
-function resultBounds(): Bounds | null {
-  const places = allPlaceUnits.value;
-  if (!places.length) return null;
-  const lats = places.map((u) => u.center[0]).sort((a, b) => a - b);
-  const lngs = places.map((u) => u.center[1]).sort((a, b) => a - b);
-  // A handful of far-flung lieux (overseas, among a thousand in the métropole)
-  // would stretch the frame to the whole globe and show nothing. With enough
-  // of them to tell, the frame holds the bulk — all but the outermost 3% on
-  // each side; the few left outside are still in the list.
-  const cut = places.length >= 30 ? Math.floor(places.length * 0.03) : 0;
-  const minLat = lats[cut];
-  const maxLat = lats[lats.length - 1 - cut];
-  const minLng = lngs[cut];
-  const maxLng = lngs[lngs.length - 1 - cut];
-  // A margin, and a real extent when there is a single lieu.
-  const padLat = Math.max((maxLat - minLat) * 0.08, 0.004);
-  const padLng = Math.max((maxLng - minLng) * 0.08, 0.004);
-  return {
-    minLat: minLat - padLat,
-    maxLat: maxLat + padLat,
-    minLng: minLng - padLng,
-    maxLng: maxLng + padLng,
-  };
-}
 const mapCmp = ref<InstanceType<typeof GeoDrillMap> | null>(null);
 let fitTimer = 0;
 function scheduleResultsFit() {
@@ -997,7 +275,7 @@ function scheduleResultsFit() {
       scheduleResultsFit();
       return;
     }
-    const bounds = resultBounds();
+    const bounds = resultBounds(allPlaceUnits.value);
     if (!bounds) return;
     setCamera({
       type: "fit",
@@ -1008,127 +286,18 @@ function scheduleResultsFit() {
     // The slabs of the territory raised are sized for where this lands — not
     // for the camera of the moment, mid-flight (another unit raised once it
     // lands is sized then, for the map as it is).
-    framedFit.value = { key: cameraKey, unitId: currentScope.value.id };
+    framedFit.value = { key: nav.cameraKey.value, unitId: currentScope.value.id };
   }, 350);
 }
 onBeforeUnmount(() => window.clearTimeout(fitTimer));
 
-const resultsSig = computed(() =>
-  listMode.value ? resultAuditions.value.map((a) => a.id).join("|") : "",
-);
-/** Which auditions match, whatever their order: sorting is not a new answer. */
-const resultSetSig = computed(() =>
-  listMode.value
-    ? resultAuditions.value
-        .map((a) => a.id)
-        .sort()
-        .join("|")
-    : "",
-);
-watch(listMode, (on) => {
-  // The results replace whatever lieu was open: they are a list of their own.
-  if (on) {
-    openAuditions.value.clear();
-    selectedPlaceId.value = null;
-  }
-});
-watch(resultsSig, () => {
-  if (!listMode.value) return;
-  const open = [...openAuditions.value][0];
-  const at = open ? resultAuditions.value.findIndex((a) => a.id === open) : -1;
-  if (open && at === -1) {
-    // The audition being read no longer matches the filters.
-    openAuditions.value.clear();
-    selectedPlaceId.value = null;
-  }
-  // Back to the first page — or as far as the audition being read.
-  shownCount.value = Math.max(RESULTS_PAGE, at + 1);
-  // A new list is read from its top; the audition being read stays in sight
-  // wherever the new order has put it.
-  if (at === -1) {
-    if (panelListEl.value) panelListEl.value.scrollTop = 0;
-  } else if (open) {
-    void nextTick(() => audToTop(open, true));
-  }
-});
-watch(resultSetSig, (sig) => {
-  if (sig) scheduleResultsFit();
-});
-
-/**
- * Scroll the list so an audition's line sits at its top (the text opens in
- * view beneath it). `ifHidden`: only when that line is out of sight. Writes
- * the list's own scrollTop — scrollIntoView would also move the page under it.
- * Returns the resulting scroll position.
- */
-function audToTop(id: string, ifHidden = false): number | null {
-  const scroller = panelListEl.value;
-  const header = scroller?.querySelector<HTMLElement>(`[data-aud="${CSS.escape(id)}"]`);
-  if (!scroller || !header) return null;
-  const box = scroller.getBoundingClientRect();
-  const line = header.getBoundingClientRect();
-  if (!ifHidden || line.top < box.top || line.bottom > box.bottom)
-    scroller.scrollTop += line.top - box.top;
-  return scroller.scrollTop;
-}
-
-// Fetch geometry for any ville/arrondissement currently shown. Keyed on the SET of
-// INSEE codes so it only fires when that set changes, not on every re-centre.
-const visibleInsee = computed(() => {
-  const codes: string[] = [];
-  const add = (u: GeoUnit) => {
-    if ((u.levelKey === "city" || u.levelKey === "arr") && u.insee) codes.push(u.insee);
-  };
-  panelUnits.value.forEach(add); // the focused level's villes/arrondissements
-  add(currentScope.value); // the scope itself (its outline at the lieu level)
-  scopeSiblings.value.forEach(add); // surrounding sibling villes/arrondissements
-  return codes;
-});
-watch(
-  () => [...visibleInsee.value].sort().join(","),
-  () => ensureGeo(visibleInsee.value),
-  { immediate: true },
-);
-// …and the scope's own outline, a département reached by panning (see depFine).
-watch(
-  () => depCodeOf(currentScope.value),
-  (code) => void ensureDepFine(code),
-  { immediate: true },
-);
-// …then, once it is in, the outlines of the départements beside it (their box
-// meeting its own): drawn and hit beside its raised edge, they meet it there.
-watch(
-  () => {
-    const s = currentScope.value;
-    const code = depCodeOf(s);
-    if (!code || !depFine.value[code]) return "";
-    const b = s.bounds;
-    return scopeSiblings.value
-      .filter(
-        (u) =>
-          u.levelKey === "dep" &&
-          u.bounds.minLat <= b.maxLat &&
-          u.bounds.maxLat >= b.minLat &&
-          u.bounds.minLng <= b.maxLng &&
-          u.bounds.maxLng >= b.minLng,
-      )
-      .map((u) => depCodeOf(u))
-      .join(",");
-  },
-  (codes) => {
-    if (!codes) return;
-    void Promise.all(codes.split(",").map(fetchDepFine)).then(addDepFine);
-  },
-);
-
 // ---- Camera ----
-let cameraKey = 0;
 const camera = ref<CameraCmd | null>(null);
 /** The last command that framed a unit (flyToUnit): the analyses' slabs of
  *  that unit are sized for the camera it lands on (GeoDrillMap's SlabSpec). */
 const framedFit = shallowRef<{ key: number; unitId: string } | null>(null);
 function setCamera(cmd: Omit<CameraCmd, "key">) {
-  scopePinned = true; // hold the optimistic scope until the flight lands
+  nav.scopePinned.value = true; // hold the optimistic scope until the flight lands
   // Every command frames against the analyses' ring as it should be now, so
   // the ring never changes without a camera command in the same tick (see
   // `ringOn`). A flip still waiting for the map to be let go is taken along,
@@ -1137,8 +306,8 @@ function setCamera(cmd: Omit<CameraCmd, "key">) {
   window.clearTimeout(ringTimer);
   ringTimer = 0;
   ringOn.value = ringWanted.value;
-  if (ringOn.value) ringRoom.value = roomNow();
-  camera.value = { key: ++cameraKey, ...cmd };
+  if (ringOn.value) ringRoom.value = nav.roomNow.value();
+  camera.value = { key: ++nav.cameraKey.value, ...cmd };
 }
 // Closest a unit is framed: just short of the lieu zone (MICRO_ZONE_ENTER, below),
 // where the map flattens. The map's own default (14) left the smallest
@@ -1234,7 +403,7 @@ function flyToUnit(unit: GeoUnit, animate: boolean, fresh = false) {
     fresh,
     maxZoom: FIT_MAX_ZOOM,
   });
-  framedFit.value = { key: cameraKey, unitId: unit.id };
+  framedFit.value = { key: nav.cameraKey.value, unitId: unit.id };
 }
 
 /**
@@ -1264,67 +433,6 @@ function centreLandsOn(unit: GeoUnit, lat: number, lng: number): boolean {
     }
   }
   return true;
-}
-
-// ---- Place-detail accordion (single-open) ----
-const openAuditions = ref(new Set<string>());
-function isAudOpen(id: string) {
-  return openAuditions.value.has(id);
-}
-
-const panelListEl = ref<HTMLElement | null>(null);
-// True only while ANOTHER audition is being closed to open this one — that
-// collapse is incidental to the click, so it drops in one step instead of
-// tweening (see ExpandTransition's `instantLeave`). A plain close still animates.
-const audSwapping = ref(false);
-
-async function toggleAud(id: string) {
-  const was = openAuditions.value.has(id);
-  // Single-open: opening an audition closes the current one in the SAME tick.
-  // When the one closing sits ABOVE the one clicked, its body collapsing removes
-  // that height from above and drags the clicked header up with it — and these
-  // bodies run to thousands of pixels, so the audition just opened does not
-  // merely shift, it lands off the top of the panel entirely.
-  //
-  // So the outgoing body collapses in ONE step (`instantLeave`) rather than
-  // tweening, and the scroll is then corrected once to leave the clicked header
-  // exactly where the pointer found it. Nothing else moves it afterwards: the
-  // content above is settled, and the body now opening grows BELOW it.
-  audSwapping.value = !was && openAuditions.value.size > 0;
-
-  const scroller = panelListEl.value;
-  const header = scroller?.querySelector<HTMLElement>(`[data-aud="${CSS.escape(id)}"]`) ?? null;
-  const keepTop =
-    header && scroller
-      ? header.getBoundingClientRect().top - scroller.getBoundingClientRect().top
-      : null;
-
-  openAuditions.value.clear();
-  if (!was) openAuditions.value.add(id);
-  if (listMode.value) {
-    // In the results each audition has a lieu of its own: opening one makes it
-    // the open lieu (its dot, its text) and the map FLIES there — pulling back
-    // and coming down again, so the eye follows from one lieu to the next.
-    // Closing it leaves nothing open: the map is free again.
-    const canonical = resultAuditions.value.find((a) => a.id === id)?.canonical;
-    const unit = !was && canonical ? placeByCanonical.value.get(canonical) : undefined;
-    selectedPlaceId.value = unit?.id ?? null;
-    if (unit) {
-      mapEngaged.value = false;
-      placeOpenedAt = performance.now();
-      spotlightPlace(unit, true);
-    }
-  } else if (!was && selectedPlace.value) {
-    // Choosing an audition to read is a selection in the panel: the map comes
-    // back to its lieu, wherever it had been taken meanwhile.
-    spotlightPlace(selectedPlace.value);
-  }
-
-  await nextTick();
-  audSwapping.value = false;
-  if (!scroller || !header || keepTop === null) return;
-  const drift = header.getBoundingClientRect().top - scroller.getBoundingClientRect().top - keepTop;
-  if (drift) scroller.scrollTop += drift;
 }
 
 // Reading a testimony in a 30rem column is cramped, so an open audition widens
@@ -1371,7 +479,6 @@ onBeforeUnmount(() => panelRO?.disconnect());
 // strip up raises it to the full panel and dragging it down lowers it again
 // (the grip also toggles on tap/keyboard). Desktop ignores all of this: the
 // classes it drives only exist inside the mobile media query.
-const sheetOpen = ref(false);
 /** Grip + title row — what stays on screen when lowered, and the drag handle. */
 const sheetPeekEl = ref<HTMLElement | null>(null);
 /** Zero-size probe whose padding resolves `env(safe-area-inset-bottom)`. */
@@ -1497,17 +604,14 @@ watch(readingPlace, (reading) => {
   if (!reading) deriveScope();
 });
 
-/** When the lieu was last opened — see engageMap. */
-let placeOpenedAt = 0;
-
 // The user has started moving the map (GeoDrillMap's `userGesture`; it repeats,
 // hence the cheap exits). With a lieu open, the panel gets out of the way.
 function engageMap() {
-  hoverReturnHeld = false; // the hand is on the map now (see onPanelPointerMove)
+  nav.hoverReturnHeld.value = false; // the hand is on the map now (see onPanelPointerMove)
   if (!selectedPlaceId.value) return;
   // The tail of the very tap that opened the lieu (a double-tap on its pin
   // also zooms the map) is not a wish to leave the text.
-  if (performance.now() - placeOpenedAt < 400) return;
+  if (performance.now() - nav.placeOpenedAt.value < 400) return;
   if (isDesktop.value) mapEngaged.value = true;
   // Unless the sheet itself is under a finger: that gesture decides.
   else if (!sheetGesture) sheetOpen.value = false;
@@ -1554,24 +658,24 @@ function onPanelFocusIn(e: FocusEvent) {
 // leaves it alone.
 const HOVER_RETURN_MS = 200;
 let hoverReturnTimer = 0;
-// The pointer that has just pressed "Analyses" (which hands the map the
-// screen) is still resting on the panel: it brings the panel back only once it
-// has left it. (Pressed from the keyboard, the pointer may be anywhere: held
-// only if it really is on the panel.)
-let hoverReturnHeld = false;
 function cancelHoverReturn() {
   window.clearTimeout(hoverReturnTimer);
   hoverReturnTimer = 0;
 }
 function onPanelPointerMove(e: PointerEvent) {
-  if (hoverReturnHeld || !mapEngaged.value || e.pointerType !== "mouse" || e.buttons !== 0) {
+  if (
+    nav.hoverReturnHeld.value ||
+    !mapEngaged.value ||
+    e.pointerType !== "mouse" ||
+    e.buttons !== 0
+  ) {
     cancelHoverReturn();
     return;
   }
   if (!hoverReturnTimer) hoverReturnTimer = window.setTimeout(returnToPanel, HOVER_RETURN_MS);
 }
 function onPanelPointerLeave() {
-  hoverReturnHeld = false;
+  nav.hoverReturnHeld.value = false;
   cancelHoverReturn();
 }
 onBeforeUnmount(cancelHoverReturn);
@@ -1615,13 +719,6 @@ const widePanelView = computed(() =>
     ? { top: 60, bottom: 60, left: 60, right: panelPx.value + PANEL_GAP_PX }
     : undefined,
 );
-
-interface Insets {
-  top: number;
-  bottom: number;
-  left: number;
-  right: number;
-}
 
 // The map's own size (the page it fills), for the ring below and the room the
 // analyses' plates have. Until measured, the window stands in for it.
@@ -1771,7 +868,7 @@ let bandW = NaN;
 watch([plateScreen, () => props.preview], ([screen, preview]) => {
   if (preview || screen.safeW === bandW) return;
   bandW = screen.safeW;
-  if (ringRoom.value) ringRoom.value = roomNow() ?? ringRoom.value;
+  if (ringRoom.value) ringRoom.value = nav.roomNow.value() ?? ringRoom.value;
 });
 
 /** Two opposite insets brought within `room`: first what the ring adds to its
@@ -1950,45 +1047,6 @@ async function openResultAt(unit: GeoUnit) {
   keepAtTop(audition);
 }
 
-/** What the reader taking the list in hand looks like. */
-const HANDS_ON = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
-
-/**
- * Keeps an audition's line at the top of the list while its text unfolds
- * beneath it: a line near the end of the list only has enough below it to be
- * scrolled up to the top once that text is there. Re-pinned each time the audition grows, until a
- * moment after its text is in. The reader taking the list in hand ends it at
- * once: the list is theirs. (Not "has its scroll position moved?": the browser
- * nudges it by itself as content grows at the bottom.)
- */
-function keepAtTop(audition: PanelAudition) {
-  const scroller = panelListEl.value;
-  const group = scroller?.querySelector(`[data-aud="${CSS.escape(audition.id)}"]`)?.parentElement;
-  if (!scroller || !group || typeof ResizeObserver === "undefined") return;
-  let timer = 0;
-  const observer = new ResizeObserver(() => {
-    if (isAudOpen(audition.id)) audToTop(audition.id);
-  });
-  const end = () => {
-    observer.disconnect();
-    stopWaiting();
-    window.clearTimeout(timer);
-    for (const type of HANDS_ON) scroller.removeEventListener(type, end);
-  };
-  // Its text is in (or it was closed): the unfold takes under half a second.
-  const stopWaiting = watch(
-    () => !isAudOpen(audition.id) || testimoniesOf(audition) !== null,
-    (done) => {
-      if (!done) return;
-      window.clearTimeout(timer);
-      timer = window.setTimeout(end, 1200);
-    },
-    { immediate: true },
-  );
-  for (const type of HANDS_ON) scroller.addEventListener(type, end, { passive: true });
-  observer.observe(group);
-}
-
 function openPlace(unit: GeoUnit) {
   if (listMode.value) {
     void openResultAt(unit);
@@ -2002,7 +1060,7 @@ function openPlace(unit: GeoUnit) {
   // it does not run when the lieu was already the open one.
   mapEngaged.value = false;
   sheetOpen.value = true;
-  placeOpenedAt = performance.now();
+  nav.placeOpenedAt.value = performance.now();
   // The row just clicked leaves the panel without a mouseleave; left set, the
   // map would keep deferring to a hover that no longer exists.
   hoveredPanelId.value = null;
@@ -2016,27 +1074,6 @@ function spotlightPlace(unit: GeoUnit, arc = false) {
   // starts, not once it has landed. The landing view confirms it.
   inMicroZone.value = true;
   setCamera({ type: "spotlight", center: unit.center, animate: true, arc });
-}
-
-// Lower bound of the micropin zone (see below). It used to be where unzooming
-// CLOSED the open lieu; nothing the map does closes it any more.
-const MICRO_ZONE_EXIT = 14.5;
-
-// Deep-zoom "micropin zone", ALSO reachable by just zooming in (no lieu click):
-// crossing ~15 inward sinks the plateau (animated teardown) and drops the
-// boundaries — the map flattens to lieu dots. It re-arms below MICRO_ZONE_EXIT;
-// the 14.5–15 gap is hysteresis so jitter at the line doesn't pump the
-// plateau up and down.
-const MICRO_ZONE_ENTER = 15;
-const inMicroZone = ref(false);
-
-function onViewChange(view: MapView) {
-  scopePinned = false; // the flight landed (or the user moved) — the view is fresh
-  // The zone tracks EVERY emit (pinned included — a spotlight landing inside
-  // it must flatten the map exactly like a manual zoom would).
-  if (view.zoom >= MICRO_ZONE_ENTER) inMicroZone.value = true;
-  else if (view.zoom < MICRO_ZONE_EXIT) inMicroZone.value = false;
-  mapView.value = view;
 }
 
 // ---- Analyses ----------------------------------------------------------------
@@ -2070,6 +1107,9 @@ const { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLo
     themeFilter: filterThemes,
     framedFit,
   });
+// The room the plates need, bound late for the camera (navState's roomNow box):
+// setCamera reads it at each command, the resize watch above as the width changes.
+nav.roomNow.value = roomNow;
 
 // DEV: the words drawn long or flat, or at another size, take another room,
 // and another framing frames otherwise: framed again, the ring with it
@@ -2108,7 +1148,7 @@ watch(analyses, (on) => {
   }
   if (isDesktop.value) {
     mapEngaged.value = true;
-    hoverReturnHeld = panelEl.value?.matches(":hover") ?? false;
+    nav.hoverReturnHeld.value = panelEl.value?.matches(":hover") ?? false;
     cancelHoverReturn();
   } else sheetOpen.value = false;
   if (!inMicroZone.value) return;
