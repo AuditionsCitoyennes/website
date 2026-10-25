@@ -8,6 +8,7 @@
 // caches), ./mesh (the pieces), ./program, ./plateauShaders.
 
 import mapboxgl from "mapbox-gl";
+import { perfSpan } from "@/shared/perf/perf";
 import type { Snapshot } from "../plateau/mapSnapshot";
 import { pieceOutline, ringSectorArcs, slabPointPx, type PieceBox, type SlabRect } from "../lib";
 import type { OutlineFC, SlabSpec, SlabThemesSpec } from "../types";
@@ -682,6 +683,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // nothing draws. The per-geometry caches (ringBasesOf / lidBasesOf /
     // fillBasesOf) already make a repeat build cheap — it is pure array assembly.
 
+    const endSpan = perfSpan("plateau.setGeometry", { scope: features[0]?.properties?.id });
     const verts: number[] = [];
     const lidVerts: number[] = [];
     const gWall: number[] = [];
@@ -963,6 +965,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.gWallDirty = true;
     this.gLidDirty = true;
     this.gLineDirty = true;
+    endSpan({
+      walls: this.vertexCount,
+      lid: this.lidVertexCount,
+      lines: this.lineVertexCount,
+      halo: this.haloVertexCount,
+    });
     this.map?.triggerRepaint();
   }
 

@@ -6,6 +6,7 @@
 
 import mapboxgl from "mapbox-gl";
 import type { Bounds } from "@/features/geo";
+import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import {
   boundsIntersect,
   buildHitRings,
@@ -147,6 +148,7 @@ export function useMapPins({
   function buildMarkers() {
     const map = getMap();
     if (!map) return;
+    const end = perfSpan("pins.buildMarkers");
     // Anything still in `stale` once we've walked the new units has left the view.
     const stale = markerById;
     const next = new Map<string, MarkerEntry>();
@@ -223,6 +225,13 @@ export function useMapPins({
     sticky = nextSticky;
     updateSticky();
     applyActivePin(); // a rebuilt pin is a fresh element — re-mark it
+    if (perfOn) {
+      const all = units();
+      const leaves = all.filter((u) => u.isLeaf).length;
+      end({ pins: all.length, leaves });
+      // Every pin a dot: the lieux around an open one, placed (the micro zone).
+      if (leaves && leaves === all.length) perfEnd("lieu-pins", undefined, { pins: all.length });
+    }
   }
 
   /** Move `.geo-pin-active` (the pulsing halo, styled in features/map/geo-pins.css) onto the pin

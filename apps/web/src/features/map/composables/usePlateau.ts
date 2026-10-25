@@ -7,6 +7,7 @@
 
 import type mapboxgl from "mapbox-gl";
 import type { Bounds } from "@/features/geo";
+import { perfEnd, perfSpan } from "@/shared/perf/perf";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import type { OutlineFC } from "../types";
@@ -268,6 +269,8 @@ export function usePlateau({
       applyMask();
       // No lid any more — forget its resolution so a later plateau starts fresh.
       lid.reset();
+      // The perf probes: a selection with no plateau (Monde) shows as the map cleared.
+      perfEnd("select-plateau", undefined, { cleared: true });
       return;
     }
     const scopeId = String(raised[0]?.properties?.id ?? "");
@@ -298,6 +301,7 @@ export function usePlateau({
         ? animateTerrain(0, SINK_MS)
         : Promise.resolve();
     try {
+      const endPost = perfSpan("dem.post", { scope: scopeId });
       const res = await fetch(`${API_BASE}/api/dem`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -305,6 +309,7 @@ export function usePlateau({
       });
       if (!res.ok) throw new Error(`dem POST ${res.status}`);
       const { version } = (await res.json()) as { version?: string };
+      endPost({ status: res.status });
       if (!version) throw new Error("dem POST returned no version");
       map = getMap();
       if (seq !== plateauSeq || !map) return; // superseded by a newer selection
@@ -411,7 +416,9 @@ export function usePlateau({
       // No tile wait (arrival tiles were warmed during the sink): the rise starts
       // IMMEDIATELY on click and plays during the camera flight. Slight terrain
       // LOD re-tessellation can show mid-flight — chosen over a delayed rise.
+      const endRise = perfSpan("plateau.rise", { scope: scopeId });
       await animateTerrain(1, RISE_MS);
+      endRise();
       map = getMap();
       if (import.meta.env.DEV && seq === plateauSeq && map) {
         const c = boundsOfFeatures(raised);

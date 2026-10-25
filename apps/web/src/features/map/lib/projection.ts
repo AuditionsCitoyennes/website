@@ -5,6 +5,7 @@
 
 import mapboxgl from "mapbox-gl";
 import earcut, { flatten } from "earcut";
+import { perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
 import { polysOf } from "./polygon";
 
@@ -51,8 +52,10 @@ const ringBaseCache = new WeakMap<object, PBase[][][]>();
 export function ringBasesOf(g: { type?: string; coordinates?: unknown }): PBase[][][] {
   let c = ringBaseCache.get(g as object);
   if (!c) {
+    const end = perfSpan("projection.ringBases");
     c = polysOf(g).map((poly) => poly.map((ring) => ring.map(([lng, lat]) => baseOf(lng, lat))));
     ringBaseCache.set(g as object, c);
+    end({ vertices: c.reduce((n, poly) => n + poly.reduce((m, r) => m + r.length, 0), 0) });
   }
   return c;
 }
@@ -184,6 +187,7 @@ const lidBaseCache = new WeakMap<object, PBase[][]>();
 export function lidBasesOf(g: { type?: string; coordinates?: unknown }): PBase[][] {
   let cached = lidBaseCache.get(g as object);
   if (cached) return cached;
+  const end = perfSpan("projection.lidBases");
   const ringBases = ringBasesOf(g);
   cached = ringBases.map((rings) => {
     const out: PBase[] = [];
@@ -224,6 +228,7 @@ export function lidBasesOf(g: { type?: string; coordinates?: unknown }): PBase[]
     return out;
   });
   lidBaseCache.set(g as object, cached);
+  end({ vertices: cached.reduce((n, poly) => n + poly.length, 0) });
   return cached;
 }
 

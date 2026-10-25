@@ -6,6 +6,7 @@
 
 import type mapboxgl from "mapbox-gl";
 import type { Bounds } from "@/features/geo";
+import { perfNote } from "@/shared/perf/perf";
 import { slabRects, solveSlabScales, type SlabCam, type SlabRect, type SlabScales } from "../lib";
 import { boundsContain, boundsOfFeatures, unionBounds } from "../lib/polygon";
 import { WALL_OVERSHOOT } from "../gl/mesh";
@@ -250,6 +251,7 @@ export function usePlateauSlabs({
     if (key !== st?.key || layer.slabScopeId !== scope) {
       layer.setSlabs(rects, spec.top, layer.heightM, scope, ringStateFor(scope));
       buildMs = Math.round((performance.now() - t0) * 1000) / 1000;
+      perfNote("slabs.sync", buildMs, { scope });
     }
     slabState = {
       scopeId: scope,

@@ -3,6 +3,7 @@
 // result's lieu asked for from its dot.
 import { nextTick, type ComputedRef, type Ref } from "vue";
 import type { GeoUnit } from "@/features/geo";
+import { perfBegin } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
 import type { PanelAudition } from "./auditions";
 
@@ -32,11 +33,19 @@ export function useNavActions(inputs: NavActionsInputs) {
   const { flyToUnit, spotlightPlace } = camera;
   const { resultAuditions, shownCount, toggleAud, audToTop, keepAtTop } = panel;
 
+  /** The perf probes (shared/perf): a unit selected — its plateau and its
+   *  boundaries are timed from here. */
+  function selectTimed(unit: GeoUnit, via: string) {
+    perfBegin("select-plateau", unit.id, { via, level: unit.levelKey });
+    perfBegin("drill-boundaries", unit.id, { via, level: unit.levelKey });
+  }
+
   function activate(unit: GeoUnit) {
     if (unit.levelKey === "place") {
       openPlace(unit);
       return;
     }
+    selectTimed(unit, "activate");
     selectedPlaceId.value = null;
     // Optimistic scope: don't wait for the camera fit to settle (~700 ms) — set the
     // scope now so the plateau transition runs DURING the flight. The moveend
@@ -54,6 +63,7 @@ export function useNavActions(inputs: NavActionsInputs) {
     // map, like a drag: the map goes there, the text stays.
     if (selectedPlaceId.value && u.levelKey !== "place") {
       engageMap();
+      selectTimed(u, "map");
       currentScope.value = u; // optimistic — see activate()
       flyToUnit(u, true);
       return;
@@ -70,6 +80,7 @@ export function useNavActions(inputs: NavActionsInputs) {
       openPlace(u);
       return;
     }
+    selectTimed(u, "crumb");
     selectedPlaceId.value = null;
     currentScope.value = u; // optimistic — see activate()
     flyToUnit(u, true);
@@ -107,6 +118,7 @@ export function useNavActions(inputs: NavActionsInputs) {
     }
     // Re-opening the lieu already open (its crumb, its own dot on the map) only
     // brings the map back to it: the audition being read stays unfolded.
+    perfBegin("lieu-pins", unit.id); // the dots around it placed, timed from here
     if (selectedPlaceId.value !== unit.id) openAuditions.value.clear();
     selectedPlaceId.value = unit.id;
     // The reader is on the panel — said here too, because the watcher that says

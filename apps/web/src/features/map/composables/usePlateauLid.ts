@@ -5,6 +5,7 @@
 
 import type mapboxgl from "mapbox-gl";
 import type { Bounds } from "@/features/geo";
+import { perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { SnapshotManager, type Snapshot } from "../plateau/mapSnapshot";
@@ -151,7 +152,9 @@ export function usePlateauLid({
     lidTargetKey = key;
     lidCaptureInFlight = true;
     try {
+      const endCapture = perfSpan("lid.capture", { px });
       const snap = await snapshotMgr.capture(style, b, px, plateauWall.maxTextureSize);
+      endCapture({ got: !!snap });
       if (!snap) return;
       if (seq !== plateauSeq()) {
         snap.bitmap.close();
