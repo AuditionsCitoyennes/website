@@ -10,6 +10,7 @@ import type { usePlateauFrames } from "../composables/usePlateauFrames";
 import type { usePlateau } from "../composables/usePlateau";
 import type { usePlateauLid } from "../composables/usePlateauLid";
 import type { usePlateauSlabs } from "../composables/usePlateauSlabs";
+import { installPerfVocabulary } from "./perfVocabulary";
 
 type Probes = {
   __acMap?: mapboxgl.Map;
@@ -31,6 +32,7 @@ export function installProbes({ getMap, frames, plateau, lid, slabs }: ProbeSour
   const w = window as unknown as Probes;
   const map = getMap();
   if (import.meta.env.DEV && map) w.__acMap = map;
+  installPerfVocabulary(); // the perf probes' names for the map's requests (testing tools)
   w.__acPlateau = () => {
     const m = getMap();
     return {

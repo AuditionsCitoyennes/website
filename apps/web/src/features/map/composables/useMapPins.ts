@@ -148,7 +148,7 @@ export function useMapPins({
   function buildMarkers() {
     const map = getMap();
     if (!map) return;
-    const end = perfSpan("pins.buildMarkers");
+    const end = perfOn ? perfSpan("pins.buildMarkers") : null;
     // Anything still in `stale` once we've walked the new units has left the view.
     const stale = markerById;
     const next = new Map<string, MarkerEntry>();
@@ -225,7 +225,7 @@ export function useMapPins({
     sticky = nextSticky;
     updateSticky();
     applyActivePin(); // a rebuilt pin is a fresh element — re-mark it
-    if (perfOn) {
+    if (end) {
       const all = units();
       const leaves = all.filter((u) => u.isLeaf).length;
       end({ pins: all.length, leaves });

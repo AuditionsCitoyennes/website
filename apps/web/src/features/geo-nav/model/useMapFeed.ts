@@ -12,7 +12,7 @@ import {
   unitsByLevelKey,
 } from "@/features/geo";
 import type { MapUnit, OutlineFC } from "@/features/map";
-import { perfSpan } from "@/shared/perf/perf";
+import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
 import type { BoundaryQueries } from "../data/useBoundaryQueries";
 import type { CommuneGeoStore } from "../data/useCommuneGeo";
@@ -77,7 +77,7 @@ export function useMapFeed(inputs: MapFeedInputs) {
     // not decide this by itself: zoomed back out with it still open, the map is
     // explored exactly as if nothing were open.
     if (inMicroZone.value) return EMPTY_FC;
-    const end = perfSpan("vue.outline");
+    const end = perfOn ? perfSpan("vue.outline") : null;
     // The scope rises with its own outline (raisedGeometryFor) — none while that
     // is still due: the map holds the plateau standing (scopePending) rather than
     // raise one shape and reshape it a moment later.
@@ -90,7 +90,7 @@ export function useMapFeed(inputs: MapFeedInputs) {
         ...outlineForUnits(scopeSiblings.value, "context", raisedGeometryFor),
       ],
     };
-    end({ features: fc.features.length });
+    if (end) end({ features: fc.features.length });
     return fc;
   });
 
@@ -260,11 +260,11 @@ export function useMapFeed(inputs: MapFeedInputs) {
   );
 
   const mapUnits = computed<MapUnit[]>(() => {
-    const end = perfSpan("vue.mapUnits");
+    const end = perfOn ? perfSpan("vue.mapUnits") : null;
     // Deep-zoomed into the micropin zone: every lieu in view.
     if (showMicroPins.value) {
       const dots = placesInView.value.map((u) => toMapUnit(u));
-      end({ units: dots.length, micro: true });
+      if (end) end({ units: dots.length, micro: true });
       return dots;
     }
     // Focused level's units (detail) + surrounding siblings (context macro pins).
@@ -277,7 +277,7 @@ export function useMapFeed(inputs: MapFeedInputs) {
     // may already be in the list, and a pin handed over twice is never removed.
     const open = selectedPlace.value;
     if (open && !units.some((u) => u.id === open.id)) units.push(toMapUnit(open));
-    end({ units: units.length, micro: false });
+    if (end) end({ units: units.length, micro: false });
     return units;
   });
 

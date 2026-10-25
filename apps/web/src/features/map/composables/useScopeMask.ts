@@ -195,16 +195,19 @@ export function useScopeMask({
     // when a fast zoom-out or a flight heads for the globe.
     if (!sameGeoms(geoms, drapedGeoms)) {
       drapedGeoms = geoms;
-      const endSet = perfSpan("mask.setData");
+      const endSet = perfOn ? perfSpan("mask.setData") : null;
       src.setData(worldMaskData(geoms));
-      endSet();
+      if (endSet) endSet();
       if (perfOn) drapedSetAt = performance.now();
     }
     syncDrapedMask();
     // The perf probes: the grey re-cut around the new selection is the end of
     // "scope change → mask updated" (the GL sheet is on screen next frame; the
-    // draped sheet's indexing is noted apart, mask.drapedIndexed).
-    if (recut) perfEnd("scope-mask", undefined, { holes: geoms.length });
+    // draped sheet's indexing is noted apart, mask.drapedIndexed). A scope
+    // change the grey had nothing to do for (the lieu zone, where nothing is
+    // raised) ends it as unchanged.
+    if (perfOn)
+      perfEnd("scope-mask", undefined, recut ? { holes: geoms.length } : { unchanged: true });
   }
 
   /**

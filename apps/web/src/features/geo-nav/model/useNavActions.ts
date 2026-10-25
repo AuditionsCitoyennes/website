@@ -3,7 +3,7 @@
 // result's lieu asked for from its dot.
 import { nextTick, type ComputedRef, type Ref } from "vue";
 import type { GeoUnit } from "@/features/geo";
-import { perfBegin } from "@/shared/perf/perf";
+import { perfBegin, perfOn } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
 import type { PanelAudition } from "./auditions";
 
@@ -36,6 +36,7 @@ export function useNavActions(inputs: NavActionsInputs) {
   /** The perf probes (shared/perf): a unit selected — its plateau and its
    *  boundaries are timed from here. */
   function selectTimed(unit: GeoUnit, via: string) {
+    if (!perfOn) return;
     perfBegin("select-plateau", unit.id, { via, level: unit.levelKey });
     perfBegin("drill-boundaries", unit.id, { via, level: unit.levelKey });
   }
@@ -118,7 +119,7 @@ export function useNavActions(inputs: NavActionsInputs) {
     }
     // Re-opening the lieu already open (its crumb, its own dot on the map) only
     // brings the map back to it: the audition being read stays unfolded.
-    perfBegin("lieu-pins", unit.id); // the dots around it placed, timed from here
+    if (perfOn) perfBegin("lieu-pins", unit.id); // the dots around it placed, timed from here
     if (selectedPlaceId.value !== unit.id) openAuditions.value.clear();
     selectedPlaceId.value = unit.id;
     // The reader is on the panel — said here too, because the watcher that says

@@ -5,7 +5,7 @@
 
 import type mapboxgl from "mapbox-gl";
 import earcut from "earcut";
-import { perfSpan } from "@/shared/perf/perf";
+import { perfOn, perfSpan } from "@/shared/perf/perf";
 import { ringBasesOf, type PBase } from "../lib/projection";
 import { buildProgram, type GlProg, type MapFogInternals } from "./program";
 
@@ -82,7 +82,7 @@ export class ScopeTintLayer implements mapboxgl.CustomLayerInterface {
    *  called on every pass of the plateau pipeline. Returns whether it rebuilt. */
   setSelection(geoms: MaskGeom[]): boolean {
     if (sameGeoms(geoms, this.geoms)) return false;
-    const end = perfSpan("tint.setSelection");
+    const end = perfOn ? perfSpan("tint.setSelection") : null;
     this.geoms = geoms;
     // Outer rings become holes; a selection's INNER rings are enclaves of some
     // other unit (the Enclave des Papes is Vaucluse, wholly surrounded by
@@ -162,7 +162,7 @@ export class ScopeTintLayer implements mapboxgl.CustomLayerInterface {
     this.positions = new Float32Array(out);
     this.vertexCount = out.length / 2;
     this.dirty = true;
-    end({ vertices: this.vertexCount });
+    if (end) end({ vertices: this.vertexCount });
     this.map?.triggerRepaint();
     return true;
   }

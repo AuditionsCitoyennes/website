@@ -11,7 +11,7 @@ import {
   geometryContains,
   type GeoUnit,
 } from "@/features/geo";
-import { perfSpan } from "@/shared/perf/perf";
+import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BoundaryQueries } from "../data/useBoundaryQueries";
 import type { CommuneGeo, CommuneGeoStore } from "../data/useCommuneGeo";
 import type { DepFineStore } from "../data/useDepFine";
@@ -30,7 +30,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   const { depFine, depGaveUp, depFineGeo } = deps;
 
   const hierarchy = computed(() => {
-    const end = perfSpan("vue.hierarchy");
+    const end = perfOn ? perfSpan("vue.hierarchy") : null;
     const h = buildGeoHierarchy(groups.value);
     applyBoundaries(
       h.index,
@@ -38,7 +38,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
       inseeGeo.value,
       depFineGeo.value,
     );
-    end({ units: h.index.size });
+    if (end) end({ units: h.index.size });
     return h;
   });
   const root: ComputedRef<GeoUnit> = computed(() => hierarchy.value.root);

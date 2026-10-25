@@ -4,7 +4,7 @@
 // lieu, the breadcrumb and the list of units the panel shows.
 import { computed, watch, type ComputedRef, type Ref, type ShallowRef } from "vue";
 import { ancestorsOf, scopeForView, type GeoUnit } from "@/features/geo";
-import { perfSpan } from "@/shared/perf/perf";
+import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { Insets, MapView, NavState } from "../navState";
 import type { CommuneGeo } from "../data/useCommuneGeo";
 
@@ -59,10 +59,10 @@ export function useScope(inputs: ScopeInputs) {
     }
     // The current scope's ancestor chain (self included) = the incumbent branch,
     // held sticky in the walk (horizontal + vertical hysteresis — see scopeForView).
-    const end = perfSpan("vue.deriveScope");
+    const end = perfOn ? perfSpan("vue.deriveScope") : null;
     const prefer = new Set(ancestorsOf(index.value, currentScope.value.id).map((u) => u.id));
     currentScope.value = scopeForView(root.value, mapView.value.bounds, prefer, containsPoint);
-    end();
+    if (end) end();
   }
   // Re-derive when the map settles, the hierarchy reloads, OR a commune polygon
   // arrives (so the containment tie-break applies once the geometry is in).
