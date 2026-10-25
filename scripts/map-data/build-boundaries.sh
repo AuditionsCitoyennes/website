@@ -57,17 +57,24 @@ done
 
 # ---- Levels and zoom bands ---------------------------------------------------
 # Each band "zmin-zmax:metres": the zoom range one simplification serves, and
-# the mapshaper interval for it — about half a pixel at the band's deepest zoom
-# (a 512 px tile: 78 271 m/px at z0, halved per zoom). The tiles above the
-# level's maxzoom are overzoomed by the client.
+# the mapshaper interval for it (a 512 px tile: 78 271 m/px at z0, halved per
+# zoom). Polygon layers stop EARLY: a polygon layer emits a tile for every
+# tile its polygons cover, and the world's land is ~6 million tiles at z12 and
+# ~100 million at z14 — a first run with levels to z12–14 crawled for that
+# reason. So every level stops between z8 and z10 and the client overzooms;
+# tippecanoe keeps full detail at the last zoom (-d 14: 16 384 units per tile,
+# ~1.7 m per unit at z10 in France), so a commune outline drawn at z15 from
+# its z10 tile is still sub-pixel. The mapshaper interval of the last band is
+# therefore the real resolution of a level (5 m for communes, 20 m for
+# départements, 100 m for régions).
 LEVELS=(country region county localadmin locality)
 bands_of() {
   case "$1" in
-    country)    echo "0-3:3000 4-7:300 8-10:30" ;;
-    region)     echo "2-5:1000 6-9:100 10-12:10" ;;
-    county)     echo "4-7:300 8-11:20 12-14:5" ;;
-    localadmin) echo "6-9:100 10-14:10" ;;
-    locality)   echo "8-11:20 12-14:5" ;;
+    country)    echo "0-3:3000 4-6:300 7-8:30" ;;
+    region)     echo "2-5:1000 6-9:100" ;;
+    county)     echo "4-7:300 8-10:20" ;;
+    localadmin) echo "6-9:100 10-10:10" ;;
+    locality)   echo "8-9:20 10-10:5" ;;
   esac
 }
 # Levels exported in one chunk per country (the others: the world in one file).
@@ -207,7 +214,7 @@ if has_step tile && ! skip_done tile; then
       log "tile: $level z$zmin-$zmax → $(basename "$out")"
       find "$OUT/simplified/$level/z$zr" -name '*.geojsonl' -print0 \
         | xargs -0 tippecanoe --force -o "$out" -Z "$zmin" -z "$zmax" -l "$level" -n boundaries \
-            --no-simplification-of-shared-nodes --detect-shared-borders \
+            --no-simplification-of-shared-nodes --detect-shared-borders -d 14 \
             --no-feature-limit --no-tile-size-limit -P --hilbert \
             -y id -y name -y level -y parent -y country \
             --attribution '© Overture Maps Foundation (ODbL), © Etalab / IGN contours-administratifs (Licence Ouverte)' \
