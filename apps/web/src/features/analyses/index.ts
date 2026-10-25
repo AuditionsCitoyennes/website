@@ -18,6 +18,7 @@ export {
 } from "./content/ring";
 export { measureText, typePx, type Measure, type TypePx } from "./content/measure";
 export { slabSizes, type SizeOpts, type SlabSizes } from "./content/slabSizes";
+export { analysisSummary, ringReading, type SummaryOpts } from "./content/summary";
 export {
   FRAME_MIN_COMPACT,
   FRAME_MIN_WIDE,
@@ -29,3 +30,4 @@ export {
   type ScreenOpts,
 } from "./content/plateRoom";
 export * from "./devSwitch";
+export { useScopeAnalysis, type ScopeAnalysisInputs } from "./composables/useScopeAnalysis";
