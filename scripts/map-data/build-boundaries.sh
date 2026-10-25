@@ -29,15 +29,18 @@
 #                 npm install -g mapshaper      (mapshaper-xl: an 8 GB heap)
 # Usage:
 #   scripts/map-data/build-boundaries.sh [--out DIR] [--release 2026-10-21.0]
-#     [--etalab-year 2026] [--steps extract,etalab,simplify,tile,report] [--force]
-#     [--jobs 3]
+#     [--etalab-year 2026] [--steps extract,chunks,etalab,simplify,tile,report]
+#     [--force] [--jobs 3]
+# Steps: extract (Overture → local parquet + counts, the one S3 pass), chunks
+# (parquet → GeoJSON per level, per country for the deep levels), etalab
+# (France's three levels), simplify, tile, report.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${TMPDIR:-/tmp}/ac-map-data"
 RELEASE="2026-10-21.0"
 ETALAB_YEAR="2026"
-STEPS="extract,etalab,simplify,tile,report"
+STEPS="extract,chunks,etalab,simplify,tile,report"
 FORCE=0
 JOBS=3
 MAPSHAPER="${MAPSHAPER:-mapshaper-xl}"
@@ -50,7 +53,7 @@ while [ $# -gt 0 ]; do
     --steps) STEPS="$2"; shift 2 ;;
     --jobs) JOBS="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo pipefail/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -80,6 +83,18 @@ bands_of() {
 # Levels exported in one chunk per country (the others: the world in one file).
 chunked() { case "$1" in county|localadmin|locality) return 0 ;; *) return 1 ;; esac; }
 
+# The ground Etalab covers from the région down: France, and the overseas
+# départements and collectivités, which Overture files under codes of their
+# own (Guadeloupe GP, Martinique MQ, Guyane GF, La Réunion RE, Mayotte YT,
+# Saint-Pierre-et-Miquelon PM, Saint-Barthélemy BL, Saint-Martin MF, Wallis
+# WF, Polynésie PF, Nouvelle-Calédonie NC, the TAAF TF, Clipperton CP).
+# Every Overture row of those codes is dropped — their top-level polygons too,
+# since Etalab's régions (01–06, 975–989) are the same ground under France —
+# and only Overture's France country polygon (the métropole) stays.
+OVERSEAS="'GP','MQ','GF','RE','YT','PM','BL','MF','WF','PF','NC','TF','CP'"
+ETALAB_CODES="'FR',$OVERSEAS"
+etalab_code() { case ",FR,GP,MQ,GF,RE,YT,PM,BL,MF,WF,PF,NC,TF,CP," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+
 # ---- Tools -------------------------------------------------------------------
 need() {
   command -v "$1" > /dev/null 2>&1 && return 0
@@ -106,7 +121,7 @@ skip_done() {
 }
 duck() { duckdb -no-agent "$@"; }
 
-# ---- 1. extract: Overture → local parquet + counts + GeoJSON chunks -----------
+# ---- 1. extract: Overture → local parquet + counts ---------------------------
 if has_step extract && ! skip_done extract; then
   log "extract: Overture $RELEASE divisions → $OUT/raw (one pass over S3)"
   {
@@ -116,10 +131,14 @@ if has_step extract && ! skip_done extract; then
     echo "SET temp_directory = '$OUT/tmp';"
     cat "$HERE/overture.sql"
   } | duck
-  log "extract: GeoJSON chunks per level"
+  touch "$(done_marker extract)"
+fi
+
+# ---- 2. chunks: the local parquet → GeoJSON per level (and per country) --------
+if has_step chunks && ! skip_done chunks; then
+  log "chunks: GeoJSON per level from $OUT/raw/overture-areas.parquet"
   PARQUET="$OUT/raw/overture-areas.parquet"
-  # France's rows below the country come from Etalab (step etalab).
-  NOT_FR="NOT (country = 'FR' AND level IN ('region','county','localadmin','locality'))"
+  rm -rf "${OUT:?}/raw/country" "$OUT/raw/region" "$OUT/raw/county" "$OUT/raw/localadmin" "$OUT/raw/locality"
   {
     echo "INSTALL spatial; LOAD spatial; SET geometry_always_xy = true;"
     for level in "${LEVELS[@]}"; do
@@ -127,25 +146,32 @@ if has_step extract && ! skip_done extract; then
       cols="id, name, level, parent, country, geometry"
       if [ "$level" = country ]; then
         # Dependencies ride in the country layer (their level attribute says so).
-        echo "COPY (SELECT $cols FROM read_parquet('$PARQUET') WHERE level IN ('country','dependency')) TO '$OUT/raw/country/world.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');"
+        echo "COPY (SELECT $cols FROM read_parquet('$PARQUET') WHERE level IN ('country','dependency') AND country NOT IN ($OVERSEAS)) TO '$OUT/raw/country/world.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');"
       elif chunked "$level"; then
         while IFS= read -r cc; do
           [ -n "$cc" ] || continue
-          [ "$cc" = FR ] && continue
+          etalab_code "$cc" && continue
           echo "COPY (SELECT $cols FROM read_parquet('$PARQUET') WHERE level = '$level' AND country = '$cc') TO '$OUT/raw/$level/$cc.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');"
         done < "$OUT/raw/countries.csv"
       else
-        echo "COPY (SELECT $cols FROM read_parquet('$PARQUET') WHERE level = '$level' AND $NOT_FR) TO '$OUT/raw/$level/world.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');"
+        echo "COPY (SELECT $cols FROM read_parquet('$PARQUET') WHERE level = '$level' AND country NOT IN ($ETALAB_CODES)) TO '$OUT/raw/$level/world.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');"
       fi
     done
   } | duck
   # GDAL writes an empty FeatureCollection for a country without that level:
   # drop those so mapshaper and tippecanoe never see them.
   find "$OUT/raw" -name '*.geojson' -size -200c -delete
-  touch "$(done_marker extract)"
+  touch "$(done_marker chunks)"
 fi
 
-# ---- 2. etalab: France at 50 m → chunks of the region/county/locality levels --
+# ---- 3. etalab: France at 50 m → chunks of the region/county/locality levels --
+# Etalab's régions (métropole, DROM 01–06, the collectivités 975–989) and
+# départements take the region and county layers; the communes the locality
+# layer, with the 45 arrondissements municipaux of Paris, Lyon and Marseille
+# KEPT beside the three communes they divide: each arrondissement's parent is
+# its commune (fr:com:69123), a commune's its département — the site drills
+# ville → arrondissement, so the tileset carries that edge, and the three
+# commune polygons stay (the ville is a unit of its own, raised whole).
 if has_step etalab && ! skip_done etalab; then
   BASE="https://etalab-datasets.geo.data.gouv.fr/contours-administratifs/$ETALAB_YEAR/geojson"
   for f in regions-50m departements-50m communes-50m; do
@@ -169,14 +195,16 @@ COPY (
   FROM ST_Read('$OUT/raw/etalab-departements-50m.geojson')
 ) TO '$OUT/raw/county/FR.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');
 COPY (
-  SELECT 'fr:com:' || code AS id, nom AS name, 'locality' AS level, 'fr:dep:' || departement AS parent, 'FR' AS country, geom AS geometry
+  SELECT 'fr:com:' || code AS id, nom AS name, 'locality' AS level,
+         CASE WHEN commune IS NOT NULL THEN 'fr:com:' || commune ELSE 'fr:dep:' || departement END AS parent,
+         'FR' AS country, geom AS geometry
   FROM ST_Read('$OUT/raw/etalab-communes-50m.geojson')
 ) TO '$OUT/raw/locality/FR.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');
 SQL
   touch "$(done_marker etalab)"
 fi
 
-# ---- 3. simplify: mapshaper per level, chunk and band --------------------------
+# ---- 4. simplify: mapshaper per level, chunk and band --------------------------
 simplify_one() { # level band chunkfile
   local level="$1" band="$2" src="$3"
   local zr="${band%%:*}" metres="${band##*:}"
@@ -205,7 +233,7 @@ if has_step simplify && ! skip_done simplify; then
   touch "$(done_marker simplify)"
 fi
 
-# ---- 4. tile: tippecanoe per (level, band), then one archive ------------------
+# ---- 5. tile: tippecanoe per (level, band), then one archive ------------------
 if has_step tile && ! skip_done tile; then
   for level in "${LEVELS[@]}"; do
     for band in $(bands_of "$level"); do
@@ -228,7 +256,7 @@ if has_step tile && ! skip_done tile; then
   touch "$(done_marker tile)"
 fi
 
-# ---- 5. report ------------------------------------------------------------------
+# ---- 6. report ------------------------------------------------------------------
 if has_step report; then
   R="$OUT/report.md"
   {

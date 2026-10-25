@@ -30,4 +30,4 @@ To look at the result in the site: serve the output directory with range
 requests and CORS (any static server does; `npx serve --cors <dir>`), run the
 dev server and open `/temoignages?pmtiles=http://127.0.0.1:<port>/boundaries.pmtiles`:
 GeoDrillMap adds the archive as a vector source and draws its levels as lines
-(dev builds only, `__TEST_TOOLS__`).
+(the builds with the testing tools: the dev server and staging, `__TEST_TOOLS__`).
