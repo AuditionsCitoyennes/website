@@ -94,6 +94,11 @@ const tasks: TaskEntry[] = [];
 let hasLoaf = false;
 let hasLongTask = false;
 let vocabulary: PerfVocabulary = {};
+/** An interaction's attribution as settled a second after it closed: the
+ *  spans and frames arrays keep filling (every long frame of a free pan is
+ *  kept), so an old interaction read late would otherwise see its window
+ *  emptied by the caps. */
+const settled = new WeakMap<Interaction, PerfInteraction>();
 
 const noop = () => {};
 const now = () => performance.now();
@@ -181,12 +186,18 @@ function close(it: Interaction, t1: number, status: "done" | "superseded" | "tim
   } catch {
     /* an old User Timing */
   }
-  if (status !== "superseded") setTimeout(() => console.info(line(attributed(it))), LINE_DELAY_MS);
+  // The observers' entries for the closing frame arrive in a later task: the
+  // attribution is settled, and the line printed, a second on.
+  setTimeout(() => {
+    const a = attributed(it);
+    settled.set(it, a);
+    if (status !== "superseded") console.info(line(a));
+  }, LINE_DELAY_MS);
 }
 
-// An interaction nothing ends (a scope change whose mask needed no re-cut, a
-// plateau that never reaches full rise) closes as a timeout, so the open list
-// — and the rAF fallback loop — never grow without end.
+// An interaction nothing ends (a plateau that never reaches full rise, a
+// boundary that never arrives) closes as a timeout, so the open list — and
+// the rAF fallback loop — never grow without end.
 let timeoutTimer = 0;
 function armTimeout() {
   if (timeoutTimer) return;
@@ -199,8 +210,11 @@ function sweepTimeouts() {
   if (open.size) armTimeout();
 }
 
-/** What fell inside the interaction's window: spans, frames, tasks, requests. */
+/** What fell inside the interaction's window: spans, frames, tasks, requests
+ *  (as settled a second after it closed, once that has happened). */
 function attributed(it: Interaction): PerfInteraction {
+  const done = settled.get(it);
+  if (done) return done;
   const t0 = it.t0;
   const t1 = it.t1 ?? now();
   const out: PerfInteraction = {
@@ -345,7 +359,9 @@ function armRafFallback() {
   if (hasLoaf || hasLongTask) return;
   rafUntil = now() + 2000;
   if (!rafId) {
-    rafLast = 0;
+    // Seeded with the act's own time: the first frame measured is the one the
+    // act ran in, which is the frame an interaction ended in the same task shows.
+    rafLast = now();
     rafId = requestAnimationFrame(rafTick);
   }
 }

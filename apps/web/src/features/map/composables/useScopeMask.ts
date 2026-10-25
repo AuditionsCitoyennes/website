@@ -203,11 +203,21 @@ export function useScopeMask({
     syncDrapedMask();
     // The perf probes: the grey re-cut around the new selection is the end of
     // "scope change → mask updated" (the GL sheet is on screen next frame; the
-    // draped sheet's indexing is noted apart, mask.drapedIndexed). A scope
-    // change the grey had nothing to do for (the lieu zone, where nothing is
-    // raised) ends it as unchanged.
-    if (perfOn)
-      perfEnd("scope-mask", undefined, recut ? { holes: geoms.length } : { unchanged: true });
+    // draped sheet's indexing is noted apart, mask.drapedIndexed). No re-cut
+    // ends it as unchanged only when none can follow: the outline has nothing
+    // to raise (the world scope) and nothing on its way. With a unit to raise
+    // and no plateau standing yet (the first drill of a session, a drill out
+    // of the lieu zone), this pass greys nothing and ensurePlateau re-cuts
+    // once the plateau is up: that cut is the end.
+    if (perfOn) {
+      if (recut) perfEnd("scope-mask", undefined, { holes: geoms.length });
+      else if (
+        !scopePending() &&
+        !outline()?.features.some((f) => f.properties?.kind === "scope")
+      ) {
+        perfEnd("scope-mask", undefined, { unchanged: true });
+      }
+    }
   }
 
   /**

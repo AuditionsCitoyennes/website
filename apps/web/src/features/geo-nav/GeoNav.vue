@@ -444,9 +444,13 @@ if (__TEST_TOOLS__) {
   // mask re-cut" starts (useScopeMask ends it), and a drill's boundaries are
   // ready once the outline of the unit selected has every geometry it will get
   // (useNavActions starts that one). Sync: at the write itself, not at the flush.
+  // Not in the lieu zone: the outline is empty there whatever the scope, the
+  // mask is never touched, and there would be nothing to end.
   watch(
     () => currentScope.value.id,
-    (id) => perfBegin("scope-mask", id),
+    (id) => {
+      if (!inMicroZone.value) perfBegin("scope-mask", id);
+    },
     { flush: "sync" },
   );
   watch(
