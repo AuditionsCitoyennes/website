@@ -152,7 +152,8 @@ export async function submitOnlineTestimony(
   const { data, error } = await client.rpc("submit_online_testimony", {
     p_email_hash: emailHash(input.email),
     p_person_name: sanitizeText(input.person_name) || "Anonyme",
-    p_person_info: input.person_info ? sanitizeText(input.person_info) : null,
+    // The function takes NULL for no info; the generated type does not say so.
+    p_person_info: (input.person_info ? sanitizeText(input.person_info) : null) as string,
     // Each answer under its question, in one text (see AUDITION_QUESTIONS).
     p_content: composeAnswers(input.answers.map(sanitizeText)),
     p_citycode: townHall.key,
