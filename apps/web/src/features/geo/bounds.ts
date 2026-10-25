@@ -37,14 +37,6 @@ export function boundsCenter(b: Bounds): [number, number] {
   return [(b.minLat + b.maxLat) / 2, (b.minLng + b.maxLng) / 2];
 }
 
-/** The extent of a unit's children (what its pins span) — for framing on drill.
- *  Differs from `unit.bounds` only for the country, whose bounds is the whole
- *  nation but whose children currently sit in one corner. */
-export function childrenBounds(unit: GeoUnit): Bounds {
-  if (!unit.children.length) return unit.bounds;
-  return unionBounds(unit.children.map((c) => c.bounds));
-}
-
 /** Does a unit's centroid fall inside a viewport bounds (zoom-mode filtering)? */
 export function centerInBounds(u: GeoUnit, b: Bounds): boolean {
   const [lat, lng] = u.center;

@@ -8,8 +8,8 @@
 // a bounding box so the camera can frame it.
 
 export { LEVELS, type Bounds, type GeoUnit, type LevelKey, type UnitGeo } from "./types";
-export { centerInBounds, childrenBounds } from "./bounds";
+export { centerInBounds } from "./bounds";
 export { ancestorsOf, buildGeoHierarchy, unitChainOf, unitsByLevelKey } from "./hierarchy";
 export { applyBoundaries, depCodeOf, geometryContains } from "./boundaries";
-export { levelKeyForZoom, scopeForView, SPAN_DESCEND, zoomCapForDepth } from "./scope";
-export { abbrevCount, LEVEL_LABEL, levelLabelForDepth } from "./labels";
+export { scopeForView, SPAN_DESCEND } from "./scope";
+export { abbrevCount } from "./labels";
