@@ -76,8 +76,9 @@ Built with `scripts/map-data/build-boundaries.sh` from Overture Maps release 202
 Choices made for this build (to revisit for the monthly job):
 - Land polygons only, one per division: the land-only variant when Overture has it, else land + territorial waters (most regions and every locality exist in that form only).
 - France's region, county, localadmin and locality rows from Overture are replaced by Etalab's régions (26, DROM and COM included), départements (109) and communes (35 014, Paris/Lyon/Marseille arrondissements included), with ids `fr:reg:84`, `fr:dep:69`, `fr:com:69123` (INSEE codes: what the site stores) and the Overture France id as the régions' parent.
-- Levels and zoom bands (mapshaper `-clean -simplify interval=<m> keep-shapes` per band, about half a pixel at the band's deepest zoom on 512 px tiles): country 0–3 (3 000 m), 4–7 (300 m), 8–10 (30 m); region 2–5 (1 000 m), 6–9 (100 m), 10–12 (10 m); county 4–7 (300 m), 8–11 (20 m), 12–14 (5 m); localadmin 6–9 (100 m), 10–14 (10 m); locality 8–11 (20 m), 12–14 (5 m). Deeper zooms overzoom.
+- Levels and zoom bands (mapshaper `-clean -simplify interval=<m> keep-shapes` per band): country 0–3 (3 000 m), 4–6 (300 m), 7–8 (30 m); region 2–5 (1 000 m), 6–9 (100 m); county 4–7 (300 m), 8–10 (20 m); localadmin 6–9 (100 m), 10 (10 m); locality 8–9 (20 m), 10 (5 m). **Every level stops between z8 and z10 and the client overzooms.** The first run went to z12–14 and crawled: a polygon layer emits a tile for every tile its polygons cover, and the world's land is about 6 million tiles at z12 and 100 million at z14 — a boundary tileset cannot be deep. tippecanoe keeps full detail at a level's last zoom (`-d 14`: 16 384 units per tile, about 1.7 m per unit at z10 in France), so a commune outline drawn at z15 from its z10 tile is still sub-pixel; the last band's mapshaper interval is the level's real resolution (5 m for communes, 20 m for départements, 100 m for régions).
 - mapshaper runs on the whole world for country and region, and per country for county, localadmin and locality (one country at a time fits in memory; shared borders are simplified together inside a chunk, not across two). tippecanoe: one layer per level, attributes id/name/level/parent/country, `--no-simplification-of-shared-nodes --detect-shared-borders`, no feature or tile-size limit (nothing is dropped; the biggest tiles are reported instead).
+- Timings of the build on the laptop: Overture extract 3 min 25 s, GeoJSON chunks ~4 min, Etalab ~1 min, mapshaper (1 016 chunk × band files, three at a time) ~8 min; tiling is in the report.
 
 ### Features per level (Overture, world)
 
@@ -134,13 +135,61 @@ The levels skip (Brazil has no county, Switzerland's communes are localadmins), 
 
 ### Tile sizes
 
-_Pending: the build was still tiling when this section was written; the table is filled from `report.md` once `boundaries.pmtiles` exists._
+`boundaries.pmtiles`: **783 MB** (the mbtiles 905 MB), z0–10, 288 706 addressed tiles for 194 504 distinct tile contents, gzip inside. Tiling took 7 min for the eleven level × band tilesets, 40 s to join, 6 s to convert.
+
+Bytes per zoom (all levels together; MiB are gzip-compressed vector tiles on the wire):
+
+| z | tiles | MiB | avg KiB | max KiB |
+|--:|--:|--:|--:|--:|
+| 0 | 1 | 0.05 | 51.6 | 51.6 |
+| 1 | 4 | 0.09 | 22.0 | 38.9 |
+| 2 | 16 | 0.69 | 44.3 | 258.1 |
+| 3 | 61 | 1.08 | 18.2 | 153.4 |
+| 4 | 218 | 7.32 | 34.4 | 530.2 |
+| 5 | 703 | 10.57 | 15.4 | 353.9 |
+| 6 | 2 366 | 20.15 | 8.7 | 486.5 |
+| 7 | 8 370 | 31.15 | 3.8 | 394.3 |
+| 8 | 30 793 | 118.61 | 3.9 | 294.8 |
+| 9 | 58 712 | 222.70 | 3.9 | 157.6 |
+| 10 | 187 462 | 356.47 | 1.9 | 187.4 |
+
+Bytes per level and zoom band (each level's own tileset before the join):
+
+| level | band | z | tiles | MiB | max KiB |
+|---|---|--:|--:|--:|--:|
+| country | 0–3 | 0–3 | 82 | 0.47 | 51.6 |
+| country | 4–6 | 4–6 | 3 280 | 4.71 | 38.5 |
+| country | 7–8 | 7–8 | 39 075 | 15.46 | 15.7 |
+| region | 2–5 | 2–5 | 635 | 4.61 | 225.0 |
+| region | 6–9 | 6–9 | 79 988 | 53.59 | 54.3 |
+| county | 4–7 | 4–7 | 5 313 | 39.48 | 456.7 |
+| county | 8–10 | 8 | 12 896 | 34.12 | 63.3 |
+| county | 8–10 | 9 | 47 020 | 57.25 | 30.0 |
+| county | 8–10 | 10 | 177 500 | 132.84 | 20.4 |
+| localadmin | 6–9 | 6–9 | 6 601 | 26.48 | 406.0 |
+| localadmin | 10 | 10 | 16 807 | 30.49 | 52.4 |
+| locality | 8–9 | 8 | 9 868 | 67.92 | 234.5 |
+| locality | 8–9 | 9 | 30 987 | 138.84 | 129.7 |
+| locality | 10 | 10 | 102 183 | 231.08 | 132.8 |
+
+What the sizes say:
+- **Three quarters of the archive is z9–10 of the two deepest levels** (locality z9–10: 370 MB; county z10: 133 MB). Those are the tiles a visitor fetches one or two at a time when zoomed on a département or a commune: 2–20 KB each on average, 130–190 KB at worst (a z10 tile full of small communes). The archive's total size only matters for R2 storage (free to 10 GB) and the monthly upload.
+- **The low-zoom bands of the deep levels are too detailed for their zoom**: a county tile at z4 reaches 457 KB and a localadmin tile at z6 406 KB, because every county of a continent falls in one tile and 300 m simplification keeps ~4 vertices per pixel there. The fix for phase 2 is cheap: raise the county minzoom to 6 and localadmin's to 8 (regions and countries are what a z4 view shows anyway), or coarsen those bands to ~1 km. The world view (z0–3) is 1.9 MB in total, 52 KB for the single z0 tile: fine.
+- **Per visit, the cost is small**: a drill Monde → France → région → département → commune touches ~1 tile at z0–3, 2–4 at z5–7, 4–6 at z8–10 — roughly 300–600 KB over the whole drill, against today's 360 KB of boundary levels at boot plus 300–430 KB per département outline plus up to 3.9 MB per batch of 200 communes.
+- At maxzoom 10 with `-d 14`, the z10 tiles carry the 5 m Etalab communes at ~1.7 m precision; overzooming to z15 showed no visible stair-stepping in the check below.
 
 ### Mapbox GL JS 3.33 and PMTiles
 
 Mapbox GL JS resolves a tile provider from a source URL's extension (`resolveTileProvider` in the 3.33 bundle: `.pmtiles` → the `pmtiles` provider, whose module `mapbox-gl-pmtiles-provider/v0.0.3` is loaded from api.mapbox.com into the worker on first use); `provider: "pmtiles"` on the source says it explicitly. There is no `pmtiles://` scheme: the source is `{ type: "vector", url: "https://…/boundaries.pmtiles", provider: "pmtiles" }`. The dev flag `?pmtiles=<url>` (`apps/web/src/features/map/dev/pmtiles.ts`, testing tools only) adds the archive to the current map and draws its five levels as lines; `window.__acPmtiles` reports the tiles that arrived and any error.
 
-_Pending: the check against the built archive and its screenshot are added once the build finishes._
+Checked on 2026-10-25 with the 783 MB archive served from a local static server with range requests and CORS (`node serve.mjs <dir> 5199`, kept beside the build output), the dev server opened at `/temoignages?pmtiles=http://127.0.0.1:5199/boundaries.pmtiles`, under the pane's pump:
+
+- The source resolved to `provider: "pmtiles"`, no error; the first tiles were in **445 ms** after `addSource` (the plugin fetched from api.mapbox.com, the archive's header and directories read by range requests, then the tiles); 18 tiles for the first view (France at z4), 21 after a jump to Lyon at z12.
+- At z4.1 the five line layers drew 13 045 features (every country, region and county of the view: the orange counties of the whole of Europe and North Africa are the 300 m band at z4 — the over-detailed low-zoom band noted above).
+- At z12.2 over Lyon, `querySourceFeatures` returned 179 communes from the two z10 tiles in view (Villeurbanne, Bron, Saint-Priest, Vaulx-en-Velin… with their `fr:com:` INSEE ids) and 17 were drawn.
+- At z15 on the Lyon 3e / Villeurbanne boundary, overzoomed five levels from the z10 tile, the line is drawn as straight segments with no visible quantization.
+
+Screenshots (world at z4 with the five layers, Lyon at z12, the z15 boundary) are kept with the side-session notes of 2026-10-25 (`map-phase-0-screenshots/`); the repo keeps no image.
 
 ## 4. Repeating the baseline on a phone (for the founder)
 
