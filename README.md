@@ -23,6 +23,44 @@ packages/shared   Types TS + schémas Zod partagés
 supabase/         Migrations + config (référence du schéma)
 ```
 
+### Le code du site (`apps/web/src`)
+
+Une organisation par fonctionnalité, décidée dans [docs/architecture-proposal-2026-10-20.md](docs/architecture-proposal-2026-10-20.md) :
+
+```
+main.ts, App.vue   démarrage et coquille
+app/               ce qui n'existe qu'une fois : routeur, en-tête, popups globales, réglages vue-query
+shared/            ce qui ne connaît aucune fonctionnalité : système de design (ui/), client API,
+                   dates, rendu d'un témoignage, feuilles de style
+features/<nom>/    une fonctionnalité par dossier, exposée par son index.ts (le « barrel »)
+```
+
+Les fonctionnalités s'empilent dans un seul sens, et ESLint le fait respecter
+(`eslint.config.js`, règle `no-restricted-imports`) :
+
+```
+geo  →  map  →  analyses  →  geo-nav  →  temoignages  →  map-stage  →  app
+```
+
+`geo` est le modèle géographique pur ; `map` la carte Mapbox et ses couches WebGL ; `analyses` ce
+que l'association a entendu, posé sur les dalles ; `geo-nav` l'exploration (panneau, fil d'Ariane,
+caméra) ; `temoignages` la page et ses filtres ; `map-stage` l'unique instance de carte partagée
+entre la carte d'accueil et la page. À côté : `filters`, `auth`, `testify` (témoigner, vérifier),
+`audition`, `home`, `admin`, `outbox`.
+
+Une fonctionnalité importe `shared/`, les barrels des fonctionnalités sous elle, et ses propres
+fichiers en chemin relatif. Quelques entrées secondaires existent pour ne pas tirer des composants
+dans un autre lot : `@/features/map/lib`, `map/types`, `map/events`, `@/features/auth/account`.
+Rien n'importe `app/`, sauf `main.ts`. L'état chaud de la carte (instance Mapbox, couches, tampons
+par image) reste hors de la réactivité Vue, exposé par des accesseurs.
+
+### L'API (`apps/api/src`)
+
+```
+lib/               l'infrastructure partagée : clients Supabase, auth, caches, limites, e-mails
+modules/<ressource>/   routes.ts (HTTP) + service.ts (les règles, contre un client passé en argument)
+```
+
 ## Démarrage
 
 ```sh
