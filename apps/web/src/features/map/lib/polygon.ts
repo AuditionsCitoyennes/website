@@ -1,10 +1,23 @@
 // The map's polygon maths, pure: the hit rings the hover and the click test
 // against, containment, the scanline interior a macro pin is anchored at,
 // boxes, and the plateau's height rule — the one place the raised unit's
-// height is decided (ensurePlateau raises it, the fit frames it).
+// height is decided (ensurePlateau raises it, the fit frames it). And the two
+// coordinate flips between the geo model's [lat, lng] and mapbox's [lng, lat].
 
 import type { Bounds } from "@/features/geo";
 import type { OutlineFC } from "../types";
+
+/** The geo model's [lat, lng] as mapbox's [lng, lat]. */
+export function toLngLat([lat, lng]: [number, number]): [number, number] {
+  return [lng, lat];
+}
+
+export function toLngLatBounds(b: Bounds): [[number, number], [number, number]] {
+  return [
+    [b.minLng, b.minLat],
+    [b.maxLng, b.maxLat],
+  ];
+}
 
 export function polysOf(g: { type?: string; coordinates?: unknown }): number[][][][] {
   return (
