@@ -23,7 +23,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   app.get("/registrations", async (req, reply) => {
     if (!(await requireSuperAdmin(req, reply))) return reply;
-    const { data, error } = await req.supabase.rpc("get_pending_registrations" as never);
+    const { data, error } = await req.supabase.rpc("get_pending_registrations");
     if (error) return reply.internalServerError(error.message);
     return data ?? [];
   });
@@ -110,7 +110,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   // Roles with email/username details (RPC enforces admin visibility).
   app.get("/roles", async (req, reply) => {
-    const { data, error } = await req.supabase.rpc("get_user_roles_with_details" as never);
+    const { data, error } = await req.supabase.rpc("get_user_roles_with_details");
     if (error) return reply.internalServerError(error.message);
     return data ?? [];
   });

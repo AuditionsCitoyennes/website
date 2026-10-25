@@ -1,40 +1,6 @@
-// Which unit the map shows: read off the viewport (the unified scope), or off
-// the zoom alone (the zoom-driven prototype).
+// Which unit the map shows: read off the viewport (the unified scope).
 
-import type { Bounds, GeoUnit, LevelKey } from "./types";
-
-// ---- Zoom ↔ level mapping (zoom-driven mode) -------------------------------
-
-// Which administrative LEVEL a given map zoom should render. Deliberately a
-// plain step function (no hysteresis) so the prototype exposes the flicker that
-// the scope-driven model avoids — that's part of what we're comparing.
-export function levelKeyForZoom(zoom: number): LevelKey {
-  if (zoom < 4.6) return "country";
-  if (zoom < 6.6) return "region";
-  if (zoom < 8.6) return "dep";
-  if (zoom < 11) return "city";
-  if (zoom < 13) return "arr";
-  return "place";
-}
-
-// Max zoom used when framing a unit so revealing its children doesn't punch to
-// street level on a single-child (point-bounds) unit.
-export function zoomCapForDepth(depth: number): number {
-  switch (depth) {
-    case 1:
-      return 5; // pays
-    case 2:
-      return 6.5; // région
-    case 3:
-      return 8.2; // département
-    case 4:
-      return 11; // ville
-    case 5:
-      return 13; // arrondissement
-    default:
-      return 14.5; // lieu
-  }
-}
+import type { Bounds, GeoUnit } from "./types";
 
 // ---- Unified scope derivation (map viewport → current scope) ----
 // The scope is read off the map, not chosen by click: we walk the hierarchy from

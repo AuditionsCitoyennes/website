@@ -25,34 +25,14 @@ export interface SendReport {
 
 // ---- Templates (verbatim port) ---------------------------------------------
 
-function buildVerificationHtml(
+/** The HTML a witness receives: the shared chrome around this body. Exported for its test. */
+export function buildVerificationHtml(
   personName: string,
   auditionLocation: string,
   auditionDate: string,
   verificationUrl: string,
 ): string {
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vérifiez votre témoignage</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f5f5f7; font-family: 'Source Sans 3', 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #1a1f28;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f7; padding: 40px 20px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #7a29cc 0%, #9f4de6 100%); padding: 36px 24px; text-align: center; border-radius: 8px 8px 0 0;">
-              <h1 style="margin: 0; font-family: 'Bebas Neue', 'Arial Black', Arial, sans-serif; font-size: 32px; font-weight: 400; letter-spacing: 3px; text-transform: uppercase; color: #ffffff;">
-                Auditions Citoyennes
-              </h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #ffffff; padding: 40px 32px; border-left: 1px solid #e6e6e6; border-right: 1px solid #e6e6e6;">
-              <h2 style="margin: 0 0 20px 0; font-family: 'Source Sans 3', 'Segoe UI', Roboto, Arial, sans-serif; font-size: 22px; font-weight: 600; color: #1a1f28;">
+  const body = `              <h2 style="margin: 0 0 20px 0; font-family: 'Source Sans 3', 'Segoe UI', Roboto, Arial, sans-serif; font-size: 22px; font-weight: 600; color: #1a1f28;">
                 Bonjour ${personName},
               </h2>
               <p style="margin: 0 0 16px 0; font-size: 16px; color: #1a1f28;">
@@ -86,23 +66,8 @@ function buildVerificationHtml(
               <p style="margin: 0; font-size: 13px; color: #737a82;">
                 Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :<br>
                 <a href="${verificationUrl}" style="color: #7a29cc; word-break: break-all;">${verificationUrl}</a>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f5f5f7; padding: 24px 32px; border-top: 1px solid #e6e6e6; border-left: 1px solid #e6e6e6; border-right: 1px solid #e6e6e6; border-bottom: 1px solid #e6e6e6; border-radius: 0 0 8px 8px;">
-              <p style="margin: 0; font-size: 12px; color: #737a82; text-align: center;">
-                Cet email a été envoyé par <a href="https://auditionscitoyennes.com" style="color: #7a29cc; text-decoration: none;">Auditions Citoyennes</a>.<br>
-                Il s'agit d'un message automatique, merci de ne pas y répondre.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+              </p>`;
+  return wrapBrandedEmail("Vérifiez votre témoignage", body);
 }
 
 function buildVerificationText(

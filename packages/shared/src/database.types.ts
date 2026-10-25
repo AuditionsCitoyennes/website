@@ -1,41 +1,38 @@
-// Supabase-generated database types (ported from the previous app).
-// Regenerate with `supabase gen types typescript` if the schema changes.
+// Generated from the migrations by `supabase gen types --lang typescript --local --schema public`
+// against a local stack, then formatted with Prettier. Regenerate, never edit by hand.
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type Database = {
-  __InternalSupabase: {
-    PostgrestVersion: "13.0.5";
-  };
   public: {
     Tables: {
       audit_log: {
         Row: {
-          id: string;
-          user_id: string | null;
           action: string;
-          target_type: string | null;
-          target_id: string | null;
-          metadata: Json | null;
           created_at: string | null;
+          id: string;
+          metadata: Json | null;
+          target_id: string | null;
+          target_type: string | null;
+          user_id: string | null;
         };
         Insert: {
-          id?: string;
-          user_id?: string | null;
           action: string;
-          target_type?: string | null;
-          target_id?: string | null;
-          metadata?: Json | null;
           created_at?: string | null;
+          id?: string;
+          metadata?: Json | null;
+          target_id?: string | null;
+          target_type?: string | null;
+          user_id?: string | null;
         };
         Update: {
-          id?: string;
-          user_id?: string | null;
           action?: string;
-          target_type?: string | null;
-          target_id?: string | null;
-          metadata?: Json | null;
           created_at?: string | null;
+          id?: string;
+          metadata?: Json | null;
+          target_id?: string | null;
+          target_type?: string | null;
+          user_id?: string | null;
         };
         Relationships: [];
       };
@@ -83,6 +80,71 @@ export type Database = {
           updated_at?: string | null;
         };
         Relationships: [];
+      };
+      captured_emails: {
+        Row: {
+          body_html: string | null;
+          body_text: string | null;
+          created_at: string;
+          id: string;
+          recipients: string[];
+          source: string;
+          subject: string;
+          user_id: string | null;
+          viewer: string | null;
+        };
+        Insert: {
+          body_html?: string | null;
+          body_text?: string | null;
+          created_at?: string;
+          id?: string;
+          recipients: string[];
+          source: string;
+          subject: string;
+          user_id?: string | null;
+          viewer?: string | null;
+        };
+        Update: {
+          body_html?: string | null;
+          body_text?: string | null;
+          created_at?: string;
+          id?: string;
+          recipients?: string[];
+          source?: string;
+          subject?: string;
+          user_id?: string | null;
+          viewer?: string | null;
+        };
+        Relationships: [];
+      };
+      online_testimony_submissions: {
+        Row: {
+          created_at: string;
+          email_hash: string;
+          id: number;
+          testimony_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          email_hash: string;
+          id?: never;
+          testimony_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          email_hash?: string;
+          id?: never;
+          testimony_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "online_testimony_submissions_testimony_id_fkey";
+            columns: ["testimony_id"];
+            isOneToOne: false;
+            referencedRelation: "testimonies";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       testimonies: {
         Row: {
@@ -134,63 +196,6 @@ export type Database = {
           },
         ];
       };
-      captured_emails: {
-        Row: {
-          id: string;
-          created_at: string;
-          source: string;
-          recipients: string[];
-          subject: string;
-          body_html: string | null;
-          body_text: string | null;
-          viewer: string | null;
-          user_id: string | null;
-        };
-        Insert: {
-          id?: string;
-          created_at?: string;
-          source: string;
-          recipients: string[];
-          subject: string;
-          body_html?: string | null;
-          body_text?: string | null;
-          viewer?: string | null;
-          user_id?: string | null;
-        };
-        Update: {
-          id?: string;
-          created_at?: string;
-          source?: string;
-          recipients?: string[];
-          subject?: string;
-          body_html?: string | null;
-          body_text?: string | null;
-          viewer?: string | null;
-          user_id?: string | null;
-        };
-        Relationships: [];
-      };
-      online_testimony_submissions: {
-        Row: {
-          id: number;
-          testimony_id: string | null;
-          email_hash: string;
-          created_at: string;
-        };
-        Insert: {
-          id?: never;
-          testimony_id?: string | null;
-          email_hash: string;
-          created_at?: string;
-        };
-        Update: {
-          id?: never;
-          testimony_id?: string | null;
-          email_hash?: string;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
       user_roles: {
         Row: {
           created_at: string | null;
@@ -220,38 +225,70 @@ export type Database = {
           total_count: number | null;
           verified_count: number | null;
         };
+        Relationships: [
+          {
+            foreignKeyName: "testimonies_audition_id_fkey";
+            columns: ["audition_id"];
+            isOneToOne: false;
+            referencedRelation: "auditions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      distinct_testimony_topics: {
+        Row: {
+          topic: string | null;
+        };
         Relationships: [];
       };
     };
     Functions: {
       admin_testimonies: {
-        Args: { p_audition_id?: string | null; p_id?: string | null };
+        Args: { p_audition_id?: string; p_id?: string };
         Returns: {
-          id: string;
-          audition_id: string | null;
-          person_name: string;
-          person_info: string | null;
+          audition_id: string;
           content: string;
-          topics: string[] | null;
-          email: string | null;
-          verification_status: string | null;
-          created_by: string | null;
-          created_at: string | null;
+          created_at: string;
+          created_by: string;
+          email: string;
+          id: string;
+          person_info: string;
+          person_name: string;
+          topics: string[];
+          verification_status: string;
         }[];
       };
       get_audit_log: {
-        Args: {
-          p_limit?: number;
-          p_offset?: number;
-        };
+        Args: { p_limit?: number; p_offset?: number };
         Returns: {
-          id: string;
           action: string;
-          target_type: string | null;
-          target_id: string | null;
-          metadata: Json | null;
           created_at: string;
-          user_email: string | null;
+          id: string;
+          metadata: Json;
+          target_id: string;
+          target_type: string;
+          user_email: string;
+        }[];
+      };
+      get_pending_registrations: {
+        Args: never;
+        Returns: {
+          bio: string;
+          created_at: string;
+          email: string;
+          user_id: string;
+          username: string;
+        }[];
+      };
+      get_user_roles_with_details: {
+        Args: never;
+        Returns: {
+          created_at: string;
+          email: string;
+          id: string;
+          role: string;
+          user_id: string;
+          username: string;
         }[];
       };
       has_role: {
@@ -261,45 +298,51 @@ export type Database = {
         };
         Returns: boolean;
       };
+      has_verified_testimony: { Args: { p_audition: string }; Returns: boolean };
       insert_audit_log: {
         Args: {
-          p_user_id: string;
           p_action: string;
-          p_target_type?: string | null;
-          p_target_id?: string | null;
           p_metadata?: Json;
+          p_target_id?: string;
+          p_target_type?: string;
+          p_user_id: string;
         };
         Returns: undefined;
       };
-      is_admin: { Args: Record<string, never>; Returns: boolean };
+      is_admin: { Args: never; Returns: boolean };
+      is_online_audition: { Args: { p_audition: string }; Returns: boolean };
+      is_super_admin: { Args: never; Returns: boolean };
+      online_testimony_ids: {
+        Args: { p_unverified_only: boolean };
+        Returns: string[];
+      };
+      reject_testimony_by_token: { Args: { p_token: string }; Returns: boolean };
       submit_online_testimony: {
         Args: {
-          p_email_hash: string;
-          p_person_name: string;
-          p_person_info: string | null;
-          p_content: string;
-          p_citycode: string;
-          p_location: string;
-          p_place: Json;
-          p_month: string;
-          p_title: string;
           p_audition_content: string;
+          p_citycode: string;
+          p_content: string;
+          p_email_hash: string;
+          p_location: string;
+          p_month: string;
+          p_person_info: string;
+          p_person_name: string;
+          p_place: Json;
+          p_title: string;
           p_token: string;
         };
         Returns: Json;
       };
-      is_super_admin: { Args: Record<string, never>; Returns: boolean };
-      reject_testimony_by_token: { Args: { p_token: string }; Returns: boolean };
       testimony_for_verification: {
         Args: { p_token: string };
         Returns: {
-          id: string;
-          person_name: string;
-          person_info: string | null;
+          audition_id: string;
           content: string;
-          verification_status: string | null;
-          audition_id: string | null;
-          created_at: string | null;
+          created_at: string;
+          id: string;
+          person_info: string;
+          person_name: string;
+          verification_status: string;
         }[];
       };
       verify_testimony: {
@@ -307,7 +350,7 @@ export type Database = {
         Returns: boolean;
       };
       verify_testimony_by_token: {
-        Args: { p_token: string; p_edits?: Json | null };
+        Args: { p_edits?: Json; p_token: string };
         Returns: boolean;
       };
     };
@@ -321,14 +364,116 @@ export type Database = {
   };
 };
 
-type PublicSchema = Database["public"];
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">;
 
-export type Tables<T extends keyof PublicSchema["Tables"]> = PublicSchema["Tables"][T]["Row"];
-export type TablesInsert<T extends keyof PublicSchema["Tables"]> =
-  PublicSchema["Tables"][T]["Insert"];
-export type TablesUpdate<T extends keyof PublicSchema["Tables"]> =
-  PublicSchema["Tables"][T]["Update"];
-export type Enums<T extends keyof PublicSchema["Enums"]> = PublicSchema["Enums"][T];
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">];
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R;
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] & DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R;
+      }
+      ? R
+      : never
+    : never;
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I;
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I;
+      }
+      ? I
+      : never
+    : never;
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U;
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U;
+      }
+      ? U
+      : never
+    : never;
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never;
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    keyof DefaultSchema["CompositeTypes"] | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never;
 
 export const Constants = {
   public: {
