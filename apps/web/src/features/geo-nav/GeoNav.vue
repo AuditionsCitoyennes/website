@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, watch } from "vue";
+import {
+  computed,
+  markRaw,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+  shallowRef,
+  toRaw,
+  toRef,
+  watch,
+} from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { api } from "@/shared/api/client";
@@ -20,34 +30,19 @@ import {
   type UnitGeo,
   unitsByLevelKey,
 } from "@/features/geo";
+import { GeoDrillMap, type CameraCmd, type MapUnit, type OutlineFC } from "@/features/map";
 import {
-  GeoDrillMap,
-  type CameraCmd,
-  type MapUnit,
-  type OutlineFC,
-  type SlabSpec,
-} from "@/features/map";
-import {
-  analyseScope,
-  buildUnitStats,
+  analysisSummary,
   edgeMargin,
   FRAME_MIN_COMPACT,
   FRAME_MIN_WIDE,
   frameFill,
-  plateRoom,
-  RING_BANDS,
-  ringBandMode,
   ScopeAnalysisOverlay,
-  slabGap,
-  slabLidMode,
-  slabSizes,
   slabTextMode,
   slabTextScale,
+  useScopeAnalysis,
   type PlateRoom,
-  type ScopeAnalysis,
   type ScreenOpts,
-  type SlabSizes,
-  type UnitStatsIndex,
 } from "@/features/analyses";
 import TestimonyCard from "@/shared/testimony/TestimonyCard.vue";
 import ExpandTransition from "@/shared/ui/transition/ExpandTransition.vue";
@@ -1779,16 +1774,6 @@ watch([plateScreen, () => props.preview], ([screen, preview]) => {
   if (ringRoom.value) ringRoom.value = roomNow() ?? ringRoom.value;
 });
 
-function roomNow(): PlateRoom | null {
-  const z = slabSizesNow.value;
-  if (!z) return null;
-  return plateRoom(z, {
-    ...plateScreen.value,
-    anamorphic: slabTextMode.value === "redresse",
-    textScale: slabTextScale.value,
-  });
-}
-
 /** Two opposite insets brought within `room`: first what the ring adds to its
  *  floor (the camera's padding; PHONE_SIDE beside a phone's territory; `head`
  *  above it) gives way, then (too little map even for that) both, in
@@ -2056,124 +2041,35 @@ function onViewChange(view: MapView) {
 
 // ---- Analyses ----------------------------------------------------------------
 // What the association heard in the raised territory, drawn on the map around
-// its plateau (ScopeAnalysisOverlay). None of it may reach `outline`: the
-// plateau would be rebuilt for a change it does not show.
+// its plateau (ScopeAnalysisOverlay): its figures, the words' content boxes,
+// whether they are on screen, the slabs GeoDrillMap stands and the room the
+// camera leaves them — analyses/composables/useScopeAnalysis, handed what it
+// reads of this component. None of it may reach `outline`: the plateau would
+// be rebuilt for a change it does not show.
 
-// Every unit's figures, gathered once per data load. Keyed on the data itself,
-// not on the hierarchy, which is rebuilt each time commune contours arrive.
-const unitStats = computed<UnitStatsIndex | null>(() =>
-  analyses.value && !props.preview
-    ? markRaw(buildUnitStats(props.groups, ownAuditions.value))
-    : null,
-);
+/** The filters' themes, as the plates are handed them (one array, not a fresh
+ *  one per render). */
+const NO_THEMES: string[] = [];
+const filterThemes = computed(() => props.themeFilter ?? NO_THEMES);
 
-// The scope is re-derived as the map moves and its unit object replaced at each
-// rebuild of the hierarchy: an analysis already made for the same territory is
-// handed back as it was, so the plates do not re-render.
-const analysisMemo = new Map<string, ScopeAnalysis | null>();
-let analysisMemoOf: UnitStatsIndex | null = null;
-const scopeAnalysis = computed<ScopeAnalysis | null>(() => {
-  const stats = unitStats.value;
-  const unit = currentScope.value;
-  if (!stats || unit.levelKey === "world") return null;
-  if (stats !== analysisMemoOf || analysisMemo.size > 200) {
-    analysisMemo.clear();
-    analysisMemoOf = stats;
-  }
-  if (analysisMemo.has(unit.id)) return analysisMemo.get(unit.id) ?? null;
-  const labels = placeByCanonical.value;
-  const analysis = analyseScope(unit, stats, {
-    placeLabel: (canonical) => labels.get(canonical)?.label ?? canonical,
+const { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLoaded } =
+  useScopeAnalysis({
+    analyses,
+    preview: toRef(props, "preview"),
+    groups: toRef(props, "groups"),
+    ownAuditions,
+    currentScope,
+    placeByCanonical,
+    booting,
+    inMicroZone,
+    readingPlace,
+    isDesktop,
+    sheetOpen,
+    plateScreen,
+    listMode,
+    themeFilter: filterThemes,
+    framedFit,
   });
-  analysisMemo.set(unit.id, analysis);
-  return analysis;
-});
-
-// On screen only while the map is what is being looked at: not on the card,
-// not behind the boot curtain, not deep among the lieux (nothing stands
-// there), not while a lieu is being read, not under a raised sheet.
-const analysesVisible = computed(
-  () =>
-    Boolean(scopeAnalysis.value) &&
-    !props.preview &&
-    !booting.value &&
-    !inMicroZone.value &&
-    !readingPlace() &&
-    (isDesktop.value || !sheetOpen.value),
-);
-
-// The slabs' content boxes are measured with the site's fonts: until they are
-// in, estimated — measured again as each comes in (a face loads when first
-// used: Bebas with the plaque's title).
-const fontsLoaded = ref(0);
-const onFontsLoaded = () => fontsLoaded.value++;
-document.fonts?.ready.then(onFontsLoaded).catch(() => {});
-document.fonts?.addEventListener?.("loadingdone", onFontsLoaded);
-onBeforeUnmount(() => document.fonts?.removeEventListener?.("loadingdone", onFontsLoaded));
-
-/** The slabs' content boxes for the territory in scope (analyses/content/slabSizes):
- *  what the overlay draws, the room the camera leaves, the size on the map. */
-const slabSizesNow = computed<SlabSizes | null>(() => {
-  const a = scopeAnalysis.value;
-  void fontsLoaded.value; // measured again once the fonts are in
-  if (!a) return null;
-  const screen = plateScreen.value;
-  return markRaw(
-    slabSizes(a, {
-      compact: screen.compact,
-      vw: screen.vw,
-      rem: screen.rem,
-      filtered: listMode.value,
-      themeFilter: filterThemes.value,
-      ringThick: RING_BANDS[ringBandMode.value],
-      safeW: screen.safeW,
-      textScale: slabTextScale.value,
-    }),
-  );
-});
-
-/** The slabs GeoDrillMap stands on the raised territory: only while the
- *  analyses are on screen (they go with them, and with the plateau), sized
- *  for the fit that framed the territory when there was one (`framedFit`);
- *  on the top one, the themes' row — its boxes, and the ring's parts it
- *  raises one by one. */
-const slabSpec = computed<SlabSpec | null>(() => {
-  const a = scopeAnalysis.value;
-  const z = slabSizesNow.value;
-  if (!analysesVisible.value || !a || !z) return null;
-  const fit = framedFit.value;
-  const t = z.themes;
-  return {
-    scopeId: a.scopeId,
-    top: t && {
-      w: t.w,
-      h: t.h,
-      ringBox: t.ringBox,
-      barBox: t.barBox,
-      labelBox: t.labelBox,
-      ring: {
-        c: t.ring.c,
-        R: t.ring.R,
-        r: t.ring.r,
-        pick: t.ring.pick,
-        hover: t.ring.hover,
-        parts: t.ring.parts.map((p) => ({
-          theme: p.theme,
-          a0: p.a0,
-          a1: p.a1,
-          color: p.color,
-          pastel: p.pastel,
-        })),
-      },
-    },
-    bottom: { w: z.plaque.w, h: z.plaque.h },
-    gapPx: slabGap(!isDesktop.value),
-    framedBy: fit && fit.unitId === a.scopeId ? fit.key : null,
-    anamorphic: slabTextMode.value === "redresse",
-    textScale: slabTextScale.value,
-    lid: slabLidMode.value,
-  };
-});
 
 // DEV: the words drawn long or flat, or at another size, take another room,
 // and another framing frames otherwise: framed again, the ring with it
@@ -2277,71 +2173,19 @@ function tryFocusPlaque() {
   plaqueFocusTimer = window.setTimeout(tryFocusPlaque, PLAQUE_FOCUS_POLL_MS);
 }
 
-// ---- What the plates say, for a screen reader --------------------------------
-const frNumber = new Intl.NumberFormat("fr-FR");
-function counted(n: number, one: string, many: string): string {
-  return `${frNumber.format(n)} ${n > 1 ? many : one}`;
-}
-
-/** The filters' themes, as the plates are handed them (one array, not a fresh
- *  one per render). */
-const NO_THEMES: string[] = [];
-const filterThemes = computed(() => props.themeFilter ?? NO_THEMES);
-
-function analysisSummary(a: ScopeAnalysis): string {
-  const filtered = listMode.value;
-  const lines = [
-    `Analyses : ${a.label}, ${a.levelLabel.toLowerCase()}${filtered ? ", selon les filtres" : ""}.`,
-  ];
-  if (!a.testimonies) {
-    // Filtered, the association's auditions here may only be left out.
-    lines.push(
-      filtered
-        ? "Aucun témoignage de l'association ne correspond aux filtres ici."
-        : "Aucune audition de l'association ici pour l'instant.",
-    );
-  } else {
-    lines.push(
-      [
-        counted(a.testimonies, "témoignage", "témoignages"),
-        counted(a.auditions, "audition", "auditions"),
-        counted(a.lieux, "lieu", "lieux"),
-        counted(a.communes, "commune", "communes"),
-      ].join(", ") + ".",
-    );
-    if (a.concentration) {
-      lines.push(
-        `Dont ${frNumber.format(a.concentration.count)} lors d'une seule audition : ${a.concentration.lieu}.`,
-      );
-    }
-    // A theme picked in the filters is in every testimony counted (or one of
-    // those picked is): not ranked, only named.
-    const chosen = filterThemes.value;
-    const top = a.themes.filter((t) => t.count > 0 && !chosen.includes(t.theme)).slice(0, 3);
-    if (a.reliability !== "trop-peu" && top.length) {
-      const how =
-        a.reliability === "solide"
-          ? "fiabilité solide"
-          : a.reliability === "indicatif"
-            ? `indicatif${a.reliabilityReason ? `, ${a.reliabilityReason}` : ""}`
-            : "peu de témoignages";
-      const besides = chosen.length
-        ? `, hors ${chosen.length > 1 ? "thèmes" : "thème"} du filtre (${chosen.join(", ")})`
-        : "";
-      lines.push(
-        `Thèmes les plus abordés${besides} : ${top.map((t) => t.theme).join(", ")} (${how}).`,
-      );
-    }
-  }
-  return lines.join(" ");
-}
-
+// ---- What the plates say, for a screen reader (analyses/content/summary) -----
 // Said once the territory has settled: the scope can change several times
 // while the map is being moved, and each change would otherwise be read out.
 const analysesLive = ref("");
 let liveTimer = 0;
 watch(
-  () => (analysesVisible.value && scopeAnalysis.value ? analysisSummary(scopeAnalysis.value) : ""),
+  () =>
+    analysesVisible.value && scopeAnalysis.value
+      ? analysisSummary(scopeAnalysis.value, {
+          filtered: listMode.value,
+          themeFilter: filterThemes.value,
+        })
+      : "",
   (text) => {
     window.clearTimeout(liveTimer);
     if (!text) {

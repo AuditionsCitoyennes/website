@@ -11,25 +11,23 @@
 // the map seen through it.
 //
 // The words' CONTENT is ordinary Vue (it changes with the scope, a theme
-// picked). Their PLACE is not: each frame of the map (GeoDrillMap's frame bus)
-// hands over each box's four corners on screen at its lid's height, projected
-// with the very camera the lids are drawn with, and the box is mapped onto
-// them by a projective transform (matrix3d) written straight to the DOM — no
-// reactive write, no layout read per frame. A plane seen in perspective IS a
-// projective map of it: the words lie exactly on the lid, corner to corner.
+// picked): this file. Their PLACE is not: each frame of the map (GeoDrillMap's
+// frame bus) hands over each box's four corners on screen at its lid's height,
+// and the box is mapped onto them by a projective transform written straight
+// to the DOM (useSlabLayout — no reactive write, no layout read per frame).
 // Three boxes: the ring's (its parts' targets and focus ring, over the parts
 // raised: they are GeoDrillMap's, told the pick and the hover here, setRing),
 // the label's, the plaque's. Their boxes are laid out at the type scale's
-// sizes (analyses/content/slabSizes), and the slabs are sized on the map so that right
-// after the camera frames the territory the reader sees a set share of those
-// sizes (map/lib/slabs: TEXT_SCALE) — the CSS keeps its tokens, the map draws the
-// boxes smaller.
+// sizes (analyses/content/slabSizes), and the slabs are sized on the map so
+// that right after the camera frames the territory the reader sees a set
+// share of those sizes (map/lib/slabs: TEXT_SCALE) — the CSS keeps its tokens,
+// the map draws the boxes smaller. The ring's reader — the part picked,
+// hovered, focused, said — is useRingPick's.
 //
 // Shown only while the slabs stand: the plateau raised, these slabs its own,
 // risen — they fade in and out with its rise, nothing else hides them.
 import {
   computed,
-  nextTick,
   onBeforeUnmount,
   onMounted,
   onUpdated,
@@ -38,39 +36,16 @@ import {
   useId,
   watch,
 } from "vue";
-import type { AuditionTheme } from "@ac/shared";
-import type { PlateauFrame } from "@/features/map/types";
 import type { ScopeAnalysis } from "../stats/scopeStats";
-import { emptyTextOf, fmtN, plural, shortName } from "../content/text";
+import { emptyTextOf, fmtN, shortName } from "../content/text";
+import { ringReading } from "../content/summary";
 import { RING_LABEL } from "../content/ring";
 import type { SlabSizes } from "../content/slabSizes";
-import { homography, matrix3dOf } from "@/features/map/lib";
-import {
-  frameFill,
-  ringBandMode,
-  SCALE_CHOICES,
-  setFrameFill,
-  setRingBandMode,
-  setSlabLidMode,
-  setSlabTextMode,
-  setSlabTextScale,
-  slabLidMode,
-  slabTextMode,
-  slabTextScale,
-  type RingBandMode,
-  type SlabLidMode,
-  type SlabTextMode,
-} from "../devSwitch";
-
-/** What the overlay needs of the map: GeoDrillMap's exposed frame bus. */
-interface FrameSource {
-  onFrame(cb: (f: PlateauFrame) => void): () => void;
-  /** A wheel turned over the words, passed on to the map as its own. */
-  forwardWheel(e: WheelEvent): void;
-  /** The ring's part picked and the one hovered on unit `scopeId`'s: the
-   *  parts raised and the bar follow. */
-  setRing(scopeId: string, picked: string | null, hovered: string | null): void;
-}
+import { frameFill, ringBandMode, slabLidMode, slabTextMode, slabTextScale } from "../devSwitch";
+import type { FrameSource } from "./frameSource";
+import { useRingPick } from "./useRingPick";
+import { stretchOf, useSlabLayout, type SlabName } from "./useSlabLayout";
+import DevSlabSwitch from "./DevSlabSwitch.vue";
 
 const props = defineProps<{
   analysis: ScopeAnalysis;
@@ -99,7 +74,7 @@ const emit = defineEmits<{
 
 const uid = useId();
 const isDev = import.meta.env.DEV;
-// The DEV switch below: the dev server and staging (the testing tools).
+// The DEV switch (DevSlabSwitch): the dev server and staging (the testing tools).
 const testTools = __TEST_TOOLS__;
 
 // ---- Content -------------------------------------------------------------------
@@ -112,9 +87,6 @@ const contentSizes = shallowRef(props.sizes);
 const a = computed(() => content.value);
 const sz = computed(() => contentSizes.value);
 
-/** The part of the ring the reader picked (null: none yet — the largest
- *  stands picked, see ringPicked). */
-const picked = ref<AuditionTheme | null>(null);
 const howOpen = ref(false);
 
 // Kept off the plaque's lines: a tooltip on the counts.
@@ -133,602 +105,72 @@ const summaryLabel = computed(() => `Analyses : ${a.value.label}`);
  *  slabSizes) — the very parts GeoDrillMap raises. */
 const ring = computed(() => sz.value.themes?.ring ?? null);
 
-/** The part picked: the reader's pick while the ring has it, else the
- *  largest (the ring runs largest first) — one always is, once there are
- *  parts. Another territory, or the pick taken out of the ring by the filters,
- *  starts again from the largest (see swapContent, the watcher on the ring). */
-const ringPicked = computed(() => {
-  const parts = ring.value?.parts;
-  if (!parts?.length) return null;
-  const t = picked.value;
-  return t && parts.some((p) => p.theme === t) ? t : parts[0].theme;
-});
-/** The part a mouse is over, and the part with the focus — and whether that
- *  focus is a keyboard's (then its focus ring is drawn). */
-const hovered = ref<AuditionTheme | null>(null);
-const focused = ref<AuditionTheme | null>(null);
-const focusShown = ref(false);
-/** The ring's one tab stop (a roving tabindex): the picked part — or, while
- *  the focus is in the ring on another (a pointer picked elsewhere, a screen
- *  reader moved it), the part it is on, so that Tab and Shift+Tab leave the
- *  ring from there. */
-const rover = ref<AuditionTheme | null>(null);
-const tabStop = computed(() => {
-  const r = rover.value;
-  return r && ring.value?.parts.some((p) => p.theme === r) ? r : ringPicked.value;
-});
-
-/** A part only looked at — under the mouse —: named in the pick's stead for
- *  as long, then the picked one again. (The keyboard picks as it goes: the
- *  part it is on is the picked one.) */
-const previewPart = computed(() => {
-  const t = hovered.value;
-  return t && t !== ringPicked.value ? t : null;
-});
-/** The part the label names: a preview, else the picked one. */
-const shownPart = computed(() => {
-  const t = previewPart.value ?? ringPicked.value;
-  return t ? (ring.value?.parts.find((p) => p.theme === t) ?? null) : null;
-});
-/** The theme a pointer has just picked, said as its label shows. Not one the
- *  keyboard picks (nor a screen reader's own press): the focus is on its
- *  part, whose name and state say the whole label — said here as well, it
- *  would be heard twice. Nor the largest, picked by default (each territory
- *  the map crossed would be read out), nor a preview (the part's own name
- *  says it all), nor the pick shown again after one: whatever else the label
- *  shows lets it go. */
-const said = ref<AuditionTheme | null>(null);
-watch(
-  () => shownPart.value?.theme ?? null,
-  (t) => {
-    if (t !== said.value) said.value = null;
-  },
-);
-const labelSaid = computed(() => said.value !== null && said.value === shownPart.value?.theme);
-
-/** The focus ring, around the focused part (grown out when picked or hovered). */
-const focusPath = computed(() => {
-  const t = focusShown.value ? focused.value : null;
-  const p = t ? ring.value?.parts.find((x) => x.theme === t) : undefined;
-  if (!p) return null;
-  return p.theme === ringPicked.value || p.theme === hovered.value ? p.focusOut : p.focus;
-});
-
-const ringEl = ref<SVGSVGElement | null>(null);
-
-function partOf(target: EventTarget | null) {
-  const t = (target as Element | null)?.getAttribute?.("data-theme");
-  return t ? (ring.value?.parts.find((p) => p.theme === t) ?? null) : null;
-}
-
-function keyboardFocus(el: Element): boolean {
-  try {
-    return el.matches(":focus-visible");
-  } catch {
-    return true; // no :focus-visible: always drawn
-  }
-}
-
-function onRingFocusIn(e: FocusEvent) {
-  const p = partOf(e.target);
-  if (!p) return;
-  focused.value = p.theme;
-  rover.value = p.theme;
-  focusShown.value = keyboardFocus(e.target as Element);
-}
-
-// Out of the ring, its tab stop is the picked part again.
-function onRingFocusOut(e: FocusEvent) {
-  const next = e.relatedTarget as Node | null;
-  if (next && ringEl.value?.contains(next)) return;
-  focused.value = null;
-  focusShown.value = false;
-  rover.value = null;
-}
-
-function onPartEnter(e: PointerEvent, theme: AuditionTheme) {
-  if (e.pointerType === "mouse") hovered.value = theme;
-}
-
-function onPartLeave(theme: AuditionTheme) {
-  if (hovered.value === theme) hovered.value = null;
-}
-
-// The ring is one radio group, as any (WAI-ARIA's radio group): the arrows go
-// round it (in its order, largest first, wrapping), Home and End to its ends,
-// and the part reached is picked as the focus lands on it; Enter or Space
-// picks the part focused too. Escape is left to the layer (onEscape).
-function onRingKey(e: KeyboardEvent) {
-  const parts = ring.value?.parts;
-  const at = parts ? parts.findIndex((p) => p.theme === focused.value) : -1;
-  if (!parts || at < 0) return;
-  const n = parts.length;
-  let to: number;
-  switch (e.key) {
-    case "ArrowRight":
-    case "ArrowDown":
-      to = (at + 1) % n;
-      break;
-    case "ArrowLeft":
-    case "ArrowUp":
-      to = (at - 1 + n) % n;
-      break;
-    case "Home":
-      to = 0;
-      break;
-    case "End":
-      to = n - 1;
-      break;
-    case "Enter":
-    case " ":
-      to = at;
-      break;
-    default:
-      return;
-  }
-  e.preventDefault();
-  pick(parts[to].theme, false);
-  if (to === at) return;
-  rover.value = parts[to].theme;
-  // Once the part is drawn checked (and the tab stop): the focus landing on
-  // it reads it so.
-  void nextTick(() =>
-    ringEl.value?.querySelectorAll<SVGGElement>(".part")[to]?.focus({ preventScroll: true }),
-  );
-}
-
-/** A part pressed with a pointer (`detail` ≥ 1, the presses counted): said.
- *  A click with no press behind it is a screen reader's own: it acts on the
- *  part its cursor is on, which says itself. */
-function onPartClick(e: MouseEvent, theme: AuditionTheme) {
-  pick(theme, e.detail > 0);
-}
-
-// The themes picked in Filtres, as the reading notes name them.
-const filteredThemes = computed(() => {
-  const named = new Set<string>(props.themeFilter);
-  return a.value.themes.filter((t) => named.has(t.theme)).map((t) => t.theme);
-});
+/** Its reader: the part picked (the largest until the reader picks another),
+ *  hovered, focused, said; the radio group its targets make. */
+const {
+  picked,
+  ringPicked,
+  hovered,
+  said,
+  tabStop,
+  shownPart,
+  labelSaid,
+  focusPath,
+  ringEl,
+  onRingFocusIn,
+  onRingFocusOut,
+  onPartEnter,
+  onPartLeave,
+  onRingKey,
+  onPartClick,
+  reset: resetRing,
+} = useRingPick(ring);
 
 // What the ring leaves unsaid — how many testimonies it is read from, how far
 // to trust it, what the filters do to it —, for the reading notes.
-const themesReading = computed(() => {
-  const s = a.value;
-  if (!s.testimonies) return "";
-  const analysed = plural(s.themeBase, "témoignage analysé", "témoignages analysés");
-  const parts = [s.untagged ? `${analysed}, ${fmtN(s.untagged)} pas encore` : analysed];
-  const reason = s.reliabilityReason;
-  if (s.reliability === "solide") parts.push("fiabilité solide");
-  else if (s.reliability === "indicatif")
-    parts.push(reason ? `indicatif : ${reason}` : "indicatif");
-  else if (s.reliability === "chips") parts.push("peu de témoignages : parts très approximatives");
-  else parts.push("trop peu de témoignages pour en tirer les thèmes");
-  if (s.approx) {
-    parts.push(`${fmtN(s.approx)} ${s.approx > 1 ? "rattachés" : "rattaché"} à un thème voisin`);
-  }
-  const f = filteredThemes.value.map((t) => `« ${shortName(t)} »`);
-  if (f.length === 1)
-    parts.push(`${f[0]} présent dans tous, par le filtre, et laissé hors du cercle`);
-  else if (f.length > 1) {
-    parts.push(
-      `${f.slice(0, -1).join(", ")} ou ${f[f.length - 1]} dans chacun, par le filtre, et laissés hors du cercle`,
-    );
-  }
-  return `Thèmes ici : ${parts.join(" · ")}.`;
-});
+const themesReading = computed(() => ringReading(a.value, props.themeFilter));
 
-/** A part picked by the reader: it stays picked — pressed again, it is kept —
- *  until another is, or the territory changes. Said only when asked (a
- *  pointer's pick, see `said`). */
-function pick(theme: AuditionTheme, say: boolean) {
-  picked.value = theme;
-  said.value = say ? theme : null;
-}
-
-// ---- DEV switch: the slabs' lid, words, size, the framing, the ring's band ----------
-
-const LID_MODES: readonly { id: SlabLidMode; label: string }[] = [
-  { id: "verre", label: "Verre" },
-  { id: "opaque", label: "Opaque" },
-  { id: "carte", label: "Carte" },
-];
-const TEXT_MODES: readonly { id: SlabTextMode; label: string }[] = [
-  { id: "redresse", label: "Redressé" },
-  { id: "plat", label: "À plat" },
-];
-/** "Taille" (the words' share of their sizes) and "Cadrage" (the territory's
- *  share of its rectangle): the same steps. */
-const SHARES = SCALE_CHOICES.map((v) => ({ v, label: `${Math.round(v * 100)} %` }));
-const RING_MODES: readonly { id: RingBandMode; label: string }[] = [
-  { id: "fin", label: "Fin" },
-  { id: "moyen", label: "Moyen" },
-  { id: "epais", label: "Épais" },
-];
-
-// Apart from the slabs: on a desktop under the panel, above mapbox's
-// attribution (painted over the panel); on a phone at the safe rect's top
-// right, under the header's tiles, folded until opened: its five rows would
-// cover the themes there, the fold alone stands clear of them (centred, they
-// span at most ~237 px right after a fit, and on a 320 px phone stand some
-// 26 px away from it at the least). DEV only.
-const switchStyle = computed(() =>
-  props.compact
-    ? { right: `${props.insets.right + 8}px`, top: `${props.insets.top + 8}px` }
-    : { right: "12px", bottom: "36px", zIndex: 5 },
-);
-
-// ---- Imperative layout state (plain, never reactive) -----------------------------
-
-/** At rest once the frames have stopped for this long. */
-const REST_MS = 250;
-/** The rise from which a slab's words show, and over which they fade in. */
-const RISE_SHOW = 0.05;
-const RISE_FADE = 0.3;
-/** The scales a slab's words are drawn at, before the browser maps them onto
- *  the lid (see rest): 1, 2, 4 — never under 1 (a browser's least font size
- *  would then break the layout). Up a step past each bound × 1.1, down one
- *  under bound ÷ 1.1. */
-const RENDER_SCALES = [1, 2, 4] as const;
-const RENDER_BOUNDS = [1.15, 2.3] as const;
-
-/** A box of words on a lid (see PlateauSlabs): the plaque's, the ring's, the
- *  label's. */
-type SlabName = "plaque" | "ring" | "label";
-
-interface Slab {
-  name: SlabName;
-  /** The outer box (its transform, written here), its zoomed inner box, and
-   *  its body: the words' ground (a glass, "Verre"), which fades — never an
-   *  ancestor of the glass, which would then blur nothing (see the style). */
-  el: HTMLElement | null;
-  zoomEl: HTMLElement | null;
-  bodyEl: HTMLElement | null;
-  /** This frame: the lid stands (present), all its corners in front (ok),
-   *  its corners on screen (NW, NE, SE, SW). */
-  present: boolean;
-  ok: boolean;
-  quad: Float64Array;
-  /** Drawn on its lid now, and taking the pointer, the focus, read. */
-  drawn: boolean;
-  live: boolean;
-  /** As last written (NaN, '': not yet). */
-  opacity: number;
-  matrix: string;
-  size: string;
-  /** Its render scale (see RENDER_SCALES). */
-  r: number;
-}
-
-function makeSlab(name: SlabName): Slab {
-  return {
-    name,
-    el: null,
-    zoomEl: null,
-    bodyEl: null,
-    present: false,
-    ok: false,
-    quad: new Float64Array(8),
-    drawn: false,
-    live: false,
-    opacity: NaN,
-    matrix: "",
-    size: "",
-    r: 1,
-  };
-}
-
-const plaqueSlab = makeSlab("plaque");
-const ringSlab = makeSlab("ring");
-const labelSlab = makeSlab("label");
-/** Reading order (the page's). */
-const SLABS = [plaqueSlab, ringSlab, labelSlab];
-/** The themes' two boxes are shown and hidden together, as their group (its
- *  element: inert, out of the reading, or not), as last written. */
-let themesEl: HTMLElement | null = null;
-let themesLive = false;
-
-// The last frame, copied: the words are laid out again between frames (the
-// content changing, the parent hiding them, the slabs coming to rest) — and
-// the frame object is the map's.
-const snap = { live: false, scopeId: "", rise: 0, w: 0, h: 0 };
-
-// Mirrors of the props read per frame.
-let source: FrameSource | null = props.frames;
-let isVisible = props.visible;
-let targetScope = props.analysis.scopeId;
-let contentScope = props.analysis.scopeId;
-
-let lastOpen = false;
-let resting = true;
+// ---- The words on their lids (useSlabLayout: plain records, written per frame) ------
 
 const rootEl = ref<HTMLElement | null>(null);
 const howEl = ref<HTMLElement | null>(null);
 const howBtn = ref<HTMLButtonElement | null>(null);
-/** The reading notes' card size, px (ResizeObserver). */
-let howW = 0;
-let howH = 0;
-let howPos = "";
-
-/** The projective map being written (reused frame after frame). */
-const homBuf = new Float64Array(8);
-
-let restTimer = 0;
-let lastFrameAt = 0;
-let unsubscribe: (() => void) | null = null;
 
 /** A slab's box of words, CSS px (null: none). */
-function boxOf(s: Slab): { w: number; h: number } | null {
+function boxOf(name: SlabName): { w: number; h: number } | null {
   const z = contentSizes.value;
-  if (s.name === "plaque") return z.plaque;
+  if (name === "plaque") return z.plaque;
   if (!z.themes) return null;
-  return s.name === "ring" ? z.themes.ringBox : z.themes.labelBox;
+  return name === "ring" ? z.themes.ringBox : z.themes.labelBox;
 }
 
-// ---- Per frame ------------------------------------------------------------------
-
-function onFrame(f: PlateauFrame) {
-  // The bus sends a frame only when something moved.
-  resting = false;
-  snap.live = true;
-  snap.scopeId = f.slabs.scopeId;
-  snap.rise = f.slabs.rise;
-  snap.w = f.w;
-  snap.h = f.h;
-  for (const s of SLABS) {
-    const sf = f.slabs[s.name];
-    s.present = sf !== null;
-    s.ok = sf?.ok ?? false;
-    if (sf) for (let i = 0; i < 8; i++) s.quad[i] = sf.lid[i];
-  }
-  // The new unit's slabs have come (or the old ones are down): its words.
-  if (
-    contentScope !== targetScope &&
-    (snap.scopeId === targetScope || snap.scopeId === "" || snap.rise < RISE_SHOW)
-  ) {
-    swapContent(props.analysis);
-  }
-  layout();
-  scheduleRest();
-}
-
-function setShown(el: HTMLElement, show: boolean) {
-  el.inert = !show;
-  if (show) {
-    el.removeAttribute("aria-hidden");
-    el.setAttribute("data-live", "");
-  } else {
-    el.setAttribute("aria-hidden", "true");
-    el.removeAttribute("data-live");
-  }
-}
-
-// With nothing on show the region is empty: out of the landmarks too.
-function hideRegion(root: HTMLElement, hidden: boolean) {
-  if (hidden) root.setAttribute("aria-hidden", "true");
-  else root.removeAttribute("aria-hidden");
-}
-
-/** Lay every slab's words on its lid, from the last frame. Per frame, and on
- *  any change. */
-function layout() {
-  const root = rootEl.value;
-  if (!root) return;
-  const own = snap.live && snap.scopeId !== "" && snap.scopeId === contentScope;
-  const fade = own ? Math.min(1, Math.max(0, (snap.rise - RISE_SHOW) / RISE_FADE)) : 0;
-  for (const s of SLABS) {
-    const box = boxOf(s);
-    let drawn = false;
-    if (own && s.el && box && s.present && s.ok && snap.rise >= RISE_SHOW) {
-      const m = homography(s.quad, box.w * s.r, box.h * s.r, homBuf);
-      if (m) {
-        drawn = true;
-        const t = matrix3dOf(m);
-        if (t !== s.matrix) {
-          s.matrix = t;
-          s.el.style.transform = t;
-        }
-        const size = `${box.w * s.r}x${box.h * s.r}`;
-        if (size !== s.size) {
-          s.size = size;
-          s.el.style.width = `${box.w * s.r}px`;
-          s.el.style.height = `${box.h * s.r}px`;
-        }
-      }
-    }
-    s.drawn = drawn;
-    // Sinking (the analyses turned off, another unit raised), they fade with
-    // their lid — but no longer take the pointer or the focus.
-    const opacity = drawn ? Math.round(fade * 100) / 100 : 0;
-    if (s.bodyEl && opacity !== s.opacity) {
-      s.opacity = opacity;
-      s.bodyEl.style.opacity = String(opacity);
-    }
-  }
-  const shown = isVisible && source !== null;
-  const plaque = plaqueSlab.drawn && shown;
-  if (plaqueSlab.el && plaque !== plaqueSlab.live) setShown(plaqueSlab.el, plaque);
-  plaqueSlab.live = plaque;
-  // The ring without its label (or the label without its ring) says nothing.
-  const themes = ringSlab.drawn && labelSlab.drawn && shown;
-  ringSlab.live = themes;
-  labelSlab.live = themes;
-  if (themesEl && themes !== themesLive) setShown(themesEl, themes);
-  themesLive = themes;
-  const open = plaque || themes;
-  if (open !== lastOpen) {
-    lastOpen = open;
-    hideRegion(root, !open);
-  }
-  placeHowto();
-}
-
-/** The reading notes: a small upright card over the plaque's top edge, kept
- *  inside the safe rect, following the plaque frame by frame. */
-function placeHowto() {
-  const el = howEl.value;
-  if (!el) return;
-  const s = plaqueSlab;
-  if (!s.live) {
-    if (howPos !== "hidden") {
-      howPos = "hidden";
-      el.style.visibility = "hidden";
-    }
-    return;
-  }
-  const q = s.quad;
-  const x = (q[0] + q[2]) / 2;
-  const y = Math.min(q[1], q[3]);
-  const ins = props.insets;
-  const m = 8;
-  const left = Math.min(
-    Math.max(ins.left + m, x - howW / 2),
-    Math.max(ins.left + m, snap.w - ins.right - m - howW),
-  );
-  const top = Math.min(
-    Math.max(ins.top + m, y - m - howH),
-    Math.max(ins.top + m, snap.h - ins.bottom - m - howH),
-  );
-  const pos = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
-  if (pos !== howPos) {
-    howPos = pos;
-    el.style.transform = pos;
-    el.style.visibility = "";
-  }
-}
-
-/** The render scale for a slab drawn `sMax` × its box at the most (see
- *  RENDER_SCALES), from `r`. */
-function renderScale(sMax: number, r: number): number {
-  let lvl = Math.max(0, RENDER_SCALES.indexOf(r as 1 | 2 | 4));
-  while (lvl < RENDER_BOUNDS.length && sMax > RENDER_BOUNDS[lvl] * 1.1) lvl++;
-  while (lvl > 0 && sMax < RENDER_BOUNDS[lvl - 1] / 1.1) lvl--;
-  return RENDER_SCALES[lvl];
-}
-
-/** How much larger than its box a slab is drawn at the most: its longest
- *  edge on screen over the same edge of the box. */
-function stretchOf(s: Slab, box: { w: number; h: number }): number {
-  const q = s.quad;
-  const len = (i: number, j: number) =>
-    Math.hypot(q[2 * j] - q[2 * i], q[2 * j + 1] - q[2 * i + 1]);
-  return Math.max(len(0, 1) / box.w, len(3, 2) / box.w, len(0, 3) / box.h, len(1, 2) / box.h);
-}
-
-/**
- * Everything still: each slab's words drawn afresh at the scale they are seen
- * at. A box mapped onto its lid is drawn flat first, at the screen's pixel
- * density, then resampled through the map: about 1 : 1 right after a fit (the
- * slabs are sized so), sharp; zoomed in, enlarged — so drawn at 2 or 4 ×
- * first (CSS zoom), the lid then mapped from that larger box.
- */
-function rest() {
-  if (resting) return;
-  resting = true;
-  let changed = false;
-  for (const s of SLABS) {
-    const box = boxOf(s);
-    if (!box || !s.drawn || !s.zoomEl) continue;
-    const r = renderScale(stretchOf(s, box), s.r);
-    if (r === s.r) continue;
-    s.r = r;
-    s.zoomEl.style.zoom = r === 1 ? "" : String(r);
-    changed = true;
-  }
-  if (changed) layout();
-}
-
-// At rest once REST_MS have gone by with no frame. Frames come at 60 Hz in a
-// flight: each only notes its time, and the one timer, when it fires early,
-// waits out the rest instead of being cancelled and remade.
-function scheduleRest() {
-  lastFrameAt = performance.now();
-  if (!restTimer) restTimer = window.setTimeout(restCheck, REST_MS);
-}
-
-function restCheck() {
-  const idle = performance.now() - lastFrameAt;
-  if (idle < REST_MS) {
-    restTimer = window.setTimeout(restCheck, REST_MS - idle);
-    return;
-  }
-  restTimer = 0;
-  rest();
-}
-
-// ---- The DOM behind the records ----------------------------------------------------
-
-const howRO =
-  typeof ResizeObserver === "undefined"
-    ? null
-    : new ResizeObserver((entries) => {
-        for (const e of entries) {
-          const box = e.borderBoxSize?.[0];
-          howW = box ? box.inlineSize : (e.target as HTMLElement).offsetWidth;
-          howH = box ? box.blockSize : (e.target as HTMLElement).offsetHeight;
-        }
-        howPos = "";
-        placeHowto();
-      });
-let howObserved: Element | null = null;
-
-// After every render (content only: nothing per frame is reactive): find the
-// boxes Vue (re)created — hidden until laid on their lids.
-function syncDom() {
-  const root = rootEl.value;
-  if (!root) return;
-  for (const s of SLABS) {
-    const el = root.querySelector<HTMLElement>(`[data-slab="${s.name}"]`);
-    if (el !== s.el) {
-      s.el = el;
-      s.zoomEl = el?.querySelector<HTMLElement>(".slab-zoom") ?? null;
-      s.bodyEl = el?.querySelector<HTMLElement>(".slab-body") ?? null;
-      s.live = false;
-      s.drawn = false;
-      s.opacity = NaN;
-      s.matrix = "";
-      s.size = "";
-      s.r = 1;
-      if (el && s === plaqueSlab) setShown(el, false);
-    }
-  }
-  const themes = root.querySelector<HTMLElement>(".slab-group");
-  if (themes !== themesEl) {
-    themesEl = themes;
-    themesLive = false;
-    if (themes) setShown(themes, false);
-  }
-  const how = howEl.value;
-  if (how !== howObserved) {
-    if (howObserved) howRO?.unobserve(howObserved);
-    howObserved = how;
-    howPos = "";
-    if (how) {
-      how.style.visibility = "hidden";
-      howRO?.observe(how);
-    }
-  }
-  layout();
-}
+const slabs = useSlabLayout({
+  rootEl,
+  howEl,
+  insets: () => props.insets,
+  boxOf,
+  onSwap: () => swapContent(props.analysis),
+  frames: props.frames,
+  visible: props.visible,
+  scopeId: props.analysis.scopeId,
+});
 
 // ---- Wiring --------------------------------------------------------------------
 
 function swapContent(next: ScopeAnalysis) {
   content.value = next;
   contentSizes.value = props.sizes;
-  contentScope = next.scopeId;
+  slabs.setContent(next.scopeId);
   // Another territory: its largest theme picked, and not said.
-  picked.value = null;
-  said.value = null;
+  resetRing();
   howOpen.value = false;
-  hovered.value = null;
-  rover.value = null;
 }
 
 watch(
   () => props.analysis,
   (next) => {
-    targetScope = next.scopeId;
-    if (next.scopeId === contentScope) {
+    slabs.setTarget(next.scopeId);
+    if (next.scopeId === slabs.contentScope) {
       // The same territory, other figures (a filter, the data reloaded): the
       // label takes them quietly — GeoNav's summary says what changed.
       said.value = null;
@@ -738,57 +180,46 @@ watch(
     }
     // Nothing on show: the new words at once. Else the old slabs sink with
     // their plateau as they are; the frame that brings the new ones swaps.
-    if (!SLABS.some((s) => s.drawn)) swapContent(next);
-    layout();
+    if (!slabs.anyDrawn()) swapContent(next);
+    slabs.layout();
   },
 );
 
 watch(
   () => props.sizes,
   (z) => {
-    if (props.analysis.scopeId === contentScope) contentSizes.value = z;
+    if (props.analysis.scopeId === slabs.contentScope) contentSizes.value = z;
   },
 );
 
 watch(
   () => props.frames,
   (src) => {
-    unsubscribe?.();
-    unsubscribe = null;
-    source = src;
-    if (!src) snap.live = false;
-    if (src) unsubscribe = src.onFrame(onFrame);
+    slabs.setSource(src);
     sendRing();
-    layout();
+    slabs.layout();
   },
 );
 
 /** The ring's pick and hover, to the map: its raised parts and the bar
  *  follow (the territory the words are about: its own ring). */
 function sendRing() {
-  source?.setRing(a.value.scopeId, ringPicked.value, hovered.value);
+  props.frames?.setRing(a.value.scopeId, ringPicked.value, hovered.value);
 }
 watch(() => [a.value.scopeId, ringPicked.value, hovered.value], sendRing);
 
 watch(
   () => props.visible,
   (v) => {
-    isVisible = v;
+    slabs.setVisible(v);
     if (!v) {
       // Hidden under the mouse, a part never hears it leave.
       hovered.value = null;
       howOpen.value = false;
     }
-    layout();
+    slabs.layout();
   },
 );
-
-// A theme picked in Filtres leaves the ring (it is in every testimony
-// counted): picked on the ring, it is let go — the largest left is picked.
-watch(ring, (r) => {
-  const t = picked.value;
-  if (t && !r?.parts.some((p) => p.theme === t)) picked.value = null;
-});
 
 // The reading notes close on a press anywhere else.
 function onDocPointerDown(e: PointerEvent) {
@@ -821,15 +252,13 @@ function onEscape(e: KeyboardEvent) {
 // which scroll.
 function onWheel(e: WheelEvent) {
   if (howEl.value?.contains(e.target as Node)) return;
-  source?.forwardWheel(e);
+  props.frames?.forwardWheel(e);
 }
 
 /** Takes the focus to the plaque's title. Nothing when it is not on screen (a
  *  hidden slab is inert). */
 function focusPlaque(): void {
-  const root = rootEl.value;
-  if (!root || !lastOpen || !plaqueSlab.live) return;
-  root.querySelector<HTMLElement>(".plaque-title")?.focus({ preventScroll: true });
+  slabs.focusPlaque();
 }
 
 defineExpose({ focusPlaque });
@@ -839,12 +268,13 @@ const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
 // The DEV probe (window.__acAnalyses), for checking the layout in a browser.
 function probe() {
+  const state = slabs.snapshot();
   const out: Record<string, unknown> = {};
   // Each slab: its lid on screen, its box, the scales its words are drawn at
   // (on screen px per CSS px: across its far edge, its near edge, and down
   // its sides), its render scale.
-  for (const s of SLABS) {
-    const box = boxOf(s);
+  for (const s of state.slabs) {
+    const box = boxOf(s.name);
     const q = s.quad;
     const len = (i: number, j: number) =>
       Math.hypot(q[2 * j] - q[2 * i], q[2 * j + 1] - q[2 * i + 1]);
@@ -865,18 +295,18 @@ function probe() {
   }
   const r = ring.value;
   return {
-    visible: isVisible,
-    open: lastOpen,
-    frameScope: snap.scopeId,
-    scope: contentScope,
-    target: targetScope,
-    rise: Math.round(snap.rise * 100) / 100,
+    visible: state.visible,
+    open: state.open,
+    frameScope: state.frameScope,
+    scope: state.scope,
+    target: state.target,
+    rise: Math.round(state.rise * 100) / 100,
     lid: slabLidMode.value,
     text: slabTextMode.value,
     textScale: slabTextScale.value,
     frameFill: frameFill.value,
     ringBand: ringBandMode.value,
-    resting,
+    resting: state.resting,
     sizes: contentSizes.value,
     slabs: out,
     donut: r
@@ -898,20 +328,15 @@ function probe() {
 }
 
 onMounted(() => {
-  if (rootEl.value) hideRegion(rootEl.value, true);
-  syncDom();
-  if (source && !unsubscribe) unsubscribe = source.onFrame(onFrame);
+  slabs.mount();
   sendRing();
   if (isDev) (window as unknown as { __acAnalyses?: () => unknown }).__acAnalyses = probe;
 });
 
-onUpdated(syncDom);
+onUpdated(slabs.syncDom);
 
 onBeforeUnmount(() => {
-  unsubscribe?.();
-  unsubscribe = null;
-  window.clearTimeout(restTimer);
-  howRO?.disconnect();
+  slabs.dispose();
   document.removeEventListener("pointerdown", onDocPointerDown, true);
   if (isDev) {
     const w = window as unknown as { __acAnalyses?: () => unknown };
@@ -1133,86 +558,9 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Testing tools only (dev server, staging): the slabs' lid, words and
-         size, the territory's framing, the ring's band (analyses/devSwitch).
-         Apart from them; on a phone folded, see switchStyle. -->
-    <component
-      :is="compact ? 'details' : 'div'"
-      v-if="testTools"
-      v-show="visible"
-      class="slab-switch"
-      :style="switchStyle"
-      role="group"
-      aria-label="Dalles des analyses (DEV)"
-    >
-      <summary v-if="compact" class="switch-fold">DEV</summary>
-      <div class="switch-rows">
-        <div class="seg" role="group" aria-label="Dalle">
-          <span class="seg-label">Dalle</span>
-          <button
-            v-for="m in LID_MODES"
-            :key="m.id"
-            type="button"
-            class="seg-btn"
-            :aria-pressed="slabLidMode === m.id"
-            @click="setSlabLidMode(m.id)"
-          >
-            {{ m.label }}
-          </button>
-        </div>
-        <div class="seg" role="group" aria-label="Texte">
-          <span class="seg-label">Texte</span>
-          <button
-            v-for="m in TEXT_MODES"
-            :key="m.id"
-            type="button"
-            class="seg-btn"
-            :aria-pressed="slabTextMode === m.id"
-            @click="setSlabTextMode(m.id)"
-          >
-            {{ m.label }}
-          </button>
-        </div>
-        <div class="seg" role="group" aria-label="Taille du texte">
-          <span class="seg-label">Taille</span>
-          <button
-            v-for="m in SHARES"
-            :key="m.v"
-            type="button"
-            class="seg-btn"
-            :aria-pressed="slabTextScale === m.v"
-            @click="setSlabTextScale(m.v)"
-          >
-            {{ m.label }}
-          </button>
-        </div>
-        <div class="seg" role="group" aria-label="Cadrage">
-          <span class="seg-label">Cadrage</span>
-          <button
-            v-for="m in SHARES"
-            :key="m.v"
-            type="button"
-            class="seg-btn"
-            :aria-pressed="frameFill === m.v"
-            @click="setFrameFill(m.v)"
-          >
-            {{ m.label }}
-          </button>
-        </div>
-        <div class="seg" role="group" aria-label="Anneau">
-          <span class="seg-label">Anneau</span>
-          <button
-            v-for="m in RING_MODES"
-            :key="m.id"
-            type="button"
-            class="seg-btn"
-            :aria-pressed="ringBandMode === m.id"
-            @click="setRingBandMode(m.id)"
-          >
-            {{ m.label }}
-          </button>
-        </div>
-      </div>
-    </component>
+         size, the territory's framing, the ring's band (DevSlabSwitch,
+         analyses/devSwitch). Apart from them; on a phone folded. -->
+    <DevSlabSwitch v-if="testTools" v-show="visible" :compact="compact" :insets="insets" />
   </div>
 </template>
 
@@ -1583,70 +931,5 @@ onBeforeUnmount(() => {
 
 .howto li::marker {
   color: hsl(var(--primary));
-}
-
-/* ---- DEV only, apart from the slabs (see the template) ---- */
-
-.slab-switch {
-  position: absolute;
-  padding: 0.15rem;
-  border-radius: 0.45rem;
-  background: hsl(var(--muted));
-  box-shadow: var(--shadow-sm);
-  font-size: var(--text-caption);
-  white-space: nowrap;
-  pointer-events: auto;
-}
-
-/* A phone's fold: as narrow as it reads, no marker. */
-.switch-fold {
-  display: block;
-  padding: 0.05rem 0.3rem;
-  color: hsl(var(--muted-foreground));
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.switch-fold::-webkit-details-marker {
-  display: none;
-}
-
-.slab-switch[open] .switch-fold {
-  margin-bottom: 0.15rem;
-}
-
-.switch-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.seg {
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-}
-
-.seg-label {
-  min-width: 3.6rem;
-  padding: 0 0.3rem;
-  color: hsl(var(--muted-foreground));
-}
-
-.seg-btn {
-  padding: 0.05rem 0.45rem;
-  border: none;
-  border-radius: 0.3rem;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  font-size: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.seg-btn[aria-pressed="true"] {
-  background: hsl(var(--card));
-  color: hsl(var(--primary));
-  box-shadow: var(--shadow-sm);
 }
 </style>
