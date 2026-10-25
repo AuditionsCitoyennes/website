@@ -88,9 +88,13 @@ chunked() { case "$1" in county|localadmin|locality) return 0 ;; *) return 1 ;; 
 # own (Guadeloupe GP, Martinique MQ, Guyane GF, La Réunion RE, Mayotte YT,
 # Saint-Pierre-et-Miquelon PM, Saint-Barthélemy BL, Saint-Martin MF, Wallis
 # WF, Polynésie PF, Nouvelle-Calédonie NC, the TAAF TF, Clipperton CP).
-# Every Overture row of those codes is dropped — their top-level polygons too,
-# since Etalab's régions (01–06, 975–989) are the same ground under France —
-# and only Overture's France country polygon (the métropole) stays.
+# Their Overture rows at region, county, localadmin and locality are dropped
+# (Etalab's régions 01–06 and 975–989, départements and communes are the same
+# ground under France). Their TOP-level polygons stay in the country layer:
+# Etalab has no country level, Overture's France polygon is the métropole
+# and Corsica only, and the region layer only starts at z2 — without them the
+# overseas would have no feature at all at z0–1. Overture already gives them
+# France as parent.
 OVERSEAS="'GP','MQ','GF','RE','YT','PM','BL','MF','WF','PF','NC','TF','CP'"
 ETALAB_CODES="'FR',$OVERSEAS"
 etalab_code() { case ",FR,GP,MQ,GF,RE,YT,PM,BL,MF,WF,PF,NC,TF,CP," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
@@ -138,15 +142,20 @@ fi
 if has_step chunks && ! skip_done chunks; then
   log "chunks: GeoJSON per level from $OUT/raw/overture-areas.parquet"
   PARQUET="$OUT/raw/overture-areas.parquet"
+  # New chunks make everything downstream stale: Etalab's chunks live in the
+  # same folders, the simplified files are what the tile step globs.
   rm -rf "${OUT:?}/raw/country" "$OUT/raw/region" "$OUT/raw/county" "$OUT/raw/localadmin" "$OUT/raw/locality"
+  rm -rf "$OUT/simplified" "$OUT/tiles"
+  rm -f "$(done_marker etalab)" "$(done_marker simplify)" "$(done_marker tile)"
   {
     echo "INSTALL spatial; LOAD spatial; SET geometry_always_xy = true;"
     for level in "${LEVELS[@]}"; do
       mkdir -p "$OUT/raw/$level"
       cols="id, name, level, parent, country, geometry"
       if [ "$level" = country ]; then
-        # Dependencies ride in the country layer (their level attribute says so).
-        echo "COPY (SELECT $cols FROM read_parquet('$PARQUET') WHERE level IN ('country','dependency') AND country NOT IN ($OVERSEAS)) TO '$OUT/raw/country/world.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');"
+        # Dependencies ride in the country layer (their level attribute says
+        # so) — the French overseas among them (see OVERSEAS).
+        echo "COPY (SELECT $cols FROM read_parquet('$PARQUET') WHERE level IN ('country','dependency')) TO '$OUT/raw/country/world.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');"
       elif chunked "$level"; then
         while IFS= read -r cc; do
           [ -n "$cc" ] || continue
@@ -171,7 +180,11 @@ fi
 # KEPT beside the three communes they divide: each arrondissement's parent is
 # its commune (fr:com:69123), a commune's its département — the site drills
 # ville → arrondissement, so the tileset carries that edge, and the three
-# commune polygons stay (the ville is a unit of its own, raised whole).
+# commune polygons stay (the ville is a unit of its own, raised whole). The
+# arrondissements go to a chunk of their own (FR-arr): mapshaper's -clean
+# resolves an exact overlap by deleting one side, so run on one file with
+# the communes it erased all 45 of them; apart, each file is overlap-free
+# and tippecanoe tiles both into the locality layer.
 if has_step etalab && ! skip_done etalab; then
   BASE="https://etalab-datasets.geo.data.gouv.fr/contours-administratifs/$ETALAB_YEAR/geojson"
   for f in regions-50m departements-50m communes-50m; do
@@ -195,11 +208,13 @@ COPY (
   FROM ST_Read('$OUT/raw/etalab-departements-50m.geojson')
 ) TO '$OUT/raw/county/FR.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');
 COPY (
-  SELECT 'fr:com:' || code AS id, nom AS name, 'locality' AS level,
-         CASE WHEN commune IS NOT NULL THEN 'fr:com:' || commune ELSE 'fr:dep:' || departement END AS parent,
-         'FR' AS country, geom AS geometry
-  FROM ST_Read('$OUT/raw/etalab-communes-50m.geojson')
+  SELECT 'fr:com:' || code AS id, nom AS name, 'locality' AS level, 'fr:dep:' || departement AS parent, 'FR' AS country, geom AS geometry
+  FROM ST_Read('$OUT/raw/etalab-communes-50m.geojson') WHERE commune IS NULL
 ) TO '$OUT/raw/locality/FR.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');
+COPY (
+  SELECT 'fr:com:' || code AS id, nom AS name, 'locality' AS level, 'fr:com:' || commune AS parent, 'FR' AS country, geom AS geometry
+  FROM ST_Read('$OUT/raw/etalab-communes-50m.geojson') WHERE commune IS NOT NULL
+) TO '$OUT/raw/locality/FR-arr.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON');
 SQL
   touch "$(done_marker etalab)"
 fi
@@ -240,6 +255,13 @@ if has_step tile && ! skip_done tile; then
       zr="${band%%:*}"; zmin="${zr%-*}"; zmax="${zr#*-}"
       out="$OUT/tiles/$level-z$zr.mbtiles"
       log "tile: $level z$zmin-$zmax → $(basename "$out")"
+      # An empty band would run no tippecanoe at all (xargs) and tile-join
+      # would silently skip the missing tileset: a stale or wiped simplified/
+      # must stop the build instead.
+      if [ "$(find "$OUT/simplified/$level/z$zr" -name '*.geojsonl' 2> /dev/null | wc -l | tr -d ' ')" = 0 ]; then
+        echo "tile: no simplified chunk for $level z$zr — run the simplify step" >&2
+        exit 1
+      fi
       find "$OUT/simplified/$level/z$zr" -name '*.geojsonl' -print0 \
         | xargs -0 tippecanoe --force -o "$out" -Z "$zmin" -z "$zmax" -l "$level" -n boundaries \
             --no-simplification-of-shared-nodes --detect-shared-borders -d 14 \
@@ -250,6 +272,12 @@ if has_step tile && ! skip_done tile; then
     done
   done
   log "tile: tile-join → boundaries.mbtiles → boundaries.pmtiles"
+  expected=0
+  for level in "${LEVELS[@]}"; do for band in $(bands_of "$level"); do expected=$((expected + 1)); done; done
+  if [ "$(find "$OUT/tiles" -name '*.mbtiles' | wc -l | tr -d ' ')" != "$expected" ]; then
+    echo "tile: expected $expected tilesets under $OUT/tiles, found $(find "$OUT/tiles" -name '*.mbtiles' | wc -l | tr -d ' ')" >&2
+    exit 1
+  fi
   find "$OUT/tiles" -name '*.mbtiles' -print0 \
     | xargs -0 tile-join --force -o "$OUT/boundaries.mbtiles" -n boundaries -pk
   pmtiles convert "$OUT/boundaries.mbtiles" "$OUT/boundaries.pmtiles"
