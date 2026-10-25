@@ -23,7 +23,7 @@ import {
   type SlabCam,
   type SlabRect,
   type SlabScales,
-} from "./lib/slabs";
+} from "./lib";
 import type {
   CameraCmd,
   MapUnit,
