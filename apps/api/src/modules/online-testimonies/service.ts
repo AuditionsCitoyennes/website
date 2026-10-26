@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   composeAnswers,
+  onlineCommuneOf,
   sanitizeText,
   type Database,
   type Json,
@@ -13,7 +14,9 @@ import { logAudit } from "../../lib/audit";
 import { EmailRetryableError } from "../../lib/email/resend";
 import { sendOnlineVerificationEmail } from "../../lib/email/verification";
 import { allowGlobalHit } from "../../lib/rateLimit";
-import { PlaceError, resolveTownHall } from "./townHall";
+import { FR_GEO_RELEASE } from "../places/fr";
+import { upsertGeoUnits } from "../places/geoUnits";
+import { PlaceError, resolveTownHall, type OnlineTownHall } from "./townHall";
 
 // "Témoigner": a visitor — nobody signed in — sends a testimony from the site.
 //
@@ -98,6 +101,50 @@ function emailHash(email: string): string {
   return createHash("sha256").update(`${local}@${domain}`).digest("hex");
 }
 
+/**
+ * Where the month's audition of this town hall is filed (map phase 1), as
+ * submit_online_testimony takes it: its units written first. Without them —
+ * geo.api left the commune's département out, or the units could not be
+ * written — the bucket is filed stale, and the placement job places it.
+ */
+async function bucketPlace(
+  townHall: OnlineTownHall,
+  log: FastifyBaseLogger,
+): Promise<
+  Pick<
+    Database["public"]["Functions"]["submit_online_testimony"]["Args"],
+    | "p_place_unit"
+    | "p_place_path"
+    | "p_locality_id"
+    | "p_lat"
+    | "p_lng"
+    | "p_place_precision"
+    | "p_geo_release"
+  >
+> {
+  const { chain, place, pointKind } = townHall;
+  if (!chain) return {};
+  try {
+    await upsertGeoUnits(chain.units);
+  } catch (e) {
+    log.warn(
+      { err: e, unit: chain.unit },
+      "online testimony: units not written, bucket left stale",
+    );
+    return {};
+  }
+  return {
+    p_place_unit: chain.unit,
+    p_place_path: chain.path,
+    p_locality_id: chain.localityId ?? undefined,
+    p_lat: place.lat,
+    p_lng: place.lng,
+    // The town hall itself, or only the commune's centre.
+    p_place_precision: pointKind === "mairie" ? "address" : "commune",
+    p_geo_release: FR_GEO_RELEASE,
+  };
+}
+
 export type SubmitResult =
   | { kind: "ok"; townHall: string; title: string; devVerificationUrl?: string }
   /** A robot: dropped, but answered as if it had worked. */
@@ -133,7 +180,7 @@ export async function submitOnlineTestimony(
 
   let townHall;
   try {
-    townHall = await resolveTownHall(input.commune_code);
+    townHall = await resolveTownHall(onlineCommuneOf(input));
   } catch (e) {
     if (e instanceof PlaceError) {
       if (e.status === 503) log.warn({ err: e.cause }, "geo.api.gouv.fr unavailable");
@@ -149,6 +196,7 @@ export async function submitOnlineTestimony(
   const month = currentMonth();
   const title = auditionTitle(month.name);
   const token = randomUUID();
+  const place = await bucketPlace(townHall, log);
   const { data, error } = await client.rpc("submit_online_testimony", {
     p_email_hash: emailHash(input.email),
     p_person_name: sanitizeText(input.person_name) || "Anonyme",
@@ -163,6 +211,7 @@ export async function submitOnlineTestimony(
     p_title: title,
     p_audition_content: `Témoignages déposés en ligne sur le site en ${month.name} ${month.year}, rattachés à la ${townHall.location}.`,
     p_token: token,
+    ...place,
   });
   if (error) {
     // No date: when an address last testified would tie it to its

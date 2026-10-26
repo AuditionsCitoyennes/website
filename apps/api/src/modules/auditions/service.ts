@@ -2,7 +2,6 @@ import type { FastifyBaseLogger } from "fastify";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import {
-  getCanonicalLocation,
   getKnownCoordinates,
   normalizeLocation,
   sanitizeText,
@@ -12,9 +11,11 @@ import {
   type AuditionWithCount,
   type CreateAuditionInput,
   type Database,
+  type PlacePick,
   type Testimony,
   type UpdateAuditionInput,
 } from "@ac/shared";
+import { mapSource } from "../../config";
 import { publicClient } from "../../lib/supabase";
 import { PAGE, quoted, selectAll } from "../../lib/paging";
 import { invalidatePublicCaches } from "../../lib/publicCache";
@@ -31,8 +32,12 @@ import {
   placeLieux,
   resolve as resolveLocation,
 } from "../geo/geocode";
-import { placementOf } from "../geo/match";
+import { placementOf, type GeoEntry } from "../geo/match";
+import { readGeoUnits, upsertGeoUnits } from "../places/geoUnits";
+import { areaOfRow, storedPlacementOf } from "../places/groups";
 import { onlinePlaceOf, placeKeyOf } from "../places/lieu";
+import { placeLieu, type Placement } from "../places/placeLieu";
+import { nudgePlacementJob } from "../places/placementJob";
 
 type Client = SupabaseClient<Database>;
 
@@ -217,35 +222,72 @@ export type AdminAudition = Pick<
   | "place"
 > & { area: AuditionArea };
 
+/** The columns the admin list reads: the audition, and where it is stored as placed. */
+const ADMIN_COLUMNS =
+  "id, title, date, location, content, status, created_by, audition_en_ligne, citycode, place, place_path, locality_id, lieu_key, lat, lng, place_precision, place_candidates, place_stale, lieu_id";
+
 /**
  * Whatever the caller's RLS lets them see. NOTE: drafts only appear once the
  * audition SELECT policy migration is applied.
  *
- * Each audition comes with its `area`, read from the geocode cache (no
- * network), for the list's place filter: the same places the Témoignages map
- * files it under — and how precisely it is placed there, so that a lieu left
- * off the map is seen, and its text fixed. A lieu never geocoded yet (a
- * draft's, say) is looked up in the background, for the next time.
+ * Each audition comes with its `area`, for the list's place filter: the same
+ * places the Témoignages map files it under — and how precisely it is placed
+ * there, so that a lieu left off the map is seen, and its text fixed. From the
+ * place stored on the row (MAP_SOURCE=db), else from the geocode cache, where
+ * a lieu never geocoded yet (a draft's, say) is looked up in the background,
+ * for the next time.
  */
 export async function fetchAdminAuditions(
   client: Client,
+  source: "db" | "geocoder" = mapSource,
 ): Promise<{ kind: "ok"; auditions: AdminAudition[] } | DbError> {
   // Newest first, same-day auditions by id (a total order, for the pages).
   const { data: rows, error } = await selectAll((last?: { date: string; id: string }) => {
     const q = client
       .from("auditions")
-      .select(
-        "id, title, date, location, content, status, created_by, audition_en_ligne, citycode, place",
-      )
+      .select(ADMIN_COLUMNS)
       .order("date", { ascending: false })
       .order("id");
     return (last ? q.or(afterByDate(last)) : q).limit(PAGE);
   });
   if (error) return { kind: "dbError", message: error.message };
+  // The list's own fields, as before: not the stored place.
+  const own = (a: (typeof rows)[number]) => ({
+    id: a.id,
+    title: a.title,
+    date: a.date,
+    location: a.location,
+    content: a.content,
+    status: a.status,
+    created_by: a.created_by,
+    audition_en_ligne: a.audition_en_ligne,
+    citycode: a.citycode,
+    place: a.place,
+  });
   await loadGeocodeCache();
   // The lieux the geocoder places, as on the map: not an online audition's
   // whose town hall is stored with it.
   const lieux = rows.filter((a) => !onlinePlaceOf(a)).map(placeKeyOf);
+
+  if (source === "db") {
+    let units;
+    try {
+      units = await readGeoUnits();
+    } catch (e) {
+      return { kind: "dbError", message: e instanceof Error ? e.message : String(e) };
+    }
+    // The rows not placed yet are "pending", with the geocoder's area when its
+    // cache has one: settled together, as the map does.
+    const stale = rows.some(
+      (a) => !onlinePlaceOf(a) && storedPlacementOf(a, units).kind === "stale",
+    );
+    const fallback: Map<string, GeoEntry | null> = stale ? placeLieux(lieux) : new Map();
+    return {
+      kind: "ok",
+      auditions: rows.map((a) => ({ ...own(a), area: areaOfRow(a, units, fallback) })),
+    };
+  }
+
   // Each lieu never geocoded, once, one after the other, in the background.
   const missing = new Set(lieux.filter((c) => getCachedEntry(c) === undefined));
   if (missing.size) {
@@ -260,7 +302,7 @@ export async function fetchAdminAuditions(
     const online = onlinePlaceOf(a);
     if (online) {
       return {
-        ...a,
+        ...own(a),
         area: {
           canonicalName: canonical,
           city: online.commune,
@@ -273,7 +315,7 @@ export async function fetchAdminAuditions(
     }
     const entry = placed.get(canonical);
     return {
-      ...a,
+      ...own(a),
       area: {
         canonicalName: canonical,
         city: entry?.city ?? null,
@@ -293,13 +335,43 @@ export async function fetchAdminAuditions(
 
 // ---- Writes ---------------------------------------------------------------
 
-/** Geocode an audition's lieu, waiting for it 3 seconds at most. */
-async function geocodeBriefly(location: string): Promise<void> {
-  await Promise.race([
-    resolveLocation(getCanonicalLocation(location)).catch(() => null),
-    new Promise((done) => setTimeout(done, 3000)),
+/** How long a write waits for its lieu to be placed before it is stored without (the job places it). */
+const PLACE_BUDGET_MS = 3000;
+
+/**
+ * Where an audition's lieu goes, waited for 3 seconds at most: its units are
+ * written, and the placement is for the row's write. Null when it is late (a
+ * slow geocoder — the lookup goes on, and its answer is cached for the
+ * placement job), or could not be had.
+ */
+async function placeBriefly(
+  location: string,
+  pick: PlacePick | undefined,
+  log: FastifyBaseLogger,
+): Promise<Placement | null> {
+  const placement = await Promise.race([
+    placeLieu(location, { pick }).catch((e: unknown) => {
+      log.warn({ err: e, location }, "placement failed, left to the placement job");
+      return null;
+    }),
+    new Promise<null>((done) => setTimeout(() => done(null), PLACE_BUDGET_MS).unref?.()),
   ]);
+  if (!placement || placement === "retry") {
+    if (pick) log.warn({ location, pick }, "picked place not stored: the text will place it");
+    return null;
+  }
+  try {
+    await upsertGeoUnits(placement.units);
+  } catch (e) {
+    log.warn({ err: e, location }, "units not written, placement left to the placement job");
+    return null;
+  }
+  return placement;
 }
+
+/** A write the table's place checks refused: retried without the place (a bug, not the admin's). */
+const placeRefused = (error: { code?: string } | null) =>
+  error?.code === "23514" || error?.code === "23503";
 
 export interface NewAudition {
   id: string;
@@ -358,7 +430,17 @@ export async function createAudition(
     created_by: actorId,
   };
 
-  const { error } = await client.from("auditions").insert(audition);
+  // Where it goes, stored with it — briefly: a slow geocoder must not hold
+  // the creation back. Late, it is stored without, and the placement job
+  // places it (nudged below).
+  const placement = await placeBriefly(audition.location, input.place, log);
+  let { error } = await client
+    .from("auditions")
+    .insert(placement ? { ...audition, ...placement.columns } : audition);
+  if (placement && placeRefused(error)) {
+    log.error({ err: error, placement: placement.columns }, "place refused, audition stored stale");
+    ({ error } = await client.from("auditions").insert(audition));
+  }
   if (error) return { kind: "dbError", message: error.message };
 
   let emailReport: SendReport | null = null;
@@ -385,15 +467,11 @@ export async function createAudition(
 
   const { error: terr } =
     rows.length > 0 ? await client.from("testimonies").insert(rows) : { error: null };
-  // Its lieu may be one never placed. Look it up now — briefly: a slow
-  // geocoder must not hold the creation back (the map's own warm pass gets to
-  // it otherwise) — so that the map, or the admin list's place filter (drafts
-  // too), reloaded right after this answer already knows where it is.
-  await geocodeBriefly(audition.location);
   // Once everything is written and placed — not after the audition alone,
   // which only opened a window where it was public with no testimonies. (A
   // read in flight across this write is not stored: lib/cache.ts.)
   invalidatePublicCaches();
+  nudgePlacementJob();
   // Logged before the early return below: the audition exists by now whether
   // or not its testimonies went in.
   await logAudit(client, log, {
@@ -456,7 +534,7 @@ export async function updateAudition(
   // and the update below does not depend on it.
   const { data: before } = await client
     .from("auditions")
-    .select("title, date, location, content, status, audition_en_ligne")
+    .select("title, date, location, content, status, audition_en_ligne, place_stale")
     .eq("id", id)
     .maybeSingle();
 
@@ -474,22 +552,45 @@ export async function updateAudition(
     ...(input.status !== undefined ? { status: input.status } : {}),
   };
 
+  // Placed again, with the write (see createAudition): when it moved, when an
+  // address was picked again, or when it was never placed. Not an online
+  // audition: its town hall is its place.
+  const where = online ? undefined : (next.location ?? before?.location);
+  const replace =
+    where !== undefined &&
+    (input.place !== undefined ||
+      next.location !== before?.location ||
+      before?.place_stale === true);
+  const placement = replace ? await placeBriefly(where, input.place, log) : null;
+  // With the location it was computed from, in the same write; for a
+  // location the form did not send, only where it is still that one.
+  const withPlace = placement && next.location !== undefined ? placement.columns : {};
+
   // `count` is the number of rows the update touched — known without
   // reading them back, so it works for drafts too.
-  const { error, count } = await client
+  let { error, count } = await client
     .from("auditions")
-    .update(next, { count: "exact" })
+    .update({ ...next, ...withPlace }, { count: "exact" })
     .eq("id", id);
+  if (placement && placeRefused(error)) {
+    log.error({ err: error, placement: placement.columns }, "place refused, audition left stale");
+    ({ error, count } = await client
+      .from("auditions")
+      .update(next, { count: "exact" })
+      .eq("id", id));
+  }
   if (error) return { kind: "dbError", message: error.message };
+  if (placement && next.location === undefined && where !== undefined) {
+    const { error: perror } = await client
+      .from("auditions")
+      .update(placement.columns)
+      .eq("id", id)
+      .eq("location", where);
+    if (perror) log.error({ err: perror, audition: id }, "place not stored, left to the job");
+  }
   // Right after the write, before anything slow: nothing stale past it.
   invalidatePublicCaches();
-  // Moved to a lieu never placed: looked up now (see createAudition). Not an
-  // online audition: renaming its town hall does not move it. Then again: a
-  // map built during the lookup does not know where the lieu is.
-  if (next.location !== undefined && !before?.audition_en_ligne) {
-    await geocodeBriefly(next.location);
-    invalidatePublicCaches();
-  }
+  nudgePlacementJob();
 
   const submitted = Object.keys(next) as (keyof typeof next)[];
   // Unknown when the audition could not be read beforehand.
@@ -544,6 +645,8 @@ export async function deleteAudition(
   // this statement, and the audition is deleted all the same.
   const { error, count } = await client.from("auditions").delete({ count: "exact" }).eq("id", id);
   if (!error) invalidatePublicCaches();
+  // The lieux that settle same-named communes may have changed.
+  if (!error) nudgePlacementJob();
   // (Gone, if the caller could see it a moment ago.)
   const deleted =
     !error &&

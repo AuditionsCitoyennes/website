@@ -8,7 +8,7 @@
     "start": "node --enable-source-maps dist/index.js",
     "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --packages=external --alias:@ac/shared=../../packages/shared/src/index.ts --sourcemap --outfile=dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/lib/cache.test.ts src/lib/email/outbox.test.ts src/lib/email/verification.test.ts src/lib/visitor.test.ts src/lib/proxyOnly.test.ts src/modules/geo/match.test.ts src/lib/diskCache.test.ts src/lib/paging.test.ts src/modules/pagedReads.test.ts src/prewarm.test.ts src/server.test.ts src/modules/places/fr.test.ts src/modules/places/placeLieu.test.ts src/modules/places/placementJob.test.ts"
+    "test": "node --import tsx --test src/lib/cache.test.ts src/lib/email/outbox.test.ts src/lib/email/verification.test.ts src/lib/visitor.test.ts src/lib/proxyOnly.test.ts src/modules/geo/match.test.ts src/lib/diskCache.test.ts src/lib/paging.test.ts src/modules/pagedReads.test.ts src/prewarm.test.ts src/server.test.ts src/modules/places/fr.test.ts src/modules/places/placeLieu.test.ts src/modules/places/placementJob.test.ts src/modules/places/groups.test.ts src/modules/places/writes.test.ts src/modules/places/noServiceRole.test.ts"
   },
   "dependencies": {
     "@ac/shared": "*",
