@@ -43,4 +43,6 @@ RUN chown node:node /repo/apps/api
 USER node
 EXPOSE 8080
 STOPSIGNAL SIGTERM
-CMD ["node", "--enable-source-maps", "dist/index.js"]
+# V8's heap gets 256 MB of the container's 512 MB: the rest is for the cached
+# responses' bytes, Buffers that live outside the heap (lib/cache.ts).
+CMD ["node", "--enable-source-maps", "--max-old-space-size=256", "dist/index.js"]
