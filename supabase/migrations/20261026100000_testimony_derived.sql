@@ -25,6 +25,10 @@ set lock_timeout = '200ms';
 create extension if not exists pg_trgm with schema extensions;
 
 -- The search fold lower-cases with ICU's root locale, as the browser does.
+-- Reference stack (local supabase/postgres 17.6.1.075, the one CI builds):
+-- datlocprovider i, datcollate = datctype en_US.UTF-8, datlocale en-US,
+-- und-x-icu collversion 153.121 (ICU 75.1, Unicode 15.1). Staging and prod are
+-- compared with it at push time.
 do $$
 begin
   if not exists (select 1 from pg_catalog.pg_collation where collname = 'und-x-icu') then
@@ -32,17 +36,14 @@ begin
   end if;
 end $$;
 
+-- anon and authenticated get no USAGE on ac. Its functions still get Postgres'
+-- EXECUTE-to-PUBLIC when created, and a per-schema default privilege cannot
+-- take that back (only a database-wide one can, which would reach every other
+-- schema): every migration that creates functions in ac ends with the revoke
+-- and grant at the bottom of this file (npm run db:check verifies both).
 create schema if not exists ac;
 revoke all on schema ac from public;
 grant usage on schema ac to service_role;
--- Postgres grants EXECUTE on every new function to PUBLIC, and a per-schema
--- default privilege cannot take back a global one: the revoke is global (for
--- what postgres creates), and schema public gets PUBLIC back per schema, so
--- that new functions there are granted exactly as before. Extensions are
--- created by supabase_admin: not concerned.
-alter default privileges for role postgres revoke execute on functions from public;
-alter default privileges for role postgres in schema public grant execute on functions to public;
-alter default privileges for role postgres in schema ac grant execute on functions to service_role;
 
 -- No column grant to anon or authenticated: they keep their nine columns.
 alter table public.testimonies
@@ -56,24 +57,24 @@ alter table public.testimonies
 
 -- WS below is JavaScript's \s (and what trim() strips), spelled with ARE
 -- escapes: Postgres' own \s and [[:space:]] depend on the database's locale.
-create function ac.js_trim(p text) returns text
+create or replace function ac.js_trim(p text) returns text
 language sql immutable strict parallel safe set search_path = ''
 return pg_catalog.regexp_replace(p, '^[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+|[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+$', '', 'g');
 
-create function ac.js_collapse(p text) returns text
+create or replace function ac.js_collapse(p text) returns text
 language sql immutable strict parallel safe set search_path = ''
 return pg_catalog.regexp_replace(p, '[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+', ' ', 'g');
 
 -- fold() of packages/shared/src/filters.ts: NFD, the combining marks dropped,
 -- lower case as ICU's root locale does it, which is V8's. normalize stays
 -- unqualified: pg_catalog.normalize(p, NFD) does not parse.
-create function ac.fold(p text) returns text
+create or replace function ac.fold(p text) returns text
 language sql immutable strict parallel safe set search_path = ''
 return pg_catalog.lower(
   pg_catalog.regexp_replace(normalize(p, NFD), '[\u0300-\u036f]', '', 'g') collate pg_catalog."und-x-icu");
 
 -- themeKey() of packages/shared/src/themes.ts.
-create function ac.theme_key(p text) returns text
+create or replace function ac.theme_key(p text) returns text
 language sql immutable strict parallel safe set search_path = ''
 return pg_catalog.btrim(ac.js_collapse(pg_catalog.translate(ac.fold(p), '‘’', '''''')), ' ');
 
@@ -81,7 +82,7 @@ return pg_catalog.btrim(ac.js_collapse(pg_catalog.translate(ac.fold(p), '‘’'
 -- AUDITION_THEMES[i]; approx when some theme was found and no tag matched
 -- firmly. A tag written in the grid counts as it is, any other by its key
 -- (THEME_KEY_TABLE). A null tag is skipped (the site would throw on it).
-create function ac.theme_bits(p_topics text[], out mask integer, out approx boolean)
+create or replace function ac.theme_bits(p_topics text[], out mask integer, out approx boolean)
 language plpgsql immutable parallel safe set search_path = '' as $$
 declare
   v_tag text;
@@ -168,15 +169,18 @@ end $$;
 -- lines split on CR? LF; a line is a question (NORMALIZED_QUESTIONS) only after
 -- the previous one; text before the first question, or no answer left once
 -- trimmed, means the text as it is; else the answers joined by a blank line.
--- (No backslash in a plain literal here: a plpgsql body is parsed again at
--- run time, under the caller's standard_conforming_strings.)
-create function ac.answers_text(p_content text) returns text
+-- An answer's lines are appended to an array (in place) and joined once: text
+-- concatenation line by line is quadratic, and a long text must not reach the
+-- statement timeout of the write. (No backslash in a plain literal here: a
+-- plpgsql body is parsed again at run time, under the caller's
+-- standard_conforming_strings.)
+create or replace function ac.answers_text(p_content text) returns text
 language plpgsql immutable strict parallel safe set search_path = '' as $$
 declare
   v_line text;
   v_at integer;
   v_cur integer := -1;
-  v_lines text;
+  v_lines text[] := '{}';
   v_answer text;
   v_out text;
 begin
@@ -188,21 +192,21 @@ begin
     end;
     if v_at > v_cur then
       if v_cur >= 0 then
-        v_answer := ac.js_trim(coalesce(v_lines, ''));
+        v_answer := ac.js_trim(pg_catalog.array_to_string(v_lines, E'\n'));
         if v_answer <> '' then
           v_out := case when v_out is null then v_answer else v_out || E'\n\n' || v_answer end;
         end if;
       end if;
       v_cur := v_at;
-      v_lines := null;
+      v_lines := '{}';
     elsif v_cur >= 0 then
-      v_lines := case when v_lines is null then v_line else v_lines || E'\n' || v_line end;
+      v_lines := pg_catalog.array_append(v_lines, v_line);
     elsif ac.js_trim(v_line) <> '' then
       return p_content;
     end if;
   end loop;
   if v_cur >= 0 then
-    v_answer := ac.js_trim(coalesce(v_lines, ''));
+    v_answer := ac.js_trim(pg_catalog.array_to_string(v_lines, E'\n'));
     if v_answer <> '' then
       v_out := case when v_out is null then v_answer else v_out || E'\n\n' || v_answer end;
     end if;
@@ -236,7 +240,9 @@ end $$;
 create trigger testimonies_derive before insert or update on public.testimonies
   for each row execute function ac.testimonies_derive();
 
--- Fills the existing rows (the trigger fires on every update).
+-- Fills the existing rows (the trigger fires on every update). On the
+-- reference stack the trigger adds about 0.16 ms a row to an update (the
+-- 4,791 seed rows: 1.3 s against 0.5 s without it).
 update public.testimonies set topics = topics;
 
 -- The free-text search: search_text like '%needle%', rechecked, so exact.
@@ -254,5 +260,6 @@ create index testimonies_verification_token_idx on public.testimonies (verificat
 create index testimonies_pending_created_idx on public.testimonies (created_at)
   where verification_status = 'pending';
 
+-- The last two statements of every migration that creates functions in ac.
 revoke all on all functions in schema ac from public, anon, authenticated;
 grant execute on all functions in schema ac to service_role;

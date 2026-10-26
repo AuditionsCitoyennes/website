@@ -5,12 +5,16 @@
 //   no verification token, none of the derived columns);
 // - the functions of the project's schemas they can EXECUTE equal the
 //   allowlist (has_function_privilege, which ignores schema USAGE);
-// - nothing in schema ac is executable by them, nor is the schema usable, and a
-//   function created there later gets no EXECUTE either (default privileges);
+// - nothing in schema ac is executable by them, nor is the schema usable;
+// - every migration that creates functions in ac ends with the revoke and grant
+//   that keep it so (a function gets EXECUTE for PUBLIC when created), and the
+//   generated helpers, replaced as a later migration would replace them, keep
+//   their grants (rolled back);
 // - every SECURITY DEFINER function sets search_path, but the baseline's eight
 //   listed under securityDefinerWithoutSearchPath.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { derivedSql } from "../sql-gen/derived";
 import { sqlJson } from "./psql";
 
 export interface Allowlist {
@@ -72,19 +76,51 @@ select pg_catalog.jsonb_build_object(
   return observed;
 }
 
-/** A function created in ac after the migrations: who may run it (rolled back). */
-function probeDefaultPrivileges(): Record<string, boolean> | null {
+const MIGRATIONS = new URL("../../supabase/migrations/", import.meta.url);
+
+/** How every migration that creates functions in ac ends (design B1 rule 6). */
+const CLOSING_GRANTS =
+  "revoke all on all functions in schema ac from public, anon, authenticated; " +
+  "grant execute on all functions in schema ac to service_role;";
+
+/** The migrations that create functions in ac without ending on CLOSING_GRANTS. */
+export function migrationsWithoutClosingGrants(): string[] {
+  return readdirSync(MIGRATIONS)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .filter((f) => {
+      const sql = readFileSync(new URL(f, MIGRATIONS), "utf8");
+      if (!/create\s+(or\s+replace\s+)?function\s+ac\./i.test(sql)) return false;
+      const tail = sql
+        .replace(/--[^\n]*/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+      return !tail.endsWith(CLOSING_GRANTS);
+    });
+}
+
+type Reach = Record<string, { any: boolean; all: boolean }>;
+
+/** The generated helpers replaced in place, as a later migration would (rolled
+ *  back): who may run the functions of ac then. Null without schema ac. */
+function probeReplacedHelpers(): Reach | null {
   const [exists] = sqlJson<boolean>(
     "select pg_catalog.to_jsonb(pg_catalog.to_regnamespace('ac') is not null);",
   );
   if (!exists) return null;
-  const [probe] = sqlJson<Record<string, boolean>>(`
+  const [reach] = sqlJson<Reach>(`
 begin;
-create function ac.db_check_probe() returns integer language sql return 1;
-select pg_catalog.jsonb_object_agg(r, pg_catalog.has_function_privilege(r, 'ac.db_check_probe()', 'EXECUTE'))
-  from pg_catalog.unnest(array['anon', 'authenticated', 'service_role']) as r;
+${derivedSql()}
+select pg_catalog.jsonb_object_agg(r, pg_catalog.jsonb_build_object('any', a, 'all', b)) from (
+  select r, pg_catalog.bool_or(x) as a, pg_catalog.bool_and(x) as b from (
+    select r, pg_catalog.has_function_privilege(r, p.oid, 'EXECUTE') as x
+      from pg_catalog.unnest(array['anon', 'authenticated', 'service_role']) as r
+     cross join pg_catalog.pg_proc p
+     where p.pronamespace = 'ac'::pg_catalog.regnamespace) y
+  group by r) z;
 rollback;`);
-  return probe;
+  return reach;
 }
 
 function diff(label: string, expected: string[], actual: string[]): string[] {
@@ -121,13 +157,22 @@ export function checkGrants(): string[] {
       seen.securityDefinerWithoutSearchPath,
     ).filter((e) => e.includes("unexpected")),
   );
-  const probe = probeDefaultPrivileges();
-  if (probe) {
-    if (probe.anon || probe.authenticated) {
-      errors.push("a new function in schema ac is executable by anon or authenticated");
+  for (const f of migrationsWithoutClosingGrants()) {
+    errors.push(`${f} creates functions in ac but does not end with: ${CLOSING_GRANTS}`);
+  }
+  let reach: Reach | null = null;
+  try {
+    reach = probeReplacedHelpers();
+  } catch (e) {
+    errors.push(`the generated helpers do not replace the database's: ${(e as Error).message}`);
+  }
+  if (reach) {
+    if (reach.anon?.any || reach.authenticated?.any) {
+      errors.push("once replaced, functions of ac are executable by anon or authenticated");
     }
-    if (!probe.service_role)
-      errors.push("a new function in schema ac is not executable by service_role");
+    if (!reach.service_role?.all) {
+      errors.push("once replaced, functions of ac are not all executable by service_role");
+    }
   }
   return errors;
 }

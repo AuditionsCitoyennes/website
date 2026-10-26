@@ -2,15 +2,25 @@
 // themes_approx, untagged), generated from @ac/shared so that the database and
 // the site cannot read a testimony differently. The block sits in a migration
 // between the two marker lines; the latest migration holding it is the one in
-// force. Changing what it generates means a new migration that replaces the
-// helpers and bumps derive_version in ac.testimonies_derive (then recomputes
-// the rows: update … set topics = topics where derive_version is distinct from N).
+// force. Its functions are `create or replace`: a later migration takes the
+// block as it is.
 //
-//   npm run db:sql-gen                print the block
-//   npm run db:sql-gen -- --check     fail when the latest migration's block differs
-//   npm run db:sql-gen -- --write     rewrite the block in that migration
+// Changing what it generates takes a new migration: write the two marker lines
+// in it and run --write, which fills them. That migration also replaces
+// ac.testimonies_derive with the next derive_version, recomputes the rows
+// (update … set topics = topics where derive_version is distinct from N), and
+// ends with the revoke and grant on schema ac. A migration already on the base
+// branch has run on staging and prod: --write refuses it, and CI fails a pull
+// request that edits one.
+//
+//   npm run db:sql-gen                           print the block
+//   npm run db:sql-gen -- --check                fail when the latest migration's block differs
+//   npm run db:sql-gen -- --write [--base <ref>] rewrite it there, unless that migration is on
+//                                                <ref> (default origin/dev)
 
+import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AUDITION_THEMES, NORMALIZED_QUESTIONS, THEME_KEY_TABLE } from "@ac/shared";
 
@@ -65,24 +75,24 @@ export function derivedSql(): string {
 
 -- WS below is JavaScript's \\s (and what trim() strips), spelled with ARE
 -- escapes: Postgres' own \\s and [[:space:]] depend on the database's locale.
-create function ac.js_trim(p text) returns text
+create or replace function ac.js_trim(p text) returns text
 language sql immutable strict parallel safe set search_path = ''
 return pg_catalog.regexp_replace(p, '^${ws}+|${ws}+$', '', 'g');
 
-create function ac.js_collapse(p text) returns text
+create or replace function ac.js_collapse(p text) returns text
 language sql immutable strict parallel safe set search_path = ''
 return pg_catalog.regexp_replace(p, '${ws}+', ' ', 'g');
 
 -- fold() of packages/shared/src/filters.ts: NFD, the combining marks dropped,
 -- lower case as ICU's root locale does it, which is V8's. normalize stays
 -- unqualified: pg_catalog.normalize(p, NFD) does not parse.
-create function ac.fold(p text) returns text
+create or replace function ac.fold(p text) returns text
 language sql immutable strict parallel safe set search_path = ''
 return pg_catalog.lower(
   pg_catalog.regexp_replace(normalize(p, NFD), '${marks}', '', 'g') collate pg_catalog."und-x-icu");
 
 -- themeKey() of packages/shared/src/themes.ts.
-create function ac.theme_key(p text) returns text
+create or replace function ac.theme_key(p text) returns text
 language sql immutable strict parallel safe set search_path = ''
 return pg_catalog.btrim(ac.js_collapse(pg_catalog.translate(ac.fold(p), '‘’', '''''')), ' ');
 
@@ -90,7 +100,7 @@ return pg_catalog.btrim(ac.js_collapse(pg_catalog.translate(ac.fold(p), '‘’'
 -- AUDITION_THEMES[i]; approx when some theme was found and no tag matched
 -- firmly. A tag written in the grid counts as it is, any other by its key
 -- (THEME_KEY_TABLE). A null tag is skipped (the site would throw on it).
-create function ac.theme_bits(p_topics text[], out mask integer, out approx boolean)
+create or replace function ac.theme_bits(p_topics text[], out mask integer, out approx boolean)
 language plpgsql immutable parallel safe set search_path = '' as $$
 declare
   v_tag text;
@@ -125,15 +135,18 @@ end $$;
 -- lines split on CR? LF; a line is a question (NORMALIZED_QUESTIONS) only after
 -- the previous one; text before the first question, or no answer left once
 -- trimmed, means the text as it is; else the answers joined by a blank line.
--- (No backslash in a plain literal here: a plpgsql body is parsed again at
--- run time, under the caller's standard_conforming_strings.)
-create function ac.answers_text(p_content text) returns text
+-- An answer's lines are appended to an array (in place) and joined once: text
+-- concatenation line by line is quadratic, and a long text must not reach the
+-- statement timeout of the write. (No backslash in a plain literal here: a
+-- plpgsql body is parsed again at run time, under the caller's
+-- standard_conforming_strings.)
+create or replace function ac.answers_text(p_content text) returns text
 language plpgsql immutable strict parallel safe set search_path = '' as $$
 declare
   v_line text;
   v_at integer;
   v_cur integer := -1;
-  v_lines text;
+  v_lines text[] := '{}';
   v_answer text;
   v_out text;
 begin
@@ -143,21 +156,21 @@ ${questionCase.join("\n")}
     end;
     if v_at > v_cur then
       if v_cur >= 0 then
-        v_answer := ac.js_trim(coalesce(v_lines, ''));
+        v_answer := ac.js_trim(pg_catalog.array_to_string(v_lines, E'\\n'));
         if v_answer <> '' then
           v_out := case when v_out is null then v_answer else v_out || E'\\n\\n' || v_answer end;
         end if;
       end if;
       v_cur := v_at;
-      v_lines := null;
+      v_lines := '{}';
     elsif v_cur >= 0 then
-      v_lines := case when v_lines is null then v_line else v_lines || E'\\n' || v_line end;
+      v_lines := pg_catalog.array_append(v_lines, v_line);
     elsif ac.js_trim(v_line) <> '' then
       return p_content;
     end if;
   end loop;
   if v_cur >= 0 then
-    v_answer := ac.js_trim(coalesce(v_lines, ''));
+    v_answer := ac.js_trim(pg_catalog.array_to_string(v_lines, E'\\n'));
     if v_answer <> '' then
       v_out := case when v_out is null then v_answer else v_out || E'\\n\\n' || v_answer end;
     end if;
@@ -187,8 +200,21 @@ function blockOf(sql: string): { start: number; end: number } {
   return { start, end: end + END.length };
 }
 
+/** Whether a migration is on the base branch, so applied on staging and prod. */
+function onBase(file: string, base: string): boolean {
+  const git = (...args: string[]) => spawnSync("git", args, { cwd: MIGRATIONS, encoding: "utf8" });
+  if (git("rev-parse", "--verify", "--quiet", `${base}^{commit}`).status !== 0) {
+    console.error(`${base} not found: fetch it, or name the base branch with --base <ref>.`);
+    process.exit(1);
+  }
+  const top = git("rev-parse", "--show-toplevel").stdout.trim();
+  return git("cat-file", "-e", `${base}:${relative(top, file)}`).status === 0;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
+  const baseAt = process.argv.indexOf("--base");
+  const base = baseAt > 0 ? process.argv[baseAt + 1] : "origin/dev";
   const sql = derivedSql();
   if (!mode) {
     process.stdout.write(sql + "\n");
@@ -203,19 +229,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const name = file.slice(MIGRATIONS.length);
     if (text.slice(start, end) === sql) {
       console.log(`${name}: the generated SQL matches @ac/shared.`);
-    } else if (mode === "--write") {
-      writeFileSync(file, text.slice(0, start) + sql + text.slice(end));
-      console.log(`${name}: generated SQL rewritten.`);
-    } else {
+    } else if (mode === "--check") {
       console.error(
-        `${name}: the generated SQL no longer matches @ac/shared. If that migration is ` +
-          "applied nowhere yet, run npm run db:sql-gen -- --write; otherwise write a new " +
-          "migration that replaces the helpers and bumps derive_version.",
+        `${name}: the generated SQL no longer matches @ac/shared. Run npm run db:sql-gen -- ` +
+          "--write if that migration is new on this branch; otherwise add a migration that " +
+          "replaces the helpers and bumps derive_version (scripts/sql-gen/derived.ts).",
       );
       process.exit(1);
+    } else if (onBase(file, base)) {
+      console.error(
+        `${name} is on ${base}, so it has run on staging and prod: editing it would ` +
+          "change nothing there. Add a migration holding the two marker lines, which " +
+          "--write fills (scripts/sql-gen/derived.ts).",
+      );
+      process.exit(1);
+    } else {
+      writeFileSync(file, text.slice(0, start) + sql + text.slice(end));
+      console.log(`${name}: generated SQL rewritten.`);
     }
   } else {
-    console.error("Usage: derived.ts [--check | --write]");
+    console.error("Usage: derived.ts [--check | --write [--base <ref>]]");
     process.exit(1);
   }
 }

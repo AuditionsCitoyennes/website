@@ -5,10 +5,12 @@
 // rolled-back transaction, the derived columns must come out filled and right,
 // although none of these roles but service_role can run the helpers the
 // trigger calls. Then the trigger's own safety net: with a helper that fails,
-// the write still goes through, with NULLs and derive_version = -1.
+// the write still goes through, with NULLs and derive_version = -1. Last, a
+// 2 MB answer of 100,000 lines saves well within a statement timeout (the
+// trigger cannot catch a cancellation: a slow helper fails the write).
 
 import { randomUUID } from "node:crypto";
-import { composeAnswers } from "@ac/shared";
+import { AUDITION_QUESTIONS, composeAnswers } from "@ac/shared";
 import { mismatches, rowsJson, type DerivedRow } from "./parity";
 import { lit, sqlJson } from "./psql";
 
@@ -20,6 +22,46 @@ set local request.jwt.claims = ${lit(JSON.stringify({ sub: admin, role: "authent
 const asAnon = `
 set local role anon;
 set local request.jwt.claims = ${lit(JSON.stringify({ role: "anon" }))};`;
+
+/** A long text, as an old-app admin might paste it: one answer of 100,000
+ *  lines (about 2 MB), then two short ones. Quadratic helpers take ~7 s on it
+ *  locally, linear ones ~0.4 s. */
+const LONG_TEXT = [
+  AUDITION_QUESTIONS[0],
+  ...Array.from({ length: 100_000 }, (_, i) => (i % 10 === 9 ? "" : "Une ligne de réponse ")),
+  AUDITION_QUESTIONS[1],
+  "Bien.",
+  AUDITION_QUESTIONS[2],
+  "Tout.",
+].join("\n");
+const LONG_TIMEOUT = "3s";
+
+function checkLongWrite(): string[] {
+  const admin = randomUUID();
+  const audition = randomUUID();
+  const id = randomUUID();
+  let rows: DerivedRow[];
+  try {
+    [rows] = sqlJson<DerivedRow[]>(`
+begin;
+insert into public.user_roles (user_id, role) values (${lit(admin)}, 'admin');
+${asAuthenticated(admin)}
+insert into public.auditions (id, title, date, location, content)
+values (${lit(audition)}, 'db:check', current_date, 'Lyon', 'Audition de contrôle');
+set local statement_timeout = ${lit(LONG_TIMEOUT)};
+insert into public.testimonies (id, audition_id, person_name, content)
+values (${lit(id)}, ${lit(audition)}, 'Long', ${lit(LONG_TEXT)});
+reset role;
+${rowsJson(`from public.testimonies where id = ${lit(id)}::uuid`)}
+rollback;`);
+  } catch (e) {
+    return [
+      `a ${LONG_TEXT.length}-character testimony did not save within ${LONG_TIMEOUT}: ${(e as Error).message}`,
+    ];
+  }
+  if (rows.length !== 1) return ["the long testimony was not written"];
+  return mismatches(rows[0], "long testimony");
+}
 
 export function checkWrites(): string[] {
   const admin = randomUUID();
@@ -120,5 +162,6 @@ rollback;`);
   ) {
     errors.push(`a failing helper should leave NULLs and derive_version -1: ${JSON.stringify(f)}`);
   }
+  errors.push(...checkLongWrite());
   return errors;
 }
