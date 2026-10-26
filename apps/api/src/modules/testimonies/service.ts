@@ -10,6 +10,7 @@ import {
   type UpdateTestimonyInput,
 } from "@ac/shared";
 import { publicClient } from "../../lib/supabase";
+import { PAGE, selectAll } from "../../lib/paging";
 import { invalidatePublicCaches } from "../../lib/publicCache";
 import { logAudit } from "../../lib/audit";
 import { frDate } from "../../lib/dates";
@@ -32,9 +33,6 @@ export interface FetchFailed {
   kind: "fetchFailed";
   message: string;
 }
-
-// PostgREST's cap: past it a bare select is silently cut short.
-const PAGE = 1000;
 
 // What a signed-in caller may read from testimonies: every column but the
 // email and the verification token, which the API no longer exposes (admins
@@ -94,14 +92,24 @@ export async function fetchFilterableTestimonies(
   return { kind: "ok", testimonies: all };
 }
 
-/** All testimonies of one audition, oldest first (admin management view). */
+/**
+ * All testimonies of one audition, oldest first (admin management view). The
+ * function's own order, restated so that its pages hold still: one audition
+ * may hold more than a page.
+ */
 export async function fetchTestimoniesForAudition(
   client: Client,
   auditionId: string,
 ): Promise<{ kind: "ok"; testimonies: AdminTestimony[] } | FetchFailed> {
-  const { data, error } = await client.rpc("admin_testimonies", { p_audition_id: auditionId });
+  const { data, error } = await selectAll((from, to) =>
+    client
+      .rpc("admin_testimonies", { p_audition_id: auditionId })
+      .order("created_at")
+      .order("id")
+      .range(from, to),
+  );
   if (error) return { kind: "fetchFailed", message: error.message };
-  return { kind: "ok", testimonies: data ?? [] };
+  return { kind: "ok", testimonies: data };
 }
 
 // ---- Create ---------------------------------------------------------------
