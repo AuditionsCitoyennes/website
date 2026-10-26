@@ -15,7 +15,7 @@ import { mismatches, rowsJson, type DerivedRow } from "./parity";
 import { lit, sqlJson } from "./psql";
 
 // The claims PostgREST would pass on; auth.uid() reads sub from them.
-const asAuthenticated = (admin: string) => `
+export const asAuthenticated = (admin: string) => `
 set local role authenticated;
 set local request.jwt.claims = ${lit(JSON.stringify({ sub: admin, role: "authenticated" }))};`;
 

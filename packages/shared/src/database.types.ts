@@ -44,9 +44,22 @@ export type Database = {
           created_at: string | null;
           created_by: string | null;
           date: string;
+          geo_release: string | null;
           id: string;
+          lat: number | null;
+          lieu_id: string | null;
+          lieu_key: string | null;
+          lng: number | null;
+          locality_id: string | null;
           location: string;
           place: Json | null;
+          place_candidates: Json | null;
+          place_path: string[] | null;
+          place_precision: string | null;
+          place_stale: boolean | null;
+          place_unit: string | null;
+          placed_location: string | null;
+          placed_rules: string | null;
           status: Database["public"]["Enums"]["audition_status"] | null;
           title: string;
           updated_at: string | null;
@@ -58,9 +71,22 @@ export type Database = {
           created_at?: string | null;
           created_by?: string | null;
           date: string;
+          geo_release?: string | null;
           id?: string;
+          lat?: number | null;
+          lieu_id?: string | null;
+          lieu_key?: string | null;
+          lng?: number | null;
+          locality_id?: string | null;
           location: string;
           place?: Json | null;
+          place_candidates?: Json | null;
+          place_path?: string[] | null;
+          place_precision?: string | null;
+          place_stale?: boolean | null;
+          place_unit?: string | null;
+          placed_location?: string | null;
+          placed_rules?: string | null;
           status?: Database["public"]["Enums"]["audition_status"] | null;
           title: string;
           updated_at?: string | null;
@@ -72,14 +98,35 @@ export type Database = {
           created_at?: string | null;
           created_by?: string | null;
           date?: string;
+          geo_release?: string | null;
           id?: string;
+          lat?: number | null;
+          lieu_id?: string | null;
+          lieu_key?: string | null;
+          lng?: number | null;
+          locality_id?: string | null;
           location?: string;
           place?: Json | null;
+          place_candidates?: Json | null;
+          place_path?: string[] | null;
+          place_precision?: string | null;
+          place_stale?: boolean | null;
+          place_unit?: string | null;
+          placed_location?: string | null;
+          placed_rules?: string | null;
           status?: Database["public"]["Enums"]["audition_status"] | null;
           title?: string;
           updated_at?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "auditions_place_unit_fkey";
+            columns: ["place_unit"];
+            isOneToOne: false;
+            referencedRelation: "geo_units";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       captured_emails: {
         Row: {
@@ -116,6 +163,62 @@ export type Database = {
           viewer?: string | null;
         };
         Relationships: [];
+      };
+      geo_units: {
+        Row: {
+          code: string | null;
+          country: string;
+          geo_release: string;
+          id: string;
+          lat: number | null;
+          level: string;
+          lng: number | null;
+          name: string;
+          parent_id: string | null;
+          polygon: boolean;
+          source: string;
+          updated_at: string;
+          wikidata: string | null;
+        };
+        Insert: {
+          code?: string | null;
+          country: string;
+          geo_release: string;
+          id: string;
+          lat?: number | null;
+          level: string;
+          lng?: number | null;
+          name: string;
+          parent_id?: string | null;
+          polygon?: boolean;
+          source: string;
+          updated_at?: string;
+          wikidata?: string | null;
+        };
+        Update: {
+          code?: string | null;
+          country?: string;
+          geo_release?: string;
+          id?: string;
+          lat?: number | null;
+          level?: string;
+          lng?: number | null;
+          name?: string;
+          parent_id?: string | null;
+          polygon?: boolean;
+          source?: string;
+          updated_at?: string;
+          wikidata?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "geo_units_parent_id_fkey";
+            columns: ["parent_id"];
+            isOneToOne: false;
+            referencedRelation: "geo_units";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       online_testimony_submissions: {
         Row: {
@@ -331,6 +434,7 @@ export type Database = {
         Args: { p_unverified_only: boolean };
         Returns: string[];
       };
+      placement_support: { Args: never; Returns: Json };
       reject_testimony_by_token: { Args: { p_token: string }; Returns: boolean };
       submit_online_testimony: {
         Args: {
@@ -338,11 +442,18 @@ export type Database = {
           p_citycode: string;
           p_content: string;
           p_email_hash: string;
+          p_geo_release?: string;
+          p_lat?: number;
+          p_lng?: number;
+          p_locality_id?: string;
           p_location: string;
           p_month: string;
           p_person_info: string;
           p_person_name: string;
           p_place: Json;
+          p_place_path?: string[];
+          p_place_precision?: string;
+          p_place_unit?: string;
           p_title: string;
           p_token: string;
         };

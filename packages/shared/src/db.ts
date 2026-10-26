@@ -1,8 +1,40 @@
-import type { Tables, Enums } from "./database.types";
+import type { Tables, TablesInsert, TablesUpdate, Enums } from "./database.types";
 
 // ---- Row aliases -----------------------------------------------------------
 
 export type Audition = Tables<"auditions">;
+/** Where an audition is filed (map phase 1): written by the API, the backfill
+ *  and the seed, never by the old app. */
+export type AuditionPlaceColumn =
+  | "place_unit"
+  | "place_path"
+  | "locality_id"
+  | "lieu_key"
+  | "lat"
+  | "lng"
+  | "place_precision"
+  | "place_candidates"
+  | "placed_location"
+  | "placed_rules"
+  | "geo_release";
+/** Generated from the place columns. The generated Insert and Update types
+ *  list them, but the database refuses any value (428C9). */
+export type AuditionGeneratedColumn = "place_stale" | "lieu_id";
+/** An audition's place as read. */
+export type AuditionPlace = Pick<Audition, AuditionPlaceColumn | AuditionGeneratedColumn>;
+/** A write type that refuses the generated columns, from a spread as well. */
+type WithoutGenerated<T> = Omit<T, AuditionGeneratedColumn> & {
+  [K in AuditionGeneratedColumn]?: never;
+};
+/** An audition's place as written. */
+export type AuditionPlaceWrite = WithoutGenerated<
+  Pick<TablesInsert<"auditions">, AuditionPlaceColumn>
+>;
+/** An audition insert or update, as an app may send it. */
+export type AuditionInsert = WithoutGenerated<TablesInsert<"auditions">>;
+export type AuditionUpdate = WithoutGenerated<TablesUpdate<"auditions">>;
+/** A unit auditions are filed under (geo_units: server only). */
+export type GeoUnit = Tables<"geo_units">;
 /** The columns the database derives from a testimony (trigger
  *  testimonies_derive) for its own counts and search: no app reads or writes them. */
 export type TestimonyDerivedColumn =

@@ -11,17 +11,25 @@
 //   generated helpers, replaced as a later migration would replace them, keep
 //   their grants (rolled back);
 // - every SECURITY DEFINER function sets search_path, but the baseline's eight
-//   listed under securityDefinerWithoutSearchPath.
+//   listed under securityDefinerWithoutSearchPath;
+// - the tables of serverOnlyTables (geo_units among them) are the ones anon
+//   and authenticated hold no privilege on, and cannot read: RLS on, the
+//   service role reads and writes them;
+// - the functions of schema public only the service role may run (not PUBLIC,
+//   anon or authenticated) are serviceRoleOnly: placement_support and
+//   submit_online_testimony among them.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { derivedSql } from "../sql-gen/derived";
-import { sqlJson } from "./psql";
+import { runSql, sqlJson } from "./psql";
 
 export interface Allowlist {
   schemas: string[];
   testimoniesSelect: string[];
   executable: Record<"anon" | "authenticated", string[]>;
   securityDefinerWithoutSearchPath: string[];
+  serverOnlyTables: string[];
+  serviceRoleOnly: string[];
 }
 
 const ROLES = ["anon", "authenticated"] as const;
@@ -43,13 +51,29 @@ interface Observed {
   executable: Record<string, string[]>;
   securityDefinerWithoutSearchPath: string[];
   acUsage: Record<string, boolean>;
+  serverOnlyTables: string[];
+  /** Per server-only table: RLS on, and the service role's four privileges. */
+  serverTables: Record<string, { rls: boolean; service_role: boolean }>;
+  serviceRoleOnly: string[];
 }
+
+/** Every privilege a role may hold on a table, and on its columns. */
+const ANY_TABLE = "'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'";
+const ANY_COLUMN = "'SELECT, INSERT, UPDATE, REFERENCES'";
 
 /** The grants as the database has them now, over the given schemas. */
 export function observe(schemas: string[]): Observed {
   const inSchemas = `n.nspname = any (array[${schemas.map((s) => `'${s}'`).join(", ")}])`;
   const roles = `array[${ROLES.map((r) => `'${r}'`).join(", ")}]`;
   const [observed] = sqlJson<Observed>(`
+with server_tables as (
+  select c.oid, c.oid::pg_catalog.regclass::text as name, c.relrowsecurity as rls
+    from pg_catalog.pg_class c
+   where c.relnamespace = 'public'::pg_catalog.regnamespace and c.relkind in ('r', 'p')
+     and not exists (
+       select 1 from pg_catalog.unnest(array['public', ${ROLES.map((r) => `'${r}'`).join(", ")}]) as r
+        where pg_catalog.has_table_privilege(r, c.oid, ${ANY_TABLE})
+           or pg_catalog.has_any_column_privilege(r, c.oid, ${ANY_COLUMN})))
 select pg_catalog.jsonb_build_object(
   'testimoniesSelect', (
     select pg_catalog.jsonb_object_agg(r, cols) from (
@@ -71,7 +95,21 @@ select pg_catalog.jsonb_build_object(
   'acUsage', (
     select pg_catalog.jsonb_object_agg(r, pg_catalog.to_regnamespace('ac') is not null
                                           and pg_catalog.has_schema_privilege(r, 'ac', 'USAGE'))
-      from pg_catalog.unnest(${roles}) as r)
+      from pg_catalog.unnest(${roles}) as r),
+  'serverOnlyTables', coalesce((select pg_catalog.jsonb_agg(t.name order by t.name) from server_tables t), '[]'::jsonb),
+  'serverTables', coalesce((
+    select pg_catalog.jsonb_object_agg(t.name, pg_catalog.jsonb_build_object(
+             'rls', t.rls,
+             'service_role', pg_catalog.has_table_privilege('service_role', t.oid, 'SELECT')
+                             and pg_catalog.has_table_privilege('service_role', t.oid, 'INSERT')
+                             and pg_catalog.has_table_privilege('service_role', t.oid, 'UPDATE')
+                             and pg_catalog.has_table_privilege('service_role', t.oid, 'DELETE')))
+      from server_tables t), '{}'::jsonb),
+  'serviceRoleOnly', coalesce((
+    select pg_catalog.jsonb_agg(f.sig order by f.sig) from ${functions("n.nspname = 'public'")} f
+     where pg_catalog.has_function_privilege('service_role', f.oid, 'EXECUTE')
+       and not exists (select 1 from pg_catalog.unnest(array['public', ${ROLES.map((r) => `'${r}'`).join(", ")}]) as r
+                        where pg_catalog.has_function_privilege(r, f.oid, 'EXECUTE'))), '[]'::jsonb)
 );`);
   return observed;
 }
@@ -132,6 +170,21 @@ function diff(label: string, expected: string[], actual: string[]): string[] {
   ];
 }
 
+/** Why a role's read of a table failed, or null when it went through. */
+function readAs(role: (typeof ROLES)[number], table: string): string | null {
+  try {
+    runSql(`
+begin;
+set local role ${role};
+set local request.jwt.claims = '{"role": "${role}"}';
+select count(*) from ${table};
+rollback;`);
+    return null;
+  } catch (e) {
+    return (e as Error).message;
+  }
+}
+
 export function checkGrants(): string[] {
   const allow = readAllowlist();
   const seen = observe(allow.schemas);
@@ -156,6 +209,28 @@ export function checkGrants(): string[] {
       allow.securityDefinerWithoutSearchPath,
       seen.securityDefinerWithoutSearchPath,
     ).filter((e) => e.includes("unexpected")),
+  );
+  errors.push(
+    ...diff(
+      "tables closed to anon and authenticated",
+      allow.serverOnlyTables,
+      seen.serverOnlyTables,
+    ),
+  );
+  for (const table of allow.serverOnlyTables) {
+    const t = seen.serverTables[table];
+    if (t && !t.rls) errors.push(`${table} has no row level security`);
+    if (t && !t.service_role) errors.push(`service_role cannot read and write ${table}`);
+    for (const r of ROLES) {
+      const refused = readAs(r, table);
+      if (refused === null) errors.push(`${r} can read ${table}`);
+      else if (!/permission denied for table/.test(refused)) {
+        errors.push(`${r} reading ${table}: ${refused}`);
+      }
+    }
+  }
+  errors.push(
+    ...diff("functions only service_role may run", allow.serviceRoleOnly, seen.serviceRoleOnly),
   );
   for (const f of migrationsWithoutClosingGrants()) {
     errors.push(`${f} creates functions in ac but does not end with: ${CLOSING_GRANTS}`);
@@ -195,5 +270,7 @@ export function currentAllowlist(): Allowlist {
       authenticated: seen.executable.authenticated ?? [],
     },
     securityDefinerWithoutSearchPath: seen.securityDefinerWithoutSearchPath,
+    serverOnlyTables: seen.serverOnlyTables,
+    serviceRoleOnly: seen.serviceRoleOnly,
   };
 }

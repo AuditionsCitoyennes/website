@@ -59,5 +59,14 @@
     "public.is_admin()",
     "public.is_super_admin()",
     "public.verify_testimony(p_action text, p_token text)"
+  ],
+  "serverOnlyTables": [
+    "public.captured_emails",
+    "public.geo_units",
+    "public.online_testimony_submissions"
+  ],
+  "serviceRoleOnly": [
+    "public.placement_support()",
+    "public.submit_online_testimony(p_email_hash text, p_person_name text, p_person_info text, p_content text, p_citycode text, p_location text, p_place jsonb, p_month date, p_title text, p_audition_content text, p_token uuid, p_place_unit text, p_place_path text[], p_locality_id text, p_lat double precision, p_lng double precision, p_place_precision text, p_geo_release text)"
   ]
 }
