@@ -3,6 +3,7 @@
 // allocates and nothing touches Vue state (see emitFrame).
 
 import type mapboxgl from "mapbox-gl";
+import { perfEnd, perfOn, perfPending } from "@/shared/perf/perf";
 import type { PlateauFrame, SlabFrame } from "../types";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { WALL_OVERSHOOT } from "../gl/mesh";
@@ -235,6 +236,13 @@ export function usePlateauFrames({ getMap, wall: plateauWall }: PlateauFramesInp
     // camera of its own to project with — the plateau isn't on screen either.
     camFresh = cam.seq !== seenCamSeq;
     seenCamSeq = cam.seq;
+    // The perf probes: the plateau drawn at full rise ends "select → plateau".
+    if (perfOn) {
+      const pending = perfPending("select-plateau");
+      if (pending && camFresh && plateauWall.rise >= 0.999 && plateauWall.scopeId === pending) {
+        perfEnd("select-plateau", pending, { rise: Math.round(plateauWall.rise * 1000) / 1000 });
+      }
+    }
     const subs = frameSubs;
     const map = getMap();
     if (!subs.length || !map) return;

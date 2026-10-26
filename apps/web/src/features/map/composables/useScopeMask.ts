@@ -8,6 +8,7 @@
 import type mapboxgl from "mapbox-gl";
 import type * as GeoJSON from "geojson";
 import type { Bounds } from "@/features/geo";
+import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { MASK_OPACITY, ScopeTintLayer, sameGeoms, type MaskGeom } from "../gl/ScopeTintLayer";
@@ -89,6 +90,9 @@ export function useScopeMask({
   let drapedShown = false;
   // Whether the style renders a globe at all (decided once the style is loaded).
   let globeStyle = false;
+  // The perf probes: when the draped sheet's data was last handed to the
+  // worker, until it reports it indexed (0: nothing pending).
+  let drapedSetAt = 0;
 
   /**
    * The draped sheet covers the world. On the globe a lat/lng rectangle cannot
@@ -184,16 +188,36 @@ export function useScopeMask({
       // colour until the geometry arrives.
       if (!geoms.length && scopePending()) return;
     }
-    scopeTint.setSelection(geoms);
+    const recut = scopeTint.setSelection(geoms);
     // The globe's sheet always holds the current selection, whatever the zoom:
     // re-tiling only costs anything while its tiles are loaded (MASK_ARM_ZOOM), and
     // having the data already indexed is what lets those tiles appear in time
     // when a fast zoom-out or a flight heads for the globe.
     if (!sameGeoms(geoms, drapedGeoms)) {
       drapedGeoms = geoms;
+      const endSet = perfOn ? perfSpan("mask.setData") : null;
       src.setData(worldMaskData(geoms));
+      if (endSet) endSet();
+      if (perfOn) drapedSetAt = performance.now();
     }
     syncDrapedMask();
+    // The perf probes: the grey re-cut around the new selection is the end of
+    // "scope change → mask updated" (the GL sheet is on screen next frame; the
+    // draped sheet's indexing is noted apart, mask.drapedIndexed). No re-cut
+    // ends it as unchanged only when none can follow: the outline has nothing
+    // to raise (the world scope) and nothing on its way. With a unit to raise
+    // and no plateau standing yet (the first drill of a session, a drill out
+    // of the lieu zone), this pass greys nothing and ensurePlateau re-cuts
+    // once the plateau is up: that cut is the end.
+    if (perfOn) {
+      if (recut) perfEnd("scope-mask", undefined, { holes: geoms.length });
+      else if (
+        !scopePending() &&
+        !outline()?.features.some((f) => f.properties?.kind === "scope")
+      ) {
+        perfEnd("scope-mask", undefined, { unchanged: true });
+      }
+    }
   }
 
   /**
@@ -281,6 +305,14 @@ export function useScopeMask({
     );
     drapedGeoms = [];
     drapedShown = false;
+    if (perfOn) {
+      // The worker has indexed the sheet's new data: how long after setData.
+      map.on("sourcedata", (e) => {
+        if (e.sourceId !== MASK_SOURCE || e.sourceDataType !== "content" || !drapedSetAt) return;
+        perfNote("mask.drapedIndexed", performance.now() - drapedSetAt);
+        drapedSetAt = 0;
+      });
+    }
     // A style with no globe is flat at every zoom: the draped sheet never shows.
     globeStyle = map.getProjection()?.name === "globe";
     // The flat view's grey (see ScopeTintLayer). Same anchoring as the draped

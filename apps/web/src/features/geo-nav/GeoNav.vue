@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, toRef, watch } from "vue";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { ancestorsOf } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
+import { perfBegin, perfEnd } from "@/shared/perf/perf";
 import { analysisSummary, ScopeAnalysisOverlay, useScopeAnalysis } from "@/features/analyses";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
 import GeoPanel from "./panel/GeoPanel.vue";
@@ -209,7 +210,7 @@ const {
 } = panel;
 
 // ---- What the map is handed (model/useMapFeed): outline, pending hold, pins ----
-const { outline, scopePending, mapUnits } = useMapFeed({
+const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
   nav,
   geo,
   boundaries,
@@ -436,6 +437,29 @@ if (import.meta.env.DEV) {
   onBeforeUnmount(() => {
     if (w.__acAnalysesNav === probe) delete w.__acAnalysesNav;
   });
+}
+
+if (__TEST_TOOLS__) {
+  // The perf probes (shared/perf): the scope written is where "scope change →
+  // mask re-cut" starts (useScopeMask ends it), and a drill's boundaries are
+  // ready once the outline of the unit selected has every geometry it will get
+  // (useNavActions starts that one). Sync: at the write itself, not at the flush.
+  // Not in the lieu zone: the outline is empty there whatever the scope, the
+  // mask is never touched, and there would be nothing to end.
+  watch(
+    () => currentScope.value.id,
+    (id) => {
+      if (!inMicroZone.value) perfBegin("scope-mask", id);
+    },
+    { flush: "sync" },
+  );
+  watch(
+    [() => currentScope.value.id, outlineReady],
+    ([id, ready]) => {
+      if (ready) perfEnd("drill-boundaries", id);
+    },
+    { flush: "sync" },
+  );
 }
 
 // The map changing places (MapStage moves it between the home page's card and

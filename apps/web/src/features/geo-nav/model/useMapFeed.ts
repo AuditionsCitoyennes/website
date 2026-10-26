@@ -12,6 +12,7 @@ import {
   unitsByLevelKey,
 } from "@/features/geo";
 import type { MapUnit, OutlineFC } from "@/features/map";
+import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
 import type { BoundaryQueries } from "../data/useBoundaryQueries";
 import type { CommuneGeoStore } from "../data/useCommuneGeo";
@@ -33,8 +34,8 @@ export function useMapFeed(inputs: MapFeedInputs) {
   const { currentScope, selectedPlaceId, inMicroZone, mapView } = nav;
   const { root, index, geometryFor, raisedGeometryFor, raisedOutlineDue, allPlaceUnits } = geo;
   const { regionsQuery, depsQuery, metroQuery } = boundaries;
-  const { failedInsee, ensureGeo } = communes;
-  const { depFine, fetchDepFine, addDepFine, ensureDepFine } = deps;
+  const { communeGeo, failedInsee, ensureGeo } = communes;
+  const { depFine, depGaveUp, fetchDepFine, addDepFine, ensureDepFine } = deps;
 
   const EMPTY_FC: OutlineFC = { type: "FeatureCollection", features: [] };
 
@@ -76,11 +77,12 @@ export function useMapFeed(inputs: MapFeedInputs) {
     // not decide this by itself: zoomed back out with it still open, the map is
     // explored exactly as if nothing were open.
     if (inMicroZone.value) return EMPTY_FC;
+    const end = perfOn ? perfSpan("vue.outline") : null;
     // The scope rises with its own outline (raisedGeometryFor) — none while that
     // is still due: the map holds the plateau standing (scopePending) rather than
     // raise one shape and reshape it a moment later.
     const scope = currentScope.value;
-    return {
+    const fc: OutlineFC = {
       type: "FeatureCollection",
       features: [
         ...(raisedOutlineDue(scope) ? [] : outlineForUnits([scope], "scope", raisedGeometryFor)),
@@ -88,6 +90,8 @@ export function useMapFeed(inputs: MapFeedInputs) {
         ...outlineForUnits(scopeSiblings.value, "context", raisedGeometryFor),
       ],
     };
+    if (end) end({ features: fc.features.length });
+    return fc;
   });
 
   // True while the scope SHOULD have boundary geometry but it hasn't loaded yet
@@ -111,6 +115,23 @@ export function useMapFeed(inputs: MapFeedInputs) {
       return !failedInsee.value.has(s.insee);
     }
     return false;
+  });
+
+  /** The outline has every geometry it will get: nothing of the scope's own,
+   *  its children's or its neighbours' is still on its way (the perf probes'
+   *  "drill → boundaries ready", shared/perf; a neighbouring département's own
+   *  outline, which refines a line already drawn, is not waited for). */
+  const outlineReady = computed(() => {
+    if (inMicroZone.value) return true;
+    if (scopePending.value) return false;
+    const geo = communeGeo.value;
+    const failed = failedInsee.value;
+    for (const u of [...panelUnits.value, ...scopeSiblings.value]) {
+      if ((u.levelKey !== "city" && u.levelKey !== "arr") || !u.insee) continue;
+      if (!geo[u.insee] && !failed.has(u.insee)) return false;
+    }
+    const code = depCodeOf(currentScope.value);
+    return !code || !!depFine.value[code] || depGaveUp.value.has(code);
   });
 
   // Départements of OTHER régions, while they are on screen.
@@ -239,8 +260,13 @@ export function useMapFeed(inputs: MapFeedInputs) {
   );
 
   const mapUnits = computed<MapUnit[]>(() => {
+    const end = perfOn ? perfSpan("vue.mapUnits") : null;
     // Deep-zoomed into the micropin zone: every lieu in view.
-    if (showMicroPins.value) return placesInView.value.map((u) => toMapUnit(u));
+    if (showMicroPins.value) {
+      const dots = placesInView.value.map((u) => toMapUnit(u));
+      if (end) end({ units: dots.length, micro: true });
+      return dots;
+    }
     // Focused level's units (detail) + surrounding siblings (context macro pins).
     const units = [
       ...panelUnits.value.map((u) => toMapUnit(u)),
@@ -251,6 +277,7 @@ export function useMapFeed(inputs: MapFeedInputs) {
     // may already be in the list, and a pin handed over twice is never removed.
     const open = selectedPlace.value;
     if (open && !units.some((u) => u.id === open.id)) units.push(toMapUnit(open));
+    if (end) end({ units: units.length, micro: false });
     return units;
   });
 
@@ -303,5 +330,5 @@ export function useMapFeed(inputs: MapFeedInputs) {
     },
   );
 
-  return { outline, scopePending, mapUnits };
+  return { outline, scopePending, outlineReady, mapUnits };
 }

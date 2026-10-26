@@ -22,6 +22,7 @@ import { useMapPins } from "./composables/useMapPins";
 import { usePlateau } from "./composables/usePlateau";
 import { usePlateauSlabs } from "./composables/usePlateauSlabs";
 import { installProbes } from "./dev/probes";
+import { installPmtilesProbe } from "./dev/pmtiles";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 
@@ -242,6 +243,11 @@ onMounted(() => {
       mask.applyMask();
       pins.buildMarkers();
       lid.warmup(); // hidden lid-snapshot map: pay style init now
+      // Testing tools: a PMTiles archive named in the address, laid over the map.
+      if (__TEST_TOOLS__) {
+        const m = getMap();
+        if (m) installPmtilesProbe(m);
+      }
       if (props.camera) camera.runCamera({ ...props.camera, animate: false });
       view.emitView();
       // INTRO: wait for the first idle (basemap fully painted, capped at 4 s),
