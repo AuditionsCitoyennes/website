@@ -2,8 +2,8 @@
 // seed lieu and online town hall, computed by the API's own code (placeLieu,
 // frChain, resolveTownHall: apps/api/src/modules/places) against the live
 // BAN and geo.api.gouv.fr, so that the seed and CI need no network. Run it
-// again when the seed's places or LOCATION_RULES change (the seed refuses
-// fixtures built under other rules):
+// again when the seed's places change, or LOCATION_RULES in a way that moves
+// one of them (the seed says which: fr.ts placeOutdated):
 //
 //   npx tsx scripts/seed/fixtures/build-fixtures.ts
 //
@@ -27,6 +27,7 @@ import { FRANCE_CLUSTERS, ONLINE_TOWN_HALLS } from "../places";
 import {
   FR_PLACES_FILE,
   FR_UNITS_FILE,
+  RULES_HASH,
   type FrOnlinePlace,
   type FrPlace,
   type FrPlaces,
@@ -96,6 +97,8 @@ function keepUnits(list: Placement["units"]) {
 }
 
 const RULES = rulesHash();
+if (RULES !== RULES_HASH)
+  throw new Error(`fr.ts RULES_HASH ${RULES_HASH} is not the API's ${RULES}`);
 const placements = new Map<string, Placement>();
 /** Placed lieux by lieu key, as reuse finds them in the database. */
 const placedByKey = new Map<string, StoredPlace>();
@@ -161,7 +164,8 @@ for (const [location, p] of placements) {
   }
 }
 
-// 3. The online town halls, as the online form files them.
+// 3. The online town halls, as the online form files them: label, `place`
+// (the bucket's point) and units.
 const online: Record<string, FrOnlinePlace> = {};
 for (const hall of ONLINE_TOWN_HALLS) {
   const t = await resolveTownHall(hall.citycode);
@@ -171,19 +175,14 @@ for (const hall of ONLINE_TOWN_HALLS) {
       `${hall.citycode}: the API files it as ${t.key} "${t.location}", the seed as "${hall.location}"`,
     );
   }
-  // The bucket's point is its `place`'s: the seed's must be the one the form files.
-  const drift = (Object.keys(t.place) as (keyof typeof t.place)[]).filter(
-    (k) => t.place[k] !== hall.place[k],
-  );
-  if (drift.length) {
-    throw new Error(
-      `${hall.location}: ONLINE_TOWN_HALLS (places.ts) differs from what the online form files ` +
-        `on ${drift.join(", ")}: ${JSON.stringify(t.place)}`,
-    );
+  const { departementCode, departementName, region } = t.place;
+  if (!departementCode || !departementName || !region) {
+    throw new Error(`${hall.citycode}: geo.api gives no département or région`);
   }
   keepUnits(t.chain.units);
   online[hall.citycode] = {
     location: t.location,
+    place: { ...t.place, departementCode, departementName, region },
     place_unit: t.chain.unit,
     place_path: t.chain.path,
     locality_id: t.chain.localityId,
@@ -240,7 +239,7 @@ console.log(
     `${count((p) => p.place_candidates !== null)} with same-named communes), ` +
     `${Object.keys(online).length} town halls; rules ${RULES}`,
 );
-for (const location of ["Ardèche", "Saint-Denis", "Serres", "Ribiers", "France"]) {
+for (const location of ["Ardèche", "Saint-Denis", "Serres", "Châteauvieux", "Ribiers", "France"]) {
   const p = lieux[location];
   if (!p) continue;
   const candidates = p.place_candidates?.map((c) => `${c.citycode} (${c.departementCode})`);

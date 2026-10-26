@@ -1,6 +1,7 @@
-// Writes supabase/seed.sql: fake Auditions Citoyennes data for the local stack
-// and staging. Pure fake data: invented texts (texts.ts), example.org
-// addresses, no imported dataset, never a row of the real database.
+// The fake Auditions Citoyennes data for the local stack and staging, as SQL
+// (cli.ts writes it to supabase/seed.sql). Pure fake data: invented texts
+// (texts.ts), example.org addresses, no imported dataset, never a row of the
+// real database.
 //
 //   npm run db:seed                      profile "france" (default): shaped like
 //                                        the real corpus, plus edge cases
@@ -10,19 +11,20 @@
 // Where each audition is (map phase 1): French auditions and online buckets
 // are placed as the API places them, from committed fixtures
 // (fixtures/fr-places.json, fr-units.json: no network), but for a few the old
-// app wrote (places.ts, `legacy`), never placed, so stale; the rows abroad
-// are not placed yet either. SEED_SHAPE=legacy writes the same rows as they
-// stood before phase 1 (no place column, no geo_units), for loading under
-// the migrations before it (db:check:seeded).
+// app wrote (places.ts, `legacy`), never placed, so stale. The rows abroad
+// are unplaced, as after an attempt (no point until the world gazetteer
+// places them), so the placement job never looks them up in BAN, which
+// would pin some in France (Grenade is also a commune of Haute-Garonne).
+// SEED_SHAPE=legacy writes the same rows as they stood before phase 1 (no
+// place column, no geo_units), for loading under the migrations before it
+// (db:check:seeded).
 //
 // A fixed random seed per profile: the same profile always writes the same
 // rows. Dates are relative to the day the file is loaded (current_date, now()),
 // so pending verification links are fresh whenever it is.
 
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { LOCATION_RULES } from "@ac/shared";
+import { getCanonicalLocation } from "@ac/shared";
 import {
   AUDITION_CONTENTS,
   CANONICAL,
@@ -39,7 +41,15 @@ import {
   type Theme,
 } from "./texts";
 import { COUNTRIES, FRANCE_CLUSTERS, ONLINE_TOWN_HALLS } from "./places";
-import { readFrFixtures, type FrPlaces, type FrUnit } from "./fixtures/fr";
+import {
+  placeOutdated,
+  readFrFixtures,
+  RULES_HASH,
+  type FrPlace,
+  type FrPlaces,
+  type FrUnit,
+} from "./fixtures/fr";
+import { PLACES_FINGERPRINT } from "./fingerprint";
 
 export type Profile = "france" | "world" | "all";
 /** places: with the phase-1 place columns and geo_units; legacy: the rows as before them. */
@@ -104,8 +114,11 @@ interface Audition {
   location: string;
   content: string;
   status: "published" | "draft";
-  /** Placed by the API (fixtures/fr-places.json); else never placed: stale. */
-  placed: boolean;
+  /**
+   * fixture: placed (or unplaced) by the API, as fixtures/fr-places.json says;
+   * legacy: written by the old app, never placed (stale); abroad: unplaced.
+   */
+  placement: "fixture" | "legacy" | "abroad";
 }
 
 interface Testimony {
@@ -345,7 +358,7 @@ function franceProfile(): Dataset {
           location: place.location,
           content: r.pick(AUDITION_CONTENTS),
           status: draft ? "draft" : "published",
-          placed: n < place.times - (place.legacy ?? 0),
+          placement: n < place.times - (place.legacy ?? 0) ? "fixture" : "legacy",
         };
         auditions.push(audition);
         boosts.set(audition.id, cluster.boost);
@@ -527,8 +540,8 @@ function worldProfile(): Dataset {
           location,
           content: r.pick(AUDITION_CONTENTS),
           status: "published",
-          // Placed abroad once the world gazetteer is there.
-          placed: false,
+          // Placed once the world gazetteer is there.
+          placement: "abroad",
         };
         auditions.push(audition);
         for (let t = r.int(3, 4); t > 0; t--) {
@@ -591,12 +604,6 @@ const MONTHS =
 const MONTH_NAMES =
   "array['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']";
 
-/** The API's rulesHash() (apps/api/src/modules/places/placeLieu.ts): what a placement was computed under. */
-const RULES_HASH = createHash("sha256")
-  .update(JSON.stringify(LOCATION_RULES))
-  .digest("hex")
-  .slice(0, 8);
-
 /** The place columns, after the columns every audition has. */
 const PLACE_COLUMNS =
   "place_unit, place_path, locality_id, lieu_key, lat, lng, place_precision, place_candidates, placed_location, placed_rules, geo_release";
@@ -614,21 +621,29 @@ const ONLINE_PLACE = {
 
 /**
  * The fixtures' places for this dataset, and the units they reference, root
- * first. Refused when they no longer fit the seed's lieux or LOCATION_RULES.
+ * first. Refused when they no longer fit the seed's lieux, or a lieu that
+ * LOCATION_RULES now name or point elsewhere (as the placement job's rules
+ * pass would place it again); under any other rules change they hold, and
+ * the rows are stamped with the current rules, as that pass stamps them.
+ * `lieux`: the in-person lieux too (the legacy shape needs only the town halls).
  */
-function frenchPlaces(data: Dataset): { places: FrPlaces; units: FrUnit[] } {
+function frenchPlaces(data: Dataset, lieux: boolean): { places: FrPlaces; units: FrUnit[] } {
   const { units, places } = readFrFixtures();
   const rebuild = "build them again: npx tsx scripts/seed/fixtures/build-fixtures.ts";
-  if (places.rules !== RULES_HASH) {
-    throw new Error(
-      `The place fixtures were built under other LOCATION_RULES (${places.rules}, now ${RULES_HASH}): ${rebuild}`,
-    );
-  }
   const used = new Set<string>();
-  for (const a of data.auditions.filter((a) => a.placed)) {
+  const outdated = new Set<string>();
+  for (const a of lieux ? data.auditions.filter((a) => a.placement === "fixture") : []) {
     const p = places.lieux[a.location];
     if (!p) throw new Error(`No fixture place for "${a.location}": ${rebuild}`);
+    const why = placeOutdated(a.location, p);
+    if (why) outdated.add(`"${a.location}": ${why}`);
     p.place_path?.forEach((id) => used.add(id));
+  }
+  if (outdated.size > 0) {
+    throw new Error(
+      `LOCATION_RULES moved seed lieux since the place fixtures were built (${places.rules}, now ${RULES_HASH}):\n` +
+        `  ${[...outdated].join("\n  ")}\n${rebuild}`,
+    );
   }
   for (const { hall } of data.online) {
     const p = places.online[hall.citycode];
@@ -656,9 +671,11 @@ function toSql(
   shape: Shape,
   data: Dataset,
 ): { sql: string; counts: Counts | null } {
+  const withPlaces = shape === "places";
+  // The town halls' `place` comes from the fixtures in either shape.
   const fr =
-    shape === "places" && (data.auditions.some((a) => a.placed) || data.online.length > 0)
-      ? frenchPlaces(data)
+    data.online.length > 0 || (withPlaces && data.auditions.some((a) => a.placement === "fixture"))
+      ? frenchPlaces(data, withPlaces)
       : null;
   const out: string[] = [
     `-- Generated by scripts/seed/generate.ts (profile: ${profile}${shape === "legacy" ? ", shape: legacy" : ""}). Do not edit:`,
@@ -677,13 +694,13 @@ function toSql(
     "end $$;",
     "",
     "-- Loading again replaces the previous fake data (accounts and roles stay).",
-    shape === "legacy"
-      ? "truncate public.online_testimony_submissions, public.testimonies, public.auditions;"
-      : "truncate public.online_testimony_submissions, public.testimonies, public.auditions, public.geo_units;",
+    withPlaces
+      ? "truncate public.online_testimony_submissions, public.testimonies, public.auditions, public.geo_units;"
+      : "truncate public.online_testimony_submissions, public.testimonies, public.auditions;",
     "",
   ];
 
-  if (fr && fr.units.length > 0) {
+  if (withPlaces && fr && fr.units.length > 0) {
     out.push(
       "-- The units the placed rows reference, root first (fixtures/fr-units.json).",
       "insert into public.geo_units (id, parent_id, level, country, name, code, lat, lng, source, geo_release) values",
@@ -697,11 +714,17 @@ function toSql(
     );
   }
 
-  // A placed row holds what the API stores (placed_location = its location,
-  // placed_rules = the rules it was placed under); any other, nothing: stale.
-  const lieuOf = (a: Audition) => (fr && a.placed ? fr.places.lieux[a.location] : null);
+  // A row placed, or unplaced after an attempt, holds what the API stores
+  // (placed_location = its location, placed_rules = the rules it stands
+  // under); one the old app wrote, nothing: stale.
+  const placeOf = (a: Audition): FrPlace | null =>
+    a.placement === "fixture"
+      ? fr!.places.lieux[a.location]
+      : a.placement === "abroad"
+        ? unplacedAbroad(a.location)
+        : null;
   const placeValues = (a: Audition) => {
-    const p = lieuOf(a);
+    const p = placeOf(a);
     if (!p) return NEVER_PLACED;
     return [
       str(p.place_unit),
@@ -719,24 +742,24 @@ function toSql(
   };
   for (const rows of batches(data.auditions, 200)) {
     out.push(
-      shape === "legacy"
-        ? "insert into public.auditions (id, title, date, location, content, status, created_at) values"
-        : `insert into public.auditions (id, title, date, location, content, status, created_at, ${PLACE_COLUMNS}) values`,
+      withPlaces
+        ? `insert into public.auditions (id, title, date, location, content, status, created_at, ${PLACE_COLUMNS}) values`
+        : "insert into public.auditions (id, title, date, location, content, status, created_at) values",
       rows
         .map(
           (a) =>
             `  (${str(a.id)}, ${str(a.title)}, current_date - ${a.daysAgo}, ${str(a.location)}, ${str(a.content)}, ${str(a.status)}, now() - interval '${a.daysAgo} days'` +
-            (shape === "legacy" ? ")" : `, ${placeValues(a)})`),
+            (withPlaces ? `, ${placeValues(a)})` : ")"),
         )
         .join(",\n") + ";",
       "",
     );
   }
 
-  if (data.online.length > 0) {
+  if (fr && data.online.length > 0) {
     // Titles and texts depend on the month the seed is loaded in, as the API's
     // do. A bucket is placed at its town hall's units and point (its `place`).
-    const more = (s: string) => (fr ? `, ${s}` : "");
+    const more = (s: string) => (withPlaces ? `, ${s}` : "");
     out.push(
       `insert into public.auditions (id, title, date, location, content, status, audition_en_ligne, citycode, place, created_at${more(ONLINE_PLACE.columns)})`,
       "select v.id::uuid,",
@@ -747,19 +770,17 @@ function toSql(
       "from (values",
       data.online
         .map(({ id, monthsAgo, hall }) => {
-          const p = fr?.places.online[hall.citycode];
-          const place = p
-            ? [
-                str(p.place_unit),
-                textArray(p.place_path),
-                str(p.locality_id),
-                num(hall.place.lat),
-                num(hall.place.lng),
-                str(p.place_precision),
-                str(p.geo_release),
-              ].join(", ")
-            : "";
-          return `  (${str(id)}, ${monthsAgo}, ${str(hall.location)}, ${str(hall.citycode)}, ${str(JSON.stringify(hall.place))}${place && `, ${place}`})`;
+          const p = fr.places.online[hall.citycode];
+          const place = [
+            str(p.place_unit),
+            textArray(p.place_path),
+            str(p.locality_id),
+            num(p.place.lat),
+            num(p.place.lng),
+            str(p.place_precision),
+            str(p.geo_release),
+          ].join(", ");
+          return `  (${str(id)}, ${monthsAgo}, ${str(hall.location)}, ${str(hall.citycode)}, ${str(JSON.stringify(p.place))}${more(place)})`;
         })
         .join(",\n"),
       `) as v(id, months_ago, location, citycode, place${more(ONLINE_PLACE.values)})`,
@@ -794,22 +815,22 @@ function toSql(
     );
   }
 
-  // (In this shape, fr is there whenever there are online buckets.)
-  const counts: Counts | null =
-    shape === "legacy"
-      ? null
-      : {
-          placed: data.auditions.filter((a) => lieuOf(a)?.place_path).length + data.online.length,
-          unplaced: data.auditions.filter((a) => lieuOf(a) && !lieuOf(a)?.place_path).length,
-          stale: data.auditions.filter((a) => !lieuOf(a)).length,
-        };
-  // The marker the guard above looks for; with what the seed placed, which
-  // db:check compares with the database.
+  const counts: Counts | null = withPlaces
+    ? {
+        placed: data.auditions.filter((a) => placeOf(a)?.place_path).length + data.online.length,
+        unplaced: data.auditions.filter((a) => placeOf(a) && !placeOf(a)?.place_path).length,
+        stale: data.auditions.filter((a) => !placeOf(a)).length,
+      }
+    : null;
+  // The marker the guard above looks for; with what the seed placed and the
+  // fingerprint of its place data as loaded, which db:check compares with
+  // the database.
   out.push(
     "insert into public.audit_log (action, target_type, metadata)",
     counts
       ? `values ('fake_seed_loaded', 'database', jsonb_build_object('profile', ${str(profile)}, 'shape', ${str(shape)}, ` +
-          `'auditions', ${data.auditions.length + data.online.length}, 'placed', ${counts.placed}, 'unplaced', ${counts.unplaced}, 'stale', ${counts.stale}));`
+          `'auditions', ${data.auditions.length + data.online.length}, 'placed', ${counts.placed}, 'unplaced', ${counts.unplaced}, 'stale', ${counts.stale},\n` +
+          `  'places', ${PLACES_FINGERPRINT}));`
       : `values ('fake_seed_loaded', 'database', jsonb_build_object('profile', ${str(profile)}));`,
     "",
     "commit;",
@@ -818,7 +839,25 @@ function toSql(
   return { sql: out.join("\n"), counts };
 }
 
+/** A lieu abroad, as the API leaves one it cannot place: on no point, under its lieu name. */
+function unplacedAbroad(location: string): FrPlace {
+  return {
+    place_unit: null,
+    place_path: null,
+    locality_id: null,
+    lieu_key: getCanonicalLocation(location),
+    lat: null,
+    lng: null,
+    place_precision: "unplaced",
+    place_candidates: null,
+    geo_release: null,
+  };
+}
+
 // ---- Main -------------------------------------------------------------------
+
+export const PROFILES: Profile[] = ["france", "world", "all"];
+export const SHAPES: Shape[] = ["places", "legacy"];
 
 /** The seed of a profile, in a shape: the SQL, and a line saying what it holds. */
 export function seedSql(
@@ -847,23 +886,4 @@ export function seedSql(
     `), ${data.testimonies.length} testimonies (${by("pending")} pending, ${by("verified")} verified), ` +
     `${(sql.length / 1024 / 1024).toFixed(1)} MB`;
   return { sql, summary };
-}
-
-const PROFILES: Profile[] = ["france", "world", "all"];
-const SHAPES: Shape[] = ["places", "legacy"];
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const profile = (process.env.SEED_PROFILE ?? "france") as Profile;
-  if (!PROFILES.includes(profile)) {
-    console.error(`SEED_PROFILE must be france, world or all (got "${profile}")`);
-    process.exit(1);
-  }
-  const shape = (process.env.SEED_SHAPE ?? "places") as Shape;
-  if (!SHAPES.includes(shape)) {
-    console.error(`SEED_SHAPE must be places or legacy (got "${shape}")`);
-    process.exit(1);
-  }
-  const { sql, summary } = seedSql(profile, shape);
-  writeFileSync(fileURLToPath(new URL("../../supabase/seed.sql", import.meta.url)), sql);
-  console.log(summary);
 }

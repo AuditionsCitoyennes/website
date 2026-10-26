@@ -348,6 +348,18 @@
     "geo_release": "geoapi-2026"
   },
   {
+    "id": "fr:com:05037",
+    "parent_id": "fr:dep:05",
+    "level": "locality",
+    "country": "FR",
+    "name": "Châteauvieux",
+    "code": "05037",
+    "lat": 44.4838,
+    "lng": 6.0527,
+    "source": "insee",
+    "geo_release": "geoapi-2026"
+  },
+  {
     "id": "fr:com:05046",
     "parent_id": "fr:dep:05",
     "level": "locality",

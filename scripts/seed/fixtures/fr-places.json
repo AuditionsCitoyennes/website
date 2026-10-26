@@ -593,6 +593,54 @@
       ],
       "geo_release": "geoapi-2026"
     },
+    "Châteauvieux": {
+      "place_unit": "fr:com:05037",
+      "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05037"],
+      "locality_id": "fr:com:05037",
+      "lieu_key": "Châteauvieux",
+      "lat": 44.483517,
+      "lng": 6.048613,
+      "place_precision": "commune",
+      "place_candidates": [
+        {
+          "name": "Châteauvieux",
+          "departementCode": "05",
+          "citycode": "05037",
+          "arrondissement": null,
+          "departementName": "Hautes-Alpes",
+          "region": "Provence-Alpes-Côte d'Azur",
+          "lat": 44.483517,
+          "lng": 6.048613,
+          "level": "commune",
+          "population": 545
+        },
+        {
+          "name": "Châteauvieux",
+          "departementCode": "41",
+          "citycode": "41042",
+          "arrondissement": null,
+          "departementName": "Loir-et-Cher",
+          "region": "Centre-Val de Loire",
+          "lat": 47.220191,
+          "lng": 1.365602,
+          "level": "commune",
+          "population": 514
+        },
+        {
+          "name": "Châteauvieux",
+          "departementCode": "83",
+          "citycode": "83040",
+          "arrondissement": null,
+          "departementName": "Var",
+          "region": "Provence-Alpes-Côte d'Azur",
+          "lat": 43.77754,
+          "lng": 6.579424,
+          "level": "commune",
+          "population": 78
+        }
+      ],
+      "geo_release": "geoapi-2026"
+    },
     "Ribiers": {
       "place_unit": null,
       "place_path": null,
@@ -630,6 +678,16 @@
   "online": {
     "38185": {
       "location": "Mairie de Grenoble (38)",
+      "place": {
+        "insee": "38185",
+        "commune": "Grenoble",
+        "arrondissement": null,
+        "departementCode": "38",
+        "departementName": "Isère",
+        "region": "Auvergne-Rhône-Alpes",
+        "lat": 45.1864,
+        "lng": 5.7364
+      },
       "place_unit": "fr:com:38185",
       "place_path": ["FR", "fr:reg:84", "fr:dep:38", "fr:com:38185"],
       "locality_id": "fr:com:38185",
@@ -638,6 +696,16 @@
     },
     "69266": {
       "location": "Mairie de Villeurbanne (69)",
+      "place": {
+        "insee": "69266",
+        "commune": "Villeurbanne",
+        "arrondissement": null,
+        "departementCode": "69",
+        "departementName": "Rhône",
+        "region": "Auvergne-Rhône-Alpes",
+        "lat": 45.7665,
+        "lng": 4.8796
+      },
       "place_unit": "fr:com:69266",
       "place_path": ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69266"],
       "locality_id": "fr:com:69266",
@@ -646,6 +714,16 @@
     },
     "69387": {
       "location": "Mairie du 7e arrondissement de Lyon",
+      "place": {
+        "insee": "69387",
+        "commune": "Lyon",
+        "arrondissement": "Lyon 7e",
+        "departementCode": "69",
+        "departementName": "Rhône",
+        "region": "Auvergne-Rhône-Alpes",
+        "lat": 45.7463,
+        "lng": 4.8416
+      },
       "place_unit": "fr:com:69387",
       "place_path": ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69387"],
       "locality_id": "fr:com:69123",
@@ -654,6 +732,16 @@
     },
     "05061": {
       "location": "Mairie de Gap (05)",
+      "place": {
+        "insee": "05061",
+        "commune": "Gap",
+        "arrondissement": null,
+        "departementCode": "05",
+        "departementName": "Hautes-Alpes",
+        "region": "Provence-Alpes-Côte d'Azur",
+        "lat": 44.5587,
+        "lng": 6.0798
+      },
       "place_unit": "fr:com:05061",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05061"],
       "locality_id": "fr:com:05061",

@@ -112,9 +112,11 @@ const ELSEWHERE: Cluster = {
  * Places that test the edges of geocoding: a département instead of a town,
  * overseas towns (outside the map's mainland box), same-named communes
  * (Saint-Denis, 93 or Réunion, left unplaced; Serres, settled in the
- * Hautes-Alpes by the lieux the seed holds there), a commune merged into
- * another (Ribiers, a commune déléguée: no commune by that name), a name
- * that is no place ("France"), a very long place name.
+ * Hautes-Alpes by population alone, that one being over five times the size
+ * of any other; Châteauvieux, three of nearly the same size, settled in the
+ * Hautes-Alpes only by the lieux the seed holds there: placement_support()),
+ * a commune merged into another (Ribiers, a commune déléguée: no commune by
+ * that name), a name that is no place ("France"), a very long place name.
  */
 const EDGES: Cluster = {
   name: "edges",
@@ -128,6 +130,7 @@ const EDGES: Cluster = {
     "Cayenne",
     "Saint-Denis",
     "Serres",
+    "Châteauvieux",
     "Ribiers",
     "France",
     "Parvis de la Maison des Jeunes et de la Culture du quartier des États-Unis, Lyon 8",
@@ -138,81 +141,19 @@ export const FRANCE_CLUSTERS: Cluster[] = [LYON, ALPS, ELSEWHERE, EDGES];
 
 /**
  * Online auditions: one per town hall and month (see submit_online_testimony),
- * labelled and placed as the online form files them (resolveTownHall: the
- * town hall's point from geo.api.gouv.fr; build-fixtures.ts checks it).
+ * labelled as the online form files them. Their point and names (the bucket's
+ * `place`) are the form's too, from geo.api.gouv.fr: fixtures/fr-places.json.
  */
 export interface OnlineTownHall {
   location: string;
   citycode: string;
-  place: {
-    insee: string;
-    commune: string;
-    arrondissement: string | null;
-    departementCode: string;
-    departementName: string;
-    region: string;
-    lat: number;
-    lng: number;
-  };
 }
 
 export const ONLINE_TOWN_HALLS: OnlineTownHall[] = [
-  {
-    location: "Mairie de Villeurbanne (69)",
-    citycode: "69266",
-    place: {
-      insee: "69266",
-      commune: "Villeurbanne",
-      arrondissement: null,
-      departementCode: "69",
-      departementName: "Rhône",
-      region: "Auvergne-Rhône-Alpes",
-      lat: 45.7665,
-      lng: 4.8796,
-    },
-  },
-  {
-    location: "Mairie du 7e arrondissement de Lyon",
-    citycode: "69387",
-    place: {
-      insee: "69387",
-      commune: "Lyon",
-      arrondissement: "Lyon 7e",
-      departementCode: "69",
-      departementName: "Rhône",
-      region: "Auvergne-Rhône-Alpes",
-      lat: 45.7463,
-      lng: 4.8416,
-    },
-  },
-  {
-    location: "Mairie de Grenoble (38)",
-    citycode: "38185",
-    place: {
-      insee: "38185",
-      commune: "Grenoble",
-      arrondissement: null,
-      departementCode: "38",
-      departementName: "Isère",
-      region: "Auvergne-Rhône-Alpes",
-      lat: 45.1864,
-      lng: 5.7364,
-    },
-  },
-  {
-    location: "Mairie de Gap (05)",
-    citycode: "05061",
-    place: {
-      insee: "05061",
-      commune: "Gap",
-      arrondissement: null,
-      departementCode: "05",
-      departementName: "Hautes-Alpes",
-      region: "Provence-Alpes-Côte d'Azur",
-      lat: 44.5587,
-      lng: 6.0798,
-    },
-  },
+  { location: "Mairie de Villeurbanne (69)", citycode: "69266" },
+  { location: "Mairie du 7e arrondissement de Lyon", citycode: "69387" },
+  { location: "Mairie de Grenoble (38)", citycode: "38185" },
+  { location: "Mairie de Gap (05)", citycode: "05061" },
 ];
 
 /** Every country but France (the `france` profile covers it), in French,
