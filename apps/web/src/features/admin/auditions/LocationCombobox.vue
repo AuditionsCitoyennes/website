@@ -1,19 +1,27 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { normalizeLocation } from "@ac/shared";
+import { BAN_PICK_TYPES, normalizeLocation, type BanPick } from "@ac/shared";
 
 // Location autocomplete backed by the Base Adresse Nationale (the official
 // French geocoder — replaces the old app's Nominatim, which rate-limits).
+// Besides the label, a pick hands over where BAN puts it (its commune's
+// INSEE code and its point): the audition is placed there.
 
 interface BanFeature {
+  geometry?: { coordinates?: [number, number] };
   properties: {
     id: string;
     label: string;
     name?: string;
     city?: string;
     municipality?: string;
+    citycode?: string;
+    type?: string;
   };
 }
+
+/** The picked suggestion: its label (the location) and where BAN puts it. */
+export type LocationPick = Omit<BanPick, "kind"> & { label: string };
 
 defineProps<{
   modelValue: string;
@@ -22,6 +30,7 @@ defineProps<{
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
+  pick: [value: LocationPick];
 }>();
 
 const root = ref<HTMLElement | null>(null);
@@ -86,8 +95,17 @@ watch(search, (q) => {
   }, 300);
 });
 
+const isPickType = (t: string | undefined): t is BanPick["type"] =>
+  (BAN_PICK_TYPES as readonly string[]).includes(t ?? "");
+
 function select(f: BanFeature) {
-  emit("update:modelValue", normalizeLocation(shortLabel(f)));
+  const label = normalizeLocation(shortLabel(f));
+  emit("update:modelValue", label);
+  const [lng, lat] = f.geometry?.coordinates ?? [];
+  const { citycode, type } = f.properties;
+  if (citycode && typeof lat === "number" && typeof lng === "number" && isPickType(type)) {
+    emit("pick", { label, citycode, lat, lng, type });
+  }
   search.value = "";
   results.value = [];
   open.value = false;

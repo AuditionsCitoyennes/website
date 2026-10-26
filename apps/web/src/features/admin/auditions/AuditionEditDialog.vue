@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import type { BanPick } from "@ac/shared";
 import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
-import LocationCombobox from "./LocationCombobox.vue";
+import LocationCombobox, { type LocationPick } from "./LocationCombobox.vue";
 import type { AdminAudition } from "./useAdminAuditions";
 
 // The audition's edit form, opened from its popup: seeded from the audition
@@ -35,11 +36,19 @@ const form = ref({
 /** The audition being edited is an online one (its date and place are fixed). */
 const editingOnline = ref(false);
 
+/** The address picked in this dialog: the audition is placed there. */
+const pick = ref<BanPick | null>(null);
+
+function onPick({ label, ...where }: LocationPick) {
+  pick.value = label === form.value.location ? { kind: "ban", ...where } : null;
+}
+
 watch(
   () => [props.audition, props.open] as const,
   ([audition, open]) => {
     if (audition && open) {
       editingOnline.value = Boolean(audition.audition_en_ligne);
+      pick.value = null;
       form.value = {
         title: audition.title,
         date: audition.date,
@@ -66,7 +75,10 @@ async function handleUpdate() {
   }
   saving.value = true;
   try {
-    await api.patch(`/api/auditions/${props.audition.id}`, form.value);
+    await api.patch(`/api/auditions/${props.audition.id}`, {
+      ...form.value,
+      ...(pick.value && !editingOnline.value ? { place: pick.value } : {}),
+    });
     toast({ title: "Succès!", description: "Audition modifiée" });
     emit("close");
     emit("updated");
@@ -118,7 +130,7 @@ async function handleUpdate() {
             disabled
             aria-label="Lieu"
           />
-          <LocationCombobox v-else v-model="form.location" />
+          <LocationCombobox v-else v-model="form.location" @pick="onPick" />
         </div>
       </div>
       <div class="form-field">
