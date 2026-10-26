@@ -4,7 +4,7 @@
 //   DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run db:check
 //   PSQL="docker exec -i supabase_db_<project_id> psql -U postgres -d postgres" npm run db:check
 //
-//   npm run db:check -- grants parity      only some of them (grants, parity, writes, places, paths, seed)
+//   npm run db:check -- grants parity      only some of them (grants, rpcs, parity, writes, places, paths, seed)
 //   npm run db:check -- --allowlist        print allowlist.json as the database stands
 //
 // Local databases only (psql.ts). Every write happens in a rolled-back transaction.
@@ -12,12 +12,14 @@
 import { checkGrants, currentAllowlist } from "./grants";
 import { checkParity } from "./parity";
 import { checkPaths } from "./paths";
+import { checkRpcs } from "./rpcs";
 import { checkPartialPlaces, checkPlacementSupport, checkPlaceWrites } from "./places";
 import { checkSeed } from "./seed";
 import { checkWrites } from "./writes";
 
 const CHECKS: Record<string, { title: string; run: () => string[] }> = {
   grants: { title: "Grant guard", run: checkGrants },
+  rpcs: { title: "Read RPCs: the service role's alone, bounded", run: checkRpcs },
   parity: {
     title: "Derived columns match @ac/shared",
     run: () => {
