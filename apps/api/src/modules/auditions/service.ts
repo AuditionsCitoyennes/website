@@ -89,9 +89,12 @@ export async function fetchPublishedAuditions(): Promise<AuditionWithCount[]> {
   // testimonies (drafts included).
   const { data: countRows, error: countError } = await selectAll(
     (last?: { audition_id: string | null }) => {
+      // The audition-less row is of no use here, and as a page's last row it
+      // would make the next page's keyset `gt.null`.
       const q = publicClient
         .from("audition_testimony_counts")
         .select("audition_id, total_count, verified_count")
+        .not("audition_id", "is", null)
         .order("audition_id");
       return (last ? q.gt("audition_id", last.audition_id) : q).limit(PAGE);
     },

@@ -232,8 +232,9 @@ test("published auditions: all 2,500, newest first, same-day by id, each with it
   assert.equal(pages[0].get("status"), "eq.published");
   const countPages = reads("audition_testimony_counts");
   assert.equal(countPages.length, 3);
-  assert.equal(countPages[0].get("audition_id"), null);
-  assert.match(countPages[1].get("audition_id") ?? "", /^gt\./);
+  assert.deepEqual(countPages[0].getAll("audition_id"), ["not.is.null"]);
+  assert.equal(countPages[1].getAll("audition_id")[0], "not.is.null");
+  assert.match(countPages[1].getAll("audition_id")[1] ?? "", /^gt\./);
 });
 
 test("published auditions: a write between two pages neither repeats nor drops a row", async () => {
