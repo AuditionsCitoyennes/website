@@ -107,6 +107,10 @@ jobs:
           # every request come from 127.0.0.1), the others in front of it on
           # private addresses. The visitor's address is the one they forward.
           ENV_TRUST_PROXY: 127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
+          # The map from the places stored with the auditions (map phase 1);
+          # /api/map?source=geocoder serves the geocoder's build beside it.
+          ENV_MAP_SOURCE: db
+          ENV_TEST_TOOLS: "true"
           SECRET_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
           SECRET_SEND_EMAIL_HOOK_SECRET: ${{ secrets.STAGING_SEND_EMAIL_HOOK_SECRET }}
           # Shared with the site's Worker (deploy-staging-web.yml): vouches for
