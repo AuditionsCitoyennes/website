@@ -22,6 +22,7 @@
     "db:accounts": "tsx scripts/seed/accounts.ts",
     "db:check": "tsx scripts/db-checks/index.ts",
     "db:check:seeded": "tsx scripts/db-checks/migrate-seeded.ts",
+    "db:parity": "tsx scripts/parity/explore-parity.ts",
     "db:sql-gen": "tsx scripts/sql-gen/derived.ts",
     "test:scripts": "node --import tsx --test scripts/db-checks/seedGate.test.ts",
     "build": "npm run build --workspace=@ac/web && npm run build --workspace=@ac/api",
