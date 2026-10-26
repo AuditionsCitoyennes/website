@@ -1,0 +1,63 @@
+{
+  "schemas": ["public", "ac"],
+  "testimoniesSelect": [
+    "audition_id",
+    "content",
+    "created_at",
+    "created_by",
+    "id",
+    "person_info",
+    "person_name",
+    "topics",
+    "verification_status"
+  ],
+  "executable": {
+    "anon": [
+      "public.drop_emptied_audition()",
+      "public.get_audit_log(p_limit integer, p_offset integer)",
+      "public.get_pending_registrations()",
+      "public.get_user_roles_with_details()",
+      "public.handle_updated_at()",
+      "public.has_role(_role public.app_role, _user_id uuid)",
+      "public.has_verified_testimony(p_audition uuid)",
+      "public.insert_audit_log(p_user_id uuid, p_action text, p_target_type text, p_target_id text, p_metadata jsonb)",
+      "public.is_admin()",
+      "public.is_online_audition(p_audition uuid)",
+      "public.is_super_admin()",
+      "public.online_testimony_ids(p_unverified_only boolean)",
+      "public.reject_testimony_by_token(p_token text)",
+      "public.testimony_for_verification(p_token text)",
+      "public.verify_testimony(p_action text, p_token text)",
+      "public.verify_testimony_by_token(p_token text, p_edits jsonb)"
+    ],
+    "authenticated": [
+      "public.admin_testimonies(p_audition_id uuid, p_id uuid)",
+      "public.drop_emptied_audition()",
+      "public.get_audit_log(p_limit integer, p_offset integer)",
+      "public.get_pending_registrations()",
+      "public.get_user_roles_with_details()",
+      "public.handle_updated_at()",
+      "public.has_role(_role public.app_role, _user_id uuid)",
+      "public.has_verified_testimony(p_audition uuid)",
+      "public.insert_audit_log(p_user_id uuid, p_action text, p_target_type text, p_target_id text, p_metadata jsonb)",
+      "public.is_admin()",
+      "public.is_online_audition(p_audition uuid)",
+      "public.is_super_admin()",
+      "public.online_testimony_ids(p_unverified_only boolean)",
+      "public.reject_testimony_by_token(p_token text)",
+      "public.testimony_for_verification(p_token text)",
+      "public.verify_testimony(p_action text, p_token text)",
+      "public.verify_testimony_by_token(p_token text, p_edits jsonb)"
+    ]
+  },
+  "securityDefinerWithoutSearchPath": [
+    "public.get_audit_log(p_limit integer, p_offset integer)",
+    "public.get_pending_registrations()",
+    "public.get_user_roles_with_details()",
+    "public.has_role(_role public.app_role, _user_id uuid)",
+    "public.insert_audit_log(p_user_id uuid, p_action text, p_target_type text, p_target_id text, p_metadata jsonb)",
+    "public.is_admin()",
+    "public.is_super_admin()",
+    "public.verify_testimony(p_action text, p_token text)"
+  ]
+}
