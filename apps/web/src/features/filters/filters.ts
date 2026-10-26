@@ -1,17 +1,18 @@
-import { answersText, themesOf } from "@ac/shared";
+import { themesOf } from "@ac/shared";
 import type { LocNode } from "@/shared/ui/select/treeNode";
 
 // The filters of the Témoignages page — place, dates, themes, verified, free
 // text, order — as plain functions, so that every list offering them (the map's
-// panel, the admin's list of auditions) filters the same way.
-
-/** Accent- and case-insensitive haystack for the free-text search. */
-export function fold(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
+// panel, the admin's list of auditions) filters the same way. The ones judged
+// on a testimony's content and date live in @ac/shared, which the database's
+// derived columns are generated from.
+export {
+  fold,
+  passesContent,
+  passesDate,
+  type ContentFilter,
+  type TestimonyContent,
+} from "@ac/shared";
 
 /** Where something is, as the place filter knows it (a LocationGroup is one). */
 export interface Area {
@@ -32,60 +33,12 @@ export function areaTokens(a: Area): string[] {
   return t;
 }
 
-/** The filters judged on a testimony's own content. */
-export interface ContentFilter {
-  verified: boolean;
-  topics: string[];
-  /** The free text, folded (see `fold`); "" for none. */
-  needle: string;
-}
-
-/** What a testimony needs for its content to be judged. */
-export interface TestimonyContent {
-  person_name: string;
-  person_info: string | null;
-  content: string;
-  topics: string[] | null;
-  verification_status: string | null;
-}
-
-/**
- * Whether a testimony passes the content filters. `textMatched`: the free text
- * was already found around it (in its audition, say), so it need not be in it.
- */
-export function passesContent(t: TestimonyContent, f: ContentFilter, textMatched = false): boolean {
-  if (f.verified && t.verification_status !== "verified") return false;
-  if (f.topics.length) {
-    // Read in the theme grid: an old "démocratie" tag matches its theme.
-    const has: readonly string[] = themesOf(t.topics);
-    if (!f.topics.some((sel) => has.includes(sel))) return false;
-  }
-  if (f.needle && !textMatched) {
-    // The witness's words only: not the questions of a testimony sent online.
-    const hay = fold(`${t.person_name} ${t.person_info ?? ""} ${answersText(t.content)}`);
-    if (!hay.includes(f.needle)) return false;
-  }
-  return true;
-}
-
 /** Whether an area is among the places picked (none picked: all are). */
 export function passesLocation(a: Area | null, picked: string[]): boolean {
   if (!picked.length) return true;
   if (!a) return false;
   const tokens = areaTokens(a);
   return picked.some((sel) => tokens.includes(sel));
-}
-
-/** Whether a date is within the range (an undated thing only when there is none). */
-export function passesDate(
-  date: string | null | undefined,
-  from: string | null,
-  to: string | null,
-): boolean {
-  if (!date) return !from && !to;
-  if (from && date < from) return false;
-  if (to && date > to) return false;
-  return true;
 }
 
 /**

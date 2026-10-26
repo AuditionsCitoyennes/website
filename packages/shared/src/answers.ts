@@ -27,8 +27,12 @@ function normalize(line: string): string {
   return line.replace(/\s+/g, " ").trim().replace(/ ?\?$/, " ?");
 }
 
+/** The questions as a line is compared with them (see `normalize`), in order:
+ *  the database's search_text is computed from the same list. */
+export const NORMALIZED_QUESTIONS: readonly string[] = AUDITION_QUESTIONS.map(normalize);
+
 /** Each question's position, by its normalized line. */
-const QUESTION_AT = new Map<string, number>(AUDITION_QUESTIONS.map((q, i) => [normalize(q), i]));
+const QUESTION_AT = new Map<string, number>(NORMALIZED_QUESTIONS.map((q, i) => [q, i]));
 
 /** An answer whose own line is one of the questions (a witness quoting it):
  *  that line goes in quotation marks, so it can never be read as the start of

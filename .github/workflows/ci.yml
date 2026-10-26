@@ -16,6 +16,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # A pull request is checked out as its merge commit: its first parent
+          # is the base branch.
+          fetch-depth: 2
+
+      # A migration on the base branch has run on staging and prod, where an
+      # edit to it would never apply: a change is a new migration.
+      - name: Migrations of the base branch are left as they are
+        if: github.event_name == 'pull_request'
+        run: |
+          changed=$(git diff --no-renames --diff-filter=MD --name-only HEAD^1 HEAD -- supabase/migrations)
+          if [ -n "$changed" ]; then
+            echo "::error::Migrations already on ${{ github.base_ref }} were changed or removed: $changed"
+            exit 1
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -37,6 +52,11 @@ jobs:
 
       - name: Test (API cache)
         run: npm run test --workspace=@ac/api
+
+      # The SQL helpers of the testimonies' derived columns are generated from
+      # @ac/shared: a change on one side only fails here.
+      - name: Generated SQL matches @ac/shared
+        run: npm run db:sql-gen -- --check
 
       - name: Build
         run: npm run build
@@ -87,12 +107,26 @@ jobs:
 
       # Builds a blank Postgres from supabase/migrations + seed.sql: a migration
       # that does not apply on top of the others fails here, not on staging.
+      # The CLI names the image after SUPABASE_INTERNAL_IMAGE_REGISTRY (default
+      # public.ecr.aws) each time it creates the container, `db reset` included:
+      # the registry that worked is kept for the later steps, and a cached image
+      # is tried first under the registry it came from.
       - name: Apply every migration and the fake data to a blank database
         run: |
+          cached=$(docker images --format '{{.Repository}}' | grep -m1 'supabase/postgres$' || true)
+          case "$cached" in
+            ghcr.io/*) first=ghcr.io ;;
+            public.ecr.aws/*) first=public.ecr.aws ;;
+            supabase/postgres) first=docker.io ;;
+            *) first= ;;
+          esac
           attempt=0
-          for registry in docker.io ghcr.io public.ecr.aws docker.io ghcr.io public.ecr.aws; do
+          for registry in $first docker.io ghcr.io public.ecr.aws docker.io ghcr.io public.ecr.aws; do
             attempt=$((attempt + 1))
-            SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry supabase db start && exit 0
+            if SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry supabase db start; then
+              echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry" >> "$GITHUB_ENV"
+              exit 0
+            fi
             echo "::warning::attempt $attempt ($registry) failed, retrying"
             supabase stop --no-backup || true
             sleep $((attempt * 15))
@@ -106,7 +140,7 @@ jobs:
             $(docker images --format '{{.Repository}}:{{.Tag}}' | grep 'supabase/postgres')
 
       - name: Lint the schema
-        run: supabase db lint --level error
+        run: supabase db lint --level error --fail-on error
 
       # A table without RLS is open to anyone holding the public key.
       - name: Every public table has row level security
@@ -119,3 +153,17 @@ jobs:
             echo "::error::Tables without row level security: $missing"
             exit 1
           fi
+
+      # Grant guard (scripts/db-checks/allowlist.json), the derived testimony
+      # columns against @ac/shared over the seed and an edge corpus, and writes
+      # shaped like the old app's (as authenticated and anon), rolled back.
+      - name: Database checks
+        run: npm run db:check
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # Last: it resets the database (recreating its container from the image
+      # of the registry kept above). The migrations newer than the seed's shape
+      # are applied on top of the seeded rows, as on staging and prod.
+      - name: Migrations on top of seeded data
+        run: npm run db:check:seeded -- --yes --workdir .
