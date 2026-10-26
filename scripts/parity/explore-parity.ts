@@ -891,13 +891,10 @@ function main(argv: string[]): number {
       }
     }
   }
-  const adminAnswers = new Map<string, { super: S.AdminFilter; plain: S.AdminFilter }>();
+  const adminAnswers = new Map<string, { super?: S.AdminFilter; plain?: S.AdminFilter }>();
   for (const c of adminCases) {
     const F = jsonb(serverFilters({ ...NONE, ...c.f }, {}));
-    const slot = { super: undefined, plain: undefined } as unknown as {
-      super: S.AdminFilter;
-      plain: S.AdminFilter;
-    };
+    const slot: { super?: S.AdminFilter; plain?: S.AdminFilter } = {};
     adminAnswers.set(c.name, slot);
     calls.push({
       sql: `select public.admin_audition_filter(${F}, null)`,
@@ -1013,7 +1010,7 @@ function main(argv: string[]): number {
     }
   }
 
-  // The matrix reaches what it means to: the three cohorts, D3 ties aside.
+  // The setup's edge auditions reach every cohort of the analyses.
   r.current = "coverage";
   const fr = answers.get("none")!.complete!.units.find((u) => u.level === "country");
   const [terrain, cahier, archive] = fr?.facts?.cohorts ?? [0, 0, 0];
@@ -1055,7 +1052,7 @@ function main(argv: string[]): number {
 
   for (const c of adminCases) {
     r.current = c.name;
-    const { super: sup, plain } = adminAnswers.get(c.name)!;
+    const { super: sup = null, plain = null } = adminAnswers.get(c.name)!;
     const legacy = ex.auditions
       .filter((a) => passesContentFilters(a, c.f, byAudition))
       .map((a) => a.id);
@@ -1074,12 +1071,12 @@ function main(argv: string[]): number {
     r.eq(
       "theme options (super admin)",
       adminTopicOptions(ex.filterable, all),
-      S.adminTopicOptions(sup.themes),
+      S.adminTopicOptions(sup?.themes ?? []),
     );
     r.eq(
       "theme options (plain admin)",
       adminTopicOptions(ex.filterable, mine),
-      S.adminTopicOptions(plain.themes),
+      S.adminTopicOptions(plain?.themes ?? []),
     );
   }
 
