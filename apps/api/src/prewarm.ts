@@ -3,15 +3,18 @@ import { cachedResponse } from "./lib/cache";
 import { PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "./lib/publicCache";
 import { fetchPublishedAuditions } from "./modules/auditions/service";
 import { buildLocationGroups } from "./modules/map/locationGroups";
-import { fetchPublicTestimonies } from "./modules/testimonies/service";
 
 /**
- * Fill the public read caches at boot, so the first visitor after a deploy is
- * served from memory like every other (the corpus alone is a 1.65 s pull) and,
- * from then on, the refills run behind the replies (stale-while-revalidate,
- * lib/cache.ts) rather than in front of an unlucky one. The keys a route sends
- * as bytes get their bytes (JSON, gzip, ETag) built here too. Best effort: a
- * failure is logged and the first request fills that key as before.
+ * Fill the small public read caches at boot, so the first visitor after a
+ * deploy is served from memory like every other and, from then on, the
+ * refills run behind the replies (stale-while-revalidate, lib/cache.ts)
+ * rather than in front of an unlucky one. The keys a route sends as bytes get
+ * their bytes (JSON, gzip, ETag) built here too. Best effort: a failure is
+ * logged and the first request fills that key as before.
+ *
+ * Not the testimony corpus (/api/testimonies): it grows with every testimony,
+ * and a boot that pulls it whole can outgrow the container before it serves
+ * anything. Its first request fills it.
  */
 export async function prewarmPublicCaches(log: FastifyBaseLogger): Promise<void> {
   const fills: [string, () => Promise<unknown>][] = [
@@ -22,15 +25,6 @@ export async function prewarmPublicCaches(log: FastifyBaseLogger): Promise<void>
           PUBLIC_CACHE_KEYS.auditions,
           PUBLIC_CACHE_TTL_MS.auditions,
           fetchPublishedAuditions,
-        ),
-    ],
-    [
-      PUBLIC_CACHE_KEYS.testimonies,
-      () =>
-        cachedResponse(
-          PUBLIC_CACHE_KEYS.testimonies,
-          PUBLIC_CACHE_TTL_MS.testimonies,
-          fetchPublicTestimonies,
         ),
     ],
     // Reads the auditions through the key above: one Supabase pull for both.
