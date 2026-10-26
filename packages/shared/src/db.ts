@@ -3,6 +3,25 @@ import type { Tables, Enums } from "./database.types";
 // ---- Row aliases -----------------------------------------------------------
 
 export type Audition = Tables<"auditions">;
+/** Where an audition is filed (map phase 1): written by the API, the backfill
+ *  and the seed, never by the old app; place_stale and lieu_id are generated. */
+export type AuditionPlaceColumn =
+  | "place_unit"
+  | "place_path"
+  | "locality_id"
+  | "lieu_key"
+  | "lat"
+  | "lng"
+  | "place_precision"
+  | "place_candidates"
+  | "placed_location"
+  | "placed_rules"
+  | "geo_release"
+  | "place_stale"
+  | "lieu_id";
+export type AuditionPlace = Pick<Audition, AuditionPlaceColumn>;
+/** A unit auditions are filed under (geo_units: server only). */
+export type GeoUnit = Tables<"geo_units">;
 /** The columns the database derives from a testimony (trigger
  *  testimonies_derive) for its own counts and search: no app reads or writes them. */
 export type TestimonyDerivedColumn =
