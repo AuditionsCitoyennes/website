@@ -53,6 +53,10 @@ export interface LocationGroup {
   departementCode?: string | null;
   departementName?: string | null;
   region?: string | null;
+  /** Where the lieu is stored, root first ({FR, fr:reg:84, fr:dep:69, …}); null when it is not stored yet. */
+  unitPath?: string[] | null;
+  /** The lieu's id (auditions.lieu_id); null when it is not stored yet. */
+  lieuId?: string | null;
 }
 
 /**
@@ -69,6 +73,48 @@ export interface LieuCandidate {
   name: string;
   departementCode: string | null;
 }
+
+/**
+ * One of the same-named communes a lieu's name was found to mean, as stored
+ * with the audition (auditions.place_candidates): enough to settle it later
+ * without asking the geocoder again, and to tell the admins which they are.
+ */
+export interface PlaceCandidate extends LieuCandidate {
+  /** INSEE code of the commune or arrondissement. */
+  citycode: string | null;
+  arrondissement: string | null;
+  departementName: string | null;
+  region: string | null;
+  lat: number;
+  lng: number;
+  /** A point found in that commune, or the commune itself. */
+  level: "address" | "commune" | "departement" | "region";
+  population: number | null;
+}
+
+/** BAN's result types, as an admin picks one (housenumber, street, lieu-dit, commune). */
+export const BAN_PICK_TYPES = ["housenumber", "street", "locality", "municipality"] as const;
+
+/** An address an admin picked from the BAN suggestions: the audition is placed there. */
+export interface BanPick {
+  kind: "ban";
+  /** INSEE code of the commune (or arrondissement) BAN files it under. */
+  citycode: string;
+  lat: number;
+  lng: number;
+  type: (typeof BAN_PICK_TYPES)[number];
+}
+
+/** A place picked from the world gazetteer (abroad; arrives with the places picker). */
+export interface GazetteerPick {
+  kind: "gazetteer";
+  country: string;
+  unit_id: string;
+  chunk: number;
+}
+
+/** What an admin picked for an audition's lieu, beside its text. */
+export type PlacePick = BanPick | GazetteerPick;
 
 /** Région, département, ville, lieu: the places the Témoignages map files an audition under (admin list). */
 export interface AuditionArea {

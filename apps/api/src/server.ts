@@ -17,6 +17,7 @@ import mapRoutes from "./modules/map/routes";
 import boundaryRoutes from "./modules/boundaries/routes";
 import demRoutes from "./modules/dem/routes";
 import adminRoutes from "./modules/admin/routes";
+import placeRoutes from "./modules/places/routes";
 import verifyRoutes from "./modules/verification/routes";
 import meRoutes from "./modules/account/routes";
 import onlineTestimonyRoutes from "./modules/online-testimonies/routes";
@@ -126,6 +127,7 @@ export function buildServer() {
   app.register(boundaryRoutes, { prefix: "/api/boundaries" });
   app.register(demRoutes, { prefix: "/api/dem" });
   app.register(adminRoutes, { prefix: "/api/admin" });
+  app.register(placeRoutes, { prefix: "/api/admin/places" });
   app.register(verifyRoutes, { prefix: "/api/verify" });
   app.register(meRoutes, { prefix: "/api/me" });
   app.register(onlineTestimonyRoutes, { prefix: "/api/online-testimonies" });

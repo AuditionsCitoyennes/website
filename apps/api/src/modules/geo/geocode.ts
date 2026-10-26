@@ -18,8 +18,9 @@ import {
 export { arrondissementFromCitycode, type GeoEntry };
 
 // Server-side geocoder for canonical location names.
-// - Uses the Base Adresse Nationale (api-adresse.data.gouv.fr) — the official
-//   French geocoder: free, France-tuned, and generous on rate limits.
+// - Uses the Base Adresse Nationale (BAN_BASE_URL, api-adresse.data.gouv.fr by
+//   default) — the official French geocoder: free, France-tuned, and generous
+//   on rate limits.
 // - Captures the administrative hierarchy (département + région) from BAN's
 //   `context` field so the UI can filter by area, not just exact location.
 // - What BAN's answers mean — which commune, which level, or no place at all —
@@ -220,7 +221,7 @@ async function searchBan(q: string, opts: BanQuery = {}): Promise<BanFeature[]> 
   const params = new URLSearchParams({ q, limit: String(opts.limit ?? 5) });
   if (opts.municipality) params.set("type", "municipality");
   if (opts.postcode) params.set("postcode", opts.postcode);
-  const res = await fetch(`https://api-adresse.data.gouv.fr/search/?${params}`, {
+  const res = await fetch(`${config.BAN_BASE_URL}/search/?${params}`, {
     headers: { "User-Agent": "AuditionsCitoyennes/1.0" },
     signal: AbortSignal.timeout(BAN_TIMEOUT_MS),
   });
@@ -250,7 +251,7 @@ async function reverseBan([lat, lon]: Coords): Promise<{
   context: string | null;
   city: string | null;
 } | null> {
-  const res = await fetch(`https://api-adresse.data.gouv.fr/reverse/?lat=${lat}&lon=${lon}`, {
+  const res = await fetch(`${config.BAN_BASE_URL}/reverse/?lat=${lat}&lon=${lon}`, {
     headers: { "User-Agent": "AuditionsCitoyennes/1.0" },
     signal: AbortSignal.timeout(BAN_TIMEOUT_MS),
   });

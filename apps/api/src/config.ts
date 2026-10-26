@@ -75,6 +75,26 @@ const schema = z
     // Where the geocode and boundary caches live on disk (a volume, in a
     // container). Empty: the apps/api directory, as always for a developer.
     CACHE_DIR: z.string().optional().default(""),
+    // The Base Adresse Nationale the geocoder asks (its /search/ and
+    // /reverse/ live under it): api-adresse.data.gouv.fr, or its successor
+    // https://data.geopf.fr/geocodage.
+    BAN_BASE_URL: z
+      .string()
+      .url()
+      .default("https://api-adresse.data.gouv.fr")
+      .transform((s) => s.replace(/\/+$/, "")),
+    // Where /api/map and the admin list read where each audition is: "db",
+    // the place columns the API stores when an audition is written (map phase
+    // 1); "geocoder", the geocode cache, at read time, as before. Without the
+    // service role, "db" falls back to "geocoder" (geo_units is server only).
+    MAP_SOURCE: z.enum(["db", "geocoder"]).default("db"),
+    // "true": the testing tools (staging, local), such as ?source=geocoder on
+    // /api/map and the admin list, which serves the other build. Refused in
+    // production.
+    TEST_TOOLS: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
   })
   .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
     message: "EMAIL_MODE=redirect needs EMAIL_REDIRECT_TO",
@@ -89,6 +109,10 @@ const schema = z
   .refine((c) => !(c.EMAIL_MODE === "outbox" && c.APP_ENV === "production"), {
     message: "EMAIL_MODE=outbox is refused in production",
     path: ["EMAIL_MODE"],
+  })
+  .refine((c) => !(c.TEST_TOOLS && c.APP_ENV === "production"), {
+    message: "TEST_TOOLS=true is refused in production",
+    path: ["TEST_TOOLS"],
   });
 
 const parsed = schema.safeParse(process.env);
@@ -110,6 +134,13 @@ export const config = {
 
 /** Whether privileged operations (analysis, emails, role mgmt) are available. */
 export const hasServiceRole = config.SUPABASE_SERVICE_ROLE_KEY.length > 0;
+
+/**
+ * Where /api/map and the admin list read places from: MAP_SOURCE, but the
+ * geocode cache without the service role (geo_units is server only).
+ */
+export const mapSource: "db" | "geocoder" =
+  config.MAP_SOURCE === "db" && hasServiceRole ? "db" : "geocoder";
 
 /** Local development, and nothing else: the only place shortcuts are allowed. */
 export const isDev = config.APP_ENV === "local";
