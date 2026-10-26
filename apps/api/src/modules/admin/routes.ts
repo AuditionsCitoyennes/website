@@ -5,7 +5,7 @@ import { hasServiceRole } from "../../config";
 import { invalidateRoles, requireSuperAdmin } from "../../lib/auth";
 import { sendApprovalEmail, sendDeclineEmail } from "../../lib/email/registration";
 import { logAudit } from "../../lib/audit";
-import { fetchAuditionTestimonies } from "../auditions/service";
+import { withWholeTestimonies } from "../auditions/service";
 
 const registrationActionSchema = z.object({
   action: z.enum(["approve", "decline"]),
@@ -155,8 +155,9 @@ export default async function adminRoutes(app: FastifyInstance) {
   // when the log says an admin has just added it. A draft is not readable
   // through RLS until the policy migration is applied, hence the service
   // client — reached only once the caller is known to be a super admin, and
-  // for what that migration lets a super admin read anyway. Its testimonies
-  // come without emails or verification tokens: a preview has no use for them.
+  // for what that migration lets a super admin read anyway.
+  // Explicit testimony columns: `*` would hand out emails and verification
+  // tokens, which a preview has no use for.
   app.get<{ Params: { id: string } }>("/auditions/:id", async (req, reply) => {
     if (!(await requireSuperAdmin(req, reply))) return reply;
     // A non-UUID compared to the uuid column would surface as a raw 500.
@@ -166,7 +167,9 @@ export default async function adminRoutes(app: FastifyInstance) {
     const client = hasServiceRole ? adminClient : req.supabase;
     const { data, error } = await client
       .from("auditions")
-      .select("id, title, date, location, content, status, created_at")
+      .select(
+        "id, title, date, location, content, status, created_at, testimonies(id, person_name, person_info, content, topics, verification_status, created_at)",
+      )
       .eq("id", req.params.id)
       .maybeSingle();
     if (error) return reply.internalServerError(error.message);
@@ -180,9 +183,9 @@ export default async function adminRoutes(app: FastifyInstance) {
           "SUPABASE_SERVICE_ROLE_KEY n'est pas configuré — audition illisible (brouillon) ou supprimée.",
       });
     }
-    const testimonies = await fetchAuditionTestimonies(client, req.params.id);
-    if (testimonies.error) return reply.internalServerError(testimonies.error.message);
-    return { ...data, testimonies: testimonies.data };
+    const whole = await withWholeTestimonies(client, data);
+    if (whole.kind === "dbError") return reply.internalServerError(whole.message);
+    return whole.audition;
   });
 
   // ---- Audit log (super admin; RPC enforces it too) ----

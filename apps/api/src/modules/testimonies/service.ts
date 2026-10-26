@@ -10,7 +10,7 @@ import {
   type UpdateTestimonyInput,
 } from "@ac/shared";
 import { publicClient } from "../../lib/supabase";
-import { PAGE, selectAll } from "../../lib/paging";
+import { PAGE, quoted, selectAll } from "../../lib/paging";
 import { invalidatePublicCaches } from "../../lib/publicCache";
 import { logAudit } from "../../lib/audit";
 import { frDate } from "../../lib/dates";
@@ -92,22 +92,28 @@ export async function fetchFilterableTestimonies(
   return { kind: "ok", testimonies: all };
 }
 
+/** The testimonies after `last` in `created_at, id` order, nulls last: a PostgREST `or` filter. */
+const afterOldestFirst = (last: AdminTestimony) =>
+  last.created_at === null
+    ? `and(created_at.is.null,id.gt.${last.id})`
+    : `created_at.gt.${quoted(last.created_at)},and(created_at.eq.${quoted(last.created_at)},id.gt.${last.id}),created_at.is.null`;
+
 /**
  * All testimonies of one audition, oldest first (admin management view). The
- * function's own order, restated so that its pages hold still: one audition
- * may hold more than a page.
+ * function's own order, restated for the pages: one audition may hold more
+ * than a page.
  */
 export async function fetchTestimoniesForAudition(
   client: Client,
   auditionId: string,
 ): Promise<{ kind: "ok"; testimonies: AdminTestimony[] } | FetchFailed> {
-  const { data, error } = await selectAll((from, to) =>
-    client
+  const { data, error } = await selectAll((last?: AdminTestimony) => {
+    const q = client
       .rpc("admin_testimonies", { p_audition_id: auditionId })
       .order("created_at")
-      .order("id")
-      .range(from, to),
-  );
+      .order("id");
+    return (last ? q.or(afterOldestFirst(last)) : q).limit(PAGE);
+  });
   if (error) return { kind: "fetchFailed", message: error.message };
   return { kind: "ok", testimonies: data };
 }
