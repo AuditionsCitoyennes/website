@@ -146,25 +146,39 @@ export type PublishedAudition = Audition & {
 };
 
 /**
- * One published audition with its visible testimonies. Explicit testimony
- * columns: RLS limits rows, not columns — `*` would leak email addresses and
- * verification tokens (the old app had this bug).
+ * Every testimony of one audition the client may see, oldest first. Read on
+ * its own rather than embedded: PostgREST's max_rows cuts an embedded list
+ * too. Explicit columns: RLS limits rows, not columns — `*` would leak email
+ * addresses and verification tokens (the old app had this bug).
  */
+export function fetchAuditionTestimonies(client: Client, auditionId: string) {
+  return selectAll((from, to) =>
+    client
+      .from("testimonies")
+      .select("id, person_name, person_info, content, topics, verification_status, created_at")
+      .eq("audition_id", auditionId)
+      .order("created_at")
+      .order("id")
+      .range(from, to),
+  );
+}
+
+/** One published audition with its visible testimonies. */
 export async function fetchPublishedAudition(
   client: Client,
   id: string,
 ): Promise<{ kind: "ok"; audition: PublishedAudition } | { kind: "notFound" } | DbError> {
   const { data, error } = await client
     .from("auditions")
-    .select(
-      "*, testimonies(id, person_name, person_info, content, topics, verification_status, created_at)",
-    )
+    .select("*")
     .eq("id", id)
     .eq("status", "published")
     .maybeSingle();
   if (error) return { kind: "dbError", message: error.message };
   if (!data) return { kind: "notFound" };
-  return { kind: "ok", audition: data };
+  const testimonies = await fetchAuditionTestimonies(client, id);
+  if (testimonies.error) return { kind: "dbError", message: testimonies.error.message };
+  return { kind: "ok", audition: { ...data, testimonies: testimonies.data } };
 }
 
 // ---- Admin list -----------------------------------------------------------

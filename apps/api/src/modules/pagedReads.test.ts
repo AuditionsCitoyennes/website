@@ -210,3 +210,47 @@ test("one audition's testimonies (admin): all 1,500, oldest first", async () => 
   ]);
   assert.equal(requests[0].searchParams.get("order"), "created_at.asc,id.asc");
 });
+
+test("one audition's public detail: all 1,500 testimonies, read apart", async () => {
+  const id = uuid(99_999);
+  tables.auditions = [{ id, title: "Audition", date: "2026-03-01", status: "published" }];
+  tables.testimonies = shuffled([
+    ...Array.from({ length: 1500 }, (_, i) => ({
+      id: uuid(i),
+      audition_id: id,
+      created_at: `2026-03-01T10:${String((i / 100) | 0).padStart(2, "0")}:00+00:00`,
+    })),
+    // Another audition's: left out.
+    ...Array.from({ length: 30 }, (_, i) => ({
+      id: uuid(5000 + i),
+      audition_id: uuid(1),
+      created_at: "2026-03-01T09:00:00+00:00",
+    })),
+  ]);
+
+  const result = await services.auditions.fetchPublishedAudition(
+    services.supabase.publicClient,
+    id,
+  );
+
+  assert.equal(result.kind, "ok");
+  const ids = result.kind === "ok" ? result.audition.testimonies.map((t) => t.id) : [];
+  assert.deepEqual(
+    ids,
+    sorted(
+      tables.testimonies.filter((t) => t.audition_id === id),
+      "created_at.asc,id.asc",
+    ).map((t) => t.id),
+  );
+  assert.deepEqual(ranges("testimonies"), [
+    ["0", "1000"],
+    ["1000", "1000"],
+  ]);
+  const read = requests.find((u) => u.pathname.endsWith("/testimonies"))!;
+  assert.equal(read.searchParams.get("audition_id"), `eq.${id}`);
+  // Never the email or the verification token.
+  assert.equal(
+    read.searchParams.get("select"),
+    "id,person_name,person_info,content,topics,verification_status,created_at",
+  );
+});
