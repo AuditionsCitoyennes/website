@@ -41,7 +41,8 @@
 -- homonyms of a new one. submit_online_testimony takes the bucket's place:
 -- seven arguments, defaulted so that the eleven-argument call of older API
 -- builds still resolves (its bucket is born stale, and placed by the first
--- call that brings them).
+-- call that brings them). A place that is partial or refused never costs the
+-- testimony: the bucket is filed stale instead.
 set lock_timeout = '200ms';
 
 create table public.geo_units (
@@ -126,14 +127,16 @@ create index auditions_stale_idx on public.auditions (created_at)
 -- Homonym support from the stored rows: per département, the distinct lieux of
 -- published offline auditions placed without any homonym involved (the
 -- settleHomonyms rule). A placement reused from a homonym copies its
--- place_candidates, so it never counts.
+-- place_candidates, so it never counts. Nor does a stale row: settleHomonyms
+-- counts lieux under their current names, and a row relocated since its
+-- placement still holds the old one until the API re-places it.
 create function public.placement_support() returns jsonb
 language sql stable security invoker set search_path = '' as $$
   select coalesce(pg_catalog.jsonb_object_agg(dep, n), '{}') from (
     select pg_catalog.split_part(p, ':', 3) as dep, count(distinct a.lieu_key) as n
       from public.auditions a cross join lateral pg_catalog.unnest(a.place_path) as p
      where a.status = 'published' and not a.audition_en_ligne and a.place_candidates is null
-       and a.place_path is not null and p like 'fr:dep:%'
+       and a.place_path is not null and not a.place_stale and p like 'fr:dep:%'
      group by 1) s
 $$;
 revoke all on function public.placement_support() from public, anon, authenticated;
@@ -161,9 +164,9 @@ declare
   v_audition uuid;
   v_created boolean := false;
   v_testimony uuid := gen_random_uuid();
-  -- A bucket is placed only when its unit is given: it then takes the
-  -- town-hall label as its lieu, and is not stale.
-  v_placed_location text := case when p_place_unit is not null then p_location end;
+  -- The bucket's place comes with every argument a placed row needs, or not at all.
+  v_place boolean := p_place_unit is not null and p_place_path is not null
+    and p_place_precision is not null and p_lat is not null and p_lng is not null;
 begin
   -- One submission per email at a time: the quota check and the insert below
   -- cannot interleave with another request for the same address.
@@ -204,13 +207,9 @@ begin
   -- testimony without its audition: it would pass for an ordinary one.)
   loop
     insert into public.auditions
-      (title, "date", location, content, status, audition_en_ligne, citycode, place,
-       place_unit, place_path, locality_id, lieu_key, lat, lng, place_precision,
-       placed_location, geo_release)
+      (title, "date", location, content, status, audition_en_ligne, citycode, place)
     values
-      (p_title, p_month, p_location, p_audition_content, 'published', true, p_citycode, p_place,
-       p_place_unit, p_place_path, p_locality_id, v_placed_location, p_lat, p_lng, p_place_precision,
-       v_placed_location, p_geo_release)
+      (p_title, p_month, p_location, p_audition_content, 'published', true, p_citycode, p_place)
     on conflict (citycode, "date") where audition_en_ligne do nothing
     returning id into v_audition;
     if v_audition is not null then
@@ -224,13 +223,22 @@ begin
     exit when v_audition is not null;
   end loop;
 
-  -- A bucket filed without its place (by an older API build) is placed by the
-  -- first call that brings it, under its own label.
-  update public.auditions
-     set place_unit = p_place_unit, place_path = p_place_path, locality_id = p_locality_id,
-         lieu_key = location, lat = p_lat, lng = p_lng, place_precision = p_place_precision,
-         placed_location = location, geo_release = p_geo_release
-   where id = v_audition and place_path is null and p_place_path is not null;
+  -- The bucket's place, under its own label: a new bucket takes it here, in
+  -- the transaction that creates it; one filed without it (by an older API
+  -- build) gets it from the first call that brings it; a placed one keeps its
+  -- own. A place the table refuses leaves the bucket stale, for the API to
+  -- re-place: the testimony is filed all the same.
+  if v_place then
+    begin
+      update public.auditions
+         set place_unit = p_place_unit, place_path = p_place_path, locality_id = p_locality_id,
+             lieu_key = location, lat = p_lat, lng = p_lng, place_precision = p_place_precision,
+             placed_location = location, geo_release = p_geo_release
+       where id = v_audition and place_path is null;
+    exception when check_violation or foreign_key_violation then
+      null;
+    end;
+  end if;
 
   insert into public.testimonies
     (id, audition_id, person_name, person_info, content, email, verification_status, verification_token, created_by)

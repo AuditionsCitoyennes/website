@@ -12,7 +12,7 @@
 import { checkGrants, currentAllowlist } from "./grants";
 import { checkParity } from "./parity";
 import { checkPaths } from "./paths";
-import { checkPlaceWrites } from "./places";
+import { checkPartialPlaces, checkPlacementSupport, checkPlaceWrites } from "./places";
 import { checkWrites } from "./writes";
 
 const CHECKS: Record<string, { title: string; run: () => string[] }> = {
@@ -28,7 +28,7 @@ const CHECKS: Record<string, { title: string; run: () => string[] }> = {
   writes: { title: "Old-app-shaped writes keep the derived columns", run: checkWrites },
   places: {
     title: "Audition writes and online buckets leave the place columns right",
-    run: checkPlaceWrites,
+    run: () => [...checkPlaceWrites(), ...checkPartialPlaces(), ...checkPlacementSupport()],
   },
   paths: { title: "Place paths are their units' chains", run: checkPaths },
 };
