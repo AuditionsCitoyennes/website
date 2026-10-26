@@ -22,7 +22,7 @@ const { locate } = await import("../../apps/api/src/modules/geo/match");
 const { rulesHash } = await import("../../apps/api/src/modules/places/placeLieu");
 const { FakeBan, FakeDb, FakeGeoApi, BAN_URL, SUPABASE_URL, installFakes } =
   await import("../../apps/api/src/testing/fakes");
-const { backfillOf, buildPlan } = await import("./plan");
+const { backfillOf, buildPlan, checkUpstreams, mostlyNowhere } = await import("./plan");
 const { checkPoint } = await import("./etalab");
 const { nearDuplicates, reviewMarkdown } = await import("./review");
 const { countOrphanTestimonies, readAuditions, refuseKey } = await import("./source");
@@ -69,6 +69,7 @@ const MUNICIPALITIES: Record<string, BanFeature[]> = {
     commune("Saint-Denis", "93066", SSD, 149077, [48.9362, 2.3574]),
   ],
   Ribiers: [],
+  Lyon: [commune("Lyon", "69123", RHONE, 520000, [45.758, 4.835])],
 };
 const search: BanSearch = async (q, opts) => (opts?.municipality ? (MUNICIPALITIES[q] ?? []) : []);
 
@@ -111,6 +112,7 @@ const CHAINS: Record<string, FrChain> = {
   "93008": chain("93008", "Bobigny", ["93", "Seine-Saint-Denis"], IDF, [48.9086, 2.4397]),
   "93055": chain("93055", "Pantin", ["93", "Seine-Saint-Denis"], IDF, [48.8944, 2.4094]),
   "93066": chain("93066", "Saint-Denis", ["93", "Seine-Saint-Denis"], IDF, [48.9362, 2.3574]),
+  "69123": chain("69123", "Lyon", ["69", "Rhône"], AURA, [45.758, 4.835], [45.7675, 4.8357]),
 };
 
 function deps(over: Partial<PlanDeps> = {}): PlanDeps {
@@ -170,6 +172,12 @@ function corpus(pantinStatus = "published"): SourceRow[] {
     row("Ribiers"),
     online("69266", "2026-09-01", 45.7667, 4.8799, "Mairie de Villeurbanne"),
     online("69266", "2026-08-01", 45.766, 4.879, "Mairie de Villeurbanne"),
+    row("Mairie de Villeurbanne", {
+      audition_en_ligne: true,
+      citycode: "69266",
+      date: "2026-07-01",
+      place: { insee: "69266" },
+    }),
     online("69029", "2026-09-01", 45.739, 4.913, "Mairie de Bron"),
   ];
 }
@@ -178,6 +186,12 @@ const lieu = (plan: Awaited<ReturnType<typeof buildPlan>>, key: string) => {
   const l = plan.lieux.find((x) => x.key === key);
   assert.ok(l, `no lieu ${key}`);
   return l;
+};
+
+const META = {
+  version: "20261026203000",
+  generated: "2026-10-26T20:30:00Z",
+  source: "example.test",
 };
 
 // ---- The plan ------------------------------------------------------------------------
@@ -240,16 +254,49 @@ test("same-named communes are settled against the plan's published lieux", async
   assert.equal(unsettled.placement.columns.place_precision, "unplaced");
 });
 
-test("a town hall gets its units and the newest month's point; the months that differ are told", async () => {
+test("a town hall is listed with its units, each month keeping its own point", async () => {
   const plan = await buildPlan(corpus(), deps());
   const v = lieu(plan, "69266");
   assert.equal(v.klass, "online");
-  assert.equal(v.placement.columns.place_unit, "fr:com:69266");
+  assert.equal(v.hall?.columns.place_unit, "fr:com:69266");
+  assert.equal(v.hall?.columns.place_precision, "address");
+  assert.equal(v.hall?.columns.placed_rules, null);
+  // Shown in the review: the newest month with a point.
   assert.deepEqual([v.placement.columns.lat, v.placement.columns.lng], [45.7667, 4.8799]);
-  assert.equal(v.placement.columns.place_precision, "address");
-  assert.equal(v.placement.columns.placed_rules, null);
   assert.equal(v.otherPoints?.length, 1);
+  assert.equal(v.pointless?.length, 1);
   assert.equal(lieu(plan, "69029").otherPoints, undefined);
+
+  // The value carries no point: the UPDATE reads each row's own.
+  const hall = backfillOf(plan, META).values.find((x) => x.online && x.citycode === "69266")!;
+  assert.deepEqual([hall.lat, hall.lng, hall.unit], [null, null, "fr:com:69266"]);
+
+  // A town hall whose months read have no point is still listed under its
+  // units, for its months the key cannot read.
+  const noPoint = await buildPlan(
+    [row("Mairie de Bron", { audition_en_ligne: true, citycode: "69029", place: {} })],
+    deps(),
+  );
+  const bron = lieu(noPoint, "69029");
+  assert.equal(bron.placement.columns.place_path, null);
+  assert.equal(bron.hall?.columns.place_unit, "fr:com:69029");
+  assert.ok(noPoint.units.some((u) => u.id === "fr:com:69029"));
+});
+
+test("the upstreams are checked on Lyon before anything is placed", async () => {
+  await checkUpstreams(deps());
+  await assert.rejects(
+    checkUpstreams(deps({ locate: async () => null })),
+    /does not place Lyon in 69123/,
+  );
+  await assert.rejects(
+    checkUpstreams(deps({ commune: async () => null })),
+    /geo\.api\.gouv\.fr does not know Lyon/,
+  );
+  await assert.rejects(
+    checkUpstreams(deps({ locate: async () => "retry" }), { retryWaits: [1] }),
+    /did not answer \(2 tries\)/,
+  );
 });
 
 test("an upstream that keeps not answering stops the plan; one that comes back does not", async () => {
@@ -265,13 +312,13 @@ test("an upstream that keeps not answering stops the plan; one that comes back d
   );
 });
 
-// ---- The SQL -----------------------------------------------------------------------
+test("a plan with most offline lieux on no point is held back", async () => {
+  assert.equal(mostlyNowhere(await buildPlan(corpus(), deps())), null);
+  const blind = await buildPlan(corpus(), deps({ locate: async () => null }));
+  assert.match(mostlyNowhere(blind)!, /^8 of 8 offline lieux land on no point/);
+});
 
-const META = {
-  version: "20261026203000",
-  generated: "2026-10-26T20:30:00Z",
-  source: "example.test",
-};
+// ---- The SQL -----------------------------------------------------------------------
 
 test("the backfill lists one value per spelling and per town hall", async () => {
   const plan = await buildPlan(corpus(), deps());
@@ -298,25 +345,54 @@ test("the migration keys offline rows by text, town halls by code, never-placed 
   const sql = migrationSql(b, "docs/backfill-places-2026-10-26.md");
   assert.match(sql, /^set lock_timeout = '200ms';$/m);
   assert.match(sql, /on conflict \(id\) do nothing;/);
-  assert.match(sql, /where a\.placed_location is null\n\s+and a\.audition_en_ligne = v\.online/);
-  assert.match(sql, /lieu_key = case when v\.online then a\.location else v\.key end/);
+  assert.match(sql, /^do \$backfill\$$/m);
+  assert.match(sql, /^\$backfill\$;$/m);
+  // Offline: by raw location, offline rows only, the rules hash stamped.
   assert.match(
     sql,
-    new RegExp(`placed_rules = case when v\\.online then null else '${rulesHash()}' end`),
+    /where a\.placed_location is null\n\s+and not a\.audition_en_ligne\n\s+and a\.location = v\.location/,
+  );
+  assert.match(sql, new RegExp(`placed_rules = '${rulesHash()}', geo_release = v\\.release`));
+  // Online: by code, online rows only, each at its own point, or on no point.
+  assert.equal(
+    sql.match(
+      /where a\.placed_location is null\n\s+and a\.audition_en_ligne\n\s+and a\.citycode = t\.citycode/g,
+    )?.length,
+    2,
+  );
+  assert.match(sql, /lat = \(a\.place->>'lat'\)::double precision/);
+  assert.match(sql, /\(a\.place->'lat'\)::numeric between -90 and 90/);
+  assert.match(sql, /and \(not t\.known or not \(/);
+  assert.equal(sql.match(/lieu_key = a\.location/g)?.length, 2);
+  assert.doesNotMatch(
+    sql,
+    /lat = v\.lat, lng = v\.lng, place_precision = v\.prec, place_candidates = v\.cand,\n\s+placed_location = a\.location, placed_rules = null/,
   );
   // The first row types every column; a quote in a name is doubled.
   assert.ok(
     sql.includes(
-      "(false, 'Bobigny'::text, null::text, 'fr:com:93008'::text, " +
+      "('Bobigny'::text, 'fr:com:93008'::text, " +
         "array['FR', 'fr:reg:11', 'fr:dep:93', 'fr:com:93008']::text[], 'fr:com:93008'::text, " +
         "'Bobigny'::text, 48.9086::double precision, 2.4397::double precision, 'commune'::text, " +
         "null::jsonb, 'geoapi-2026'::text),",
     ),
   );
+  assert.ok(sql.includes("('69029'::text, 'fr:com:69029'::text, "));
   assert.match(sql, /'Provence-Alpes-Côte d''Azur'/);
-  assert.match(sql, /raise notice/);
+  // NOTICEs of what this run placed, and of what it left.
+  assert.match(sql, /get diagnostics n_pointless = row_count;/);
+  assert.match(sql, /into n_map, n_nowhere, n_kept_offline/);
+  assert.match(sql, /raise notice 'backfill_places_fr: placed now: /);
+  assert.match(sql, /already placed \(by the placement job, or a run before this one\)/);
   // Units before the rows that reference them, parents before children.
   assert.ok(sql.indexOf("('FR', null, 'country'") < sql.indexOf("('fr:reg:84', 'FR'"));
+
+  // Without town halls, no online statement; without offline lieux, no offline one.
+  const offlineOnly = migrationSql({ ...b, values: b.values.filter((v) => !v.online) }, "r.md");
+  assert.doesNotMatch(offlineOnly, /a\.citycode = t\.citycode/);
+  const onlineOnly = migrationSql({ ...b, values: b.values.filter((v) => v.online) }, "r.md");
+  assert.doesNotMatch(onlineOnly, /a\.location = v\.location/);
+  assert.match(onlineOnly, /n_map bigint := 0;/);
 });
 
 test("the fixture test runs the migration twice, by \\ir, and inlines", async () => {
@@ -328,9 +404,28 @@ test("the fixture test runs the migration twice, by \\ir, and inlines", async ()
   assert.equal(includes?.length, 2);
   assert.match(fixture, /^begin;$/m);
   assert.match(fixture, /^rollback;$/m);
-  assert.match(fixture, /\('changed', null, 'Bobigny \(modifié après la revue\)', null\)/);
-  assert.match(fixture, /\('placed', null, 'Bobigny', null\)/);
-  assert.match(fixture, /\('renamed', \d+, 'Libellé changé \(fixture\)', '69029'\)/);
+  assert.match(
+    fixture,
+    /\('changed', null, 'Bobigny \(modifié après la revue\)', false, null, null\)/,
+  );
+  assert.match(fixture, /\('placed', null, 'Bobigny', false, null, null\)/);
+  // An online row of an unlisted town hall labelled like a listed spelling;
+  // an offline row carrying a listed code.
+  assert.match(fixture, /\('untouched', null, 'Bobigny', true, '99999', /);
+  assert.match(fixture, /\('untouched', null, 'Lieu non revu \(fixture\)', false, '69029', '/);
+  assert.match(
+    fixture,
+    /\('untouched', null, 'Autre lieu non revu \(fixture\)', false, '69029', null\)/,
+  );
+  assert.match(
+    fixture,
+    /\('renamed', \d+, 'Libellé changé \(fixture\)', true, '69029', '\{"lat": 11\.5, "lng": 21\.5\}'::jsonb\)/,
+  );
+  assert.match(
+    fixture,
+    /\('pointless', \d+, 'Sans point \(fixture\)', true, '69029', '\{\}'::jsonb\)/,
+  );
+  assert.match(fixture, /\('far', \d+, 'Point hors limites \(fixture\)', true, '69029', /);
   const inlined = inlineIncludes(fixture, () => "-- the migration");
   assert.equal(inlined.match(/^-- the migration$/gm)?.length, 2);
   assert.doesNotMatch(inlined, /^\\ir /m);
@@ -350,6 +445,15 @@ test("a backfill the UPDATE would apply ambiguously is refused", async () => {
     /locality fr:com:69029 is off/,
   );
   assert.throws(() => checkBackfill({ ...b, values: [] }), /nothing to backfill/);
+  const hall = b.values.find((v) => v.online)!;
+  assert.throws(
+    () => checkBackfill({ ...b, values: [{ ...hall, lat: 45.7, lng: 4.9 }] }),
+    /a town hall has none/,
+  );
+  assert.throws(
+    () => checkBackfill({ ...b, values: [{ ...b.values[0], location: "x $backfill$ y" }] }),
+    /holds \$backfill\$/,
+  );
 });
 
 // ---- The review --------------------------------------------------------------------
@@ -397,7 +501,8 @@ test("the review lists every lieu and flags what to look at", async () => {
   assert.match(md, /Saint-Denis \(974, 97411; pop\. 155634; 0 lieux in 974\)/);
   assert.match(md, /Settled on fr:com:93066/);
   assert.match(md, /lies 120 m outside fr:com:69029/);
-  assert.match(md, /1 month\(s\) stored another point/);
+  assert.match(md, /1 month\(s\) stored another point than the newest: each keeps its own/);
+  assert.match(md, /1 month\(s\) with no point of their own: on no point/);
   assert.match(md, /a generic text \(GENERIC_LOCATION\)/);
 });
 
@@ -499,8 +604,20 @@ test("BAN and geo.api are asked through the API's clients, once per answer", asy
 
     ban.failWith = 503;
     assert.equal(await d.locate("Briançon"), "retry");
+    ban.failWith = 429;
+    assert.equal(await d.locate("Briançon"), "retry");
     ban.failWith = 400;
     assert.equal(await d.locate("Gap"), null);
+    // A BAN that does not exist there: the run stops, and nothing is kept.
+    ban.failWith = 404;
+    await assert.rejects(
+      d.locate("Veynes"),
+      /BAN search 404 from http:\/\/ban\.test.*is --ban right/,
+    );
+    ban.failWith = 410;
+    await assert.rejects(d.locate("Veynes"), /BAN search 410/);
+    ban.failWith = null;
+    assert.equal(await d.commune("99999"), null); // geo.api's 404: no such code, kept
   } finally {
     restore();
     unfake();
@@ -508,6 +625,63 @@ test("BAN and geo.api are asked through the API's clients, once per answer", asy
   const kept = JSON.parse(readFileSync(cache, "utf8")) as Record<string, { status: number }>;
   assert.ok(Object.keys(kept).some((k) => k.startsWith(BAN_URL)));
   assert.ok(Object.values(kept).every((v) => v.status === 200 || v.status === 404));
+  assert.ok(
+    Object.entries(kept).every(([k, v]) => v.status === 200 || k.includes("geo.api.gouv.fr")),
+    "a BAN 404 is never kept",
+  );
+  assert.ok(Object.keys(kept).some((k) => k.includes("/communes/99999")));
+
+  // A cache file from an older run holding a BAN 404: not taken as an answer.
+  const stale = `${BAN_URL}/search/?q=Veynes&limit=5&type=municipality`;
+  writeFileSync(cache, JSON.stringify({ [stale]: { status: 404, type: "text/plain", body: "" } }));
+  const again = new FakeBan();
+  const unfakeAgain = installFakes({ ban: again, geo });
+  const restoreAgain = installGentleFetch([new URL(BAN_URL).host, "geo.api.gouv.fr"], cache);
+  try {
+    assert.equal(await upstreamDeps(BAN_URL).locate("Veynes"), null);
+    assert.ok(
+      again.calls.some((c) => c.startsWith("/search/?q=Veynes")),
+      "asked again",
+    );
+  } finally {
+    restoreAgain();
+    unfakeAgain();
+  }
+});
+
+test("a curated lieu whose point BAN cannot reverse-geocode is retried, never filed by the forward match", async () => {
+  // "Parvis Médiathèque, Bron" has curated coordinates (LOCATION_RULES): the
+  // API files it under the commune BAN gives for them.
+  class ReverseDown extends FakeBan {
+    reverseStatus = 503;
+    override answer(url: URL): Response {
+      if (url.pathname === "/reverse/") {
+        this.calls.push(`${url.pathname}?${url.searchParams}`);
+        return new Response("down", { status: this.reverseStatus });
+      }
+      return super.answer(url);
+    }
+  }
+  const ban = new ReverseDown();
+  ban.municipality.Bron = [
+    {
+      coords: [45.7386, 4.9134],
+      type: "municipality",
+      name: "Bron",
+      citycode: "69029",
+      context: RHONE,
+    },
+  ];
+  const unfake = installFakes({ ban });
+  try {
+    const d = upstreamDeps(BAN_URL);
+    assert.equal(await d.locate("Parvis Médiathèque, Bron"), "retry");
+    assert.ok(ban.calls.some((c) => c.startsWith("/reverse/")));
+    ban.reverseStatus = 404;
+    await assert.rejects(d.locate("Parvis Médiathèque, Bron"), /BAN reverse 404/);
+  } finally {
+    unfake();
+  }
 });
 
 // ---- The command -----------------------------------------------------------------------
@@ -522,6 +696,39 @@ function generate(env: Record<string, string>, cwd = scratch) {
     encoding: "utf8",
   });
 }
+
+test("the API's configuration, if anything loaded it, would stop on the generator's poisoned values", () => {
+  const dir = mkdtempSync(join(scratch, "config-"));
+  writeFileSync(
+    join(dir, ".env"),
+    "SUPABASE_URL=http://127.0.0.1:1\nSUPABASE_ANON_KEY=anon\nSUPABASE_SERVICE_ROLE_KEY=service\n",
+  );
+  const config = fileURLToPath(new URL("../../apps/api/src/config.ts", import.meta.url));
+  const isolate = fileURLToPath(new URL("./isolate.ts", import.meta.url));
+  const load = (first: string[]) =>
+    spawnSync(
+      process.execPath,
+      [
+        "--import",
+        TSX,
+        "--input-type=module",
+        "-e",
+        [...first, config].map((f) => `await import(${JSON.stringify(f)});`).join(" ") +
+          ' console.log("loaded");',
+      ],
+      {
+        cwd: dir,
+        env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+        encoding: "utf8",
+      },
+    );
+  // The .env alone is a configuration config.ts takes.
+  assert.match(load([]).stdout, /loaded/);
+  const poisoned = load([isolate]);
+  assert.equal(poisoned.status, 1);
+  assert.match(poisoned.stderr, /Configuration invalide/);
+  assert.doesNotMatch(poisoned.stdout, /loaded/);
+});
 
 test("the command takes its target from the environment only, never a .env, never a service key", () => {
   // A .env where the command runs: the API's configuration would read it, and stop on its URL.

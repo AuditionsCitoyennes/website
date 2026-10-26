@@ -1,11 +1,12 @@
 // The reviewed backfill of production's places (design B4, B7 step 8): its
-// SQL places the listed rows exactly as listed, online rows under their own
-// label, leaves a row changed since the review stale and a row already placed
-// as it is, and a second run changes nothing — each fixture test run in a
-// transaction rolled back.
+// SQL places the listed rows exactly as listed, online rows at their own
+// point under their own label, leaves a row changed since the review stale and
+// a row already placed as it is, and a second run changes nothing — each
+// fixture test run in a transaction rolled back.
 //
 // - The generator's SQL, rendered from a fixed sample (Lyon, a keyword-rule
-//   collapse, a generic text, same-named communes, a town hall): the shape of
+//   collapse, a generic text, same-named communes, a town hall, one geo.api
+//   does not know): the shape of
 //   any backfill, on the real schema, before a production list exists.
 // - The committed backfill, when supabase/tests/backfill_places_fr.expected.json
 //   names one: its own fixture test (supabase/tests/backfill_places_fr.sql),
@@ -14,7 +15,7 @@
 // BACKFILL_ROOT=<dir> reads the expected list, the test and the migration
 // under <dir> instead of the repository (a generator's dry run).
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -130,14 +131,28 @@ export const SAMPLE: Backfill = {
       citycode: "69266",
       key: null,
       ...place(["FR", "fr:reg:84", "fr:dep:69", "fr:com:69266"], 45.7667, 4.8799, "address"),
+      lat: null,
+      lng: null,
+    },
+    {
+      online: true,
+      location: "Mairie inconnue",
+      citycode: "00000",
+      key: null,
+      ...NOWHERE,
+      candidates: null,
     },
   ],
 };
 
-/** The expected list under `root` (a missing or malformed one is an error: CI reads the committed one). */
-export function readExpected(root = process.env.BACKFILL_ROOT ?? REPO): ExpectedList {
-  const file = resolve(root, "supabase/tests", EXPECTED_FILE);
-  if (!existsSync(file)) throw new Error(`${file} is missing (scripts/place-backfill writes it)`);
+/** An expected list (a missing or malformed one is an error: CI reads the committed one). */
+function readExpectedAt(file: string): ExpectedList {
+  if (!existsSync(file)) {
+    throw new Error(
+      `${file} is missing. It is committed with the repository (supabase/tests): link or copy ` +
+        "supabase/tests beside the migrations, or set BACKFILL_ROOT to a generator's output.",
+    );
+  }
   const list = JSON.parse(readFileSync(file, "utf8")) as ExpectedList;
   const shape =
     typeof list.offline === "object" &&
@@ -146,6 +161,35 @@ export function readExpected(root = process.env.BACKFILL_ROOT ?? REPO): Expected
     (list.migration === null || /^\d{14}_backfill_places_fr\.sql$/.test(list.migration));
   if (!shape) throw new Error(`${file}: not an expected list as scripts/place-backfill writes one`);
   return list;
+}
+
+/** The expected list under `root` (BACKFILL_ROOT, else the repository). */
+export function readExpected(root = process.env.BACKFILL_ROOT ?? REPO): ExpectedList {
+  return readExpectedAt(resolve(root, "supabase/tests", EXPECTED_FILE));
+}
+
+/**
+ * The expected list that goes with these migrations: BACKFILL_ROOT's when set;
+ * else the one beside the migrations actually there (supabase/tests next to
+ * the directory a symlinked migrations/ resolves to); else the repository's.
+ * Throws when the migrations hold another backfill than the one it names.
+ */
+export function expectedFor(migrations: string): { file: string; list: ExpectedList } {
+  const beside = resolve(realpathSync(migrations), "../tests", EXPECTED_FILE);
+  const file = process.env.BACKFILL_ROOT
+    ? resolve(process.env.BACKFILL_ROOT, "supabase/tests", EXPECTED_FILE)
+    : existsSync(beside)
+      ? beside
+      : resolve(REPO, "supabase/tests", EXPECTED_FILE);
+  const list = readExpectedAt(file);
+  const held = readdirSync(migrations).filter((f) => f.endsWith("_backfill_places_fr.sql"));
+  if (held.join() !== (list.migration ?? "")) {
+    throw new Error(
+      `${migrations} holds ${held.join(", ") || "no backfill"}, but ${file} names ` +
+        `${list.migration ?? "none"}: the migrations and the expected list go together.`,
+    );
+  }
+  return { file, list };
 }
 
 /** A psql script with its \ir lines read from disk, relative to `file`. */

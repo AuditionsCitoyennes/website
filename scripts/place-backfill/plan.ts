@@ -8,8 +8,9 @@
 //     against the plan's own published offline lieux placed without them (as
 //     placement_support() counts stored rows, as the geocoder's map build
 //     settled them over every lieu of the map).
-//   - Online rows: per town hall code, its units (geo.api) and the point the
-//     newest month stored, as the placement job files them (placeOnline).
+//   - Online rows: per town hall code, its units (geo.api); each month keeps
+//     the point it stored (the UPDATE reads place.lat/lng), a month without
+//     one is on no point — as the placement job files them (placeOnline).
 
 import {
   getCanonicalLocation,
@@ -19,7 +20,8 @@ import {
   type Json,
   type PlaceCandidate,
 } from "@ac/shared";
-import type { GeoUnitWrite } from "../../apps/api/src/modules/places/fr";
+import { isHomonyms } from "../../apps/api/src/modules/geo/match";
+import { PlaceError, type GeoUnitWrite } from "../../apps/api/src/modules/places/fr";
 import { onlinePlaceOf } from "../../apps/api/src/modules/places/lieu";
 import {
   placeLieu,
@@ -56,10 +58,15 @@ export interface PlannedLieu {
   /** Offline: the raw spellings the UPDATE matches. Online: the labels of its months. */
   locations: string[];
   rows: SourceRow[];
+  /** Offline: the lieu's. Online: what the newest month with a point gets (else the newest month). */
   placement: Placement;
+  /** Online: the town hall's units and precision, for every month (each at its own point). */
+  hall?: Placement;
   klass: LieuClass;
-  /** Online: the months whose stored point is not the one used (the newest's). */
+  /** Online: the months whose stored point is not the newest's (each keeps its own). */
   otherPoints?: SourceRow[];
+  /** Online: the months with no point of their own (on no point). */
+  pointless?: SourceRow[];
   /** Same-named communes: the unit they were settled on (null: not settled). */
   settledOn?: string | null;
 }
@@ -105,6 +112,38 @@ async function answered<T>(
   }
 }
 
+/** placeOnline needs a point to place a month; the town hall's units and precision do not depend on it. */
+const STAND_IN: Json = { lat: 0, lng: 0 };
+
+/**
+ * Before anything is placed: BAN finds Lyon and geo.api knows its code. A
+ * wrong --ban, a retired service or a geocoder answering nothing would
+ * otherwise file every lieu on no point, for good.
+ */
+export async function checkUpstreams(deps: PlanDeps, opts: PlanOptions = {}): Promise<void> {
+  const lyon = await answered("Lyon (canary)", () => deps.locate("Lyon"), opts);
+  if (!lyon || isHomonyms(lyon) || lyon.citycode !== "69123") {
+    throw new Error(
+      "The geocoder does not place Lyon in 69123: is --ban right? Nothing was written.",
+    );
+  }
+  const chain = await answered(
+    "69123 (canary)",
+    async () => {
+      try {
+        return await deps.commune("69123");
+      } catch (e) {
+        if (e instanceof PlaceError && e.status === 503) return "retry";
+        throw e;
+      }
+    },
+    opts,
+  );
+  if (chain?.localityId !== "fr:com:69123") {
+    throw new Error("geo.api.gouv.fr does not know Lyon (69123). Nothing was written.");
+  }
+}
+
 const newestFirst = (a: SourceRow, b: SourceRow) =>
   b.date.localeCompare(a.date) ||
   (b.created_at ?? "").localeCompare(a.created_at ?? "") ||
@@ -143,7 +182,9 @@ export async function buildPlan(
   deps: PlanDeps,
   opts: PlanOptions = {},
 ): Promise<Plan> {
-  const placeDeps: Partial<PlaceDeps> = {
+  // Every member given: none of defaultPlaceDeps (the API's database and
+  // geocoder) is ever reached from here.
+  const placeDeps: PlaceDeps = {
     ...deps,
     // The plan's own lieux, not the target's stored places: nothing is reused,
     // and same-named communes are settled below, against the plan.
@@ -209,14 +250,19 @@ export async function buildPlan(
   }
   for (const [citycode, list] of [...online].sort(([a], [b]) => a.localeCompare(b))) {
     list.sort(newestFirst);
-    // The newest month with a point: the town hall as it was last filed.
-    const newest = list.find((r) => onlinePlaceOf(r)) ?? list[0];
-    opts.log?.(`  ${citycode} (${newest.location})`);
-    const placement = await answered(citycode, () => placeOnline(newest, deps), opts);
-    const point = onlinePlaceOf(newest);
+    const shown = list.find((r) => onlinePlaceOf(r)) ?? list[0];
+    opts.log?.(`  ${citycode} (${shown.location})`);
+    const hall = await answered(
+      citycode,
+      () => placeOnline({ ...shown, place: STAND_IN }, placeDeps),
+      opts,
+    );
+    const placement = await answered(citycode, () => placeOnline(shown, placeDeps), opts);
+    const point = onlinePlaceOf(shown);
+    const pointless = list.filter((r) => !onlinePlaceOf(r));
     const otherPoints = list.filter((r) => {
       const p = onlinePlaceOf(r);
-      return !point || !p || p.lat !== point.lat || p.lng !== point.lng;
+      return point && p && (p.lat !== point.lat || p.lng !== point.lng);
     });
     lieux.push({
       online: true,
@@ -224,8 +270,10 @@ export async function buildPlan(
       locations: [...new Set(list.map((r) => r.location))].sort(),
       rows: list,
       placement,
+      hall,
       klass: "online",
-      ...(otherPoints.length && point ? { otherPoints } : {}),
+      ...(otherPoints.length ? { otherPoints } : {}),
+      ...(pointless.length ? { pointless } : {}),
     });
   }
 
@@ -233,9 +281,22 @@ export async function buildPlan(
   return {
     rules: rulesHash(),
     lieux,
-    units: orderUnits(lieux.flatMap((l) => l.placement.units)),
+    units: orderUnits(lieux.flatMap((l) => (l.hall ?? l.placement).units)),
     support,
   };
+}
+
+/**
+ * Why the plan looks like a geocoder answering wrongly — most offline lieux
+ * (generic texts aside) on no point, which passes the canary only by luck —
+ * or null when it does not.
+ */
+export function mostlyNowhere(plan: Plan): string | null {
+  const offline = plan.lieux.filter((l) => !l.online && l.klass !== "generic");
+  const nowhere = offline.filter((l) => !l.placement.columns.place_path).length;
+  return offline.length >= 4 && nowhere * 2 > offline.length
+    ? `${nowhere} of ${offline.length} offline lieux land on no point: the geocoder may be answering wrongly.`
+    : null;
 }
 
 /** Whether a LOCATION_RULES keyword rule files a raw spelling under another lieu name than its own. */
@@ -245,14 +306,17 @@ export const ruleCollapses = (location: string) =>
 /** A lieu's curated point (LOCATION_RULES), if it has one. */
 export const curatedPoint = (key: string) => getKnownCoordinates(key);
 
-/** The plan as the SQL writes it: one value per offline spelling, one per town hall. */
+/**
+ * The plan as the SQL writes it: one value per offline spelling, one per town
+ * hall (its units, no point: each month's own is read from its row).
+ */
 export function backfillOf(
   plan: Plan,
   meta: Pick<Backfill, "version" | "generated" | "source">,
 ): Backfill {
   const values: BackfillValue[] = [];
   for (const l of plan.lieux) {
-    const c = l.placement.columns;
+    const c = (l.hall ?? l.placement).columns;
     if (c.placed_rules !== (l.online ? null : plan.rules)) {
       throw new Error(`${l.key}: placed under rules ${c.placed_rules}, not ${plan.rules}`);
     }
@@ -273,6 +337,8 @@ export function backfillOf(
         citycode: l.key,
         key: null,
         ...place,
+        lat: null,
+        lng: null,
       });
       continue;
     }

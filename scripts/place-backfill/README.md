@@ -11,8 +11,8 @@ admin pick, no reuse of stored rows — and writes four files:
 
 | File | What |
 |---|---|
-| `supabase/migrations/<version>_backfill_places_fr.sql` | The migration: `geo_units` inserts (`on conflict do nothing`), one keyed `UPDATE` of the rows never placed, NOTICEs of what it did. |
-| `supabase/tests/backfill_places_fr.sql` | Its fixture test: listed rows placed as listed, online rows under their own label, a row changed since the review left stale, a row already placed left alone, a second run changes nothing. Run by `npm run db:check` (check `backfill`). |
+| `supabase/migrations/<version>_backfill_places_fr.sql` | The migration: `geo_units` inserts (`on conflict do nothing`), then a `DO` block of keyed `UPDATE`s of the rows never placed (offline by raw location; online by town hall code, at their own point, or on no point without one) and NOTICEs of what this run placed. |
+| `supabase/tests/backfill_places_fr.sql` | Its fixture test: listed rows placed as listed, online rows at their own point under their own label (on no point without one), a row changed since the review, an offline row carrying a listed code, an online row labelled like a listed spelling and an online point out of range left stale, a row already placed left alone, a second run changes nothing. Run by `npm run db:check` (check `backfill`). |
 | `supabase/tests/backfill_places_fr.expected.json` | Raw location (offline) or town hall code (online) → unit chain. Read by `db:check` and by `db:check:seeded` (B7 step 5). |
 | `docs/backfill-places-<date>.md` | The review table, for the founder's sign-off. |
 
@@ -25,19 +25,20 @@ How it places:
   published offline lieux placed without homonyms (what `placement_support()`
   counts on stored rows). Unsettled ones are written on no point, with their
   candidates, for the placement job.
-- **Online rows**, per town hall code: its units from geo.api, the newest month's
-  stored point, precision `address` (or `commune` where geo.api has no town
-  hall), no rules hash — exactly as the placement job files them
-  (`placeOnline`). The `UPDATE` matches them by `citycode`; each row keeps its
-  own label as lieu key.
+- **Online rows**, per town hall code: its units from geo.api, precision
+  `address` (or `commune` where geo.api has no town hall), no rules hash; each
+  row at the point it stored (`place.lat`/`place.lng`), on no point without
+  one — as the placement job files them (`placeOnline`). The `UPDATE`s match
+  them by `citycode`; each row keeps its own label as lieu key. A stored point
+  out of range is left alone (stale), as the API could not store it either.
 - **Generic texts, unknown names**: written on no point (`place_precision =
   'unplaced'`), so that after the push only rows written later are stale.
 - Offline rows are stamped with the `LOCATION_RULES` hash (`placed_rules`); a
   later rules change reaches them through the job's rules pass.
 
 On the seeded local stack, the backfill wrote exactly what the placement job
-writes for every row the publishable key reads (place columns and `geo_units`,
-compared column by column), and nothing else.
+writes for every row of the town halls and spellings it lists (place columns
+and `geo_units`, compared column by column), and nothing else.
 
 ## Running it against production
 
@@ -66,8 +67,12 @@ key: it needs none, and must see only what the public sees.
    npm run place-backfill -- --out "$TMPDIR/backfill" --http-cache "$TMPDIR/backfill-http.json"
    ```
 
-   It stops before writing anything if BAN or geo.api keep not answering, or if
-   the auditions change while it reads them: run it again.
+   It stops before writing anything if BAN or geo.api keep not answering (a
+   curated lieu's reverse geocode included), if BAN answers like a wrong address
+   (a 404 or 410: check `--ban`), if it does not find Lyon in 69123 before it
+   starts, if most offline lieux land on no point (`--force` to write them all
+   the same, after a look), or if the auditions change while it reads them. A
+   BAN 404 is never kept in `--http-cache`.
 
 2. **Review** `$TMPDIR/backfill/docs/backfill-places-<date>.md` with the founder:
    every lieu's units and point, and the "To look at" sections — keyword-rule
@@ -105,9 +110,15 @@ key: it needs none, and must see only what the public sees.
    supabase db push --workdir <staging dir>
    ```
 
-   On staging it places only the never-placed rows whose text equals a reviewed
-   spelling; rows the placement job already placed are untouched (check the
-   NOTICE counts). Then production, the same two commands with its workdir.
+   It places only rows never placed (`placed_location is null`): offline ones
+   whose raw location equals a reviewed spelling, online ones whose town hall
+   code is reviewed. Read its NOTICEs: `placed now` counts the rows this push
+   wrote; `already placed … left as they were` the listed rows the placement
+   job (or an earlier run) got to first, which the `UPDATE`s skip; `still
+   stale` the rows left to the job. On staging, where the job runs, expect
+   most listed rows under `already placed`. Then production, the same two
+   commands with its workdir (there, `placed now` should be about every row
+   the review lists).
 
 5. **Probe production with the publishable key** (counts and places only):
 
@@ -133,6 +144,7 @@ the same (matched by code), the others wait for the placement job or the sweep.
 --ban <url>          the BAN to ask (default https://api-adresse.data.gouv.fr)
 --etalab <dir>       the Etalab contours (default ~/.cache/ac-map-data/raw; skipped when missing)
 --http-cache <file>  keep the geocoder's and the commune API's answers, for the next runs
+--force              write the files even when most offline lieux land on no point
 ```
 
 `supabase/tests/` holds psql scripts for `db:check`, not pgTAP tests: do not run

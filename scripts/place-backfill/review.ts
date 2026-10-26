@@ -120,6 +120,7 @@ export function reviewMarkdown(input: ReviewInput): string {
     if (check?.kind === "outside") flags.push(`Etalab: ${check.metres} m out`);
     if (check?.kind === "unknown") flags.push("Etalab: no polygon");
     if (l.otherPoints) flags.push("points differ");
+    if (l.pointless) flags.push(`${l.pointless.length} without a point`);
     if (l.online && l.locations.length > 1) flags.push("labels differ");
     return flags;
   };
@@ -160,20 +161,22 @@ export function reviewMarkdown(input: ReviewInput): string {
     "",
     "## Lieux",
     "",
-    "Class: `address` a point in its commune, `commune`/`departement`/`region` placed at that level only, `homonym` same-named communes were involved, `online` a town hall of the online form, `unplaced` no commune, département or région by that name, `generic` a text on no point by design. Precision `unplaced`: written on no point.",
+    "Class: `address` a point in its commune, `commune`/`departement`/`region` placed at that level only, `homonym` same-named communes were involved, `online` a town hall of the online form (its units; each month at the point it stored, the newest shown, or on no point without one), `unplaced` no commune, département or région by that name, `generic` a text on no point by design. Precision `unplaced`: written on no point.",
     "",
     "| # | Location as typed | Auditions | Lieu key | Class | INSEE | Units | Point | Precision | Flags |",
     "|---|---|---|---|---|---|---|---|---|---|",
   );
   plan.lieux.forEach((l, i) => {
-    const c = l.placement.columns;
+    // A town hall: its units and precision; the point its newest month stored.
+    const c = (l.hall ?? l.placement).columns;
+    const { lat, lng } = l.placement.columns;
     const leaf = c.place_unit ? units.get(c.place_unit) : undefined;
     const chain = (c.place_path ?? []).map((id) => md(units.get(id)?.name ?? id)).join(" › ");
     const typed = l.online
       ? `${l.locations.map(md).join("<br>")}<br>(town hall ${l.key})`
       : l.locations.map(md).join("<br>");
     out.push(
-      `| ${i + 1} | ${typed} | ${auditionsCell(l)} | ${l.online ? "each its own label" : md(l.key)} | ${l.klass} | ${leaf?.code ?? "—"} | ${chain || "—"} | ${c.lat !== null && c.lng !== null ? pointLink(c.lat, c.lng) : "—"} | ${c.place_precision} | ${flagsOf(l, i).join(", ") || ""} |`,
+      `| ${i + 1} | ${typed} | ${auditionsCell(l)} | ${l.online ? "each its own label" : md(l.key)} | ${l.klass} | ${leaf?.code ?? "—"} | ${chain || "—"} | ${lat !== null && lng !== null ? pointLink(lat, lng) : "—"} | ${c.place_precision} | ${flagsOf(l, i).join(", ") || ""} |`,
     );
   });
 
@@ -235,7 +238,9 @@ export function reviewMarkdown(input: ReviewInput): string {
             : l.klass === "homonym"
               ? "same-named communes not settled"
               : l.online
-                ? "no town hall point, or a code geo.api does not know"
+                ? l.hall?.columns.place_path
+                  ? "no month read stored a point: each is on no point"
+                  : "a code geo.api does not know: every month on no point"
                 : "no commune, département or région by that name";
         return `- ${ref(index(l))} ${quoted(l.online ? l.locations[0] : l.key)}: ${why}.`;
       }),
@@ -244,19 +249,24 @@ export function reviewMarkdown(input: ReviewInput): string {
   section(
     "Town halls",
     onlineLieux
-      .filter((l) => l.otherPoints || l.locations.length > 1)
+      .filter((l) => l.otherPoints || l.pointless || l.locations.length > 1)
       .map((l) => {
         const notes: string[] = [];
         if (l.otherPoints) {
           notes.push(
-            `${l.otherPoints.length} month(s) stored another point; the newest month's is written on every month`,
+            `${l.otherPoints.length} month(s) stored another point than the newest: each keeps its own`,
+          );
+        }
+        if (l.pointless) {
+          notes.push(
+            `${l.pointless.length} month(s) with no point of their own: on no point, as the API files them`,
           );
         }
         if (l.locations.length > 1)
           notes.push("months labelled differently: each keeps its own label as lieu key");
         return `- ${ref(index(l))} town hall ${l.key}: ${notes.join("; ")}.`;
       }),
-    "Every town hall's months agree on their point and label.",
+    "Every town hall's months agree on their point and label, and each has one.",
   );
   if (typeof input.contours === "string") {
     section("Etalab cross-check", [`Not run: ${md(input.contours)}.`], "");
@@ -278,7 +288,7 @@ export function reviewMarkdown(input: ReviewInput): string {
   out.push(
     "## Not covered",
     "",
-    "- Online auditions with no verified testimony yet are invisible to the publishable key. Those of a town hall listed here are placed all the same (the migration matches town halls by code); the others stay stale for the placement job or the cutover sweep.",
+    "- Online auditions with no verified testimony yet are invisible to the publishable key. Those of a town hall listed here are placed all the same (the migration matches town halls by code), each at the point it stored, or on no point without one, as the placement job would; those of other town halls stay stale for the placement job or the cutover sweep.",
     "- Rows written or moved after the read match nothing (offline rows are matched by their exact text) and stay stale, for the placement job or the cutover sweep. Rows already placed are never touched.",
     "",
   );

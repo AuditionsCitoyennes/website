@@ -13,15 +13,16 @@
 // README.md here: options, and the run against production (dry run, review,
 // commit, push). It reads nothing from any .env, and refuses a secret or
 // service-role key. The geocoder and the commune API are asked one request
-// at a time; one that keeps not answering stops the run before anything is
-// written.
+// at a time; one that keeps not answering, or answers like a wrong address,
+// stops the run before anything is written.
 
+import "./isolate";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkPoint, loadContours, type ContourCheck, type Contours } from "./etalab";
-import { backfillOf, buildPlan, type Plan } from "./plan";
+import { backfillOf, buildPlan, checkUpstreams, mostlyNowhere, type Plan } from "./plan";
 import { reviewMarkdown } from "./review";
 import { countOrphanTestimonies, readAuditions, refuseKey } from "./source";
 import {
@@ -45,7 +46,8 @@ const HELP = `Usage: PLACE_BACKFILL_URL=<url> PLACE_BACKFILL_KEY=<publishable ke
   --ban <url>          the BAN to ask (default ${DEFAULT_BAN})
   --etalab <dir>       the Etalab contours for the cross-check
                        (default ~/.cache/ac-map-data/raw; skipped when missing)
-  --http-cache <file>  keep the geocoder's and the commune API's answers there`;
+  --http-cache <file>  keep the geocoder's and the commune API's answers there
+  --force              write the files even when most offline lieux land on no point`;
 
 function fail(message: string): never {
   console.error(message);
@@ -70,6 +72,7 @@ const KNOWN = [
   "--ban",
   "--etalab",
   "--http-cache",
+  "--force",
 ];
 
 /** The last migration version in a directory ("" when none). */
@@ -173,9 +176,16 @@ async function main(): Promise<void> {
   const restore = installGentleFetch(upstreamHosts(ban), option("--http-cache"));
   let plan;
   try {
-    plan = await buildPlan(rows, upstreamDeps(ban), { log: (line) => console.error(line) });
+    const deps = upstreamDeps(ban);
+    const log = (line: string) => console.error(line);
+    await checkUpstreams(deps, { log });
+    plan = await buildPlan(rows, deps, { log });
   } finally {
     restore();
+  }
+  const nowhere = mostlyNowhere(plan);
+  if (nowhere && !args.includes("--force")) {
+    fail(`${nowhere} Nothing was written; look into it (--force writes the files anyway).`);
   }
 
   const contours = loadContours(etalabDir);

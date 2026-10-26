@@ -4,12 +4,17 @@
 // that a dry run and the run after it see the same answers).
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { BanError, banClient, lookUpLieu } from "../../apps/api/src/modules/geo/ban";
+import {
+  BanError,
+  banClient,
+  lookUpLieu,
+  type BanClient,
+} from "../../apps/api/src/modules/geo/ban";
 import { frChain, frDepartementChain, frRegionChain } from "../../apps/api/src/modules/places/fr";
 import type { PlanDeps } from "./plan";
 
 export const DEFAULT_BAN = "https://api-adresse.data.gouv.fr";
-const GEO_API_HOST = "geo.api.gouv.fr";
+export const GEO_API_HOST = "geo.api.gouv.fr";
 const GAP_MS = 250;
 const BAN_TIMEOUT_MS = 10_000;
 
@@ -21,14 +26,23 @@ interface Kept {
 
 /**
  * Routes the GETs to these hosts through one queue, GAP_MS apart, and keeps
- * their final answers (200, 404); returns the function that puts fetch back
- * (and writes the cache file, if any).
+ * their final answers — a 200, and a 404 from `notFoundHosts` only (geo.api's
+ * "no such code"; a 404 from BAN means a wrong base URL, not "no such lieu");
+ * returns the function that puts fetch back (and writes the cache file, if any).
  */
-export function installGentleFetch(hosts: string[], cacheFile?: string): () => void {
+export function installGentleFetch(
+  hosts: string[],
+  cacheFile?: string,
+  notFoundHosts: string[] = [GEO_API_HOST],
+): () => void {
   const real = globalThis.fetch;
+  const final = (url: string, status: number) =>
+    status === 200 || (status === 404 && notFoundHosts.includes(new URL(url).host));
   const kept = new Map<string, Kept>(
     cacheFile && existsSync(cacheFile)
-      ? Object.entries(JSON.parse(readFileSync(cacheFile, "utf8")) as Record<string, Kept>)
+      ? Object.entries(JSON.parse(readFileSync(cacheFile, "utf8")) as Record<string, Kept>).filter(
+          ([url, k]) => final(url, k.status),
+        )
       : [],
   );
   let queue: Promise<unknown> = Promise.resolve();
@@ -58,7 +72,7 @@ export function installGentleFetch(hosts: string[], cacheFile?: string): () => v
       () => undefined,
     );
     const res = await turn;
-    if (res.status !== 200 && res.status !== 404) return res;
+    if (!final(key, res.status)) return res;
     const answer: Kept = {
       status: res.status,
       type: res.headers.get("content-type") ?? "application/json",
@@ -79,22 +93,41 @@ export function installGentleFetch(hosts: string[], cacheFile?: string): () => v
 /** The hosts installGentleFetch should slow down for this BAN. */
 export const upstreamHosts = (ban: string) => [new URL(ban).host, GEO_API_HOST];
 
+/** BAN refusing the query text itself: the lieu has no place. */
+const REFUSED = new Set([400, 422]);
+
 /**
- * BAN and the commune API, as the API asks them (geocode.ts, fr.ts): a query
- * BAN refuses (a 4xx but 429) has no place; anything else that fails — a
- * timeout, a 5xx, a 429 — is 'retry'.
+ * BAN and the commune API, as the API asks them (geocode.ts, fr.ts), but
+ * stricter, since the backfill is written once: a query BAN refuses (400,
+ * 422) has no place; a timeout, a 5xx or a 429 is 'retry' — and so is a
+ * failed reverse geocode of a curated lieu's point, which the API's lookup
+ * would pass over (filing the lieu under the forward match's commune); any
+ * other status (404, 410: a wrong --ban, a retired service) stops the run.
  */
 export function upstreamDeps(ban: string): PlanDeps {
-  const client = banClient(ban.replace(/\/+$/, ""), BAN_TIMEOUT_MS);
+  const base = ban.replace(/\/+$/, "");
+  const client = banClient(base, BAN_TIMEOUT_MS);
   return {
     async locate(key) {
+      let reverseFailed: unknown;
+      const watched: BanClient = {
+        search: client.search,
+        reverse: (coords) =>
+          client.reverse(coords).catch((e: unknown) => {
+            reverseFailed = e;
+            throw e;
+          }),
+      };
       try {
-        return await lookUpLieu(key, client);
+        const found = await lookUpLieu(key, watched);
+        if (reverseFailed !== undefined) throw reverseFailed;
+        return found;
       } catch (e) {
-        if (e instanceof BanError && e.status >= 400 && e.status < 500 && e.status !== 429) {
-          return null;
-        }
-        return "retry";
+        if (!(e instanceof BanError) || e.status === 429 || e.status >= 500) return "retry";
+        if (REFUSED.has(e.status) && e !== reverseFailed) return null;
+        throw new Error(
+          `${key}: ${e.message} from ${base}. Not a passing failure: is --ban right? Nothing was written.`,
+        );
       }
     },
     commune: frChain,
