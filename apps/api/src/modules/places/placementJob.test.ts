@@ -364,3 +364,19 @@ test("a write the table refuses is counted, and the row stays stale", async () =
   assert.equal(again.placed, 1);
   assert.equal(db.tables.geo_units.length, 4);
 });
+
+test("a row whose placement throws is counted failed; the others are placed", async () => {
+  db.insert("auditions", [legacy("Bron"), legacy("Embrun")]);
+  const report = await runPlacementPass({
+    deps: {
+      ...deps,
+      locate: async (key) => {
+        if (key === "Parvis Médiathèque, Bron") throw new TypeError("a bug");
+        return locate(key, ban);
+      },
+    },
+  });
+  assert.deepEqual([report.failed, report.placed], [1, 1]);
+  assert.equal(rows().find((r) => r.location === "Embrun")!.place_stale, false);
+  assert.equal(rows().find((r) => r.location === "Bron")!.place_stale, true);
+});

@@ -150,6 +150,22 @@ async function writePlace(
   return true;
 }
 
+/** A row whose placement threw (a bug, not an upstream down): counted and logged, the pass goes on. */
+async function orFailed<T>(
+  work: Promise<T>,
+  row: JobRow,
+  report: PassReport,
+  log: JobLogger | undefined,
+): Promise<T | null> {
+  try {
+    return await work;
+  } catch (err) {
+    report.failed++;
+    log?.error({ err, audition: row.id }, "placement: failed");
+    return null;
+  }
+}
+
 /** Where a stale row goes; 'retry' when an upstream did not answer. */
 async function placementOf(row: JobRow, deps: Partial<PlaceDeps>): Promise<Placement | "retry"> {
   const path = row.place_path;
@@ -237,7 +253,8 @@ async function stalePass(opts: PassOptions, report: PassReport): Promise<boolean
     const { data, error } = await (last ? q.or(afterCreated(last)) : q);
     if (error) throw new PassError(`stale rows: ${error.message}`);
     for (const row of data) {
-      const placement = await placementOf(row, opts.deps ?? {});
+      const placement = await orFailed(placementOf(row, opts.deps ?? {}), row, report, opts.log);
+      if (!placement) continue;
       if (placement === "retry") {
         report.retried++;
         if (++streak >= RETRY_STREAK) return true;
@@ -282,7 +299,12 @@ async function candidatePass(opts: PassOptions, report: PassReport): Promise<voi
       const candidates = storedCandidates(row.place_candidates);
       if (!candidates?.length) continue;
       const key = row.lieu_key ?? getCanonicalLocation(row.location);
-      const placement = await settleCandidates(row.location, key, candidates, opts.deps);
+      const placement = await orFailed(
+        settleCandidates(row.location, key, candidates, opts.deps),
+        row,
+        report,
+        opts.log,
+      );
       if (placement === "retry") {
         report.retried++;
         continue;
