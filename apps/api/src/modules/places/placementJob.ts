@@ -9,13 +9,12 @@ import { quoted } from "../../lib/paging";
 import { invalidatePublicCaches } from "../../lib/publicCache";
 import { adminClient } from "../../lib/supabase";
 import { backoffUntil } from "../geo/geocode";
-import { FR_GEO_RELEASE, frChain, PlaceError } from "./fr";
 import { forgetGeoUnits, upsertGeoUnits } from "./geoUnits";
-import { onlinePlaceOf } from "./lieu";
 import {
   defaultPlaceDeps,
   keepPlacedAbroad,
   placeLieu,
+  placeOnline,
   rulesHash,
   settleCandidates,
   storedCandidates,
@@ -242,58 +241,6 @@ async function placementOf(
   if (abroad) return abroad;
   if (row.audition_en_ligne) return placeOnline(row, deps, cachedOnly);
   return placeLieu(row.location, { deps, settle: false, cachedOnly });
-}
-
-/** An online audition: its town hall's units, its stored point, its own label as lieu key. */
-async function placeOnline(
-  row: JobRow,
-  deps: Partial<PlaceDeps>,
-  cachedOnly: boolean,
-): Promise<Placement | "retry"> {
-  const online = onlinePlaceOf(row);
-  const none: Placement = {
-    units: [],
-    columns: {
-      place_unit: null,
-      place_path: null,
-      locality_id: null,
-      lieu_key: row.location,
-      lat: null,
-      lng: null,
-      place_precision: "unplaced",
-      place_candidates: null,
-      placed_location: row.location,
-      placed_rules: null,
-      geo_release: null,
-    },
-  };
-  if (!online || !row.citycode) return none;
-  let chain;
-  try {
-    chain = await (deps.commune ?? frChain)(row.citycode, { cachedOnly });
-  } catch (e) {
-    if (e instanceof PlaceError && e.status === 503) return "retry";
-    throw e;
-  }
-  if (!chain) return none;
-  return {
-    units: chain.units,
-    columns: {
-      place_unit: chain.unit,
-      place_path: chain.path,
-      locality_id: chain.localityId,
-      lieu_key: row.location,
-      lat: online.lat,
-      lng: online.lng,
-      // As the online form files it (resolveTownHall): the town hall's own
-      // point, or the commune's centre where geo.api has no town hall.
-      place_precision: chain.mairie ? "address" : "commune",
-      place_candidates: null,
-      placed_location: row.location,
-      placed_rules: null,
-      geo_release: FR_GEO_RELEASE,
-    },
-  };
 }
 
 /** A lieu among same-named communes, waiting for the end of the pass: its rows. */
