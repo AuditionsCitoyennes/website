@@ -44,6 +44,8 @@ export interface UnitRow {
   n: number;
   auditions: number;
   rank: string;
+  /** The id of the newest audition of its first lieu (today's order, design A18). */
+  tie: string;
   bbox: BBox;
   wrap: boolean;
   facts?: Facts;
@@ -60,6 +62,8 @@ export interface LieuRow {
   n: number;
   auditions: number;
   rank: string;
+  /** The id of its newest audition. */
+  tie: string;
   /** [id, title, date, n], newest first (complete answers). */
   list?: [string, string, string, number][];
 }
@@ -161,6 +165,7 @@ export interface TreeNode {
   n: number;
   auditions: number;
   rank: string | null;
+  tie: string | null;
   bounds: Bounds | null;
   code: string | null;
   facts?: Facts;
@@ -169,12 +174,18 @@ export interface TreeNode {
   children: string[];
 }
 
-/** Children first by testimonies, then the newest, then by id (code units: ASCII ids). */
-export function childOrder(a: TreeNode, b: TreeNode): number {
+const byte = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Today's order of siblings: testimonies desc, the newest first, then the first lieu's newest audition by id. */
+export function childOrder(
+  a: { id: string; n: number; rank: string | null; tie: string | null },
+  b: { id: string; n: number; rank: string | null; tie: string | null },
+): number {
   return (
     b.n - a.n ||
     (b.rank ?? "").localeCompare(a.rank ?? "") ||
-    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    byte(a.tie ?? "", b.tie ?? "") ||
+    byte(a.id, b.id)
   );
 }
 
@@ -190,6 +201,7 @@ export function treeOf(answer: PlaceCounts): Map<string, TreeNode> {
     n: answer.self.n,
     auditions: answer.self.auditions,
     rank: answer.self.rank,
+    tie: null,
     bounds: answer.self.bbox ? padded(answer.self.bbox) : null,
     code: null,
     children: [],
@@ -205,6 +217,7 @@ export function treeOf(answer: PlaceCounts): Map<string, TreeNode> {
       n: u.n,
       auditions: u.auditions,
       rank: u.rank,
+      tie: u.tie,
       bounds: padded(u.bbox),
       code: u.code,
       facts: u.facts,
@@ -222,6 +235,7 @@ export function treeOf(answer: PlaceCounts): Map<string, TreeNode> {
       n: l.n,
       auditions: l.auditions,
       rank: l.rank,
+      tie: l.tie,
       bounds: padded([l.lat, l.lng, l.lat, l.lng]),
       code: null,
       lieu: l,
@@ -349,18 +363,21 @@ export function topicOptionsOf(counts: { i: number; n: number }[]) {
 /**
  * The place picker's tree from an empty=1 answer: région > département >
  * ville > lieu, arrondissements folded into their commune, weighted by
- * testimonies; children by weight, then the newest, then id.
+ * testimonies; children in today's order (childOrder).
  */
 export function locationTreeOf(answer: PlaceCounts): LocNode[] {
   const nodes = treeOf(answer);
   const build = (id: string): LocNode[] => {
-    const out: { node: LocNode; n: number; rank: string | null; id: string }[] = [];
+    const out: { node: LocNode; n: number; rank: string | null; tie: string | null; id: string }[] =
+      [];
     for (const childId of nodes.get(id)?.children ?? []) {
       const c = nodes.get(childId)!;
       if (c.levelKey === "arr") {
-        // Its lieux under the commune.
-        for (const sub of build(childId))
-          out.push({ node: sub, n: sub.count ?? 0, rank: null, id: sub.token });
+        // Its lieux under the commune, each with its own rank and tie.
+        for (const sub of build(childId)) {
+          const l = nodes.get(sub.token)!;
+          out.push({ node: sub, n: sub.count ?? 0, rank: l.rank, tie: l.tie, id: sub.token });
+        }
         continue;
       }
       const children = c.kind === "lieu" ? [] : build(childId);
@@ -374,20 +391,12 @@ export function locationTreeOf(answer: PlaceCounts): LocNode[] {
         },
         n: c.n,
         rank: c.rank,
+        tie: c.tie,
         id: c.id,
       });
     }
-    // Folded lieux come back sorted with the rest: by weight, then their rank.
-    const rankOf = (x: { id: string; rank: string | null }) =>
-      x.rank ?? nodes.get(x.id)?.rank ?? "";
-    return out
-      .sort(
-        (a, b) =>
-          b.n - a.n ||
-          rankOf(b).localeCompare(rankOf(a)) ||
-          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-      )
-      .map((x) => x.node);
+    // Folded lieux come back sorted with the rest.
+    return out.sort(childOrder).map((x) => x.node);
   };
   // The country level is left out while there is one country (design E2 step 8).
   const countries = nodes.get("world")!.children;

@@ -14,13 +14,14 @@
 // side is the RPCs' answers, read as the web will read them (server.ts).
 // Both run over every filter of a matrix (none, verified, each theme,
 // needles of 1, 2 and 3+ characters, accents, % and _, dates, places,
-// combinations), every unit (whole tree and the lazy path), every lieu, and
-// every result and testimony page (7 a page).
+// combinations), every unit (whole tree, and the lazy path at depths 1 to
+// 3), every lieu, every result and testimony page (7 a page), and pages cut
+// inside every kind of tie. The setup (db.ts) adds the cases the seed lacks.
 //
-// Only the design's D1 and D3 may differ (report.ts): each is listed; any
-// other difference fails. Drafts are dropped from the old corpus before the
-// comparison (D1), and the count it changes is listed. Local databases only;
-// every session is rolled back (db.ts).
+// Only the design's D1 and D14 may differ (report.ts): each is listed; any
+// other difference fails, every order included. Drafts are dropped from the
+// old corpus before the comparison (D1), and the count it changes is listed.
+// Local databases only; every session is rolled back (db.ts).
 
 import { writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -35,6 +36,7 @@ import {
   type AuditionRow,
   type Call,
   type Exported,
+  type Setup,
 } from "./db";
 import { Report } from "./report";
 import { lit } from "../db-checks/psql";
@@ -74,6 +76,9 @@ import type { GeoUnit } from "./legacy/types";
 
 const PAGE = 7;
 const SORTS: AuditionSort[] = ["recent", "ancien"];
+const DEPTHS = [1, 2, 3];
+/** Pages cut inside ties, per sort and filter case. */
+const TIE_CUTS = 8;
 const r = new Report();
 
 // ---- The two id spaces ---------------------------------------------------------
@@ -132,7 +137,10 @@ function idMapOf(groups: LocationGroup[]): IdMap {
   return { toServer, toLegacy, token };
 }
 
-const sid = (ids: IdMap, legacy: string) => ids.toServer.get(legacy) ?? `?${legacy}`;
+/** A legacy unit's id on the server; undefined when the stored paths never name it. */
+const sid = (ids: IdMap, legacy: string) => ids.toServer.get(legacy);
+/** The same, for a comparison (never sent to the database). */
+const shown = (ids: IdMap, legacy: string) => sid(ids, legacy) ?? `?${legacy}`;
 
 // ---- The filter matrix -----------------------------------------------------------
 
@@ -224,9 +232,20 @@ function matrix(ex: Exported, corpus: PublicTestimony[], ids: IdMap, all: GeoUni
 
   // Places: the most heard of each level, the split city, an overseas one.
   const tokenOf = (u: GeoUnit) => u.id.slice((u.parentId?.length ?? -1) + 1);
-  const place = (u: GeoUnit) => {
-    const id = sid(ids, u.id);
-    return id.startsWith("l:") ? { lieux: [id] } : { units: [id] };
+  // A place no stored path names is left out (idMapOf reported it).
+  const place = (...list: GeoUnit[]) => {
+    const out: { units?: string[]; lieux?: string[] } = {};
+    for (const u of list) {
+      const id = sid(ids, u.id);
+      if (!id) {
+        r.current = "matrix";
+        r.fail(`place case ${tokenOf(u)}: ${u.id} has no server id, left out`);
+        return null;
+      }
+      const key = id.startsWith("l:") ? "lieux" : "units";
+      out[key] = [...(out[key] ?? []), id];
+    }
+    return out;
   };
   const top = (level: GeoUnit["levelKey"], skip = 0) =>
     all.filter((u) => u.levelKey === level).sort((a, b) => b.count - a.count)[skip];
@@ -239,14 +258,18 @@ function matrix(ex: Exported, corpus: PublicTestimony[], ids: IdMap, all: GeoUni
     top("city"),
     top("place"),
   ].filter((u): u is GeoUnit => Boolean(u));
-  for (const u of picks) add(`place ${tokenOf(u)}`, { locations: [tokenOf(u)] }, place(u));
+  for (const u of picks) {
+    const at = place(u);
+    if (at) add(`place ${tokenOf(u)}`, { locations: [tokenOf(u)] }, at);
+  }
   const dep = top("dep", 1);
   const lieu = top("place", 1);
-  if (dep && lieu) {
+  const both = dep && lieu && place(dep, lieu);
+  if (dep && lieu && both) {
     add(
       `places ${tokenOf(dep)} + ${tokenOf(lieu)}`,
       { locations: [tokenOf(dep), tokenOf(lieu)] },
-      { units: [sid(ids, dep.id)], lieux: [sid(ids, lieu.id)] },
+      both,
     );
   }
 
@@ -254,14 +277,16 @@ function matrix(ex: Exported, corpus: PublicTestimony[], ids: IdMap, all: GeoUni
   add("verified + «loyer»", { verified: true, needle: "loyer" });
   add(`theme 7 + dates`, { topics: [AUDITION_THEMES[7]], dateFrom: from, dateTo: to });
   const d = top("dep");
-  if (d)
+  const atDep = d && place(d);
+  if (d && atDep)
     add(
       `verified + «a» + ${tokenOf(d)}`,
       { verified: true, needle: "a", locations: [tokenOf(d)] },
-      place(d),
+      atDep,
     );
   const reg = top("region");
-  if (reg && lieu) {
+  const regLieu = reg && lieu && place(reg, lieu);
+  if (reg && lieu && regLieu) {
     add(
       `themes 2+6 + ${tokenOf(reg)} + ${tokenOf(lieu)} + from`,
       {
@@ -269,7 +294,7 @@ function matrix(ex: Exported, corpus: PublicTestimony[], ids: IdMap, all: GeoUni
         locations: [tokenOf(reg), tokenOf(lieu)],
         dateFrom: from,
       },
-      { units: [sid(ids, reg.id)], lieux: [sid(ids, lieu.id)] },
+      regLieu,
     );
   }
   return cases;
@@ -349,16 +374,37 @@ function ranksOf(view: View, ctx: Ctx): Map<string, string> {
   return rank;
 }
 
+/** The box of a legacy unit's lieu points, unpadded, as place_counts gives it. */
+function pointBox(u: GeoUnit): S.BBox | null {
+  const pts: [number, number][] = [];
+  const walk = (x: GeoUnit) => {
+    if (x.levelKey === "place") pts.push(x.center);
+    for (const c of x.children) walk(c);
+  };
+  walk(u);
+  if (!pts.length) return null;
+  const lats = pts.map((p) => p[0]);
+  const lngs = pts.map((p) => p[1]);
+  return [Math.min(...lats), Math.min(...lngs), Math.max(...lats), Math.max(...lngs)];
+}
+
+/** A node's raw box in an answer: the unit's bbox, the root's self.bbox, a lieu's point. */
+function rawBox(node: S.TreeNode | undefined, answer: S.PlaceCounts): S.BBox | null {
+  if (!node) return null;
+  if (node.kind === "world") return answer.self.bbox;
+  if (node.unit) return node.unit.bbox;
+  return [node.lieu!.lat, node.lieu!.lng, node.lieu!.lat, node.lieu!.lng];
+}
+
 function compareTree(view: View, answer: S.PlaceCounts, ctx: Ctx): Map<string, S.TreeNode> {
   const { ids } = ctx;
   r.eq("whole tree within budget (complete)", true, answer.complete);
   sortedAsTheWebReads(answer);
   const tree = S.treeOf(answer);
   const ranks = ranksOf(view, ctx);
-  const key = (id: string) => `${tree.get(id)?.n}|${tree.get(id)?.rank}`;
   const seen = new Set<string>();
   for (const u of view.index.values()) {
-    const id = sid(ids, u.id);
+    const id = shown(ids, u.id);
     seen.add(id);
     const node = tree.get(id);
     const w = `unit ${id}`;
@@ -370,7 +416,7 @@ function compareTree(view: View, answer: S.PlaceCounts, ctx: Ctx): Map<string, S
     r.eq(`${w} rank`, ranks.get(u.id) ?? null, node.rank);
     r.eq(`${w} label`, u.label, node.label);
     r.eq(`${w} level`, u.levelKey, node.levelKey);
-    r.eq(`${w} parent`, u.parentId ? sid(ids, u.parentId) : null, node.parent);
+    r.eq(`${w} parent`, u.parentId ? shown(ids, u.parentId) : null, node.parent);
     if ((u.levelKey === "city" || u.levelKey === "arr") && u.insee !== undefined) {
       r.eq(`${w} INSEE`, u.insee, node.code);
     }
@@ -378,17 +424,18 @@ function compareTree(view: View, answer: S.PlaceCounts, ctx: Ctx): Map<string, S
       r.eq(`${w} point`, u.center, [node.lieu!.lat, node.lieu!.lng]);
       r.eq(`${w} key`, u.canonical, node.lieu!.key);
     }
-    // FR keeps METRO_FRANCE on the web (design A12); the world box is never drawn.
+    // FR keeps METRO_FRANCE on the web (design A12); the world box is never
+    // drawn. Their raw boxes are compared all the same.
     if (u.levelKey !== "country" && u.levelKey !== "world")
       r.eq(`${w} bounds`, u.bounds, node.bounds);
+    r.eq(`${w} box`, pointBox(u), rawBox(node, answer));
     if (node.unit) r.eq(`${w} wrap`, node.unit.bbox[3] - node.unit.bbox[1] > 180, node.unit.wrap);
     r.order(
       `${w} children`,
-      u.children.map((c) => sid(ids, c.id)),
+      u.children.map((c) => shown(ids, c.id)),
       node.children,
-      key,
     );
-    if (u.levelKey !== "world" && u.levelKey !== "place") compareFacts(view, u, node, ctx);
+    if (u.levelKey !== "world" && u.levelKey !== "place") compareFacts(view, u, node);
   }
   for (const id of tree.keys()) {
     if (!seen.has(id)) r.fail(`place_counts has ${id}, the legacy tree does not`);
@@ -396,7 +443,7 @@ function compareTree(view: View, answer: S.PlaceCounts, ctx: Ctx): Map<string, S
   return tree;
 }
 
-function compareFacts(view: View, u: GeoUnit, node: S.TreeNode, ctx: Ctx): void {
+function compareFacts(view: View, u: GeoUnit, node: S.TreeNode): void {
   const w = `facts of ${node.id}`;
   const f = node.facts;
   if (!f) {
@@ -425,90 +472,70 @@ function compareFacts(view: View, u: GeoUnit, node: S.TreeNode, ctx: Ctx): void 
     [f.themeBase, f.untagged, f.approx],
   );
   r.eq(`${w} first/last`, [st?.first ?? null, st?.last ?? null], [f.first, f.last]);
-
-  // The largest audition: the same, or a tie of count and rank between two lieux (D3).
-  const legacyLargest = st?.largest
-    ? { id: st.largest.testimonies[0].audition!.id, n: st.largest.testimonies.length }
-    : null;
-  let tie = false;
-  r.checks++;
-  if (legacyLargest?.id !== f.largest?.[0]) {
-    const lr = legacyLargest && ctx.lieuRank.get(ctx.lieuOf.get(legacyLargest.id) ?? "");
-    const sr = f.largest && ctx.lieuRank.get(f.largest[1]);
-    tie =
-      Boolean(legacyLargest && f.largest) &&
-      legacyLargest!.n === f.largest![3] &&
-      lr === sr &&
-      ctx.lieuOf.get(legacyLargest!.id) !== f.largest![1];
-    if (tie)
-      r.add(
-        "D3",
-        `${w} largest audition: ${legacyLargest!.id} → ${f.largest![0]} (same count, same rank)`,
-      );
-    else
-      r.fail(
-        `${w} largest: legacy ${JSON.stringify(legacyLargest)} ≠ server ${JSON.stringify(f.largest)}`,
-      );
-  } else if (f.largest) {
-    r.eq(`${w} largest`, [legacyLargest!.n, st!.largest!.canonical], [f.largest[3], f.largest[2]]);
-  }
-
+  // The largest audition: the first of the most heard, in today's order.
+  r.eq(
+    `${w} largest`,
+    st?.largest
+      ? [
+          st.largest.testimonies[0].audition!.id,
+          st.largest.testimonies.length,
+          st.largest.canonical,
+        ]
+      : null,
+    f.largest ? [f.largest[0], f.largest[3], f.largest[2]] : null,
+  );
   const labels = (c: string) => view.byCanonical.get(c)?.label ?? c;
-  const legacy = analyseScope(u, view.stats, { placeLabel: labels });
-  const server = S.analyseFacts({ id: u.id, label: node.label, levelKey: node.levelKey }, f);
-  if (!legacy || !server) {
-    r.eq(`${w} analysis`, legacy, server);
-    return;
-  }
-  const { concentration: lc, ...lrest } = legacy;
-  const { concentration: sc, ...srest } = server;
-  r.eq(`${w} analysis`, lrest, srest);
-  if (tie && lc && sc) r.eq(`${w} concentration (tie)`, [lc.count, lc.share], [sc.count, sc.share]);
-  else r.eq(`${w} concentration`, lc, sc);
+  r.eq(
+    `${w} analysis`,
+    analyseScope(u, view.stats, { placeLabel: labels }),
+    S.analyseFacts({ id: u.id, label: node.label, levelKey: node.levelKey }, f),
+  );
 }
 
-/** The answer's units, and its lieux, come by testimonies, then the newest, then id. */
+/** The answer's units, and its lieux, come in today's order (S.childOrder). */
 function sortedAsTheWebReads(answer: S.PlaceCounts): void {
-  const order = (list: { id: string; n: number; rank: string }[]) =>
-    [...list].sort(
-      (a, b) =>
-        b.n - a.n || b.rank.localeCompare(a.rank) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-    );
-  r.eq(
+  const order = (list: { id: string; n: number; rank: string; tie: string }[]) =>
+    [...list].sort(S.childOrder).map((x) => x.id);
+  r.order(
     `${answer.unit} units in order`,
-    order(answer.units).map((u) => u.id),
+    order(answer.units),
     answer.units.map((u) => u.id),
   );
-  r.eq(
+  r.order(
     `${answer.unit} lieux in order`,
-    order(answer.lieux).map((l) => l.id),
+    order(answer.lieux),
     answer.lieux.map((l) => l.id),
   );
 }
 
-/** A lazy answer for a unit, against the complete tree (already compared with the legacy one). */
+/**
+ * A lazy answer for a unit, at a depth, against the complete tree (already
+ * compared with the legacy one): the unit's own figures and box, its units
+ * `depth` levels down, the lieux of the levels above the last, the children's
+ * figures.
+ */
 function compareLazy(
   lazy: S.PlaceCounts,
+  depth: number,
   complete: S.PlaceCounts,
   tree: Map<string, S.TreeNode>,
 ): void {
   const u = lazy.unit;
-  const w = `lazy ${u}`;
+  const w = `lazy ${u} (depth ${depth})`;
   sortedAsTheWebReads(lazy);
   const node = tree.get(u);
   r.eq(
     `${w} self`,
-    [node?.n ?? 0, node?.auditions ?? 0, node?.rank ?? null],
-    [lazy.self.n, lazy.self.auditions, lazy.self.rank],
+    [node?.n ?? 0, node?.auditions ?? 0, node?.rank ?? null, rawBox(node, complete)],
+    [lazy.self.n, lazy.self.auditions, lazy.self.rank, lazy.self.bbox],
   );
   if (u !== "world") r.eq(`${w} self facts`, node?.facts ?? ZERO_FACTS, lazy.self.facts);
   else r.eq(`${w} unplaced`, complete.unplaced, lazy.unplaced);
   r.eq(`${w} complete`, !node || node.n === 0, lazy.complete);
-  // Units two levels down, lieux of the unit and of its children.
   const below = new Map<string, number>();
   const walk = (id: string, d: number) => {
     for (const c of tree.get(id)?.children ?? []) {
-      if (tree.get(c)!.kind !== "unit" || d > 2) continue;
+      if (tree.get(c)!.kind !== "unit" || d > depth) continue;
       below.set(c, d);
       walk(c, d + 1);
     }
@@ -524,7 +551,7 @@ function compareLazy(
     })),
     lazy.units.map((x) => ({ ...x, facts: x.facts })),
   );
-  const holders = new Set([u, ...[...below].filter(([, d]) => d === 1).map(([id]) => id)]);
+  const holders = new Set([u, ...[...below].filter(([, d]) => d < depth).map(([id]) => id)]);
   r.eq(
     `${w} lieux`,
     complete.lieux.filter((l) => holders.has(l.unit)).map((l) => ({ ...l, list: undefined })),
@@ -551,10 +578,13 @@ const ZERO_FACTS: S.Facts = {
 
 interface CaseAnswers {
   complete?: S.PlaceCounts;
-  lazy: S.PlaceCounts[];
+  /** place_counts_many's answers, with the units asked for. */
+  lazy: { depth: number; batch: string[]; answer: S.PlaceCounts[] }[];
   lieu: Map<string, S.LieuAuditions>;
   results: Map<AuditionSort, S.ResultsPage[]>;
   through: Map<string, S.ResultsPage[]>;
+  /** `${sort}|${id}`: the rows through that audition, then the next page. */
+  cuts: Map<string, [S.ResultsPage, S.ResultsPage | null]>;
   pages: Map<string, S.TestimonyPage[]>;
 }
 
@@ -562,7 +592,7 @@ function compareLists(view: View, tree: Map<string, S.TreeNode>, a: CaseAnswers,
   const { ids } = ctx;
   const legacyLieux = new Set<string>();
   for (const p of view.places) {
-    const id = sid(ids, p.id);
+    const id = shown(ids, p.id);
     legacyLieux.add(id);
     const node = tree.get(id);
     for (const sort of SORTS) {
@@ -583,26 +613,28 @@ function compareLists(view: View, tree: Map<string, S.TreeNode>, a: CaseAnswers,
         legacy,
         answer?.auditions.map((x) => [x.id, x.title, x.date, x.n]),
       );
-      if (sort === "recent" && answer?.lieu) {
+      if (sort === "recent") {
         const g = view.groups.find((x) => x.lieuId === id);
         r.eq(
           `lieu_auditions ${id} lieu`,
           {
             key: p.canonical,
-            unit: sid(ids, p.parentId!),
+            unit: shown(ids, p.parentId!),
             path: g?.unitPath,
             lat: p.center[0],
             lng: p.center[1],
             label: p.label,
           },
-          {
-            key: answer.lieu.key,
-            unit: answer.lieu.unit,
-            path: answer.lieu.path,
-            lat: answer.lieu.lat,
-            lng: answer.lieu.lng,
-            label: placeLabel({ canonicalName: answer.lieu.key, city: answer.lieu.city }),
-          },
+          answer?.lieu
+            ? {
+                key: answer.lieu.key,
+                unit: answer.lieu.unit,
+                path: answer.lieu.path,
+                lat: answer.lieu.lat,
+                lng: answer.lieu.lng,
+                label: placeLabel({ canonicalName: answer.lieu.key, city: answer.lieu.city }),
+              }
+            : null,
         );
       }
     }
@@ -614,10 +646,31 @@ function compareLists(view: View, tree: Map<string, S.TreeNode>, a: CaseAnswers,
   }
 }
 
+/**
+ * Where to cut a page inside a tie: the first of each pair of neighbours of
+ * the same date, one lieu first (by id), then two lieux of the same rank (by
+ * their newest audition), then the rest (by rank).
+ */
+function tieCuts(order: string[], ctx: Ctx): string[] {
+  const pairs: { id: string; kind: number }[] = [];
+  for (let i = 0; i + 1 < order.length; i++) {
+    const [x, y] = [order[i], order[i + 1]];
+    if (ctx.dateOf.get(x) !== ctx.dateOf.get(y)) continue;
+    const [lx, ly] = [ctx.lieuOf.get(x), ctx.lieuOf.get(y)];
+    const kind = lx === ly ? 0 : ctx.lieuRank.get(lx ?? "") === ctx.lieuRank.get(ly ?? "") ? 1 : 2;
+    pairs.push({ id: x, kind });
+  }
+  return pairs
+    .sort((a, b) => a.kind - b.kind)
+    .slice(0, TIE_CUTS)
+    .map((p) => p.id);
+}
+
 function compareResults(view: View, a: CaseAnswers, ctx: Ctx): void {
   const { ids } = ctx;
   for (const sort of SORTS) {
     const legacy = resultAuditions(view.groups, sort, view.own);
+    const order = legacy.map((x) => x.id);
     const pages = a.results.get(sort) ?? [];
     const rows = pages.flatMap((p) => p.auditions);
     const w = `results (${sort})`;
@@ -627,13 +680,10 @@ function compareResults(view: View, a: CaseAnswers, ctx: Ctx): void {
       true,
     );
     r.eq(`${w} no duplicates`, new Set(rows.map((x) => x.id)).size, rows.length);
-    const key = (id: string) =>
-      `${ctx.dateOf.get(id)}|${ctx.lieuRank.get(ctx.lieuOf.get(id) ?? "")}`;
     r.order(
       w,
-      legacy.map((x) => x.id),
+      order,
       rows.map((x) => x.id),
-      key,
     );
     const byId = new Map(rows.map((x) => [x.id, x]));
     for (const x of legacy) {
@@ -650,9 +700,9 @@ function compareResults(view: View, a: CaseAnswers, ctx: Ctx): void {
           date: x.date,
           n: x.count,
           key: x.canonical,
-          lieu: place ? sid(ids, place.id) : null,
-          unit: place?.parentId ? sid(ids, place.parentId) : null,
-          path: chain.slice(0, -1).map((c) => sid(ids, c)),
+          lieu: place ? shown(ids, place.id) : null,
+          unit: place?.parentId ? shown(ids, place.parentId) : null,
+          path: chain.slice(0, -1).map((c) => shown(ids, c)),
           point: place?.center,
           label: resultLieuLabel(x, view.byCanonical),
         },
@@ -681,28 +731,38 @@ function compareResults(view: View, a: CaseAnswers, ctx: Ctx): void {
     );
     const b = resultBounds(view.places);
     r.eq(`${w} frame`, b ? [b.minLat, b.minLng, b.maxLat, b.maxLng] : null, first?.frame ?? null);
+    // A page cut inside each kind of tie: the rows through the cut, then the next page.
+    for (const id of tieCuts(order, ctx)) {
+      const cut = a.cuts.get(`${sort}|${id}`);
+      const at = order.indexOf(id);
+      r.eq(`${w} cut after ${id} found`, true, cut?.[0].throughFound);
+      r.order(
+        `${w} cut after ${id}: through`,
+        order.slice(0, at + 1),
+        cut?.[0].auditions.map((x) => x.id) ?? [],
+      );
+      r.order(
+        `${w} cut after ${id}: next page`,
+        order.slice(at + 1, at + 1 + PAGE),
+        cut?.[1]?.auditions.map((x) => x.id) ?? [],
+      );
+    }
   }
   // through=: the rows up to the audition being read, then on from there.
   const legacy = resultAuditions(view.groups, "recent", view.own).map((x) => x.id);
-  const key = (id: string) => `${ctx.dateOf.get(id)}|${ctx.lieuRank.get(ctx.lieuOf.get(id) ?? "")}`;
   for (const [id, pages] of a.through) {
     const at = legacy.indexOf(id);
     const first = pages[0];
-    const w = ` ${id}`;
-    r.eq(`through${w} found`, at >= 0, first?.throughFound);
+    r.eq(`through ${id} found`, at >= 0, first?.throughFound);
     r.order(
-      "through: first answer",
+      `through ${id}: first answer`,
       at >= 0 ? legacy.slice(0, at + 1) : legacy.slice(0, PAGE),
       first?.auditions.map((x) => x.id) ?? [],
-      key,
-      w,
     );
     r.order(
-      "through: then on",
+      `through ${id}: then on`,
       legacy,
       pages.flatMap((p) => p.auditions.map((x) => x.id)),
-      key,
-      w,
     );
   }
 }
@@ -729,14 +789,8 @@ function compareTestimonies(view: View, a: CaseAnswers): void {
   }
 }
 
-/** The place picker's tree: the same nodes, labels, counts and order (ties: D3). */
-function compareLocationTree(
-  legacy: LocNode[],
-  server: LocNode[],
-  ctx: Ctx,
-  nodes: Map<string, S.TreeNode>,
-  at: string,
-): void {
+/** The place picker's tree: the same nodes, labels, counts and order. */
+function compareLocationTree(legacy: LocNode[], server: LocNode[], ctx: Ctx, at: string): void {
   const map = (t: string) => {
     const ids = ctx.ids.token.get(t);
     return ids && ids.size === 1 ? [...ids][0] : `?${t}`;
@@ -745,14 +799,13 @@ function compareLocationTree(
     `place picker ${at}`,
     legacy.map((n) => map(n.token)),
     server.map((n) => n.token),
-    (id) => `${nodes.get(id)?.n}|${nodes.get(id)?.rank}`,
   );
   const byToken = new Map(server.map((n) => [n.token, n]));
   for (const n of legacy) {
     const s = byToken.get(map(n.token));
     if (!s) continue;
     r.eq(`place picker ${n.token}`, [n.label, n.hint, n.count], [s.label, s.hint, s.count]);
-    compareLocationTree(n.children ?? [], s.children ?? [], ctx, nodes, n.token);
+    compareLocationTree(n.children ?? [], s.children ?? [], ctx, n.token);
   }
 }
 
@@ -768,8 +821,10 @@ function main(argv: string[]): number {
   const ex = exportLegacy(s);
   console.log(
     `Corpus ${ex.corpus.length} testimonies (anon), ${ex.groups.length} lieux on the map, ` +
-      `${ex.auditions.length} auditions; ${s.reused} stale rows placed by reuse` +
-      (s.leftStale.length ? `, ${s.leftStale.length} left stale (${s.leftStale.join(", ")})` : ""),
+      `${ex.auditions.length} auditions, ${s.stale.length} stale; setup edges: ` +
+      Object.entries(s.edges)
+        .map(([k, v]) => `${k} ${v.length}`)
+        .join(", "),
   );
 
   const status = new Map(ex.auditions.map((a) => [a.id, a.status]));
@@ -808,27 +863,33 @@ function main(argv: string[]): number {
 
   const calls: Call[] = [];
   const answers = new Map<string, CaseAnswers>();
+  const views = new Map<string, View>();
   for (const c of cases) {
     const A: CaseAnswers = {
       lazy: [],
       lieu: new Map(),
       results: new Map(),
       through: new Map(),
+      cuts: new Map(),
       pages: new Map(),
     };
     answers.set(c.name, A);
+    const view = legacyView(corpus, ex.groups, c.legacy);
+    views.set(c.name, view);
     const F = jsonb(c.server);
     calls.push({
       sql: `select public.place_counts('world', ${F}, 2, true, 600, false)`,
       take: (v) => (A.complete = v as S.PlaceCounts),
     });
     const lazyUnits = ["world", ...serverUnits];
-    for (let i = 0; i < lazyUnits.length; i += 20) {
-      const batch = lazyUnits.slice(i, i + 20);
-      calls.push({
-        sql: `select public.place_counts_many(array[${batch.map((u) => `'${u}'`).join(", ")}], ${F}, 2, true, 0, false)`,
-        take: (v) => A.lazy.push(...(v as S.PlaceCounts[])),
-      });
+    for (const depth of DEPTHS) {
+      for (let i = 0; i < lazyUnits.length; i += 20) {
+        const batch = lazyUnits.slice(i, i + 20);
+        calls.push({
+          sql: `select public.place_counts_many(array[${batch.map((u) => `'${u}'`).join(", ")}], ${F}, ${depth}, true, 0, false)`,
+          take: (v) => A.lazy.push({ depth, batch, answer: v as S.PlaceCounts[] }),
+        });
+      }
     }
     for (const lieu of serverLieux) {
       for (const sort of SORTS) {
@@ -843,8 +904,14 @@ function main(argv: string[]): number {
         sql: `select pg_temp.walk_results(${F}, '${sort}', ${PAGE})`,
         take: (v) => A.results.set(sort, v as S.ResultsPage[]),
       });
+      const order = resultAuditions(view.groups, sort, view.own).map((x) => x.id);
+      for (const id of tieCuts(order, ctx)) {
+        calls.push({
+          sql: `select pg_temp.through_and_next(${F}, '${sort}', ${PAGE}, '${id}')`,
+          take: (v) => A.cuts.set(`${sort}|${id}`, v as [S.ResultsPage, S.ResultsPage | null]),
+        });
+      }
     }
-    const view = legacyView(corpus, ex.groups, c.legacy);
     const listed = resultAuditions(view.groups, "recent", view.own).map((x) => x.id);
     const throughIds = [
       ...new Set(
@@ -877,7 +944,7 @@ function main(argv: string[]): number {
 
   // The admin list: every content filter, a super admin (null) and a plain one.
   const byAudition = testimoniesByAudition(ex.filterable);
-  const adminNeedles = ["", "a", "loyer", "%", ...titleOnlyNeedles(ex, byAudition)];
+  const adminNeedles = ["", "a", "loyer", "%", ...contextNeedles(ex, byAudition)];
   const adminCases: { name: string; f: { verified: boolean; topics: string[]; needle: string } }[] =
     [];
   for (const verified of [false, true]) {
@@ -907,6 +974,15 @@ function main(argv: string[]): number {
   }
 
   // Refusals: 22023, never a result.
+  const AFTER = `"2026-01-01","2026-01-01","l:0123456789abcdef","00000000-0000-4000-8000-000000000000"`;
+  const after = (json: string) => `select public.audition_results('{}', 'recent', '${json}')`;
+  // A well-formed key with element i replaced.
+  const afterWith = (i: number, v: string) =>
+    after(
+      `[${AFTER.split(",")
+        .map((x, j) => (j === i ? v : x))
+        .join(",")}]`,
+    );
   const refusals: [string, string][] = [
     ["unknown filter", `select public.place_counts('world', '{"q":"x"}')`],
     ["mask out of range", `select public.place_counts('world', '{"mask":65536}')`],
@@ -930,6 +1006,7 @@ function main(argv: string[]): number {
     ["filters not an object", `select public.place_counts('world', '[1]')`],
     ["malformed unit argument", `select public.place_counts('fr:dep:6/9')`],
     ["depth 4", `select public.place_counts('world', '{}', 4)`],
+    ["depth 0", `select public.place_counts('world', '{}', 0)`],
     ["budget 2001", `select public.place_counts('world', '{}', 2, false, 2001)`],
     [
       "empty with filters",
@@ -943,10 +1020,16 @@ function main(argv: string[]): number {
     ["lieu_auditions malformed lieu", `select public.lieu_auditions('Lyon')`],
     ["lieu_auditions sort", `select public.lieu_auditions('l:0123456789abcdef', '{}', 'random')`],
     ["results limit 101", `select public.audition_results('{}', 'recent', null, 101)`],
-    ["results malformed after", `select public.audition_results('{}', 'recent', '["2026-01-01"]')`],
+    ["results malformed after", after(`["2026-01-01"]`)],
+    ["results after, a null date", afterWith(0, "null")],
+    ["results after, a null rank", afterWith(1, "null")],
+    ["results after, a null lieu", afterWith(2, "null")],
+    ["results after, a null id", afterWith(3, "null")],
+    ["results after, a number", afterWith(1, "20260101")],
+    ["results after, an object", after(`{"date":"2026-01-01"}`)],
     [
       "results after and through",
-      `select public.audition_results('{}', 'recent', '["2026-01-01","2026-01-01","l:0123456789abcdef","00000000-0000-4000-8000-000000000000"]', 7, '00000000-0000-4000-8000-000000000000')`,
+      `select public.audition_results('{}', 'recent', '[${AFTER}]', 7, '00000000-0000-4000-8000-000000000000')`,
     ],
     ["results sort", `select public.audition_results('{}', 'oldest')`],
     [
@@ -956,6 +1039,10 @@ function main(argv: string[]): number {
     [
       "testimony_page malformed after",
       `select public.testimony_page('00000000-0000-4000-8000-000000000000', '{}', '["x","y"]')`,
+    ],
+    [
+      "testimony_page after, a null id",
+      `select public.testimony_page('00000000-0000-4000-8000-000000000000', '{}', '[null,null]')`,
     ],
     ["admin filter with a date", `select public.admin_audition_filter('{"from":"2026-01-01"}')`],
     ["admin filter with places", `select public.admin_audition_filter('{"units":["FR"]}')`],
@@ -980,7 +1067,7 @@ function main(argv: string[]): number {
   const publicTestimonies = new Set(corpus.map((t) => t.id));
   for (const c of cases) {
     r.current = c.name;
-    const view = legacyView(corpus, ex.groups, c.legacy);
+    const view = views.get(c.name)!;
     const A = answers.get(c.name)!;
     const complete = A.complete!;
     const tree = compareTree(view, complete, ctx);
@@ -993,7 +1080,14 @@ function main(argv: string[]): number {
         `N résultats: ${withDrafts} → ${view.filtered.length} (drafts' testimonies no longer counted)`,
       );
     }
-    for (const lazy of A.lazy) compareLazy(lazy, complete, tree);
+    for (const { depth, batch, answer } of A.lazy) {
+      r.eq(
+        `place_counts_many answers in the order asked (depth ${depth})`,
+        batch,
+        answer.map((x) => x.unit),
+      );
+      for (const lazy of answer) compareLazy(lazy, depth, complete, tree);
+    }
     compareLists(view, tree, A, ctx);
     compareResults(view, A, ctx);
     compareTestimonies(view, A);
@@ -1010,14 +1104,34 @@ function main(argv: string[]): number {
     }
   }
 
-  // The setup's edge auditions reach every cohort of the analyses.
-  r.current = "coverage";
-  const fr = answers.get("none")!.complete!.units.find((u) => u.level === "country");
-  const [terrain, cahier, archive] = fr?.facts?.cohorts ?? [0, 0, 0];
-  console.log(
-    `Cohorts under the country, no filter: ${terrain} terrain, ${cahier} cahier2019, ${archive} archive`,
-  );
-  r.eq("the 2019 cahiers and the archive are among the figures", true, cahier > 0 && archive > 0);
+  // D14: the old app's rows, where /api/map files them and where the server reads them.
+  r.current = "stale rows";
+  const rowOf = new Map(ex.auditions.map((a) => [a.id, a]));
+  const groupOf = (groups: LocationGroup[], id: string) =>
+    groups.find((g) => g.auditions.some((a) => a.id === id));
+  for (const st of s.stale) {
+    const row = rowOf.get(st.id);
+    const shownOnMap = row?.status === "published" && !row.audition_en_ligne;
+    const read = groupOf(ex.groups, st.id);
+    r.eq(
+      `stale ${st.id} read at its stored place`,
+      shownOnMap ? st.lieu_key : null,
+      read?.canonicalName ?? null,
+    );
+    const served = groupOf(ex.mapGroups, st.id);
+    // Not filed here (the harness has no geocoder): /api/map would place it.
+    if (shownOnMap && (!served || served.canonicalName !== read?.canonicalName)) {
+      r.add(
+        "D14",
+        `stale audition ${st.id} ("${st.location}"): /api/map files it ` +
+          (served ? `under "${served.canonicalName}"` : "nowhere (no geocoder here)") +
+          `, the server ${read ? `at its stored lieu "${read.canonicalName}"` : "leaves it unplaced"}` +
+          " until the placement job's next pass",
+      );
+    }
+  }
+
+  coverage(s, ex, answers.get("none")!, views.get("none")!, ctx);
 
   r.current = "facets";
   const legacyTopics = topicOptions(corpus);
@@ -1035,7 +1149,7 @@ function main(argv: string[]): number {
 
   r.current = "place picker (empty=1)";
   const emptyTree = S.treeOf(empty!);
-  compareLocationTree(locationTree(ex.groups), S.locationTreeOf(empty!), ctx, emptyTree, "root");
+  compareLocationTree(locationTree(ex.groups), S.locationTreeOf(empty!), ctx, "root");
   // The home card: /api/map's groups, zero-testimony auditions included.
   for (const g of ex.groups) {
     const l = emptyTree.get(g.lieuId!)?.lieu;
@@ -1087,32 +1201,140 @@ function main(argv: string[]): number {
   const fails = r.count("fail");
   console.log(
     `\n${r.checks} checks over ${cases.length} filter cases and ${adminCases.length} admin cases: ` +
-      `${r.count("D1")} D1, ${r.count("D3")} D3, ${fails} unexpected (${((Date.now() - started) / 1000).toFixed(1)} s)`,
+      `${r.count("D1")} D1, ${r.count("D14")} D14, ${fails} unexpected (${((Date.now() - started) / 1000).toFixed(1)} s)`,
   );
   const out = argv[argv.indexOf("--json") + 1];
   if (argv.includes("--json") && out) writeFileSync(out, JSON.stringify(r, null, 2));
   return fails ? 1 : 0;
 }
 
-/** Needles found in an audition's title, location or context, and in none of its testimonies. */
-function titleOnlyNeedles(
+/**
+ * The setup's edges are in place, each where it bites: without them a seed
+ * change would let a broken tie-break or visibility rule pass unnoticed.
+ */
+function coverage(s: Setup, ex: Exported, none: CaseAnswers, view: View, ctx: Ctx): void {
+  r.current = "coverage";
+  const edge = (kind: string) => s.edges[kind] ?? [];
+  const fr = none.complete!.units.find((u) => u.level === "country");
+  const [terrain, cahier, archive] = fr?.facts?.cohorts ?? [0, 0, 0];
+  console.log(
+    `Cohorts under the country, no filter: ${terrain} terrain, ${cahier} cahier2019, ${archive} archive`,
+  );
+  r.eq("the 2019 cahiers and the archive are among the figures", true, cahier > 0 && archive > 0);
+
+  // A page of testimonies ends inside a run of one created_at, and inside the undated ones.
+  const around = (id: string | undefined) =>
+    (view.own.get(id ?? "")?.testimonies ?? []).slice(PAGE - 1, PAGE + 1).map((t) => t.created_at);
+  const [tied] = edge("testimonies tied");
+  const [undated] = edge("testimonies undated");
+  const t = around(tied);
+  r.eq(
+    "a page of testimonies ends inside a tie",
+    true,
+    t.length === 2 && t[0] !== null && t[0] === t[1],
+  );
+  const u = around(undated);
+  r.eq(
+    "a page of testimonies ends inside the undated",
+    true,
+    u.length === 2 && u[0] === null && u[1] === null,
+  );
+
+  // Two auditions of one lieu on one day; two lieux of the same rank.
+  const [x, y] = edge("one lieu, one day");
+  r.eq(
+    "two auditions of one lieu on one day",
+    true,
+    Boolean(x && y) &&
+      ctx.lieuOf.get(x) === ctx.lieuOf.get(y) &&
+      ctx.dateOf.get(x) === ctx.dateOf.get(y),
+  );
+  const [z] = edge("same rank");
+  const zl = ctx.lieuOf.get(z ?? "");
+  r.eq(
+    "two lieux of the same rank",
+    true,
+    Boolean(zl) &&
+      [...ctx.lieuRank].some(([l, rank]) => l !== zl && rank === ctx.lieuRank.get(zl!)),
+  );
+
+  // Sibling units of one count and rank, and a unit's largest audition shared
+  // by two lieux: each tie order runs against the ids'.
+  const { units: allUnits, lieux: allLieux } = none.complete!;
+  const lieuOfTie = (id: string) => allLieux.find((l) => l.tie === id);
+  const [alone] = edge("sibling, alone").map(lieuOfTie);
+  const [first, second] = edge("sibling, two lieux").map(lieuOfTie);
+  const unitOf = (l: S.LieuRow | undefined) => allUnits.find((x) => x.id === l?.unit);
+  const [c1, c2] = [unitOf(alone), unitOf(first)];
+  const against = (a: { id: string; tie: string }, b: { id: string; tie: string }) =>
+    a.tie < b.tie !== a.id < b.id;
+  r.eq(
+    "sibling units of one count and rank, by tie against their ids",
+    true,
+    Boolean(c1 && c2 && c1 !== c2) &&
+      c1!.parent === c2!.parent &&
+      c1!.n === c2!.n &&
+      c1!.rank === c2!.rank &&
+      against(c1!, c2!),
+  );
+  r.eq(
+    "a unit's largest shared by two lieux, by tie against their lieu ids",
+    true,
+    Boolean(first && second) &&
+      first!.unit === second!.unit &&
+      first!.n === second!.n &&
+      first!.rank === second!.rank &&
+      against(first!, second!),
+  );
+
+  // A draft and an online audition nobody verified share lieux with the map, newer than it.
+  const newest = [...ctx.dateOf.values()].sort().at(-1) ?? "";
+  for (const kind of ["draft in a lieu", "unverified online in a lieu"]) {
+    const a = ex.auditions.find((x) => x.id === edge(kind)[0]);
+    r.eq(
+      `${kind}, newer than the map`,
+      true,
+      Boolean(a?.lieu_id && ctx.lieuRank.has(a.lieu_id)) && (a?.date ?? "") > newest,
+    );
+  }
+
+  // An old-app edit, still at its stored lieu.
+  const [edited] = edge("stale edit");
+  r.eq(
+    "an old-app location edit, stale and placed",
+    true,
+    s.stale.some((st) => st.id === edited && st.lieu_key !== null) && ctx.lieuOf.has(edited ?? ""),
+  );
+}
+
+/**
+ * Needles each found in one field of an audition (its title, its location,
+ * its context) and in neither of the others, nor in its testimonies: the
+ * admin list's text test reads all three.
+ */
+function contextNeedles(
   ex: Exported,
   byAudition: ReturnType<typeof testimoniesByAudition>,
 ): string[] {
   const out: string[] = [];
-  for (const a of ex.auditions) {
-    const hays = (byAudition.get(a.id) ?? []).map((e) => e.hay);
-    if (!hays.length) continue;
-    for (const field of [a.location, a.content]) {
-      const word = (fold(field).match(/[a-z]{6,}/g) ?? []).find(
-        (w) => !hays.some((h) => h.includes(w)) && !out.includes(w),
+  const FIELDS = ["title", "location", "content"] as const;
+  for (const field of FIELDS) {
+    for (const a of ex.auditions) {
+      const hays = (byAudition.get(a.id) ?? []).map((e) => e.hay);
+      if (!hays.length) continue;
+      const rest = fold(
+        FIELDS.filter((f) => f !== field)
+          .map((f) => a[f])
+          .join(" "),
+      );
+      const word = (fold(a[field]).match(/[a-z]{6,}/g) ?? []).find(
+        (w) => !rest.includes(w) && !hays.some((h) => h.includes(w)) && !out.includes(w),
       );
       if (word) {
         out.push(word);
         break;
       }
     }
-    if (out.length >= 2) break;
   }
   return out;
 }

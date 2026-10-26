@@ -170,9 +170,10 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       # The read RPCs against a frozen copy of the client pipeline they
-      # replace (scripts/parity/legacy), over the seed: every filter of the
-      # matrix, every unit, lieu, result and testimony page. Only the
-      # design's D1 and D3 may differ; the report lists them.
+      # replace (scripts/parity/legacy), over the seed and the edge cases its
+      # setup adds: every filter of the matrix, every unit, lieu, result and
+      # testimony page, every order. Only the design's D1 and D14 may differ;
+      # the report lists them.
       - name: Read RPCs match the client pipeline
         run: npm run db:parity
         env:

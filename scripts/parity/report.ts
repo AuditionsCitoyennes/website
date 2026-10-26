@@ -2,15 +2,18 @@
 // design's list of deliberate changes (docs/map-phase-1-design-2026-10-26.md
 // A21), and listed; anything else fails:
 //
-//   D1  drafts' testimonies (and audition-less ones) leave N résultats and
-//       the theme facet: the old corpus counted them;
-//   D3  ties the old order left to the database (two lieux with the same
-//       count and the same newest date, two auditions of the same date and
-//       rank) are broken by lieu id, then audition id.
+//   D1   drafts' testimonies (and audition-less ones) leave N résultats and
+//        the theme facet: the old corpus counted them;
+//   D14  a row the old app inserted or moved (place_stale) is read at its
+//        stored place until the placement job's next pass, where /api/map
+//        files it by its name at once.
+//
+// Orders have no allowance: the RPCs reproduce today's ties (A18), so any
+// reorder fails.
 
 import { isDeepStrictEqual } from "node:util";
 
-export type Kind = "D1" | "D3" | "fail";
+export type Kind = "D1" | "D14" | "fail";
 
 interface Entry {
   kind: Kind;
@@ -44,35 +47,20 @@ export class Report {
     return false;
   }
 
-  /**
-   * One order: equal; or the same items, in an order that differs only among
-   * items whose sort keys (`key`) are equal (D3); else a failure.
-   */
-  order(
-    what: string,
-    legacy: string[],
-    server: string[],
-    key: (id: string) => string,
-    detail = "",
-  ): void {
+  /** One order: the same ids in the same order, else a failure naming what moved. */
+  order(what: string, legacy: string[], server: string[]): boolean {
     this.checks++;
-    if (isDeepStrictEqual(legacy, server)) return;
-    const sameSet =
-      legacy.length === server.length &&
-      new Set(legacy).size === legacy.length &&
-      isDeepStrictEqual([...legacy].sort(), [...server].sort());
-    if (sameSet && legacy.every((id, i) => key(id) === key(server[i]))) {
-      const swapped = legacy.filter((id, i) => id !== server[i]).sort();
-      this.add("D3", `${what}: ties reordered (${swapped.join(" ↔ ")})`);
-      return;
-    }
+    if (isDeepStrictEqual(legacy, server)) return true;
     const missing = legacy.filter((id) => !server.includes(id));
     const extra = server.filter((id) => !legacy.includes(id));
+    const first = legacy.findIndex((id, i) => id !== server[i]);
+    const at = first < 0 ? legacy.length : first;
     this.fail(
-      `${what}${detail}: order differs — legacy [${legacy.join(", ")}] server [${server.join(", ")}]` +
+      `${what}: order differs from #${at} — legacy [${legacy.join(", ")}] server [${server.join(", ")}]` +
         (missing.length ? `; missing ${missing.join(", ")}` : "") +
         (extra.length ? `; extra ${extra.join(", ")}` : ""),
     );
+    return false;
   }
 
   count(kind: Kind): number {
@@ -81,7 +69,7 @@ export class Report {
 
   /** Every difference, by kind, each with the cases it showed in. */
   print(log: (line: string) => void = console.log): void {
-    for (const kind of ["D1", "D3", "fail"] as const) {
+    for (const kind of ["D1", "D14", "fail"] as const) {
       const list = [...this.entries.values()].filter((e) => e.kind === kind);
       if (!list.length) continue;
       log(
