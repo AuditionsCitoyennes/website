@@ -208,18 +208,21 @@ begin
   return s;
 end $$;
 
--- auditionCohort() of packages/shared/src/auditions.ts: the archive (a
--- generic location, GENERIC_LOCATION of locations.ts), the 2019 cahiers (by
--- title), else met in the street. Case-insensitive as the browser's /i is,
--- whatever the database's ctype.
-create function ac.cohort(p_title text, p_location text) returns text
+-- auditionCohort() of packages/shared/src/auditions.ts, as an expression over
+-- a title and a location (column expressions of the caller, never visitor
+-- text): the archive (a generic location, GENERIC_LOCATION of locations.ts),
+-- the 2019 cahiers (by title), else met in the street. Case-insensitive as the
+-- browser's /i is, whatever the database's ctype. Spliced into the statement
+-- rather than called: a function (with its search_path) per member row cost
+-- more than the rest of the facts together (16 µs a row, measured).
+create function ac.cohort_sql(p_title text, p_location text) returns text
 language sql immutable parallel safe set search_path = ''
-return case
-  when pg_catalog.lower(ac.js_trim(p_location) collate pg_catalog."und-x-icu")
+return pg_catalog.format($f$(case
+  when pg_catalog.lower(ac.js_trim(%2$s) collate pg_catalog."und-x-icu")
        in ('france', 'métropole', 'metropole', 'en ligne', 'internet', 'divers', 'inconnu') then 'archive'
-  when pg_catalog.lower(ac.js_trim(p_title) collate pg_catalog."und-x-icu") ~ '^cahiers? de doléances' then 'cahier2019'
+  when pg_catalog.lower(ac.js_trim(%1$s) collate pg_catalog."und-x-icu") ~ '^cahiers? de doléances' then 'cahier2019'
   else 'terrain'
-end;
+end)$f$, p_title, p_location);
 
 -- p_template once per theme, comma-separated: %1$s is the theme's number
 -- (1..16, AUDITION_THEMES order), %2$s its bit in theme_mask.
@@ -358,7 +361,7 @@ begin
     s as (
       select vis.*, lmd.rank, lmd.plat, lmd.plng, lmd.pcity, lmd.pprec,
              coalesce(m.n, 0) as n, m.base, m.untagged, m.approx, m.th,
-             case when $10 then ac.cohort(vis.title, vis.location) end as cohort
+             case when $10 then %4$s end as cohort
         from vis
         join lmd using (lieu_id)
         left join m on m.audition_id = vis.id
@@ -394,20 +397,25 @@ begin
                    'n', r.n, 'auditions', r.auditions, 'rank', r.rank,
                    'bbox', pg_catalog.jsonb_build_array(r.min_lat, r.min_lng, r.max_lat, r.max_lng),
                    'wrap', (r.max_lng - r.min_lng) > 180)
-                 || case when r.facts is not null
-                         then pg_catalog.jsonb_build_object('facts', r.facts) else '{}'::jsonb end
+                 || case when f.facts is not null
+                         then pg_catalog.jsonb_build_object('facts', f.facts) else '{}'::jsonb end
                  order by r.n desc, r.rank desc, r.id collate "C")
           from (
             select u.unit as id, min(u.d) as d, sum(u.n)::integer as n,
                    count(*) filter (where u.n > 0)::integer as auditions, max(u.rank) as rank,
                    min(u.plat) as min_lat, min(u.plng) as min_lng,
-                   max(u.plat) as max_lat, max(u.plng) as max_lng,
-                   case when $10 and ((select depth from lim) = 99 or min(u.d) = 1)
-                        then %2$s end as facts
+                   max(u.plat) as max_lat, max(u.plng) as max_lng
               from u
              where u.d <= (select depth from lim)
              group by u.unit) r
-          join public.geo_units g on g.id = r.id), '[]'::jsonb),
+          join public.geo_units g on g.id = r.id
+          -- The figures only where they are sent: every unit of a complete
+          -- answer, else the children.
+          left join (
+            select u.unit, %2$s as facts
+              from u
+             where $10 and (u.d = 1 or (select depth from lim) = 99)
+             group by u.unit) f on f.unit = r.id), '[]'::jsonb),
       'lieux', coalesce((
         select pg_catalog.jsonb_agg(
                  pg_catalog.jsonb_build_object(
@@ -429,7 +437,7 @@ begin
            select pg_catalog.jsonb_build_object('n', coalesce(sum(m.n), 0), 'auditions', count(*))
              from m join public.auditions a on a.id = m.audition_id
             where a.place_path is null)) else '{}'::jsonb end
-    $q$, v_where, v_fact_sql, v_tally_sql)
+    $q$, v_where, v_fact_sql, v_tally_sql, ac.cohort_sql('vis.title', 'vis.location'))
   into v_out
   using f.mask, f."like", f.from_date, f.to_date, f.units, f.lieux,
         p_unit, p_depth, p_budget, v_facts, v_empty;
