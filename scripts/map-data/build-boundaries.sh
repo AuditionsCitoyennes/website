@@ -250,6 +250,8 @@ fi
 
 # ---- 5. tile: tippecanoe per (level, band), then one archive ------------------
 if has_step tile && ! skip_done tile; then
+  # The chunks step wipes tiles/ (stale tilesets), after the mkdir at the top.
+  mkdir -p "$OUT/tiles"
   for level in "${LEVELS[@]}"; do
     for band in $(bands_of "$level"); do
       zr="${band%%:*}"; zmin="${zr%-*}"; zmax="${zr#*-}"
