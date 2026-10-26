@@ -91,17 +91,29 @@ console.log(`$ ${psql} < ${seed}`);
 sql(readFileSync(seed, "utf8"));
 supabase("migration", "up");
 
-const [r] = sql<{ total: number; underived: number }>(`
+const [r] = sql<{ total: number; underived: number; auditions: number; placed: number }>(`
 select pg_catalog.jsonb_build_object(
   'total', count(*),
-  'underived', count(*) filter (where derive_version is distinct from 1))
+  'underived', count(*) filter (where derive_version is distinct from 1),
+  'auditions', (select count(*) from public.auditions),
+  'placed', (select count(*) from public.auditions
+              where not place_stale or placed_location is not null or place_path is not null))
   from public.testimonies;`);
 const errors: string[] = [];
 if (r.total === 0) errors.push("the seed left no testimony");
 if (r.underived > 0)
   errors.push(`${r.underived} of ${r.total} testimonies lack derive_version = 1`);
+// Rows written before the place columns are never placed: stale, for the
+// API to place. (The reviewed backfill, design B4, will place the rows it lists.)
+if (r.auditions === 0) errors.push("the seed left no audition");
+if (r.placed > 0) {
+  errors.push(`${r.placed} of ${r.auditions} seeded auditions came out placed or not stale`);
+}
 if (errors.length) {
   for (const e of errors) console.error(`✗ ${e}`);
   process.exit(1);
 }
-console.log(`ok: ${r.total} seeded testimonies, every one derived by the migrations`);
+console.log(
+  `ok: ${r.total} seeded testimonies, every one derived by the migrations; ` +
+    `${r.auditions} seeded auditions, every one stale`,
+);
