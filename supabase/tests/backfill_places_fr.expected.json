@@ -1,0 +1,10 @@
+{
+  "about": "Written by scripts/place-backfill/generate.ts with the migration it names: where that reviewed backfill places each audition never placed. Read by scripts/db-checks (backfill, migrate-seeded).",
+  "migration": null,
+  "test": null,
+  "generated": null,
+  "source": null,
+  "rules": null,
+  "offline": {},
+  "online": {}
+}

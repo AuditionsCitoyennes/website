@@ -5,7 +5,10 @@
 // in the shape of its rows then (SEED_SHAPE=legacy: no place column, no
 // geo_units; profile SEED_PROFILE, all by default), then applies the newer
 // migrations over the rows, as staging and production will see them, and
-// checks the result.
+// checks the result: every testimony derived; the auditions the reviewed
+// backfill lists (supabase/tests/backfill_places_fr.expected.json, under the
+// workdir) placed exactly as it lists them, every other one stale; and the
+// backfill run again changes nothing.
 //
 //   npm run db:check:seeded -- --yes --workdir <dir>   (<dir>/supabase/config.toml)
 //   … --seed <file>                                    another seed of that shape
@@ -22,10 +25,11 @@
 // `migration up`; both act on the local stack (--local is their default).
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { seedSql, type Profile } from "../seed/generate";
+import { readExpected } from "./backfill";
 import { sqlJson } from "./psql";
 
 /** The last migration before phase 1: the shape the seed was written for. */
@@ -78,6 +82,16 @@ const profile = (process.env.SEED_PROFILE ?? "all") as Profile;
 if (!seedFile && !["france", "world", "all"].includes(profile)) {
   fail(`SEED_PROFILE must be france, world or all (got "${profile}")`);
 }
+let expected: ReturnType<typeof readExpected>;
+try {
+  expected = readExpected(workdir);
+} catch (e) {
+  fail((e as Error).message);
+}
+const backfill = expected.migration && resolve(workdir, "supabase/migrations", expected.migration);
+if (backfill && !existsSync(backfill)) {
+  fail(`${backfill}: listed by the expected list, missing from the migrations`);
+}
 
 function supabase(...args: string[]) {
   const argv = [...args, "--workdir", workdir];
@@ -103,29 +117,89 @@ if (!seedFile) console.log(seed.summary);
 sql(seed.sql);
 supabase("migration", "up");
 
-const [r] = sql<{ total: number; underived: number; auditions: number; placed: number }>(`
+const [r] = sql<{ total: number; underived: number }>(`
 select pg_catalog.jsonb_build_object(
   'total', count(*),
-  'underived', count(*) filter (where derive_version is distinct from 1),
-  'auditions', (select count(*) from public.auditions),
-  'placed', (select count(*) from public.auditions
-              where not place_stale or placed_location is not null or place_path is not null))
+  'underived', count(*) filter (where derive_version is distinct from 1))
   from public.testimonies;`);
 const errors: string[] = [];
 if (r.total === 0) errors.push("the seed left no testimony");
 if (r.underived > 0)
   errors.push(`${r.underived} of ${r.total} testimonies lack derive_version = 1`);
-// Rows written before the place columns are never placed: stale, for the
-// API to place. (The reviewed backfill, design B4, will place the rows it lists.)
-if (r.auditions === 0) errors.push("the seed left no audition");
-if (r.placed > 0) {
-  errors.push(`${r.placed} of ${r.auditions} seeded auditions came out placed or not stale`);
+
+// Rows written before the place columns are never placed (stale, for the
+// API to place), but those the reviewed backfill lists: placed as it lists them.
+interface PlaceRow {
+  id: string;
+  location: string;
+  online: boolean;
+  citycode: string | null;
+  path: string[] | null;
+  precision: string | null;
+  placed: string | null;
+  stale: boolean;
+  rules: string | null;
+  key: string | null;
 }
+const [rows] = sql<PlaceRow[]>(`
+select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+  'id', id, 'location', location, 'online', audition_en_ligne, 'citycode', citycode,
+  'path', place_path, 'precision', place_precision, 'placed', placed_location,
+  'stale', place_stale, 'rules', placed_rules, 'key', lieu_key) order by id), '[]'::jsonb)
+  from public.auditions;`);
+if (rows.length === 0) errors.push("the seed left no audition");
+const sameList = (a: string[] | null, b: string[] | null) =>
+  JSON.stringify(a) === JSON.stringify(b);
+let listed = 0;
+for (const row of rows) {
+  const list = row.online ? expected.online : expected.offline;
+  const at = row.online ? row.citycode : row.location;
+  if (at === null || !Object.hasOwn(list, at)) {
+    if (!row.stale || row.placed !== null || row.path !== null) {
+      errors.push(`${row.id} (${row.location}): not listed by the backfill, yet placed`);
+    }
+    continue;
+  }
+  listed++;
+  const path = list[at].length ? list[at] : null;
+  const ok =
+    !row.stale &&
+    row.placed === row.location &&
+    sameList(row.path, path) &&
+    (path === null) === (row.precision === "unplaced") &&
+    row.rules === (row.online ? null : expected.rules) &&
+    (!row.online || row.key === row.location);
+  if (!ok) errors.push(`${row.id} (${row.location}): not placed as the backfill lists it`);
+}
+
+// The backfill once more: nothing changes.
+if (backfill) {
+  const snapshot = `
+select pg_catalog.jsonb_build_object(
+  'auditions', (select pg_catalog.md5(coalesce(pg_catalog.string_agg(
+       row(a.id, a.place_unit, a.place_path, a.locality_id, a.lieu_key, a.lat, a.lng,
+         a.place_precision, a.place_candidates, a.placed_location, a.placed_rules, a.geo_release)::text,
+       ',' order by a.id), '')) from public.auditions a),
+  'units', (select pg_catalog.md5(coalesce(pg_catalog.string_agg(g::text, ',' order by g.id), ''))
+              from public.geo_units g));`;
+  const [before] = sql<object>(snapshot);
+  console.log(`$ ${psql} < ${backfill}`);
+  sql(readFileSync(backfill, "utf8"));
+  const [again] = sql<object>(snapshot);
+  if (JSON.stringify(before) !== JSON.stringify(again)) {
+    errors.push(`${expected.migration} run again changed auditions or geo_units`);
+  }
+}
+
 if (errors.length) {
-  for (const e of errors) console.error(`✗ ${e}`);
+  for (const e of errors.slice(0, 50)) console.error(`✗ ${e}`);
+  if (errors.length > 50) console.error(`… and ${errors.length - 50} more`);
   process.exit(1);
 }
 console.log(
   `ok: ${r.total} seeded testimonies, every one derived by the migrations; ` +
-    `${r.auditions} seeded auditions, every one stale`,
+    `${rows.length} seeded auditions, ` +
+    (backfill
+      ? `${listed} placed as ${expected.migration} lists them, the others stale; run again, it changed nothing`
+      : "every one stale (no backfill listed yet)"),
 );
