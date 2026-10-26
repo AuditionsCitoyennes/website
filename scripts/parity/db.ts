@@ -7,6 +7,8 @@
 //     places them, by reuse (placeLieu: a placed, up-to-date French offline
 //     row of the same lieu key): the RPCs count a stale row unplaced, while
 //     /api/map files it under its name, until the job's first pass;
+//   - three placed auditions take the analyses' other cohorts: two 2019
+//     cahiers (by their title), an archive (a generic location);
 //   - a plain admin (a fake auth user) owns the Lyon area's auditions, for
 //     the admin list's theme options.
 
@@ -58,6 +60,19 @@ update public.auditions a
     : "";
   const sql = `
 ${reuse}
+-- The cohorts of the analyses (auditionCohort): two 2019 cahiers by their
+-- title (case and spaces as typed), and an archive by its generic location,
+-- left where it is placed.
+with p as (
+  select id, row_number() over (order by id) as i from public.auditions
+   where place_path is not null and not audition_en_ligne and status = 'published')
+update public.auditions a
+   set title = case p.i when 1 then 'Cahier de doléances - ' || a.location
+                        when 2 then '  CAHIERS DE DOLÉANCES de ' || a.location else a.title end,
+       location = case p.i when 3 then 'France' else a.location end,
+       placed_location = case p.i when 3 then 'France' else a.placed_location end
+  from p
+ where a.id = p.id and p.i <= 3;
 insert into auth.users (id) values (${lit(PLAIN_ADMIN)});
 update public.auditions set created_by = ${lit(PLAIN_ADMIN)}
  where location like '%Lyon%' or location like '%Villeurbanne%';

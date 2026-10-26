@@ -1013,6 +1013,15 @@ function main(argv: string[]): number {
     }
   }
 
+  // The matrix reaches what it means to: the three cohorts, D3 ties aside.
+  r.current = "coverage";
+  const fr = answers.get("none")!.complete!.units.find((u) => u.level === "country");
+  const [terrain, cahier, archive] = fr?.facts?.cohorts ?? [0, 0, 0];
+  console.log(
+    `Cohorts under the country, no filter: ${terrain} terrain, ${cahier} cahier2019, ${archive} archive`,
+  );
+  r.eq("the 2019 cahiers and the archive are among the figures", true, cahier > 0 && archive > 0);
+
   r.current = "facets";
   const legacyTopics = topicOptions(corpus);
   r.eq("theme options", legacyTopics, S.topicOptionsOf(facets!.themes));
