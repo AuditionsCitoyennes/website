@@ -54,24 +54,44 @@ export function requestedSource(query: { source?: unknown }): MapSource {
   return config.TEST_TOOLS && query.source === "geocoder" ? "geocoder" : mapSource;
 }
 
+interface MapLogger {
+  warn(obj: object, msg: string): void;
+}
+const consoleLog: MapLogger = { warn: (obj, msg) => console.warn(msg, obj) };
+
 /** /api/map's groups, from `source` (MAP_SOURCE by default). */
-export function buildLocationGroups(source: MapSource = mapSource): Promise<LocationGroup[]> {
-  return source === "db" ? buildFromStoredPlaces() : buildFromGeocoder();
+export function buildLocationGroups(
+  source: MapSource = mapSource,
+  log?: MapLogger,
+): Promise<LocationGroup[]> {
+  return source === "db" ? buildFromStoredPlaces(log) : buildFromGeocoder();
 }
 
 /**
  * The groups from the places stored on the rows (map phase 1): no geocoder
  * call, no geocode cache — but for the rows not placed yet (the old app's,
  * moved since), filed as the geocoder files them, from its cache, until the
- * placement job places them (nudged here).
+ * placement job places them (nudged here). When the stored places cannot be
+ * read (geo_units missing — a database the place migration has not reached
+ * yet — or the service role refused), the geocoder's build, logged.
  */
-async function buildFromStoredPlaces(): Promise<LocationGroup[]> {
+async function buildFromStoredPlaces(log?: MapLogger): Promise<LocationGroup[]> {
   const auditions = await cached(
     PUBLIC_CACHE_KEYS.auditions,
     PUBLIC_CACHE_TTL_MS.auditions,
     fetchPublishedAuditions,
   );
-  const units = await readGeoUnits();
+  let units;
+  try {
+    units = await readGeoUnits(auditions.map((a) => a.place_path));
+  } catch (err) {
+    (log ?? consoleLog).warn(
+      { err },
+      "map: stored places not readable, the geocoder builds the map meanwhile",
+    );
+    void warmLocationGeocodes();
+    return buildFromGeocoder();
+  }
   const offline = auditions.filter((a) => !onlinePlaceOf(a));
   let fallback = new Map<string, GeoEntry | null>();
   if (offline.some((a) => storedPlacementOf(a, units).kind === "stale")) {

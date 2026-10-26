@@ -5,7 +5,9 @@ import { createHash, randomUUID } from "node:crypto";
 // (eq, neq, gt, gte, lt, lte, is, like, in; `not.`; `or`/`and` trees), sorts,
 // pages, counts, updates, inserts and upserts, and the auditions table
 // derives its generated columns and enforces its place CHECKs and foreign key
-// as the migration does (20261026100100_audition_places.sql).
+// as the migration does (20261026100100_audition_places.sql). geo_units and
+// placement_support() answer the service role only, as granted there. GoTrue
+// answers /auth/v1/user for the tokens of `users`.
 
 export type Row = Record<string, unknown>;
 
@@ -144,6 +146,27 @@ const PRECISIONS = new Set([
 
 const isNull = (v: unknown) => v === null || v === undefined;
 
+/** What the migration grants to the service role alone. */
+const SERVICE_ONLY = new Set(["geo_units", "rpc/placement_support"]);
+
+/** A request's PostgREST error, as `refuse` makes one up. */
+export interface FakeError {
+  status: number;
+  code: string;
+  message: string;
+  details?: string;
+}
+
+/** An unsigned HS256 token for this user id (GoTrue, faked, vouches for it: `users`). */
+export function fakeToken(sub: string): string {
+  const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${b64({ alg: "HS256", typ: "JWT" })}.${b64({
+    sub,
+    role: "authenticated",
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  })}.${b64({ unsigned: true })}`;
+}
+
 /** An in-memory PostgREST over a few tables. */
 export class FakeDb {
   tables: Record<string, Row[]> = { auditions: [], geo_units: [] };
@@ -151,6 +174,12 @@ export class FakeDb {
   requests: { method: string; url: URL; body: unknown }[] = [];
   /** Runs before each request is answered (a concurrent write, say). */
   beforeAnswer: (method: string, url: URL) => void = () => {};
+  /** A made-up error for a request (null: answered as usual). */
+  refuse: (method: string, url: URL, body: unknown) => FakeError | null = () => null;
+  /** The key the service role is reached with (fakeEnv's SUPABASE_SERVICE_ROLE_KEY). */
+  serviceKey = "service";
+  /** The signed-in users GoTrue knows, by id. */
+  users: Record<string, Row> = {};
 
   constructor() {
     this.rpcs.placement_support = () => this.placementSupport();
@@ -250,6 +279,21 @@ export class FakeDb {
   answer(method: string, url: URL, headers: Headers, body: unknown): Response {
     this.requests.push({ method, url, body });
     this.beforeAnswer(method, url);
+    if (url.pathname === "/auth/v1/user") return this.user(headers);
+    const made = this.refuse(method, url, body);
+    if (made) {
+      return Response.json(
+        { code: made.code, message: made.message, details: made.details ?? null, hint: null },
+        { status: made.status },
+      );
+    }
+    const name = url.pathname.replace(/^\/rest\/v1\//, "");
+    if (SERVICE_ONLY.has(name) && headers.get("apikey") !== this.serviceKey) {
+      return Response.json(
+        { code: "42501", message: `permission denied for ${name}`, details: null, hint: null },
+        { status: 401 },
+      );
+    }
     try {
       return this.route(method, url, headers, body);
     } catch (e) {
@@ -261,6 +305,20 @@ export class FakeDb {
       }
       throw e;
     }
+  }
+
+  /** GoTrue's /auth/v1/user: the user the bearer token names, if known. */
+  private user(headers: Headers): Response {
+    const token = (headers.get("authorization") ?? "").replace(/^Bearer /, "");
+    let sub: unknown;
+    try {
+      sub = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString()).sub;
+    } catch {
+      sub = undefined;
+    }
+    const user = typeof sub === "string" ? this.users[sub] : undefined;
+    if (!user) return Response.json({ code: 401, msg: "invalid JWT" }, { status: 401 });
+    return Response.json({ aud: "authenticated", ...user, id: sub });
   }
 
   private route(method: string, url: URL, headers: Headers, body: unknown): Response {

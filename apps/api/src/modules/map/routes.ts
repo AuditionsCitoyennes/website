@@ -22,7 +22,7 @@ export default async function mapRoutes(app: FastifyInstance) {
     const source = requestedSource(req.query);
     const key = source === mapSource ? PUBLIC_CACHE_KEYS.map : PUBLIC_CACHE_KEYS.mapGeocoder;
     const res = await cachedResponse(key, PUBLIC_CACHE_TTL_MS.map, () =>
-      buildLocationGroups(source),
+      buildLocationGroups(source, req.log),
     );
     if (source === "geocoder") void warmLocationGeocodes();
     return sendCached(req, reply, res, "no-cache");

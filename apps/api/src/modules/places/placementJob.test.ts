@@ -30,7 +30,7 @@ after(async () => {
 
 const { LOCATION_RULES } = await import("@ac/shared");
 const { locate } = await import("../geo/match");
-const { runPlacementPass } = await import("./placementJob");
+const { runPlacementPass, forgetFailures } = await import("./placementJob");
 const { rulesHash } = await import("./placeLieu");
 const { forgetGeoUnits } = await import("./geoUnits");
 
@@ -38,6 +38,9 @@ const RHONE = { code: "69", nom: "Rhône" };
 const ARA = { code: "84", nom: "Auvergne-Rhône-Alpes" };
 const HA = { code: "05", nom: "Hautes-Alpes" };
 const PACA = { code: "93", nom: "Provence-Alpes-Côte d'Azur" };
+const DROME = { code: "26", nom: "Drôme" };
+const TARN_ET_GARONNE = { code: "82", nom: "Tarn-et-Garonne" };
+const OCCITANIE = { code: "76", nom: "Occitanie" };
 const fakeCommune = (
   code: string,
   nom: string,
@@ -58,6 +61,13 @@ geo.communes = {
     type: "arrondissement-municipal",
     codeParent: "69123",
   }),
+  // No town hall point in geo.api: its centre.
+  "69091": fakeCommune("69091", "Givors", RHONE, ARA, [45.59, 4.769]),
+  "26362": fakeCommune("26362", "Valence", DROME, ARA, [44.93, 4.89]),
+  "82186": fakeCommune("82186", "Valence", TARN_ET_GARONNE, OCCITANIE, [44.11, 0.9]),
+  "82121": fakeCommune("82121", "Montauban", TARN_ET_GARONNE, OCCITANIE, [44.02, 1.35]),
+  "82033": fakeCommune("82033", "Castelsarrasin", TARN_ET_GARONNE, OCCITANIE, [44.04, 1.1]),
+  "82112": fakeCommune("82112", "Moissac", TARN_ET_GARONNE, OCCITANIE, [44.1, 1.08]),
 };
 
 const muni = (
@@ -79,7 +89,15 @@ const muni = (
 });
 const CTX_RHONE = "69, Rhône, Auvergne-Rhône-Alpes";
 const CTX_HA = "05, Hautes-Alpes, Provence-Alpes-Côte d'Azur";
+const CTX_TG = "82, Tarn-et-Garonne, Occitanie";
 const MUNICIPALITIES: Record<string, BanFeature[]> = {
+  Valence: [
+    muni("Valence", "26362", "26, Drôme, Auvergne-Rhône-Alpes", 64000, [44.93, 4.89]),
+    muni("Valence", "82186", CTX_TG, 5000, [44.11, 0.9]),
+  ],
+  Montauban: [muni("Montauban", "82121", CTX_TG, 61000, [44.02, 1.35])],
+  Castelsarrasin: [muni("Castelsarrasin", "82033", CTX_TG, 14000, [44.04, 1.1])],
+  Moissac: [muni("Moissac", "82112", CTX_TG, 13000, [44.1, 1.08])],
   Embrun: [muni("Embrun", "05046", CTX_HA, 6000, [44.5638, 6.4958])],
   Serres: [
     muni("Serres", "05166", CTX_HA, 1298, [44.4224, 5.7142]),
@@ -94,12 +112,21 @@ const MUNICIPALITIES: Record<string, BanFeature[]> = {
 };
 const ban: BanSearch = async (q, opts) => (opts?.municipality ? (MUNICIPALITIES[q] ?? []) : []);
 
+// The geocoder: match.ts over the BAN answers above, its answers kept as
+// geocode.ts keeps them (what `cachedOnly` may read). `located`: the lookups.
 let located: string[] = [];
 let geocoderDown = false;
+/** Lieux whose lookups fail, whatever the rest does. */
+let failingNames = new Set<string>();
+const known = new Map<string, Located>();
 const deps: Partial<PlaceDeps> = {
-  locate: async (key): Promise<Located | "retry"> => {
+  locate: async (key, opts): Promise<Located | "retry"> => {
+    if (opts?.cachedOnly) return known.has(key) ? known.get(key)! : "retry";
     located.push(key);
-    return geocoderDown ? "retry" : locate(key, ban);
+    if (geocoderDown || failingNames.has(key)) return "retry";
+    const v = await locate(key, ban);
+    known.set(key, v);
+    return v;
   },
 };
 
@@ -130,8 +157,11 @@ beforeEach(() => {
   db.requests = [];
   db.beforeAnswer = () => {};
   forgetGeoUnits();
+  forgetFailures();
   located = [];
   geocoderDown = false;
+  failingNames = new Set();
+  known.clear();
 });
 
 test("stale rows are placed, oldest first, 25 a page; a lieu's name is looked up once", async () => {
@@ -191,7 +221,7 @@ test("a row edited meanwhile is never overwritten: the next pass places its new 
   assert.equal(row(a.id).placed_location, "Bron");
 });
 
-test("the geocoder down: three lookups in a row fail, the pass stops and reports it", async () => {
+test("the geocoder down: three fresh failures in a row, and the rest of the pass asks nobody", async () => {
   db.insert(
     "auditions",
     ["Embrun", "Bron", "Villeurbanne", "serres"].map((l) => legacy(l)),
@@ -199,10 +229,208 @@ test("the geocoder down: three lookups in a row fail, the pass stops and reports
   geocoderDown = true;
   const report = await runPlacementPass({ deps });
   assert.equal(report.upstreamDown, true);
-  assert.equal(report.retried, 3);
+  assert.equal(report.retried, 4);
   assert.equal(report.placed, 0);
-  assert.deepEqual(located, ["Embrun", "Parvis Médiathèque, Bron", "Villeurbanne"]);
+  assert.deepEqual(
+    located,
+    ["Embrun", "Parvis Médiathèque, Bron", "Villeurbanne"],
+    "serres: from the caches only, not asked",
+  );
   assert.ok(rows().every((r) => r.place_stale === true));
+});
+
+test("lieux that keep failing hold nothing back; the stored lieux are placed while the geocoder is down", async () => {
+  db.insert("auditions", [legacy("Embrun")]);
+  await runPlacementPass({ deps });
+  const salles = ["Salle A, Embrun", "Salle B, Embrun", "Salle C, Embrun"];
+  failingNames = new Set(salles);
+  // The oldest first: three lieux BAN fails on, then a lieu already placed,
+  // then one never looked up.
+  const [a, b, c, embrun, bron] = db.insert(
+    "auditions",
+    [...salles, "embrun", "Bron"].map((l) => legacy(l)),
+  );
+  located = [];
+  const first = await runPlacementPass({ deps });
+  assert.equal(first.upstreamDown, true, "three fresh failures in a row");
+  assert.deepEqual(located, salles, "nothing asked after them");
+  assert.equal(row(embrun.id).place_stale, false, "placed from its stored lieu meanwhile");
+  assert.equal(row(embrun.id).place_unit, "fr:com:05046");
+  assert.equal(row(bron.id).place_stale, true, "needs the geocoder: next pass");
+  assert.deepEqual([first.placed, first.retried], [1, 4]);
+
+  // Next pass: they fail again, but are known to; the others go on.
+  located = [];
+  const second = await runPlacementPass({ deps });
+  assert.equal(second.upstreamDown, false);
+  assert.deepEqual(located, [...salles, "Parvis Médiathèque, Bron"]);
+  assert.equal(row(bron.id).place_unit, "fr:com:69029");
+  assert.deepEqual([second.placed, second.retried], [1, 3]);
+
+  // Once BAN answers for them, they are placed too.
+  failingNames = new Set();
+  const third = await runPlacementPass({ deps });
+  assert.equal(third.placed, 3);
+  assert.ok([a, b, c].every((r) => row(r.id).place_stale === false));
+});
+
+test("same-named communes are settled at the end of the pass, against every lieu it placed", async () => {
+  // As the old app leaves them: an old Valence, then three lieux of
+  // Tarn-et-Garonne (and the same Valence again among them).
+  const [valence, , again] = db.insert("auditions", [
+    legacy("Valence", { created_at: "2020-01-01T00:00:00.000Z" }),
+    legacy("Montauban"),
+    legacy("valence"),
+    legacy("Castelsarrasin"),
+    legacy("Moissac"),
+  ]);
+  const report = await runPlacementPass({ deps });
+  assert.equal(report.placed, 5);
+  // Drôme's Valence is 12 times bigger; Tarn-et-Garonne has three lieux.
+  assert.equal(
+    row(valence.id).place_unit,
+    "fr:com:82186",
+    "by support, as the whole map settles it",
+  );
+  assert.equal(row(again.id).place_unit, "fr:com:82186");
+  assert.equal(row(again.id).placed_location, "valence");
+  assert.ok(row(valence.id).place_candidates, "still a homonym: never support");
+  assert.deepEqual(
+    located.filter((k) => k === "Valence"),
+    ["Valence"],
+    "looked up once",
+  );
+  assert.deepEqual(db.placementSupport(), { "82": 3 });
+});
+
+test("placement_support() is read once a pass, however many lieux it settles", async () => {
+  MUNICIPALITIES["Saint-Didier"] = [
+    muni("Saint-Didier", "69191", CTX_RHONE, 2000, [45.8, 4.8]),
+    muni("Saint-Didier", "84108", "84, Vaucluse, Provence-Alpes-Côte d'Azur", 2100, [44.0, 5.1]),
+  ];
+  db.insert("auditions", [legacy("Saint-Genis"), legacy("Saint-Didier"), legacy("Embrun")]);
+  const supportReads = () =>
+    db.requests.filter((r) => r.url.pathname.endsWith("/rpc/placement_support")).length;
+  const first = await runPlacementPass({ deps });
+  assert.deepEqual([first.placed, first.unplaced], [1, 2]);
+  assert.equal(supportReads(), 1);
+  db.requests = [];
+  await runPlacementPass({ deps, candidates: true });
+  assert.equal(supportReads(), 1, "the candidates pass: once for both");
+});
+
+test("an online row's precision: the town hall's point, or the commune's centre", async () => {
+  const [givors] = db.insert("auditions", [
+    legacy("Mairie de Givors (69)", {
+      audition_en_ligne: true,
+      citycode: "69091",
+      place: { insee: "69091", commune: "Givors", lat: 45.59, lng: 4.769 },
+    }),
+  ]);
+  await runPlacementPass({ deps });
+  assert.equal(row(givors.id).place_precision, "commune", "no town hall in geo.api");
+});
+
+test("text alone never copies a lieu placed under other LOCATION_RULES", async () => {
+  LOCATION_RULES.unshift({ keywords: ["embrun"], canonical: "Embrun", coordinates: [44.56, 6.49] });
+  try {
+    db.insert("geo_units", [
+      { id: "FR", parent_id: null, level: "country", country: "FR", name: "France" },
+      { id: "fr:reg:93", parent_id: "FR", level: "region", country: "FR", name: "PACA" },
+      { id: "fr:dep:05", parent_id: "fr:reg:93", level: "county", country: "FR", name: "HA" },
+      { id: "fr:com:05046", parent_id: "fr:dep:05", level: "locality", country: "FR", name: "E" },
+    ]);
+    // Placed under older rules, whose point for Embrun was elsewhere.
+    const [old] = db.insert("auditions", [
+      legacy("Embrun", {
+        place_unit: "fr:com:05046",
+        place_path: ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05046"],
+        locality_id: "fr:com:05046",
+        lieu_key: "Embrun",
+        lat: 44.0,
+        lng: 6.0,
+        place_precision: "address",
+        placed_location: "Embrun",
+        placed_rules: "deadbeef",
+      }),
+    ]);
+    const [fresh] = db.insert("auditions", [legacy("embrun")]);
+    await runPlacementPass({ deps });
+    assert.deepEqual([row(fresh.id).lat, row(fresh.id).lng], [44.56, 6.49], "not the old point");
+    assert.deepEqual(located, ["Embrun"]);
+    // The rules pass then moves the old row to the current point.
+    const report = await runPlacementPass({ deps, rules: true });
+    assert.equal(report.rulesStaled, 1);
+    assert.deepEqual([row(old.id).lat, row(old.id).lng], [44.56, 6.49]);
+    assert.ok(rows().every((r) => r.placed_rules === rulesHash() && r.place_stale === false));
+  } finally {
+    LOCATION_RULES.shift();
+  }
+});
+
+test("rules pass: a lieu renamed with its point unchanged, or its rule removed, is re-keyed", async () => {
+  LOCATION_RULES.unshift({
+    keywords: ["embrun"],
+    canonical: "Centre, Embrun",
+    coordinates: [44.56, 6.49],
+  });
+  const rule = LOCATION_RULES[0];
+  try {
+    db.insert("auditions", [legacy("Embrun"), legacy("Bron")]);
+    await runPlacementPass({ deps });
+    assert.equal(rows()[0].lieu_key, "Centre, Embrun");
+    // Renamed, same point: only its name tells.
+    rule.canonical = "Gare, Embrun";
+    const renamed = await runPlacementPass({ deps, rules: true });
+    assert.deepEqual([renamed.rulesStaled, renamed.rulesRestamped], [1, 1]);
+    assert.equal(rows()[0].lieu_key, "Gare, Embrun");
+    assert.deepEqual([rows()[0].lat, rows()[0].lng], [44.56, 6.49]);
+  } finally {
+    LOCATION_RULES.shift();
+  }
+  // The rule gone: no curated point to compare, only the name.
+  const removed = await runPlacementPass({ deps, rules: true });
+  assert.deepEqual([removed.rulesStaled, removed.rulesRestamped], [1, 1]);
+  assert.equal(rows()[0].lieu_key, "Embrun");
+  assert.deepEqual([rows()[0].lat, rows()[0].lng], [44.5638, 6.4958]);
+  assert.equal(rows()[0].place_precision, "commune");
+});
+
+test("the rules pass stamps a page of unmoved rows in one write per former rules", async () => {
+  db.insert("auditions", [legacy("Embrun"), legacy("Bron"), legacy("Villeurbanne")]);
+  await runPlacementPass({ deps });
+  rows()[0].placed_rules = "aaaaaaaa";
+  rows()[1].placed_rules = "aaaaaaaa";
+  rows()[2].placed_rules = null;
+  db.requests = [];
+  const report = await runPlacementPass({ deps, rules: true });
+  assert.equal(report.rulesRestamped, 3);
+  const stamps = db.requests.filter((r) => r.method === "PATCH");
+  assert.equal(stamps.length, 2);
+  assert.ok(rows().every((r) => r.placed_rules === rulesHash()));
+});
+
+test("the candidates pass leaves a moved row to the stale pass, never to its old candidates", async () => {
+  const [genis] = db.insert("auditions", [legacy("Saint-Genis")]);
+  await runPlacementPass({ deps });
+  assert.equal(row(genis.id).place_precision, "unplaced");
+  MUNICIPALITIES["Lyon 1er Arrondissement"] = [
+    muni("Lyon 1er Arrondissement", "69381", CTX_RHONE, 30000, [45.767, 4.834]),
+  ];
+  db.insert(
+    "auditions",
+    ["Bron", "Villeurbanne", "Lyon 1er"].map((l) => legacy(l)),
+  );
+  await runPlacementPass({ deps });
+  assert.deepEqual(db.placementSupport(), { "69": 3 });
+  // The old app moves it somewhere the geocoder cannot answer for now.
+  row(genis.id).location = "Ailleurs";
+  row(genis.id).place_stale = true;
+  failingNames = new Set(["Ailleurs"]);
+  const report = await runPlacementPass({ deps, candidates: true });
+  assert.equal(report.settled, 0);
+  assert.equal(row(genis.id).place_stale, true);
+  assert.equal(row(genis.id).place_unit ?? null, null);
 });
 
 test("unplaced rows are written so, and not looked up again", async () => {

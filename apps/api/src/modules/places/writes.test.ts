@@ -133,6 +133,9 @@ after(async () => {
 beforeEach(async () => {
   db.tables.auditions = [];
   db.tables.geo_units = [];
+  db.requests = [];
+  db.beforeAnswer = () => {};
+  db.refuse = () => null;
   rpcCalls.length = 0;
   ban.calls = [];
   const { forgetGeoUnits } = await import("./geoUnits");
@@ -215,6 +218,23 @@ test("units that cannot be written: the testimony is filed all the same, its buc
   } finally {
     db.insert = realInsert;
   }
+});
+
+test("a database whose function takes no place yet: the testimony is filed, its bucket stale", async () => {
+  db.refuse = (method, url, body) =>
+    url.pathname.endsWith("/rpc/submit_online_testimony") &&
+    (body as Row | undefined)?.p_place_unit !== undefined
+      ? {
+          status: 404,
+          code: "PGRST202",
+          message: "Could not find the function public.submit_online_testimony(...)",
+        }
+      : null;
+  const res = await submit({ commune_code: "69266" });
+  assert.equal(res.statusCode, 201, res.body);
+  assert.equal(rpcCalls.length, 1, "answered on the second call");
+  assert.equal(rpcCalls[0].p_place_unit, undefined);
+  assert.equal(db.tables.auditions[0].place_stale, true);
 });
 
 test("the online form refuses a place without a commune, and a place abroad (for now)", async () => {
@@ -327,12 +347,134 @@ test("an admin edit re-places on a move, a pick or a stale row — and only then
   });
   assert.deepEqual([row.lat, row.lng], [45.7695, 4.8805]);
 
-  // Made stale by the old app: the next save places it.
+  // Made stale by the old app: the next save, which sends the same
+  // location (the form sends every field), places it.
   row.location = "Villeurbanne";
   row.place_stale = true;
-  await auditions.updateAudition(publicClient, log, "u1", id, { title: "Again" });
+  await auditions.updateAudition(publicClient, log, "u1", id, {
+    title: "Again",
+    location: "Villeurbanne",
+  });
   assert.equal(row.place_unit, "fr:com:69266");
   assert.equal(row.place_stale, false);
+});
+
+test("an edit that sends no location leaves a placed audition's place alone", async () => {
+  const place = { kind: "ban", citycode: "69266", lat: 45.769, lng: 4.88, type: "street" } as const;
+  await auditions.createAudition(
+    publicClient,
+    log,
+    "u1",
+    input("Rue Racine, Villeurbanne", { place }),
+  );
+  const row = db.tables.auditions[0];
+  db.requests = [];
+  ban.calls = [];
+  await auditions.updateAudition(publicClient, log, "u1", String(row.id), { title: "Renamed" });
+  assert.equal(row.title, "Renamed");
+  assert.deepEqual([row.lat, row.lng], [45.769, 4.88], "still at its pick");
+  const auditionCalls = db.requests.filter((r) => r.url.pathname.endsWith("/auditions"));
+  assert.deepEqual(
+    auditionCalls.map((r) => r.method),
+    ["GET", "PATCH"],
+    "its read, its write: no lookup of another lieu, no place write",
+  );
+  assert.ok(!auditionCalls.some((r) => r.url.searchParams.has("lieu_key")));
+  assert.deepEqual(ban.calls, []);
+});
+
+test("an edit of a lieu placed abroad, without a new pick, keeps its place; only its name follows", async () => {
+  db.insert("geo_units", [
+    { id: "DE", parent_id: null, level: "country", country: "DE", name: "Allemagne" },
+  ]);
+  const [berlin] = db.insert("auditions", [
+    {
+      title: "Audition",
+      date: "2026-05-01",
+      location: "Berlin",
+      content: "",
+      status: "published",
+      audition_en_ligne: false,
+      place_unit: "DE",
+      place_path: ["DE"],
+      lieu_key: "Berlin",
+      lat: 52.52,
+      lng: 13.4,
+      place_precision: "locality",
+      placed_location: "Berlin",
+    },
+  ]);
+  await auditions.updateAudition(publicClient, log, "u1", String(berlin.id), {
+    location: "berlin mitte",
+  });
+  assert.equal(berlin.location, "Berlin Mitte");
+  assert.equal(berlin.place_unit, "DE");
+  assert.deepEqual([berlin.lat, berlin.lng], [52.52, 13.4]);
+  assert.equal(berlin.lieu_key, "Berlin Mitte");
+  assert.equal(berlin.place_stale, false);
+  assert.deepEqual(ban.calls, [], "never the geocoder");
+});
+
+test("a place the table refuses: the audition is stored all the same, stale", async () => {
+  // The units vanish between their upsert and the audition's write (a reset).
+  db.beforeAnswer = (method, url) => {
+    if ((method === "POST" || method === "PATCH") && url.pathname.endsWith("/auditions")) {
+      db.tables.geo_units = [];
+    }
+  };
+  const created = await auditions.createAudition(publicClient, log, "u1", input("Villeurbanne"));
+  assert.equal(created.kind, "ok");
+  const row = db.tables.auditions[0];
+  assert.equal(row.place_stale, true);
+  assert.equal(row.place_unit ?? null, null);
+
+  const { forgetGeoUnits } = await import("./geoUnits");
+  forgetGeoUnits();
+  const updated = await auditions.updateAudition(publicClient, log, "u1", String(row.id), {
+    title: "Renamed",
+    location: "Bron",
+  });
+  assert.equal(updated.kind, "ok");
+  assert.equal(row.location, "Bron");
+  assert.equal(row.title, "Renamed");
+  assert.equal(row.place_stale, true);
+});
+
+test("a database without the place columns yet: the audition is stored, stale", async () => {
+  db.refuse = (method, url, body) =>
+    method === "POST" &&
+    url.pathname.endsWith("/auditions") &&
+    (body as Row | undefined)?.place_unit !== undefined
+      ? {
+          status: 400,
+          code: "PGRST204",
+          message: "Could not find the 'lat' column of 'auditions' in the schema cache",
+        }
+      : null;
+  const r = await auditions.createAudition(publicClient, log, "u1", input("Villeurbanne"));
+  assert.equal(r.kind, "ok");
+  assert.equal(db.tables.auditions[0].place_stale, true);
+});
+
+test("any other refusal is the write's own: not blamed on the place, not tried again", async () => {
+  const errors: unknown[] = [];
+  const watching = { ...log, error: (obj: unknown) => errors.push(obj) } as never;
+  db.refuse = (method, url) =>
+    method === "POST" && url.pathname.endsWith("/auditions")
+      ? {
+          status: 409,
+          code: "23503",
+          message:
+            'insert or update on table "auditions" violates foreign key constraint "auditions_created_by_fkey"',
+        }
+      : null;
+  const r = await auditions.createAudition(publicClient, watching, "nobody", input("Villeurbanne"));
+  assert.equal(r.kind, "dbError");
+  const inserts = db.requests.filter(
+    (q) => q.method === "POST" && q.url.pathname.endsWith("/auditions"),
+  );
+  assert.equal(inserts.length, 1);
+  assert.deepEqual(errors, []);
 });
 
 test("an online audition's edit never moves it", async () => {

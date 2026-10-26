@@ -8,7 +8,13 @@ import { prewarmPublicCaches } from "./prewarm";
 
 const app = buildServer();
 app.log.info(
-  { env: config.APP_ENV, version: config.APP_VERSION, emailMode, mapSource },
+  {
+    env: config.APP_ENV,
+    version: config.APP_VERSION,
+    emailMode,
+    mapSource,
+    placementJob: config.PLACEMENT_JOB,
+  },
   "starting",
 );
 if (config.MAP_SOURCE === "db" && mapSource !== "db") {
@@ -28,7 +34,8 @@ app.log.info(
 );
 
 // Auditions not placed yet are placed by the job (10 s after boot, then every
-// 10 minutes). The geocoder's build of the map warms its cache itself.
+// 10 minutes) where PLACEMENT_JOB turns it on. The geocoder's build of the
+// map warms its cache itself.
 startPlacementJob(app.log);
 if (mapSource === "geocoder") void warmLocationGeocodes();
 void prewarmPublicCaches(app.log);

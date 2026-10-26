@@ -197,7 +197,7 @@ export async function submitOnlineTestimony(
   const title = auditionTitle(month.name);
   const token = randomUUID();
   const place = await bucketPlace(townHall, log);
-  const { data, error } = await client.rpc("submit_online_testimony", {
+  const args = {
     p_email_hash: emailHash(input.email),
     p_person_name: sanitizeText(input.person_name) || "Anonyme",
     // The function takes NULL for no info; the generated type does not say so.
@@ -211,8 +211,14 @@ export async function submitOnlineTestimony(
     p_title: title,
     p_audition_content: `Témoignages déposés en ligne sur le site en ${month.name} ${month.year}, rattachés à la ${townHall.location}.`,
     p_token: token,
-    ...place,
-  });
+  };
+  let { data, error } = await client.rpc("submit_online_testimony", { ...args, ...place });
+  if (error?.code === "PGRST202" && Object.keys(place).length > 0) {
+    // A database whose function does not take the place yet (deploy order):
+    // the testimony is filed all the same, its bucket stale for the job.
+    log.warn({ err: error }, "online testimony: no place arguments in this database, bucket stale");
+    ({ data, error } = await client.rpc("submit_online_testimony", args));
+  }
   if (error) {
     // No date: when an address last testified would tie it to its
     // published (anonymous) testimony, for anyone who types it in.

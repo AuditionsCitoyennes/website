@@ -4,6 +4,7 @@ import {
   getKnownCoordinates,
   isGenericLocation,
   LOCATION_RULES,
+  normalizeLocation,
   splitCityOfArrondissement,
   type Audition,
   type AuditionPlaceColumn,
@@ -32,6 +33,7 @@ import {
   frRegionChain,
   PlaceError,
   type FrChain,
+  type GeoReadOptions,
   type GeoUnitWrite,
 } from "./fr";
 
@@ -63,6 +65,12 @@ export interface Placement {
   /** The units the columns reference: made sure of (upsertGeoUnits) before the columns are written. */
   units: GeoUnitWrite[];
   columns: PlaceColumns;
+  /**
+   * The geocoder found same-named communes, and they were not settled
+   * (`settle: false`): the columns are the unplaced lieu's, to settle later
+   * (settleCandidates) against the support of every lieu placed meanwhile.
+   */
+  homonyms?: PlaceCandidate[];
 }
 
 /** A placement as stored on a row, as reuse copies it. */
@@ -78,16 +86,20 @@ export type StoredPlace = Pick<
   | "geo_release"
 >;
 
-/** The outside world: the geocoder, the commune API, the database. Swapped in tests. */
+/**
+ * The outside world: the geocoder, the commune API, the database. Swapped in
+ * tests. `cachedOnly`: answer from what is already known, else 'retry' (the
+ * geocoder) or a 503 PlaceError (the commune API) — no call upstream.
+ */
 export interface PlaceDeps {
   /** The geocoder's answer for a canonical name; 'retry' when it could not be asked. */
-  locate(key: string): Promise<Located | "retry">;
+  locate(key: string, opts?: GeoReadOptions): Promise<Located | "retry">;
   /** Where an INSEE code sits (null: no such code); throws a 503 PlaceError when geo.api is down. */
-  commune(insee: string): Promise<FrChain | null>;
-  departement(code: string): Promise<FrChain | null>;
+  commune(insee: string, opts?: GeoReadOptions): Promise<FrChain | null>;
+  departement(code: string, opts?: GeoReadOptions): Promise<FrChain | null>;
   /** A région, by its name as the geocoder spells it. */
-  region(name: string): Promise<FrChain | null>;
-  /** A placed, up-to-date French offline audition's place under this lieu key. */
+  region(name: string, opts?: GeoReadOptions): Promise<FrChain | null>;
+  /** A placed, up-to-date French offline audition's place under this lieu key, under the current rules. */
   reuse(key: string): Promise<StoredPlace | null>;
   /** Per département code, the lieux that settle same-named communes (placement_support()). */
   support(): Promise<Map<string, number>>;
@@ -96,6 +108,13 @@ export interface PlaceDeps {
 export interface PlaceOptions {
   pick?: PlacePick;
   deps?: Partial<PlaceDeps>;
+  /**
+   * false: same-named communes are not settled here but returned unplaced,
+   * with `homonyms` (the job settles them at the end of its pass). Default true.
+   */
+  settle?: boolean;
+  /** No call to the geocoder or the commune API: their caches, else 'retry'. */
+  cachedOnly?: boolean;
 }
 
 /** The database or an upstream did not answer: try again later (a PlaceDeps member may throw it). */
@@ -110,7 +129,11 @@ const STORED =
   "place_unit, place_path, locality_id, lat, lng, place_precision, place_candidates, geo_release";
 
 export const defaultPlaceDeps: PlaceDeps = {
-  async locate(key) {
+  async locate(key, opts) {
+    if (opts?.cachedOnly) {
+      const known = getCachedEntry(key);
+      return known === undefined ? "retry" : known;
+    }
     const v = await resolve(key);
     // null without a cache entry: the lookup failed (or is backing off), it is not "no place".
     return v === null && getCachedEntry(key) === undefined ? "retry" : v;
@@ -119,12 +142,17 @@ export const defaultPlaceDeps: PlaceDeps = {
   departement: frDepartementChain,
   region: frRegionChain,
   async reuse(key) {
+    // Only a placement computed under the rules in force: one made under
+    // others (before the boot's rules pass, or by an older instance still
+    // running) is not copied — copied, it would carry the current stamp, and
+    // no rules pass would ever correct it.
     const { data, error } = await adminClient
       .from("auditions")
       .select(STORED)
       .eq("lieu_key", key)
       .eq("audition_en_ligne", false)
       .eq("place_stale", false)
+      .eq("placed_rules", rulesHash())
       .not("place_path", "is", null)
       .like("place_unit", "fr:%")
       .order("created_at", { ascending: false, nullsFirst: false })
@@ -170,7 +198,7 @@ export async function placeLieu(
   location: string,
   opts: PlaceOptions = {},
 ): Promise<Placement | "retry"> {
-  const deps: PlaceDeps = { ...defaultPlaceDeps, ...opts.deps };
+  const deps = withReadOptions({ ...defaultPlaceDeps, ...opts.deps }, opts);
   const { pick } = opts;
   try {
     if (pick?.kind === "gazetteer") return placeGazetteerPick(pick);
@@ -185,7 +213,7 @@ export async function placeLieu(
       const reused = await deps.reuse(key);
       if (reused) return fromStored(location, key, reused);
     }
-    return await placeByGeocoder(location, key, deps);
+    return await placeByGeocoder(location, key, deps, opts.settle ?? true);
   } catch (e) {
     if (e instanceof RetryLater || (e instanceof PlaceError && e.status === 503)) return "retry";
     throw e;
@@ -225,12 +253,31 @@ async function placeBanPick(
   );
 }
 
-async function placeByGeocoder(location: string, key: string, deps: PlaceDeps): Promise<Placement> {
+/** The deps with the read options bound (`cachedOnly`: no upstream call). */
+function withReadOptions(deps: PlaceDeps, opts: PlaceOptions): PlaceDeps {
+  if (!opts.cachedOnly) return deps;
+  const read = { cachedOnly: true };
+  return {
+    ...deps,
+    locate: (key) => deps.locate(key, read),
+    commune: (insee) => deps.commune(insee, read),
+    departement: (code) => deps.departement(code, read),
+    region: (name) => deps.region(name, read),
+  };
+}
+
+async function placeByGeocoder(
+  location: string,
+  key: string,
+  deps: PlaceDeps,
+  settle: boolean,
+): Promise<Placement> {
   const v = await deps.locate(key);
   if (v === "retry") throw new RetryLater(`geocoder: ${key}`);
   if (v === null) return unplaced(location, key, null);
   if (!isHomonyms(v)) return placeEntry(location, key, v, null, deps);
   const candidates = v.homonyms.map(toCandidate);
+  if (!settle) return { ...unplaced(location, key, candidates), homonyms: candidates };
   const settled = pickHomonym(v, await deps.support());
   return settled
     ? placeEntry(location, key, settled, candidates, deps)
@@ -353,7 +400,11 @@ function placed(
 }
 
 /** On no point of the map, as computed from `location` (its same-named communes, if that is why). */
-function unplaced(location: string, key: string, candidates: PlaceCandidate[] | null): Placement {
+export function unplaced(
+  location: string,
+  key: string,
+  candidates: PlaceCandidate[] | null,
+): Placement {
   return {
     units: [],
     columns: {
@@ -368,6 +419,50 @@ function unplaced(location: string, key: string, candidates: PlaceCandidate[] | 
       placed_location: location,
       placed_rules: rulesHash(),
       geo_release: null,
+    },
+  };
+}
+
+/** What keepPlacedAbroad reads of a row. */
+export type AbroadRow = Pick<
+  Audition,
+  | "location"
+  | "audition_en_ligne"
+  | "place_path"
+  | "place_unit"
+  | "locality_id"
+  | "lat"
+  | "lng"
+  | "place_precision"
+  | "place_candidates"
+  | "placed_rules"
+  | "geo_release"
+>;
+
+/**
+ * A row placed abroad (a gazetteer pick, A7) whose text changed without a
+ * new pick: it keeps its unit and point, only its lieu's name follows the
+ * text. Null for a row placed in France, or not placed.
+ */
+export function keepPlacedAbroad(row: AbroadRow): Placement | null {
+  const path = row.place_path;
+  if (!path || path[0] === "FR" || !row.place_unit || row.lat === null || row.lng === null) {
+    return null;
+  }
+  return {
+    units: [],
+    columns: {
+      place_unit: row.place_unit,
+      place_path: path,
+      locality_id: row.locality_id,
+      lieu_key: row.audition_en_ligne ? row.location : normalizeLocation(row.location),
+      lat: row.lat,
+      lng: row.lng,
+      place_precision: row.place_precision,
+      place_candidates: row.place_candidates,
+      placed_location: row.location,
+      placed_rules: row.placed_rules,
+      geo_release: row.geo_release,
     },
   };
 }

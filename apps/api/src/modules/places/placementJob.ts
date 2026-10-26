@@ -1,21 +1,25 @@
 import {
   getCanonicalLocation,
   getKnownCoordinates,
-  normalizeLocation,
   type Audition,
+  type PlaceCandidate,
 } from "@ac/shared";
-import { hasServiceRole } from "../../config";
+import { config, hasServiceRole, isDev, localDatabase, mapSource } from "../../config";
 import { quoted } from "../../lib/paging";
 import { invalidatePublicCaches } from "../../lib/publicCache";
 import { adminClient } from "../../lib/supabase";
+import { backoffUntil } from "../geo/geocode";
 import { FR_GEO_RELEASE, frChain, PlaceError } from "./fr";
 import { forgetGeoUnits, upsertGeoUnits } from "./geoUnits";
 import { onlinePlaceOf } from "./lieu";
 import {
+  defaultPlaceDeps,
+  keepPlacedAbroad,
   placeLieu,
   rulesHash,
   settleCandidates,
   storedCandidates,
+  unplaced,
   type PlaceColumns,
   type PlaceDeps,
   type Placement,
@@ -29,20 +33,33 @@ import {
 // BAN any more.
 //
 // When: 10 s after boot, every 10 minutes, and 2 s after an admin writes an
-// audition (debounced). One pass at a time. At boot, a rules pass first:
-// LOCATION_RULES live in code, so a deploy that changes them leaves stored
-// lieux computed under the old ones; those whose name or curated point the
-// new rules change are made stale (and so placed again), the others stamped.
-// Every write is guarded by the row's location: an edit landing meanwhile is
-// never overwritten, and that row is placed on the next pass.
+// audition (debounced). One pass at a time. Opt-in (PLACEMENT_JOB): a
+// database is placed for the first time by its reviewed backfill or the
+// sweep below, dry run first. At boot, a rules pass first: LOCATION_RULES
+// live in code, so a deploy that changes them leaves stored lieux computed
+// under the old ones; those whose name or curated point the new rules change
+// are made stale (and so placed again), the others stamped. Every write is
+// guarded by the row's location: an edit landing meanwhile is never
+// overwritten, and that row is placed on the next pass.
+//
+// Same-named communes are settled at the end of a pass, against every lieu
+// the pass placed: a pass over many rows (a first run, the cutover sweep, a
+// rules change) settles them as the geocoder's whole-map build did, not
+// against the rows older than each one.
 
 const PAGE_SIZE = 25;
+/** The rules pass reads and stamps this many rows at a time (no upstream call per row). */
+const RULES_PAGE_SIZE = 100;
 const BOOT_DELAY_MS = 10_000;
 const EVERY_MS = 10 * 60_000;
 const AFTER_WRITE_MS = 2_000;
 /** A read finding rows not placed yet nudges the job at most this often. */
 const READ_NUDGE_MS = 60_000;
-/** This many lookups in a row that could not be made: the upstream is down, the pass stops. */
+/**
+ * This many lookups in a row failed, for lieux never seen failing before:
+ * the upstream is down. The rest of the pass makes no upstream call (what
+ * the caches and the stored lieux place is placed), and the job backs off.
+ */
 const RETRY_STREAK = 3;
 const BACKOFF_FIRST_MS = 30_000;
 
@@ -65,7 +82,7 @@ export interface PassReport {
 }
 
 export interface PassOptions {
-  /** Report what would be written, write nothing. */
+  /** Report what would be written, write nothing (same-named communes: settled against the support already stored). */
   dryRun?: boolean;
   /** Run the rules pass. */
   rules?: boolean;
@@ -105,6 +122,8 @@ type JobRow = Pick<
   | "created_at"
 >;
 
+type Counter = "placed" | "unplaced" | "settled";
+
 const emptyReport = (): PassReport => ({
   placed: 0,
   unplaced: 0,
@@ -123,6 +142,17 @@ const afterCreated = (last: JobRow) =>
     : `created_at.gt.${quoted(last.created_at)},and(created_at.eq.${quoted(last.created_at)},id.gt.${last.id})`;
 
 class PassError extends Error {}
+
+/**
+ * The lieux (canonical names; online town halls by code) whose last
+ * placement could not be made, across passes: one failing again does not
+ * count towards an outage — a few names BAN keeps failing must not hold
+ * every newer row back. Forgotten once placed.
+ */
+const failing = new Set<string>();
+
+const failKey = (row: JobRow) =>
+  row.audition_en_ligne ? `online:${row.citycode}` : getCanonicalLocation(row.location);
 
 /** The write of one row's place, guarded: only if its location is still the one placed. */
 async function writePlace(
@@ -150,52 +180,78 @@ async function writePlace(
   return true;
 }
 
+/** A placement stored: its units, then the row (counted under `counter`, or by what it is). */
+async function store(
+  row: JobRow,
+  placement: Placement,
+  opts: PassOptions,
+  report: PassReport,
+  counter?: Counter,
+): Promise<void> {
+  const kind: Counter = counter ?? (placement.columns.place_path ? "placed" : "unplaced");
+  if (opts.dryRun) {
+    report[kind]++;
+    return;
+  }
+  try {
+    await upsertGeoUnits(placement.units);
+  } catch (e) {
+    report.failed++;
+    opts.log?.error({ err: e, audition: row.id }, "placement: units not written");
+    return;
+  }
+  if (await writePlace(row, placement.columns, report, opts.log)) report[kind]++;
+}
+
+const FAILED = Symbol("failed");
+
 /** A row whose placement threw (a bug, not an upstream down): counted and logged, the pass goes on. */
 async function orFailed<T>(
   work: Promise<T>,
   row: JobRow,
   report: PassReport,
   log: JobLogger | undefined,
-): Promise<T | null> {
+): Promise<T | typeof FAILED> {
   try {
     return await work;
   } catch (err) {
     report.failed++;
     log?.error({ err, audition: row.id }, "placement: failed");
-    return null;
+    return FAILED;
   }
 }
 
-/** Where a stale row goes; 'retry' when an upstream did not answer. */
-async function placementOf(row: JobRow, deps: Partial<PlaceDeps>): Promise<Placement | "retry"> {
-  const path = row.place_path;
+/** placement_support(), read once for the pass: settling a homonym never changes it. */
+function supportOnce(deps: Partial<PlaceDeps> = {}): PlaceDeps["support"] {
+  let support: ReturnType<PlaceDeps["support"]> | null = null;
+  return () => (support ??= (deps.support ?? defaultPlaceDeps.support)());
+}
+
+/**
+ * Where a stale row goes; 'retry' when an upstream did not answer (or, with
+ * `cachedOnly`, was not to be asked). Same-named communes come back
+ * unsettled, with `homonyms`.
+ */
+async function placementOf(
+  row: JobRow,
+  deps: Partial<PlaceDeps>,
+  cachedOnly: boolean,
+): Promise<Placement | "retry"> {
   // Placed abroad (a gazetteer pick): the place stays, only the name follows the text.
-  if (path && path[0] !== "FR" && row.place_unit && row.lat !== null) {
-    return {
-      units: [],
-      columns: {
-        place_unit: row.place_unit,
-        place_path: path,
-        locality_id: row.locality_id,
-        lieu_key: row.audition_en_ligne ? row.location : normalizeLocation(row.location),
-        lat: row.lat,
-        lng: row.lng,
-        place_precision: row.place_precision,
-        place_candidates: row.place_candidates,
-        placed_location: row.location,
-        placed_rules: row.placed_rules,
-        geo_release: row.geo_release,
-      },
-    };
-  }
-  if (row.audition_en_ligne) return placeOnline(row, deps);
-  return placeLieu(row.location, { deps });
+  const abroad = keepPlacedAbroad(row);
+  if (abroad) return abroad;
+  if (row.audition_en_ligne) return placeOnline(row, deps, cachedOnly);
+  return placeLieu(row.location, { deps, settle: false, cachedOnly });
 }
 
 /** An online audition: its town hall's units, its stored point, its own label as lieu key. */
-async function placeOnline(row: JobRow, deps: Partial<PlaceDeps>): Promise<Placement | "retry"> {
+async function placeOnline(
+  row: JobRow,
+  deps: Partial<PlaceDeps>,
+  cachedOnly: boolean,
+): Promise<Placement | "retry"> {
   const online = onlinePlaceOf(row);
-  const unplaced: Placement = {
+  const none: Placement = {
     units: [],
     columns: {
       place_unit: null,
@@ -211,15 +267,15 @@ async function placeOnline(row: JobRow, deps: Partial<PlaceDeps>): Promise<Place
       geo_release: null,
     },
   };
-  if (!online || !row.citycode) return unplaced;
+  if (!online || !row.citycode) return none;
   let chain;
   try {
-    chain = await (deps.commune ?? frChain)(row.citycode);
+    chain = await (deps.commune ?? frChain)(row.citycode, { cachedOnly });
   } catch (e) {
     if (e instanceof PlaceError && e.status === 503) return "retry";
     throw e;
   }
-  if (!chain) return unplaced;
+  if (!chain) return none;
   return {
     units: chain.units,
     columns: {
@@ -229,7 +285,9 @@ async function placeOnline(row: JobRow, deps: Partial<PlaceDeps>): Promise<Place
       lieu_key: row.location,
       lat: online.lat,
       lng: online.lng,
-      place_precision: "address",
+      // As the online form files it (resolveTownHall): the town hall's own
+      // point, or the commune's centre where geo.api has no town hall.
+      place_precision: chain.mairie ? "address" : "commune",
       place_candidates: null,
       placed_location: row.location,
       placed_rules: null,
@@ -238,10 +296,24 @@ async function placeOnline(row: JobRow, deps: Partial<PlaceDeps>): Promise<Place
   };
 }
 
-/** Places every stale row, oldest first. Stops early (returns true) when the upstreams are down. */
+/** A lieu among same-named communes, waiting for the end of the pass: its rows. */
+interface Deferred {
+  candidates: PlaceCandidate[];
+  rows: JobRow[];
+}
+
+/**
+ * Places every stale row, oldest first. Returns true when the upstreams
+ * looked down (a streak of fresh failures): the rest of that pass made no
+ * upstream call.
+ */
 async function stalePass(opts: PassOptions, report: PassReport): Promise<boolean> {
+  const deps = opts.deps ?? {};
   let last: JobRow | undefined;
   let streak = 0;
+  let down = false;
+  // By lieu key: settled once every other row of the pass is placed.
+  const deferred = new Map<string, Deferred>();
   for (;;) {
     const q = adminClient
       .from("auditions")
@@ -253,35 +325,75 @@ async function stalePass(opts: PassOptions, report: PassReport): Promise<boolean
     const { data, error } = await (last ? q.or(afterCreated(last)) : q);
     if (error) throw new PassError(`stale rows: ${error.message}`);
     for (const row of data) {
-      const placement = await orFailed(placementOf(row, opts.deps ?? {}), row, report, opts.log);
-      if (!placement) continue;
+      const key = failKey(row);
+      // Its lieu already waits among same-named communes: so does it (no lookup).
+      const waiting =
+        row.audition_en_ligne || keepPlacedAbroad(row) ? undefined : deferred.get(key);
+      if (waiting) {
+        waiting.rows.push(row);
+        continue;
+      }
+      // Failed before, or still backing off in the geocoder (no call made).
+      const knownToFail =
+        failing.has(key) || (!row.audition_en_ligne && backoffUntil(key) !== undefined);
+      const placement = await orFailed(placementOf(row, deps, down), row, report, opts.log);
+      if (placement === FAILED) continue;
       if (placement === "retry") {
         report.retried++;
-        if (++streak >= RETRY_STREAK) return true;
+        if (down) continue; // not asked: nothing failed
+        failing.add(key);
+        if (!knownToFail && ++streak >= RETRY_STREAK) down = true;
         continue;
       }
+      failing.delete(key);
       streak = 0;
-      const kind = placement.columns.place_path ? "placed" : "unplaced";
-      if (opts.dryRun) {
-        report[kind]++;
+      if (placement.homonyms) {
+        deferred.set(key, { candidates: placement.homonyms, rows: [row] });
         continue;
       }
-      try {
-        await upsertGeoUnits(placement.units);
-      } catch (e) {
-        report.failed++;
-        opts.log?.error({ err: e, audition: row.id }, "placement: units not written");
-        continue;
-      }
-      if (await writePlace(row, placement.columns, report, opts.log)) report[kind]++;
+      await store(row, placement, opts, report);
     }
-    if (data.length < PAGE_SIZE) return false;
+    if (data.length < PAGE_SIZE) break;
     last = data[data.length - 1];
+  }
+  // During an outage most of the lieux that settle them are not placed yet:
+  // they wait (stale, filed by the geocoder meanwhile) for a pass without one.
+  if (down) report.retried += [...deferred.values()].reduce((n, d) => n + d.rows.length, 0);
+  else await settleDeferred(deferred, opts, report);
+  return down;
+}
+
+/** The lieux among same-named communes, settled against the support of every lieu the pass placed. */
+async function settleDeferred(
+  deferred: Map<string, Deferred>,
+  opts: PassOptions,
+  report: PassReport,
+): Promise<void> {
+  if (!deferred.size) return;
+  const deps = { ...opts.deps, support: supportOnce(opts.deps) };
+  for (const [key, { candidates, rows }] of deferred) {
+    const settled = await orFailed(
+      settleCandidates(rows[0].location, key, candidates, deps),
+      rows[0],
+      report,
+      opts.log,
+    );
+    if (settled === FAILED) continue;
+    if (settled === "retry") {
+      report.retried += rows.length;
+      continue;
+    }
+    const placement = settled ?? unplaced(rows[0].location, key, candidates);
+    for (const row of rows) {
+      const own = { ...placement.columns, placed_location: row.location };
+      await store(row, { units: placement.units, columns: own }, opts, report);
+    }
   }
 }
 
 /** Same-named communes settled again, against the lieux placed since: no geocoder call. */
 async function candidatePass(opts: PassOptions, report: PassReport): Promise<void> {
+  const deps = { ...opts.deps, support: supportOnce(opts.deps) };
   let last: JobRow | undefined;
   for (;;) {
     const q = adminClient
@@ -300,7 +412,7 @@ async function candidatePass(opts: PassOptions, report: PassReport): Promise<voi
       if (!candidates?.length) continue;
       const key = row.lieu_key ?? getCanonicalLocation(row.location);
       const placement = await orFailed(
-        settleCandidates(row.location, key, candidates, opts.deps),
+        settleCandidates(row.location, key, candidates, deps),
         row,
         report,
         opts.log,
@@ -309,19 +421,8 @@ async function candidatePass(opts: PassOptions, report: PassReport): Promise<voi
         report.retried++;
         continue;
       }
-      if (!placement) continue;
-      if (opts.dryRun) {
-        report.settled++;
-        continue;
-      }
-      try {
-        await upsertGeoUnits(placement.units);
-      } catch (e) {
-        report.failed++;
-        opts.log?.error({ err: e, audition: row.id }, "placement: units not written");
-        continue;
-      }
-      if (await writePlace(row, placement.columns, report, opts.log)) report.settled++;
+      if (placement === FAILED || !placement) continue;
+      await store(row, placement, opts, report, "settled");
     }
     if (data.length < PAGE_SIZE) return;
     last = data[data.length - 1];
@@ -334,8 +435,8 @@ const samePoint = (lat: number | null, lng: number | null, p: [number, number]) 
 /**
  * The rules pass: the French offline rows placed under other LOCATION_RULES.
  * A row whose lieu name or curated point the current rules change is made
- * stale (placed_location NULL), so that the stale pass places it again; any
- * other is stamped with the current rules.
+ * stale (placed_location NULL), so that the stale pass places it again; the
+ * others are stamped with the current rules, a page at a time.
  */
 async function rulesPass(opts: PassOptions, report: PassReport): Promise<void> {
   const hash = rulesHash();
@@ -349,9 +450,11 @@ async function rulesPass(opts: PassOptions, report: PassReport): Promise<void> {
       .not("placed_location", "is", null)
       .or(`placed_rules.is.null,placed_rules.neq.${hash}`)
       .order("id")
-      .limit(PAGE_SIZE);
+      .limit(RULES_PAGE_SIZE);
     const { data, error } = await (last ? q.gt("id", last.id) : q);
     if (error) throw new PassError(`rules: ${error.message}`);
+    // The rows only to stamp, by the rules they were placed under.
+    const stamp = new Map<string | null, string[]>();
     for (const row of data) {
       // Placed in France, or on no point; never a place picked abroad.
       const french = row.place_unit
@@ -365,26 +468,48 @@ async function rulesPass(opts: PassOptions, report: PassReport): Promise<void> {
         report[moved ? "rulesStaled" : "rulesRestamped"]++;
         continue;
       }
+      if (!moved) {
+        stamp.set(row.placed_rules, [...(stamp.get(row.placed_rules) ?? []), row.id]);
+        continue;
+      }
       const { error: werror, count } = await adminClient
         .from("auditions")
-        .update(moved ? { placed_location: null } : { placed_rules: hash }, { count: "exact" })
+        .update({ placed_location: null }, { count: "exact" })
         .eq("id", row.id)
         .eq("placed_location", row.placed_location!);
       if (werror) {
         report.failed++;
         opts.log?.error({ err: werror, audition: row.id }, "placement: rules write refused");
       } else if (count === 0) report.skipped++;
-      else report[moved ? "rulesStaled" : "rulesRestamped"]++;
+      else report.rulesStaled++;
     }
-    if (data.length < PAGE_SIZE) return;
+    for (const [old, ids] of stamp) {
+      // Guarded: a row moved meanwhile (stale), or placed again, is left alone.
+      const update = adminClient
+        .from("auditions")
+        .update({ placed_rules: hash }, { count: "exact" })
+        .in("id", ids)
+        .eq("place_stale", false);
+      const { error: werror, count } = await (old === null
+        ? update.is("placed_rules", null)
+        : update.eq("placed_rules", old));
+      if (werror) {
+        report.failed += ids.length;
+        opts.log?.error({ err: werror, rows: ids.length }, "placement: rules stamp refused");
+        continue;
+      }
+      report.rulesRestamped += count ?? 0;
+      report.skipped += ids.length - (count ?? 0);
+    }
+    if (data.length < RULES_PAGE_SIZE) return;
     last = data[data.length - 1];
   }
 }
 
 /**
  * One pass: the rules pass (when asked), the stale rows, then the unplaced
- * lieux with same-named communes (when asked). `upstreamDown`: the pass
- * stopped early, the geocoder or the commune API not answering.
+ * lieux with same-named communes (when asked). `upstreamDown`: the geocoder
+ * or the commune API did not answer; the end of the pass made no upstream call.
  */
 export async function runPlacementPass(
   opts: PassOptions = {},
@@ -396,6 +521,11 @@ export async function runPlacementPass(
   const wrote = report.placed + report.unplaced + report.settled + report.rulesStaled > 0;
   if (wrote && !opts.dryRun) invalidatePublicCaches();
   return { ...report, upstreamDown };
+}
+
+/** Forget the lieux known to fail (tests). */
+export function forgetFailures(): void {
+  failing.clear();
 }
 
 // ---- Scheduling --------------------------------------------------------------
@@ -466,15 +596,31 @@ function schedule(ms: number, candidates = false): void {
   debounce.unref?.();
 }
 
+/** Why the job does not run here, if it does not. */
+function whyOff(): { reason: string; warn: boolean } | null {
+  if (!config.PLACEMENT_JOB) {
+    return { reason: "PLACEMENT_JOB is not true (the sweep places a database)", warn: false };
+  }
+  if (!hasServiceRole) return { reason: "SUPABASE_SERVICE_ROLE_KEY is not set", warn: true };
+  if (mapSource !== "db") return { reason: "MAP_SOURCE is not db", warn: true };
+  // A developer's API against a hosted database (apps/api/.env): never a
+  // mass write from a laptop.
+  if (isDev && !localDatabase) {
+    return { reason: "APP_ENV=local against a hosted database", warn: true };
+  }
+  return null;
+}
+
 /**
- * Start the job: a pass 10 s after boot (the rules pass first), then every 10
- * minutes. Without the service role nothing can be read or written: a
- * warning, and no job.
+ * Start the job, when PLACEMENT_JOB asks for it (and the service role, the
+ * stored map and, in development, a local database are there): a pass 10 s
+ * after boot (the rules pass first), then every 10 minutes.
  */
 export function startPlacementJob(logger: JobLogger): void {
   log = logger;
-  if (!hasServiceRole) {
-    logger.warn({}, "placement job off: SUPABASE_SERVICE_ROLE_KEY is not set");
+  const off = whyOff();
+  if (off) {
+    (off.warn ? logger.warn : logger.info).call(logger, {}, `placement job off: ${off.reason}`);
     return;
   }
   started = true;

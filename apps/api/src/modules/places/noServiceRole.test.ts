@@ -3,14 +3,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { FakeDb, fakeEnv, installFakes } from "../../testing/fakes";
+import { FakeDb, fakeEnv, fakeToken, installFakes } from "../../testing/fakes";
 
 // Without the service role, geo_units cannot be read (server only): the map
 // and the admin list are the geocoder's, whatever MAP_SOURCE says, and the
 // placement job does not run.
 
 const cacheDir = await mkdtemp(join(tmpdir(), "ac-no-service-role-"));
-fakeEnv(cacheDir, { SUPABASE_SERVICE_ROLE_KEY: "", MAP_SOURCE: "db" });
+fakeEnv(cacheDir, { SUPABASE_SERVICE_ROLE_KEY: "", MAP_SOURCE: "db", PLACEMENT_JOB: "true" });
 const db = new FakeDb();
 const restore = installFakes({ db });
 after(async () => {
@@ -65,4 +65,24 @@ test("MAP_SOURCE=db without the service role: the geocoder's build, no job", asy
   nudgePlacementJob();
   await new Promise((done) => setTimeout(done, 2200));
   assert.ok(!db.requests.some((r) => r.url.searchParams.get("place_stale") === "eq.true"));
+});
+
+test("the sweep without the service role: 503, nothing placed", async () => {
+  const SUPER = "00000000-0000-4000-8000-0000000000aa";
+  db.users = { [SUPER]: { email: "root@example.test" } };
+  db.rpcs.is_admin = () => true;
+  db.rpcs.is_super_admin = () => true;
+  const { buildServer } = await import("../../server");
+  const app = buildServer();
+  await app.ready();
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/places/sweep?dryRun=1",
+      headers: { authorization: `Bearer ${fakeToken(SUPER)}` },
+    });
+    assert.equal(res.statusCode, 503, res.body);
+  } finally {
+    await app.close();
+  }
 });

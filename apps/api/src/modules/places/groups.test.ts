@@ -23,7 +23,7 @@ import {
 // (unitPath, lieuId). Then groupsFromRows' own rules, on hand-made rows.
 
 const cacheDir = await mkdtemp(join(tmpdir(), "ac-groups-"));
-fakeEnv(cacheDir, { TEST_TOOLS: "true" });
+fakeEnv(cacheDir, { TEST_TOOLS: "true", MAP_SOURCE: "db" });
 const db = new FakeDb();
 const ban = new FakeBan();
 const geo = new FakeGeoApi();
@@ -167,8 +167,8 @@ const online = (location: string, insee: string, date: string, place: Row) =>
   });
 
 const fixtures = [
-  // First, so that it is placed before the lieux that settle it: the job
-  // leaves it unplaced, and settles it on its pass over the candidates.
+  // First, older than the lieux that settle it: the job settles it at the end
+  // of its pass, against every lieu the pass placed, as the whole map does.
   audition("Saint-Genis", "2026-03-01"),
   audition("Place Bellecour, Lyon", "2026-06-01"),
   audition("place bellecour, lyon", "2026-04-01"),
@@ -244,15 +244,17 @@ test("parity: /api/map and the admin list, geocoder vs stored places", async () 
   const geocoderAdmin = await adminAreas("geocoder");
   assert.ok(geocoder.length >= 12, `${geocoder.length} groups`);
 
-  // Every row placed by the job: the rules pass, the stale rows, then the
-  // homonyms the others settle.
+  // Every row placed by the job in one pass: the rules pass, the stale rows,
+  // and at its end the homonyms the others settle.
   const banCalls = ban.calls.length;
   const first = await runPlacementPass({ rules: true });
   assert.equal(first.upstreamDown, false);
   assert.equal(ban.calls.length, banCalls, "the job reads the geocode cache, no new BAN call");
-  const second = await runPlacementPass({ candidates: true });
-  assert.equal(second.settled, 1, "Saint-Genis, once the Rhône's lieux are placed");
   assert.ok(db.tables.auditions.every((a) => a.place_stale === false));
+  const genis = db.tables.auditions.find((a) => a.location === "Saint-Genis")!;
+  assert.equal(genis.place_unit, "fr:com:69900", "settled by the Rhône's lieux, older than them");
+  const second = await runPlacementPass({ candidates: true });
+  assert.equal(second.settled, 0, "nothing left to settle");
 
   const stored = await buildLocationGroups("db");
   assert.deepEqual(stored.map(legacy), geocoder);
@@ -339,6 +341,9 @@ test("groupsFromRows: two picks of one name in two communes are two lieux (D12)"
     // entry here: left out).
     placedAt("fr:com:99999", "l:cccccccccccccccc", "2026-03-01", { location: "Ailleurs" }),
   ];
+  // The same text picked twice in one commune: one lieu, two points.
+  rows[2].lat = 45.69;
+  rows[2].lng = 4.91;
   const groups = groupsFromRows(rows as never, units);
   assert.deepEqual(
     groups.map((g) => [g.canonicalName, g.city, g.auditions.length, g.totalTestimonies]),
@@ -347,6 +352,7 @@ test("groupsFromRows: two picks of one name in two communes are two lieux (D12)"
       ["Marché", "Bron", 1, 2],
     ],
   );
+  assert.deepEqual(groups[0].coordinates, [45.7, 4.9], "the newest audition's point");
   assert.deepEqual(areaOfRow(rows[3] as never, units), {
     canonicalName: "Marché",
     city: null,

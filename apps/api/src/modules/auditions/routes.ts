@@ -42,7 +42,7 @@ export default async function auditionRoutes(app: FastifyInstance) {
     { preHandler: app.authenticate },
     async (req, reply) => {
       if (!(await requireAdmin(req, reply))) return reply;
-      const result = await fetchAdminAuditions(req.supabase, requestedSource(req.query));
+      const result = await fetchAdminAuditions(req.supabase, requestedSource(req.query), req.log);
       if (result.kind === "dbError") return reply.internalServerError(result.message);
       return result.auditions;
     },

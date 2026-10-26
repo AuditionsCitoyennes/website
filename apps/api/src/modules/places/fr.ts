@@ -59,10 +59,28 @@ interface GeoRegion {
 const DAY = 24 * 60 * 60 * 1000;
 const cache = new Map<string, { until: number; value: unknown }>();
 
-/** One geo.api read, cached; null for a 404. Throws a 503 PlaceError when the API does not answer, twice. */
-async function geoGet<T>(path: string): Promise<T | null> {
+/** How a geo.api read may go: `cachedOnly`, from the cache or not at all (no call). */
+export interface GeoReadOptions {
+  cachedOnly?: boolean;
+}
+
+const unavailable = (cause: unknown) => {
+  const e = new PlaceError(
+    "Le service des communes ne répond pas pour le moment. Réessayez dans un instant.",
+    503,
+  );
+  e.cause = cause;
+  return e;
+};
+
+/**
+ * One geo.api read, cached; null for a 404. Throws a 503 PlaceError when the
+ * API does not answer, twice — or, `cachedOnly`, when the cache does not hold it.
+ */
+async function geoGet<T>(path: string, opts: GeoReadOptions = {}): Promise<T | null> {
   const hit = cache.get(path);
   if (hit && hit.until > Date.now()) return hit.value as T | null;
+  if (opts.cachedOnly) throw unavailable(new Error("not cached"));
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -82,27 +100,28 @@ async function geoGet<T>(path: string): Promise<T | null> {
       lastError = e;
     }
   }
-  const unavailable = new PlaceError(
-    "Le service des communes ne répond pas pour le moment. Réessayez dans un instant.",
-    503,
-  );
-  unavailable.cause = lastError;
-  throw unavailable;
+  throw unavailable(lastError);
 }
 
 /** A commune or an arrondissement municipal, with its town hall and centre; null when the code does not exist. */
-export function fetchCommune(code: string): Promise<GeoCommune | null> {
-  return geoGet<GeoCommune>(`/communes/${encodeURIComponent(code)}?fields=${COMMUNE_FIELDS}`);
+export function fetchCommune(code: string, opts?: GeoReadOptions): Promise<GeoCommune | null> {
+  return geoGet<GeoCommune>(`/communes/${encodeURIComponent(code)}?fields=${COMMUNE_FIELDS}`, opts);
 }
 
 /** A département (collectivités d'outre-mer included) with its région; null when the code does not exist. */
-export function fetchDepartement(code: string): Promise<GeoDepartement | null> {
-  return geoGet<GeoDepartement>(`/departements/${encodeURIComponent(code)}?fields=nom,code,region`);
+export function fetchDepartement(
+  code: string,
+  opts?: GeoReadOptions,
+): Promise<GeoDepartement | null> {
+  return geoGet<GeoDepartement>(
+    `/departements/${encodeURIComponent(code)}?fields=nom,code,region`,
+    opts,
+  );
 }
 
 /** The régions (DROM included; a collectivité's région is its département: fetchDepartement). */
-export async function fetchRegions(): Promise<GeoRegion[]> {
-  return (await geoGet<GeoRegion[]>("/regions?fields=nom,code")) ?? [];
+export async function fetchRegions(opts?: GeoReadOptions): Promise<GeoRegion[]> {
+  return (await geoGet<GeoRegion[]>("/regions?fields=nom,code", opts)) ?? [];
 }
 
 /** A geo_units row as the API writes it. */
@@ -132,6 +151,8 @@ export interface FrChain {
   localityId: string | null;
   /** The leaf's centre ([lat, lng]), when geo.api gives one. */
   centre: [number, number] | null;
+  /** The leaf's town hall ([lat, lng]), when geo.api gives one (a commune or arrondissement). */
+  mairie?: [number, number] | null;
 }
 
 function unit(
@@ -162,9 +183,10 @@ function chainOf(
   units: GeoUnitWrite[],
   localityId: string | null,
   centre: [number, number] | null,
-) {
+  mairie: [number, number] | null = null,
+): FrChain {
   const path = units.map((u) => u.id);
-  return { units, path, unit: path[path.length - 1], localityId, centre };
+  return { units, path, unit: path[path.length - 1], localityId, centre, mairie };
 }
 
 /** France, the région and the département: a collectivité's région is the département itself. */
@@ -189,6 +211,7 @@ export function frChainOfCommune(c: GeoCommune): FrChain | null {
   const units = upperUnits(c.region, c.departement);
   const dep = units[2].id;
   const centre = latLng(c.centre);
+  const mairie = latLng(c.mairie);
   const city = splitCityOfArrondissement(c.code);
   if (city) {
     const commune = `fr:com:${c.codeParent ?? city.commune}`;
@@ -203,28 +226,31 @@ export function frChainOfCommune(c: GeoCommune): FrChain | null {
         centre,
       ),
     );
-    return chainOf(units, commune, centre);
+    return chainOf(units, commune, centre, mairie);
   }
   units.push(unit(`fr:com:${c.code}`, dep, "locality", c.nom, c.code, centre));
-  return chainOf(units, `fr:com:${c.code}`, centre);
+  return chainOf(units, `fr:com:${c.code}`, centre, mairie);
 }
 
 /** Where the commune or arrondissement with this INSEE code sits; null when the code does not exist. */
-export async function frChain(insee: string): Promise<FrChain | null> {
-  const c = await fetchCommune(insee);
+export async function frChain(insee: string, opts?: GeoReadOptions): Promise<FrChain | null> {
+  const c = await fetchCommune(insee, opts);
   return c ? frChainOfCommune(c) : null;
 }
 
 /** Where a département sits (a lieu placed at that level); null when the code does not exist. */
-export async function frDepartementChain(code: string): Promise<FrChain | null> {
-  const d = await fetchDepartement(code);
+export async function frDepartementChain(
+  code: string,
+  opts?: GeoReadOptions,
+): Promise<FrChain | null> {
+  const d = await fetchDepartement(code, opts);
   if (!d) return null;
   return chainOf(upperUnits(d.region, d), null, null);
 }
 
 /** Where a région sits (a lieu placed at that level), by its name as the geocoder spells it; null when none is. */
-export async function frRegionChain(name: string): Promise<FrChain | null> {
-  const r = (await fetchRegions()).find((x) => x.nom === name);
+export async function frRegionChain(name: string, opts?: GeoReadOptions): Promise<FrChain | null> {
+  const r = (await fetchRegions(opts)).find((x) => x.nom === name);
   if (!r) return null;
   return chainOf([FRANCE, unit(`fr:reg:${r.code}`, "FR", "region", r.nom, r.code)], null, null);
 }
