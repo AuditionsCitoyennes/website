@@ -2,17 +2,9 @@
 // région → département → ville → arrondissement → lieu), each unit carrying a
 // count, a weighted centroid, and a bounding box so the camera can frame it.
 
-import { FRANCE_CENTER, type LocationGroup } from "@ac/shared";
+import { FRANCE_CENTER, splitCityNamed, type LocationGroup } from "@ac/shared";
 import { boundsCenter, METRO_FRANCE, pointBounds, unionBounds } from "./bounds";
 import type { GeoUnit, LevelKey } from "./types";
-
-// The three French communes split into arrondissements municipaux — their places
-// carry arrondissement INSEE codes, so the ville node needs the commune code.
-const BIG3_COMMUNE: Record<string, string> = {
-  Paris: "75056",
-  Lyon: "69123",
-  Marseille: "13055",
-};
 
 // Drop the redundant ", <ville>" suffix from a lieu label (the ville is shown
 // above it in the tree / breadcrumb).
@@ -155,13 +147,14 @@ export function buildGeoHierarchy(groups: LocationGroup[]): {
     const isCountry = b.levelKey === "country";
     // Ville / arrondissement carry the INSEE code shared by all their places (an
     // arrondissement's places share its code; a simple commune's places share the
-    // commune code). Big-3 villes split across arrondissements get the commune code.
+    // commune code). Paris, Lyon and Marseille, split across arrondissements whose
+    // places carry the arrondissement's code, get the whole commune's code.
     const codes = children.map((c) => c.insee);
     const common = codes[0] && codes.every((c) => c === codes[0]) ? codes[0] : undefined;
     // INSEE is meaningful only at ville (commune) and arrondissement — never roll
     // a commune code up into a département/région.
     let insee: string | undefined;
-    if (b.levelKey === "city") insee = BIG3_COMMUNE[b.label] ?? common;
+    if (b.levelKey === "city") insee = splitCityNamed(b.label)?.commune ?? common;
     else if (b.levelKey === "arr") insee = common;
     const u: GeoUnit = {
       id: b.id,
