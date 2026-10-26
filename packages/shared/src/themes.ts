@@ -99,6 +99,13 @@ for (const [tag, theme] of Object.entries(LEGACY_APPROX)) {
   BY_KEY.set(themeKey(tag), { theme, match: "approx" });
 }
 
+/** Every folded key a tag can match, with its theme's index in AUDITION_THEMES
+ *  and whether the match is approximate: the table the database's theme_mask
+ *  is computed from (scripts/sql-gen/derived.ts). */
+export const THEME_KEY_TABLE: readonly { key: string; index: number; approx: boolean }[] = [
+  ...BY_KEY,
+].map(([key, { theme, match }]) => ({ key, index: ORDER.get(theme)!, approx: match === "approx" }));
+
 const tagCache = new Map<string, { theme: AuditionTheme; match: ThemeMatch } | null>();
 
 /** One raw tag → its place in the 16-theme grid (AUDITION_THEMES), or null ("hors grille"). */
