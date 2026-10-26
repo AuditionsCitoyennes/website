@@ -31,12 +31,19 @@
 -- extra_float_digits (the local stack's is 0: 15 digits, which would round
 -- the computed frame).
 --
--- Orders and ties (design A18): a lieu's rank is the date of its newest
--- audition on the map (unfiltered), its point and city that audition's;
--- a unit's rank the newest of its matching lieux. Children come by
--- testimonies desc, rank desc, id; results by date, rank desc, lieu id, id;
+-- Orders and ties (design A18), today's exactly: /api/map lists the lieux in
+-- the order of their newest audition (date desc, id). A lieu's rank is the
+-- date of its newest audition on the map (unfiltered), its tie that
+-- audition's id, its point and city that audition's; a unit's rank and tie
+-- are those of the first of its matching lieux in that order. Children come
+-- by testimonies desc, rank desc, tie; results by date, rank desc, tie, id;
 -- a lieu's auditions by date, id; testimonies oldest first (no date first),
--- id desc. Ids compare byte-wise (collate "C").
+-- id desc. Text ids compare byte-wise (collate "C").
+--
+-- A row the old app inserted or moved (place_stale) is read at its stored
+-- place until the placement job re-places it (its next pass, at most 10
+-- minutes): an insert stays unplaced, a moved one at its previous lieu
+-- (design A21, D14). /api/map files such a row by its name at once.
 --
 -- Lastly the service role gets its own statement timeout, 5 s, under the
 -- API's 7 s abort: through PostgREST it otherwise inherits authenticator's
@@ -240,8 +247,12 @@ return (select pg_catalog.string_agg(pg_catalog.format(p_template, i, 1 << (i - 
 --   unplaced  {n, auditions} (world only): the published auditions on no
 --             point, so that N résultats = self.n + unplaced.n;
 --   units     [{id, parent, level, name, code, country, polygon, d, n, auditions,
---              rank, bbox, wrap[, facts]}], d levels below the unit;
---   lieux     [{id, unit, key, city, lat, lng, precision, n, auditions, rank[, list]}].
+--              rank, tie, bbox, wrap[, facts]}], d levels below the unit;
+--   lieux     [{id, unit, key, city, lat, lng, precision, n, auditions, rank, tie[, list]}];
+--
+-- both in the children's order (n desc, rank desc, tie, then id), tie the id
+-- of the newest audition of the first matching lieu, so that siblings from
+-- different answers merge in today's order.
 --
 -- Members are the auditions with at least one matching testimony (p_empty:
 -- every audition on the map, testimonies or not, unfiltered: the home card,
@@ -320,7 +331,7 @@ begin
       'first', min("date") filter (where cohort = 'terrain' and n > 0),
       'last', max("date") filter (where cohort = 'terrain' and n > 0),
       'largest', (pg_catalog.array_agg(pg_catalog.jsonb_build_array(id, lieu_id, lieu_key, n, pcity)
-                    order by n desc, rank desc, lieu_id collate "C", "date" desc, id)
+                    order by n desc, lord, "date" desc, id)
                   filter (where n > 0))[1])$f$,
     ac.sql_16('coalesce(sum(th[%1$s]), 0)'),
     ac.sql_16('count(*) filter (where th[%1$s] > 0)'));
@@ -341,12 +352,15 @@ begin
          and (not a.audition_en_ligne or exists (
                select 1 from public.testimonies v
                 where v.audition_id = a.id and v.verification_status = 'verified'))),
-    -- Each lieu's newest audition: its rank, point, city and precision.
+    -- Each lieu's newest audition: its rank, tie, point, city and precision;
+    -- lord, the lieu's place in today's order (rank desc, tie).
     lmd as (
-      select distinct on (lieu_id) lieu_id, "date" as rank, lat as plat, lng as plng,
-             city as pcity, place_precision as pprec
-        from vis
-       order by lieu_id, "date" desc, id),
+      select x.*, pg_catalog.row_number() over (order by x.rank desc, x.tie) as lord
+        from (
+          select distinct on (lieu_id) lieu_id, "date" as rank, id as tie, lat as plat,
+                 lng as plng, city as pcity, place_precision as pprec
+            from vis
+           order by lieu_id, "date" desc, id) x),
     -- Matching public testimonies per audition (the facts index alone).
     m as (
       select t.audition_id, count(*)::integer as n %3$s
@@ -359,7 +373,7 @@ begin
        group by t.audition_id),
     -- The members: auditions on the map with a matching testimony (or all, $11).
     s as (
-      select vis.*, lmd.rank, lmd.plat, lmd.plng, lmd.pcity, lmd.pprec,
+      select vis.*, lmd.rank, lmd.tie, lmd.lord, lmd.plat, lmd.plng, lmd.pcity, lmd.pprec,
              coalesce(m.n, 0) as n, m.base, m.untagged, m.approx, m.th,
              case when $10 then %4$s end as cohort
         from vis
@@ -368,7 +382,7 @@ begin
        where m.n > 0 or $11),
     -- One row per member and unit below the unit, d levels down.
     u as (
-      select x.unit, x.d::integer as d, s.id, s."date", s.n, s.rank, s.plat, s.plng, s.pcity,
+      select x.unit, x.d::integer as d, s.id, s."date", s.n, s.rank, s.lord, s.plat, s.plng, s.pcity,
              s.lieu_id, s.lieu_key, s.locality_id, s.cohort, s.base, s.untagged, s.approx, s.th
         from s
        cross join lateral pg_catalog.unnest(s.place_path[s.k + 1 :]) with ordinality as x(unit, d)),
@@ -394,21 +408,23 @@ begin
                  pg_catalog.jsonb_build_object(
                    'id', r.id, 'parent', g.parent_id, 'level', g.level, 'name', g.name,
                    'code', g.code, 'country', g.country, 'polygon', g.polygon, 'd', r.d,
-                   'n', r.n, 'auditions', r.auditions, 'rank', r.rank,
+                   'n', r.n, 'auditions', r.auditions, 'rank', r.rank, 'tie', t.tie,
                    'bbox', pg_catalog.jsonb_build_array(r.min_lat, r.min_lng, r.max_lat, r.max_lng),
                    'wrap', (r.max_lng - r.min_lng) > 180)
                  || case when f.facts is not null
                          then pg_catalog.jsonb_build_object('facts', f.facts) else '{}'::jsonb end
-                 order by r.n desc, r.rank desc, r.id collate "C")
+                 order by r.n desc, r.lord, r.id collate "C")
           from (
             select u.unit as id, min(u.d) as d, sum(u.n)::integer as n,
                    count(*) filter (where u.n > 0)::integer as auditions, max(u.rank) as rank,
+                   min(u.lord) as lord,
                    min(u.plat) as min_lat, min(u.plng) as min_lng,
                    max(u.plat) as max_lat, max(u.plng) as max_lng
               from u
              where u.d <= (select depth from lim)
              group by u.unit) r
           join public.geo_units g on g.id = r.id
+          join lmd t on t.lord = r.lord
           -- The figures only where they are sent: every unit of a complete
           -- answer, else the children.
           left join (
@@ -421,18 +437,19 @@ begin
                  pg_catalog.jsonb_build_object(
                    'id', l.lieu_id, 'unit', l.place_unit, 'key', l.lieu_key, 'city', l.pcity,
                    'lat', l.plat, 'lng', l.plng, 'precision', l.pprec, 'n', l.n,
-                   'auditions', l.auditions, 'rank', l.rank)
+                   'auditions', l.auditions, 'rank', l.rank, 'tie', l.tie)
                  || case when (select depth from lim) = 99
                          then pg_catalog.jsonb_build_object('list', l.list) else '{}'::jsonb end
-                 order by l.n desc, l.rank desc, l.lieu_id collate "C")
+                 order by l.n desc, l.lord)
           from (
-            select lieu_id, place_unit, lieu_key, pcity, plat, plng, pprec, rank,
+            select lieu_id, place_unit, lieu_key, pcity, plat, plng, pprec, rank, tie, lord,
                    sum(n)::integer as n, count(*) filter (where n > 0)::integer as auditions,
                    pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(id, title, "date", n)
                                         order by "date" desc, id) as list
               from s
              where pg_catalog.cardinality(place_path) - k between 0 and (select depth from lim) - 1
-             group by lieu_id, place_unit, lieu_key, pcity, plat, plng, pprec, rank) l), '[]'::jsonb))
+             group by lieu_id, place_unit, lieu_key, pcity, plat, plng, pprec, rank, tie, lord) l),
+        '[]'::jsonb))
       || case when $7 = 'world' then pg_catalog.jsonb_build_object('unplaced', (
            select pg_catalog.jsonb_build_object('n', coalesce(sum(m.n), 0), 'auditions', count(*))
              from m join public.auditions a on a.id = m.audition_id
@@ -530,9 +547,10 @@ end $$;
 -- Every placed audition on the map with a matching testimony (no filter: all
 -- of them), {id, title, date, n, lieu {id, key, unit, path, lat, lng, city}},
 -- the lieu as its newest audition places it. Ordered by date (p_sort), rank
--- desc, lieu id, id; keyset pages of p_limit (1..100) after p_after = [date,
--- rank, lieu id, id], `next` the key to ask the following page with (null on
--- the last). The first page also carries `total` {auditions, lieux, n} and
+-- desc, tie (the id of the lieu's newest audition), id; keyset pages of
+-- p_limit (1..100) after p_after = [date, rank, lieu id, id] (the lieu's tie
+-- read from it), `next` the key to ask the following page with (null on the
+-- last). The first page also carries `total` {auditions, lieux, n} and
 -- `frame` [min lat, min lng, max lat, max lng]: resultBounds of
 -- apps/web/src/features/geo-nav/model/auditions.ts over the lieux' points
 -- (all but the outermost 3% on each side from 30 lieux, padded 8%, at least
@@ -568,6 +586,10 @@ begin
     end if;
     begin
       if pg_catalog.jsonb_typeof(p_after) <> 'array' or pg_catalog.jsonb_array_length(p_after) <> 4
+         or pg_catalog.jsonb_typeof(p_after -> 0) is distinct from 'string'
+         or pg_catalog.jsonb_typeof(p_after -> 1) is distinct from 'string'
+         or pg_catalog.jsonb_typeof(p_after -> 2) is distinct from 'string'
+         or pg_catalog.jsonb_typeof(p_after -> 3) is distinct from 'string'
          or (p_after ->> 0) !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
          or (p_after ->> 1) !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
          or not ac.lieu_id_ok(p_after ->> 2) then
@@ -599,9 +621,9 @@ begin
          and (not a.audition_en_ligne or t.verification_status = 'verified')
          %1$s
        group by a.id),
-    -- Their lieux' newest auditions on the map (unfiltered): rank, point, city.
+    -- Their lieux' newest auditions on the map (unfiltered): rank, tie, point, city.
     lmd as (
-      select distinct on (a.lieu_id) a.lieu_id, a."date" as rank, a.lat, a.lng,
+      select distinct on (a.lieu_id) a.lieu_id, a."date" as rank, a.id as tie, a.lat, a.lng,
              case when a.audition_en_ligne then a.place ->> 'commune' else lc.name end as city
         from public.auditions a
         left join public.geo_units lc on lc.id = a.locality_id
@@ -612,10 +634,15 @@ begin
                 where v.audition_id = a.id and v.verification_status = 'verified'))
        order by a.lieu_id, a."date" desc, a.id),
     r as (
-      select h.*, l.rank, l.lat, l.lng, l.city,
-             pg_catalog.row_number() over (
-               order by h."date" %2$s, l.rank desc, h.lieu_id collate "C", h.id) as i
+      select h.*, l.rank, l.tie, l.lat, l.lng, l.city,
+             pg_catalog.row_number() over (order by h."date" %2$s, l.rank desc, l.tie, h.id) as i
         from hits h join lmd l using (lieu_id)),
+    -- The cursor's lieu among those of its date and rank: by its tie. Gone
+    -- since (the data moved), every lieu of that date and rank is taken again
+    -- rather than skipped.
+    cur as (
+      select coalesce((select tie from lmd where lieu_id = $10),
+                      '00000000-0000-0000-0000-000000000000'::uuid) as tie),
     -- The rows asked for: from the first up to p_through, or a page from the
     -- first or after p_after; and one more, when there is one (then `next`).
     upto as (select i from r where $12::uuid is not null and id = $12 and i <= 2000),
@@ -628,7 +655,7 @@ begin
                when $8::date is null then r.i <= (select n from take) + 1
                else (r."date" %3$s $8
                      or (r."date" = $8 and (r.rank < $9
-                         or (r.rank = $9 and (r.lieu_id collate "C" > $10
+                         or (r.rank = $9 and (r.tie > (select tie from cur)
                              or (r.lieu_id = $10 and r.id > $13))))))
              end),
     shown as (select * from pg where j <= (select n from take)),
