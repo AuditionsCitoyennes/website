@@ -17,6 +17,7 @@ import {
   type UpdateAuditionInput,
 } from "@ac/shared";
 import { publicClient } from "../../lib/supabase";
+import { PAGE, quoted, selectAll } from "../../lib/paging";
 import { invalidatePublicCaches } from "../../lib/publicCache";
 import { logAudit } from "../../lib/audit";
 import { frDate } from "../../lib/dates";
@@ -34,9 +35,6 @@ import {
 import { placementOf } from "../geo/match";
 
 type Client = SupabaseClient<Database>;
-
-// PostgREST's cap: past it a bare select is silently cut short.
-const PAGE = 1000;
 
 /** The database refused: its message, for the route to send back. */
 export interface DbError {
@@ -64,37 +62,53 @@ export function onlinePlaceOf(a: {
   return typeof p.lat === "number" && typeof p.lng === "number" ? (p as OnlinePlace) : null;
 }
 
-/** Published auditions with their visible (verified) testimony counts. */
+/** The auditions after `last` in `date desc, id` order, as a PostgREST `or` filter. */
+const afterByDate = (last: { date: string; id: string }) =>
+  `date.lt.${last.date},and(date.eq.${last.date},id.gt.${last.id})`;
+
+/**
+ * Published auditions with their visible (verified) testimony counts, newest
+ * first. Same-day auditions come by id: the pages need a total order, and the
+ * map's groups, built in this order, come out the same on every fill.
+ */
 export async function fetchPublishedAuditions(): Promise<AuditionWithCount[]> {
-  const { data, error } = await publicClient
-    .from("auditions")
-    .select("*")
-    .eq("status", "published")
-    .order("date", { ascending: false });
+  const { data, error } = await selectAll((last?: Audition) => {
+    const q = publicClient
+      .from("auditions")
+      .select("*")
+      .eq("status", "published")
+      .order("date", { ascending: false })
+      .order("id");
+    return (last ? q.or(afterByDate(last)) : q).limit(PAGE);
+  });
   if (error) throw new Error(error.message);
 
   // The counts come from the audition_testimony_counts view: the public API
   // may only read some columns of testimonies, which an embedded
   // `testimonies(count)` does not survive. One row per audition that has
-  // testimonies (drafts included), paged past PostgREST's cap all the same.
+  // testimonies (drafts included).
+  const { data: countRows, error: countError } = await selectAll(
+    (last?: { audition_id: string | null }) => {
+      // The audition-less row is of no use here, and as a page's last row it
+      // would make the next page's keyset `gt.null`.
+      const q = publicClient
+        .from("audition_testimony_counts")
+        .select("audition_id, total_count, verified_count")
+        .not("audition_id", "is", null)
+        .order("audition_id");
+      return (last ? q.gt("audition_id", last.audition_id) : q).limit(PAGE);
+    },
+  );
+  if (countError) throw new Error(countError.message);
   const counts = new Map<string, { total: number; verified: number }>();
-  for (let from = 0; ; from += PAGE) {
-    const { data: page, error: countError } = await publicClient
-      .from("audition_testimony_counts")
-      .select("audition_id, total_count, verified_count")
-      .order("audition_id")
-      .range(from, from + PAGE - 1);
-    if (countError) throw new Error(countError.message);
-    for (const c of page ?? []) {
-      if (c.audition_id) {
-        counts.set(c.audition_id, { total: c.total_count ?? 0, verified: c.verified_count ?? 0 });
-      }
+  for (const c of countRows) {
+    if (c.audition_id) {
+      counts.set(c.audition_id, { total: c.total_count ?? 0, verified: c.verified_count ?? 0 });
     }
-    if (!page || page.length < PAGE) break;
   }
 
   return (
-    (data ?? [])
+    data
       .map((audition) => {
         const c = counts.get(audition.id);
         // What the public sees: every testimony of an ordinary audition, only
@@ -140,10 +154,53 @@ export type PublishedAudition = Audition & {
   >[];
 };
 
+type DetailTestimony = PublishedAudition["testimonies"][number];
+
+/**
+ * The testimonies after `last` in the map panel's order (`created_at` nulls
+ * first, then id desc: design A18), as a PostgREST `or` filter.
+ */
+const afterInPanelOrder = (last: DetailTestimony) =>
+  last.created_at === null
+    ? `created_at.not.is.null,and(created_at.is.null,id.lt.${last.id})`
+    : `created_at.gt.${quoted(last.created_at)},and(created_at.eq.${quoted(last.created_at)},id.lt.${last.id})`;
+
+/**
+ * Every testimony of one audition the client may see, read on its own and
+ * paged, in the map panel's order. Explicit columns: RLS limits rows, not
+ * columns — `*` would leak email addresses and verification tokens (the old
+ * app had this bug).
+ */
+function fetchAuditionTestimonies(client: Client, auditionId: string) {
+  return selectAll((last?: DetailTestimony) => {
+    const q = client
+      .from("testimonies")
+      .select("id, person_name, person_info, content, topics, verification_status, created_at")
+      .eq("audition_id", auditionId)
+      .order("created_at", { nullsFirst: true })
+      .order("id", { ascending: false });
+    return (last ? q.or(afterInPanelOrder(last)) : q).limit(PAGE);
+  });
+}
+
+/**
+ * An audition read with its testimonies embedded, made whole. max_rows cuts
+ * an embedded list too: one of PAGE rows may be short, and is read again on
+ * its own, in the map panel's order. A shorter one is kept as read, in the
+ * database's order, as before paging.
+ */
+export async function withWholeTestimonies<
+  A extends { id: string; testimonies: DetailTestimony[] },
+>(client: Client, audition: A): Promise<{ kind: "ok"; audition: A } | DbError> {
+  if (audition.testimonies.length < PAGE) return { kind: "ok", audition };
+  const { data, error } = await fetchAuditionTestimonies(client, audition.id);
+  if (error) return { kind: "dbError", message: error.message };
+  return { kind: "ok", audition: { ...audition, testimonies: data } };
+}
+
 /**
  * One published audition with its visible testimonies. Explicit testimony
- * columns: RLS limits rows, not columns — `*` would leak email addresses and
- * verification tokens (the old app had this bug).
+ * columns, as in fetchAuditionTestimonies.
  */
 export async function fetchPublishedAudition(
   client: Client,
@@ -159,7 +216,7 @@ export async function fetchPublishedAudition(
     .maybeSingle();
   if (error) return { kind: "dbError", message: error.message };
   if (!data) return { kind: "notFound" };
-  return { kind: "ok", audition: data };
+  return withWholeTestimonies(client, data);
 }
 
 // ---- Admin list -----------------------------------------------------------
@@ -191,15 +248,19 @@ export type AdminAudition = Pick<
 export async function fetchAdminAuditions(
   client: Client,
 ): Promise<{ kind: "ok"; auditions: AdminAudition[] } | DbError> {
-  const { data, error } = await client
-    .from("auditions")
-    .select(
-      "id, title, date, location, content, status, created_by, audition_en_ligne, citycode, place",
-    )
-    .order("date", { ascending: false });
+  // Newest first, same-day auditions by id (a total order, for the pages).
+  const { data: rows, error } = await selectAll((last?: { date: string; id: string }) => {
+    const q = client
+      .from("auditions")
+      .select(
+        "id, title, date, location, content, status, created_by, audition_en_ligne, citycode, place",
+      )
+      .order("date", { ascending: false })
+      .order("id");
+    return (last ? q.or(afterByDate(last)) : q).limit(PAGE);
+  });
   if (error) return { kind: "dbError", message: error.message };
   await loadGeocodeCache();
-  const rows = data ?? [];
   // The lieux the geocoder places, as on the map: not an online audition's
   // whose town hall is stored with it.
   const lieux = rows.filter((a) => !onlinePlaceOf(a)).map(placeKeyOf);

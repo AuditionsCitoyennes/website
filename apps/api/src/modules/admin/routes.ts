@@ -5,6 +5,7 @@ import { hasServiceRole } from "../../config";
 import { invalidateRoles, requireSuperAdmin } from "../../lib/auth";
 import { sendApprovalEmail, sendDeclineEmail } from "../../lib/email/registration";
 import { logAudit } from "../../lib/audit";
+import { withWholeTestimonies } from "../auditions/service";
 
 const registrationActionSchema = z.object({
   action: z.enum(["approve", "decline"]),
@@ -182,7 +183,9 @@ export default async function adminRoutes(app: FastifyInstance) {
           "SUPABASE_SERVICE_ROLE_KEY n'est pas configuré — audition illisible (brouillon) ou supprimée.",
       });
     }
-    return data;
+    const whole = await withWholeTestimonies(client, data);
+    if (whole.kind === "dbError") return reply.internalServerError(whole.message);
+    return whole.audition;
   });
 
   // ---- Audit log (super admin; RPC enforces it too) ----
