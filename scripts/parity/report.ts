@@ -6,7 +6,8 @@
 //        the theme facet: the old corpus counted them;
 //   D14  a row the old app inserted or moved (place_stale) is read at its
 //        stored place until the placement job's next pass, where /api/map
-//        files it by its name at once.
+//        files it by its name at once; listed for every row /api/map shows,
+//        online ones included.
 //
 // Orders have no allowance: the RPCs reproduce today's ties (A18), so any
 // reorder fails.

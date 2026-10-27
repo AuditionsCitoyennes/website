@@ -548,9 +548,12 @@ end $$;
 -- of them), {id, title, date, n, lieu {id, key, unit, path, lat, lng, city}},
 -- the lieu as its newest audition places it. Ordered by date (p_sort), rank
 -- desc, tie (the id of the lieu's newest audition), id; keyset pages of
--- p_limit (1..100) after p_after = [date, rank, lieu id, id] (the lieu's tie
--- read from it), `next` the key to ask the following page with (null on the
--- last). The first page also carries `total` {auditions, lieux, n} and
+-- p_limit (1..100) after p_after = [date, rank, tie, id], the key of the last
+-- row served (`next`, null on the last page). The key carries the tie it was
+-- cut at, never re-read from the lieu: when a lieu's newest audition changes
+-- between two pages, its rows are taken by their new key, and every row whose
+-- own key held is served once, none skipped or repeated. The first page also
+-- carries `total` {auditions, lieux, n} and
 -- `frame` [min lat, min lng, max lat, max lng]: resultBounds of
 -- apps/web/src/features/geo-nav/model/auditions.ts over the lieux' points
 -- (all but the outermost 3% on each side from 30 lieux, padded 8%, at least
@@ -570,7 +573,7 @@ declare
   v_cmp text;
   v_after_date date;
   v_after_rank date;
-  v_after_lieu text;
+  v_after_tie uuid;
   v_after_id uuid;
   v_out jsonb;
 begin
@@ -591,19 +594,18 @@ begin
          or pg_catalog.jsonb_typeof(p_after -> 2) is distinct from 'string'
          or pg_catalog.jsonb_typeof(p_after -> 3) is distinct from 'string'
          or (p_after ->> 0) !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-         or (p_after ->> 1) !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-         or not ac.lieu_id_ok(p_after ->> 2) then
+         or (p_after ->> 1) !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
         raise exception 'malformed';
       end if;
       v_after_date := (p_after ->> 0)::date;
       v_after_rank := (p_after ->> 1)::date;
-      v_after_lieu := p_after ->> 2;
+      v_after_tie := (p_after ->> 2)::uuid;
       v_after_id := (p_after ->> 3)::uuid;
     exception when others then
-      raise exception 'audition_results: after must be [date, rank, lieu id, id]' using errcode = '22023';
+      raise exception 'audition_results: after must be [date, rank, tie, id]' using errcode = '22023';
     end;
-    if v_after_id is null then
-      raise exception 'audition_results: after must be [date, rank, lieu id, id]' using errcode = '22023';
+    if v_after_tie is null or v_after_id is null then
+      raise exception 'audition_results: after must be [date, rank, tie, id]' using errcode = '22023';
     end if;
   end if;
   v_dir := case p_sort when 'ancien' then 'asc' else 'desc' end;
@@ -637,14 +639,9 @@ begin
       select h.*, l.rank, l.tie, l.lat, l.lng, l.city,
              pg_catalog.row_number() over (order by h."date" %2$s, l.rank desc, l.tie, h.id) as i
         from hits h join lmd l using (lieu_id)),
-    -- The cursor's lieu among those of its date and rank: by its tie. Gone
-    -- since (the data moved), every lieu of that date and rank is taken again
-    -- rather than skipped.
-    cur as (
-      select coalesce((select tie from lmd where lieu_id = $10),
-                      '00000000-0000-0000-0000-000000000000'::uuid) as tie),
     -- The rows asked for: from the first up to p_through, or a page from the
-    -- first or after p_after; and one more, when there is one (then `next`).
+    -- first or after p_after (every row whose key comes after it, as the rows
+    -- stand now); and one more, when there is one (then `next`).
     upto as (select i from r where $12::uuid is not null and id = $12 and i <= 2000),
     take as (
       select case when $8::date is null then coalesce((select i from upto), $11) else $11 end as n),
@@ -655,8 +652,7 @@ begin
                when $8::date is null then r.i <= (select n from take) + 1
                else (r."date" %3$s $8
                      or (r."date" = $8 and (r.rank < $9
-                         or (r.rank = $9 and (r.tie > (select tie from cur)
-                             or (r.lieu_id = $10 and r.id > $13))))))
+                         or (r.rank = $9 and (r.tie > $10 or (r.tie = $10 and r.id > $13))))))
              end),
     shown as (select * from pg where j <= (select n from take)),
     pts as (select lat, lng from lmd),
@@ -683,7 +679,7 @@ begin
                    'lat', s.lat, 'lng', s.lng, 'city', s.city)) order by s.j)
           from shown s), '[]'::jsonb),
       'next', (
-        select pg_catalog.jsonb_build_array(s."date", s.rank, s.lieu_id, s.id)
+        select pg_catalog.jsonb_build_array(s."date", s.rank, s.tie, s.id)
           from shown s
          where exists (select 1 from pg where pg.j > (select n from take))
          order by s.j desc limit 1))
@@ -702,7 +698,7 @@ begin
     $q$, ac.filter_sql(f), v_dir, v_cmp)
   into v_out
   using f.mask, f."like", f.from_date, f.to_date, f.units, f.lieux,
-        null::text, v_after_date, v_after_rank, v_after_lieu, p_limit, p_through, v_after_id;
+        null::text, v_after_date, v_after_rank, v_after_tie, p_limit, p_through, v_after_id;
   return v_out;
 end $$;
 

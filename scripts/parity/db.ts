@@ -8,6 +8,11 @@
 //   - keyset ties at a page boundary: an audition's testimonies sharing a
 //     created_at, another's with none; two auditions of one lieu on one day;
 //     two lieux of the same rank;
+//   - which audition is a lieu's newest when two share its newest day (the
+//     lower id: its tie, point and precision), in a lieu of the same count and
+//     rank as a sibling lieu whose tie falls between the two, so that
+//     unpublishing or moving the first between two result pages moves the
+//     lieu past its sibling (copies of a seed audition, fixed ids);
 //   - ties the tree breaks: sibling units of one count and one rank, and a
 //     unit's largest audition shared by two lieux, each tie order against
 //     the ids' (a département of the harness, '99');
@@ -15,6 +20,10 @@
 //     audition nobody verified, in lieux on the map, newer than anything on
 //     it and placed elsewhere (point, town);
 //   - an old-app location edit (place_stale), left for the placement job;
+//     the old app's online rows: an insert holding a verified testimony
+//     (stale, unplaced) and a renamed one (stale, placed), copies of the
+//     seed's online auditions;
+//   - a draft with testimonies on no point (it must not add to `unplaced`);
 //   - a plain admin (a fake auth user) owning the Lyon area's auditions, for
 //     the admin list's theme options.
 
@@ -48,6 +57,36 @@ const POOL = `a.status = 'published' and a.place_path is not null and not a.audi
 
 const SETUP_SQL = `
 create temp table edges (kind text, id uuid) on commit drop;
+
+-- A copy of an audition under a fixed id, on another day (an online one's
+-- town hall holds one audition a month), with its first p_testimonies
+-- testimonies (all: null) under ids derived from theirs.
+create function pg_temp.copy_audition(p_from uuid, p_id uuid, p_date date, p_testimonies integer default null)
+returns void language plpgsql as $copy$
+declare
+  v_cols text;
+  v_vals text;
+begin
+  select pg_catalog.string_agg(pg_catalog.quote_ident(attname), ', ' order by attnum),
+         pg_catalog.string_agg(case attname when 'date' then '$3' else pg_catalog.quote_ident(attname) end,
+                               ', ' order by attnum)
+    into v_cols, v_vals
+    from pg_catalog.pg_attribute
+   where attrelid = 'public.auditions'::regclass and attnum > 0 and not attisdropped
+     and attgenerated = '' and attname <> 'id';
+  execute pg_catalog.format(
+    'insert into public.auditions (id, %s) select $1, %s from public.auditions where id = $2', v_cols, v_vals)
+    using p_id, p_from, p_date;
+  select pg_catalog.string_agg(pg_catalog.quote_ident(attname), ', ' order by attnum) into v_cols
+    from pg_catalog.pg_attribute
+   where attrelid = 'public.testimonies'::regclass and attnum > 0 and not attisdropped
+     and attgenerated = '' and attname not in ('id', 'audition_id');
+  execute pg_catalog.format(
+    'insert into public.testimonies (id, audition_id, %1$s)
+     select pg_catalog.md5($1::text || t.id::text)::uuid, $1, %1$s
+       from public.testimonies t where t.audition_id = $2 order by t.id limit $3', v_cols)
+    using p_id, p_from, p_testimonies;
+end $copy$;
 
 -- The cohorts of the analyses (auditionCohort): two 2019 cahiers by their
 -- title (case and spaces as typed), and an archive by its generic location,
@@ -236,6 +275,84 @@ begin
      where id = r.id;
     insert into pg_temp.edges values ('stale edit', r.id);
   end if;
+
+  -- A lieu's newest day shared by two auditions, and a sibling lieu between
+  -- them: copies of one audition, all on one day newer than the map (and
+  -- older than the hidden ones above). Lieu A holds p (one testimony) and s
+  -- (one, another point and precision), lieu B q (two), p < q < s: same
+  -- count, same rank, A first by its tie p, and by lieu id the other way.
+  select a.* into v from public.auditions a
+   where ${POOL} and a.place_unit like 'fr:com:%'
+     and (select count(*) from public.testimonies t where t.audition_id = a.id) >= 2
+   order by a.id limit 1;
+  if v.id is not null then
+    perform pg_temp.copy_audition(v.id, 'd0000000-0000-4000-8000-000000000001', v_max + 7, 1);
+    perform pg_temp.copy_audition(v.id, 'd0000000-0000-4000-8000-000000000002', v_max + 7, 2);
+    perform pg_temp.copy_audition(v.id, 'd0000000-0000-4000-8000-000000000003', v_max + 7, 1);
+    update public.auditions a
+       set lieu_key = x.key, location = x.key, placed_location = x.key,
+           -- Six decimals, as the seed's: printed alike at any extra_float_digits.
+           lat = pg_catalog.round((v.lat + x.k * 0.013)::numeric, 6),
+           lng = pg_catalog.round((v.lng + x.k * 0.017)::numeric, 6),
+           place_precision = case x.k when 1 then 'commune' else 'address' end
+      from (values ('d0000000-0000-4000-8000-000000000001'::uuid, 'a', 0),
+                   ('d0000000-0000-4000-8000-000000000002'::uuid, 'b', 2),
+                   ('d0000000-0000-4000-8000-000000000003'::uuid, 'a', 1)) as y(id, lieu, k)
+      cross join lateral (
+        -- The two names, so that A's lieu id sorts after B's.
+        select case when (pg_catalog.md5(v.place_unit || chr(31) || 'Kiosque de la parité') collate "C"
+                          > pg_catalog.md5(v.place_unit || chr(31) || 'Fontaine de la parité'))
+                         = (y.lieu = 'a')
+                    then 'Kiosque de la parité' else 'Fontaine de la parité' end as key, y.k as k) x
+     where a.id = y.id;
+    insert into pg_temp.edges values
+      ('newest day shared', 'd0000000-0000-4000-8000-000000000001'),
+      ('newest day shared', 'd0000000-0000-4000-8000-000000000003'),
+      ('newest day shared, sibling', 'd0000000-0000-4000-8000-000000000002');
+  end if;
+
+  -- A draft with testimonies, on no point (as an old-app insert the job
+  -- settled unplaced): its testimonies are not public, unplaced or not.
+  select a.id into v_id from public.auditions a
+    join public.testimonies t on t.audition_id = a.id
+   where a.status is distinct from 'published' and a.id not in (select e.id from pg_temp.edges e)
+   group by a.id order by count(*) desc, a.id limit 1;
+  if v_id is not null then
+    update public.auditions
+       set place_unit = null, place_path = null, locality_id = null, lieu_key = null, lat = null,
+           lng = null, place_precision = 'unplaced', placed_location = location
+     where id = v_id;
+    insert into pg_temp.edges values ('unplaced draft', v_id);
+  end if;
+
+  -- The old app's online rows, copies of the seed's online auditions that
+  -- hold a verified testimony: an insert (stale, on no point: /api/map files
+  -- it by its name at once), and a rename (stale, at its stored lieu).
+  for r in
+    select a.id, a."date", row_number() over (order by a.id) as i
+      from public.auditions a
+     where a.audition_en_ligne and a.status = 'published' and a.place_path is not null
+       and a.id not in (select e.id from pg_temp.edges e)
+       and exists (select 1 from public.testimonies t
+                    where t.audition_id = a.id and t.verification_status = 'verified')
+     order by a.id limit 2
+  loop
+    v_id := case r.i when 1 then 'd0000000-0000-4000-8000-0000000000f1'::uuid
+                     else 'd0000000-0000-4000-8000-0000000000f2'::uuid end;
+    perform pg_temp.copy_audition(
+      r.id, v_id, (pg_catalog.date_trunc('month', r."date") - pg_catalog.make_interval(years => 1))::date);
+    if r.i = 1 then
+      update public.auditions
+         set place_unit = null, place_path = null, locality_id = null, lieu_key = null, lat = null,
+             lng = null, place_precision = null, placed_location = null, placed_rules = null,
+             geo_release = null
+       where id = v_id;
+      insert into pg_temp.edges values ('online old-app insert', v_id);
+    else
+      update public.auditions set location = location || ' (salle B)' where id = v_id;
+      insert into pg_temp.edges values ('online old-app rename', v_id);
+    end if;
+  end loop;
 end $edges$;
 
 insert into auth.users (id) values (${lit(PLAIN_ADMIN)});
@@ -270,6 +387,9 @@ export interface AuditionRow {
   created_by: string | null;
   place_path: string[] | null;
   lieu_id: string | null;
+  place_precision: string | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface Exported {
@@ -282,6 +402,8 @@ export interface Exported {
   groups: LocationGroup[];
   /** /api/map's groups as it serves them: a stale row filed by its name. */
   mapGroups: LocationGroup[];
+  /** The rows /api/map reads: published; online, once holding a verified testimony. */
+  mapIds: Set<string>;
   /** Every audition (admins see every status). */
   auditions: AuditionRow[];
   /** /api/testimonies/admin/filterable, as an admin reads it. */
@@ -313,7 +435,9 @@ select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
 select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
          'id', id, 'title', title, 'date', "date", 'location', location, 'content', content,
          'status', status, 'audition_en_ligne', audition_en_ligne, 'created_by', created_by,
-         'place_path', place_path, 'lieu_id', lieu_id) order by "date" desc, id), '[]'::jsonb)
+         'place_path', place_path, 'lieu_id', lieu_id, 'place_precision', place_precision,
+         'lat', lat, 'lng', lng)
+         order by "date" desc, id), '[]'::jsonb)
   from public.auditions;
 select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
          'audition_id', audition_id, 'person_name', person_name, 'person_info', person_info,
@@ -338,14 +462,27 @@ rollback;`) as [
     })
     .filter((a) => !(a.audition_en_ligne && a.testimony_count === 0));
   const byId = new Map(units.map((u) => [u.id, u]));
-  // What the RPCs read until the placement job's next pass (design A21, D14).
+  // What the RPCs read until the placement job's next pass (design A21, D14):
+  // every row at its stored place. groupsFromRows files an online row by its
+  // name at its town hall: one the old app renamed is filed by its stored
+  // lieu (the name it was placed under) at its stored point instead.
   const stored = rows
     .filter((a) => !(a.audition_en_ligne && !a.place_path))
-    .map((a) => ({ ...a, place_stale: false }));
+    .map((a) =>
+      a.audition_en_ligne && a.place_stale
+        ? {
+            ...a,
+            location: a.lieu_key!,
+            place: { ...(a.place as object), lat: a.lat, lng: a.lng },
+            place_stale: false,
+          }
+        : { ...a, place_stale: false },
+    );
   return {
     corpus,
     groups: groupsFromRows(stored, byId),
     mapGroups: groupsFromRows(rows, byId),
+    mapIds: new Set(rows.map((a) => a.id)),
     auditions,
     filterable,
   };
@@ -357,13 +494,14 @@ export interface Call {
   take: (value: unknown) => void;
 }
 
-// Walks a keyset through to its end; the rows through an audition and the
-// page after them; and the SQLSTATE a statement raises.
+// Walks a keyset through to its end; the same across a change of the rows
+// between two pages; the rows through an audition and the page after them;
+// and the SQLSTATE a statement raises.
 const HELPERS = `
-create function pg_temp.walk_results(p_filters jsonb, p_sort text, p_limit integer, p_through uuid default null)
+create function pg_temp.walk_on(p_filters jsonb, p_sort text, p_limit integer, p_page jsonb)
 returns jsonb language plpgsql as $$
 declare
-  v_page jsonb := public.audition_results(p_filters, p_sort, null, p_limit, p_through);
+  v_page jsonb := p_page;
   v_pages jsonb := '[]';
   v_turns integer := 0;
 begin
@@ -375,6 +513,36 @@ begin
     v_page := public.audition_results(p_filters, p_sort, v_page -> 'next', p_limit);
   end loop;
   return v_pages;
+end $$;
+create function pg_temp.walk_results(p_filters jsonb, p_sort text, p_limit integer, p_through uuid default null)
+returns jsonb language plpgsql as $$
+begin
+  return pg_temp.walk_on(p_filters, p_sort, p_limit,
+                         public.audition_results(p_filters, p_sort, null, p_limit, p_through));
+end $$;
+-- [the rows through p_through, the pages after them once p_change has run,
+-- a whole walk after the change]; the change is undone (a subtransaction
+-- rolled back), the answers kept.
+create function pg_temp.walk_across(p_filters jsonb, p_sort text, p_limit integer, p_through uuid, p_change text)
+returns jsonb language plpgsql as $$
+declare
+  v_first jsonb;
+  v_rest jsonb;
+  v_fresh jsonb;
+begin
+  begin
+    v_first := public.audition_results(p_filters, p_sort, null, p_limit, p_through);
+    execute p_change;
+    v_rest := case when pg_catalog.jsonb_typeof(v_first -> 'next') = 'array'
+                   then pg_temp.walk_on(p_filters, p_sort, p_limit,
+                          public.audition_results(p_filters, p_sort, v_first -> 'next', p_limit))
+                   else '[]' end;
+    v_fresh := pg_temp.walk_results(p_filters, p_sort, p_limit);
+    raise exception 'undone' using errcode = 'AC000';
+  exception when sqlstate 'AC000' then
+    null;
+  end;
+  return pg_catalog.jsonb_build_array(v_first, v_rest, v_fresh);
 end $$;
 create function pg_temp.through_and_next(p_filters jsonb, p_sort text, p_limit integer, p_through uuid)
 returns jsonb language plpgsql as $$

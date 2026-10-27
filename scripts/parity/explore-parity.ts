@@ -15,8 +15,10 @@
 // Both run over every filter of a matrix (none, verified, each theme,
 // needles of 1, 2 and 3+ characters, accents, % and _, dates, places,
 // combinations), every unit (whole tree, and the lazy path at depths 1 to
-// 3), every lieu, every result and testimony page (7 a page), and pages cut
-// inside every kind of tie. The setup (db.ts) adds the cases the seed lacks.
+// 3), every lieu, every result and testimony page (7 a page), pages cut
+// inside every kind of tie, and result pages walked across a change of a
+// lieu's newest audition between two pages. The setup (db.ts) adds the cases
+// the seed lacks.
 //
 // Only the design's D1 and D14 may differ (report.ts): each is listed; any
 // other difference fails, every order included. Drafts are dropped from the
@@ -357,6 +359,10 @@ interface Ctx {
   ids: IdMap;
   /** Per lieu id, the date of its newest audition on the map (its rank). */
   lieuRank: Map<string, string>;
+  /** Per lieu id, its newest audition on the map (date desc, then the lower id: its tie). */
+  lieuTie: Map<string, string>;
+  /** Per audition id, its stored place_precision. */
+  precisionOf: Map<string, string | null>;
   /** Per audition id, its lieu id. */
   lieuOf: Map<string, string>;
   dateOf: Map<string, string>;
@@ -423,6 +429,14 @@ function compareTree(view: View, answer: S.PlaceCounts, ctx: Ctx): Map<string, S
     if (u.levelKey === "place") {
       r.eq(`${w} point`, u.center, [node.lieu!.lat, node.lieu!.lng]);
       r.eq(`${w} key`, u.canonical, node.lieu!.key);
+      // Its newest audition, as /api/map takes it (the lower id on a shared
+      // day): the lieu's tie and precision, as its point and city above.
+      const newest = ctx.lieuTie.get(id);
+      r.eq(
+        `${w} newest audition (tie, precision)`,
+        [newest ?? null, newest ? (ctx.precisionOf.get(newest) ?? null) : null],
+        [node.lieu!.tie, node.lieu!.precision],
+      );
     }
     // FR keeps METRO_FRANCE on the web (design A12); the world box is never
     // drawn. Their raw boxes are compared all the same.
@@ -575,6 +589,9 @@ const ZERO_FACTS: S.Facts = {
   testimonies: 0,
   themeAuditions: AUDITION_THEMES.map(() => 0),
 };
+
+/** walk_across: [the rows through the cut, the pages after the change, a whole walk after it]. */
+type Across = [S.ResultsPage, S.ResultsPage[], S.ResultsPage[]];
 
 interface CaseAnswers {
   complete?: S.PlaceCounts;
@@ -832,6 +849,7 @@ function main(argv: string[]): number {
   const corpus = ex.corpus.filter((t) => t.audition && status.get(t.audition.id) === "published");
   const ids = idMapOf(ex.groups);
   const lieuRank = new Map<string, string>();
+  const lieuTie = new Map<string, string>();
   const lieuOf = new Map<string, string>();
   const dateOf = new Map<string, string>();
   for (const g of ex.groups) {
@@ -839,9 +857,13 @@ function main(argv: string[]): number {
       lieuOf.set(a.id, g.lieuId!);
       dateOf.set(a.id, a.date);
       if ((lieuRank.get(g.lieuId!) ?? "") < a.date) lieuRank.set(g.lieuId!, a.date);
+      const t = lieuTie.get(g.lieuId!);
+      const td = t ? dateOf.get(t)! : "";
+      if (!t || a.date > td || (a.date === td && a.id < t)) lieuTie.set(g.lieuId!, a.id);
     }
   }
-  const ctx: Ctx = { ex, ids, lieuRank, lieuOf, dateOf };
+  const precisionOf = new Map(ex.auditions.map((a) => [a.id, a.place_precision]));
+  const ctx: Ctx = { ex, ids, lieuRank, lieuTie, lieuOf, dateOf, precisionOf };
 
   const unfiltered = buildGeoHierarchy(ex.groups);
   const cases = matrix(ex, corpus, ids, [...unfiltered.index.values()]);
@@ -934,6 +956,34 @@ function main(argv: string[]): number {
     }
   }
 
+  // Result pages across a change between two pages (no filter, each sort):
+  // the first page ends on p, the first audition of the lieu whose newest
+  // day it shares with s; then p is unpublished, or moved into the sibling
+  // lieu (q's): either way the lieu's tie becomes s, past q's. Every row
+  // whose key held must be served once, in the order of the rows as they
+  // then stand.
+  const [p, sh] = s.edges["newest day shared"] ?? [];
+  const [q] = s.edges["newest day shared, sibling"] ?? [];
+  const across = new Map<string, Across>();
+  const changes: [string, string][] =
+    p && sh && q
+      ? [
+          ["unpublished", `update public.auditions set status = 'draft' where id = '${p}'`],
+          [
+            "moved into its sibling",
+            `update public.auditions set lieu_key = (select b.lieu_key from public.auditions b where b.id = '${q}') where id = '${p}'`,
+          ],
+        ]
+      : [];
+  for (const [name, change] of changes) {
+    for (const sort of SORTS) {
+      calls.push({
+        sql: `select pg_temp.walk_across('{}', '${sort}', ${PAGE}, '${p}', ${lit(change)})`,
+        take: (v) => across.set(`${name} (${sort})`, v as Across),
+      });
+    }
+  }
+
   let facets: S.Facets | undefined;
   let empty: S.PlaceCounts | undefined;
   calls.push({ sql: "select public.place_facets()", take: (v) => (facets = v as S.Facets) });
@@ -974,7 +1024,7 @@ function main(argv: string[]): number {
   }
 
   // Refusals: 22023, never a result.
-  const AFTER = `"2026-01-01","2026-01-01","l:0123456789abcdef","00000000-0000-4000-8000-000000000000"`;
+  const AFTER = `"2026-01-01","2026-01-01","00000000-0000-4000-8000-000000000000","00000000-0000-4000-8000-000000000000"`;
   const after = (json: string) => `select public.audition_results('{}', 'recent', '${json}')`;
   // A well-formed key with element i replaced.
   const afterWith = (i: number, v: string) =>
@@ -1023,7 +1073,8 @@ function main(argv: string[]): number {
     ["results malformed after", after(`["2026-01-01"]`)],
     ["results after, a null date", afterWith(0, "null")],
     ["results after, a null rank", afterWith(1, "null")],
-    ["results after, a null lieu", afterWith(2, "null")],
+    ["results after, a null tie", afterWith(2, "null")],
+    ["results after, a lieu id for the tie", afterWith(2, `"l:0123456789abcdef"`)],
     ["results after, a null id", afterWith(3, "null")],
     ["results after, a number", afterWith(1, "20260101")],
     ["results after, an object", after(`{"date":"2026-01-01"}`)],
@@ -1104,14 +1155,27 @@ function main(argv: string[]): number {
     }
   }
 
-  // D14: the old app's rows, where /api/map files them and where the server reads them.
+  // The rows walked across a change: each row once, none skipped.
+  r.current = "results across a change";
+  const idsOf = (pages: S.ResultsPage[]) => pages.flatMap((pg) => pg.auditions.map((x) => x.id));
+  for (const [name, [first, rest, fresh]] of across) {
+    const now = idsOf(fresh);
+    const still = new Set(now);
+    r.order(
+      `results ${name}: the rows before the change still there, then the pages after it`,
+      now,
+      [...first.auditions.map((x) => x.id).filter((id) => still.has(id)), ...idsOf(rest)],
+    );
+  }
+
+  // D14: the old app's rows, where /api/map files them and where the server
+  // reads them; every row /api/map shows, online ones included.
   r.current = "stale rows";
-  const rowOf = new Map(ex.auditions.map((a) => [a.id, a]));
   const groupOf = (groups: LocationGroup[], id: string) =>
     groups.find((g) => g.auditions.some((a) => a.id === id));
+  const listed = new Set<string>();
   for (const st of s.stale) {
-    const row = rowOf.get(st.id);
-    const shownOnMap = row?.status === "published" && !row.audition_en_ligne;
+    const shownOnMap = ex.mapIds.has(st.id);
     const read = groupOf(ex.groups, st.id);
     r.eq(
       `stale ${st.id} read at its stored place`,
@@ -1121,6 +1185,7 @@ function main(argv: string[]): number {
     const served = groupOf(ex.mapGroups, st.id);
     // Not filed here (the harness has no geocoder): /api/map would place it.
     if (shownOnMap && (!served || served.canonicalName !== read?.canonicalName)) {
+      listed.add(st.id);
       r.add(
         "D14",
         `stale audition ${st.id} ("${st.location}"): /api/map files it ` +
@@ -1131,7 +1196,7 @@ function main(argv: string[]): number {
     }
   }
 
-  coverage(s, ex, answers.get("none")!, views.get("none")!, ctx);
+  coverage(s, ex, answers.get("none")!, views.get("none")!, ctx, across, listed);
 
   r.current = "facets";
   const legacyTopics = topicOptions(corpus);
@@ -1212,7 +1277,16 @@ function main(argv: string[]): number {
  * The setup's edges are in place, each where it bites: without them a seed
  * change would let a broken tie-break or visibility rule pass unnoticed.
  */
-function coverage(s: Setup, ex: Exported, none: CaseAnswers, view: View, ctx: Ctx): void {
+function coverage(
+  s: Setup,
+  ex: Exported,
+  none: CaseAnswers,
+  view: View,
+  ctx: Ctx,
+  across: Map<string, Across>,
+  /** The stale rows listed as D14. */
+  listed: Set<string>,
+): void {
   r.current = "coverage";
   const edge = (kind: string) => s.edges[kind] ?? [];
   const fr = none.complete!.units.find((u) => u.level === "country");
@@ -1304,6 +1378,93 @@ function coverage(s: Setup, ex: Exported, none: CaseAnswers, view: View, ctx: Ct
     "an old-app location edit, stale and placed",
     true,
     s.stale.some((st) => st.id === edited && st.lieu_key !== null) && ctx.lieuOf.has(edited ?? ""),
+  );
+
+  // A lieu's newest day shared by two auditions, the second at another
+  // point and precision; a sibling lieu of the same count and rank whose tie
+  // falls between them, and whose lieu id sorts the other way.
+  const row = (id: string | undefined) => ex.auditions.find((a) => a.id === id);
+  const [p, sh] = edge("newest day shared").map(row);
+  const [q] = edge("newest day shared, sibling").map(row);
+  const lieuA = allLieux.find((l) => l.id === p?.lieu_id);
+  const lieuB = allLieux.find((l) => l.id === q?.lieu_id);
+  r.eq(
+    "a lieu's newest day shared by two auditions at two points and precisions",
+    true,
+    Boolean(p && sh && lieuA) &&
+      p!.lieu_id === sh!.lieu_id &&
+      p!.date === sh!.date &&
+      ctx.lieuRank.get(p!.lieu_id!) === p!.date &&
+      p!.id < sh!.id &&
+      ctx.lieuTie.get(p!.lieu_id!) === p!.id &&
+      (p!.lat !== sh!.lat || p!.lng !== sh!.lng) &&
+      p!.place_precision !== sh!.place_precision,
+  );
+  r.eq(
+    "a sibling lieu of the same count and rank, its tie between the two, its lieu id the other way",
+    true,
+    Boolean(lieuA && lieuB && q) &&
+      lieuA!.unit === lieuB!.unit &&
+      lieuA!.n === lieuB!.n &&
+      lieuA!.rank === lieuB!.rank &&
+      p!.id < q!.id &&
+      q!.id < sh!.id &&
+      against(lieuA!, lieuB!),
+  );
+  // The results walk across a change: the first page ends on p, and
+  // unpublishing p puts its lieu (tie s now) after the sibling (tie q).
+  const order = (none.results.get("recent") ?? []).flatMap((pg) => pg.auditions.map((x) => x.id));
+  const unpublished = across.get("unpublished (recent)");
+  const after = unpublished ? unpublished[2].flatMap((pg) => pg.auditions.map((x) => x.id)) : [];
+  r.eq(
+    "a result page ends on a lieu's first audition, and unpublishing it moves the lieu past its sibling",
+    true,
+    Boolean(p && sh && q && unpublished) &&
+      isDeepStrictEqual(order.slice(0, 3), [p!.id, sh!.id, q!.id]) &&
+      unpublished![0].auditions.at(-1)?.id === p!.id &&
+      after.indexOf(q!.id) >= 0 &&
+      after.indexOf(q!.id) < after.indexOf(sh!.id),
+  );
+  r.eq("results walked across each change, in each sort", 4, across.size);
+
+  // A draft holding testimonies, on no point.
+  const draft = row(edge("unplaced draft")[0]);
+  r.eq(
+    "an unplaced draft holding testimonies",
+    true,
+    Boolean(draft) &&
+      draft!.status !== "published" &&
+      draft!.place_path === null &&
+      ex.filterable.some((t) => t.audition_id === draft!.id),
+  );
+
+  // The old app's online rows: an insert /api/map files by its name while the
+  // server leaves it unplaced; a rename it files by its new name while the
+  // server reads it at its stored lieu.
+  const staleOf = (id: string | undefined) => s.stale.find((st) => st.id === id);
+  const mapGroupOf = (id: string) => ex.mapGroups.find((g) => g.auditions.some((a) => a.id === id));
+  const [inserted] = edge("online old-app insert");
+  const ins = staleOf(inserted);
+  r.eq(
+    "an old-app online insert, stale, unplaced, shown by /api/map, listed (D14)",
+    true,
+    Boolean(ins) &&
+      ins!.lieu_key === null &&
+      ex.mapIds.has(ins!.id) &&
+      Boolean(mapGroupOf(ins!.id)) &&
+      listed.has(ins!.id),
+  );
+  const [renamed] = edge("online old-app rename");
+  const ren = staleOf(renamed);
+  r.eq(
+    "an old-app online rename, stale, placed, filed elsewhere by /api/map, listed (D14)",
+    true,
+    Boolean(ren) &&
+      ren!.lieu_key !== null &&
+      ex.mapIds.has(ren!.id) &&
+      ctx.lieuOf.has(ren!.id) &&
+      mapGroupOf(ren!.id)?.canonicalName !== ren!.lieu_key &&
+      listed.has(ren!.id),
   );
 }
 
