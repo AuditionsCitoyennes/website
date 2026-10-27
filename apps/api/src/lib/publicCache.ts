@@ -2,28 +2,41 @@ import { CacheFamily } from "./cache";
 import { TooLongError } from "./guards";
 
 // The caches of the public reads, one family each (lib/cache.ts), within one
-// memory budget (design A19, D3): 64 MB of Buffers in all, beside the 256 MB
-// heap (which holds the boundaries' LRU) in a 512 MB container. Every family
-// can be full at once (entries leave by LRU, a delete or a write, never by
-// age alone), so the budgets below add up to the 64 MB. A change to
-// auditions or testimonies can move any of them (the map groups, the
-// auditions list and every place count carry testimony counts), so a write
-// invalidates them all.
+// memory budget (design A19, D3): 74 MB of Buffers in all — 64 MB of answers
+// and 10 MB of responses assembled from them — beside the 256 MB heap (which
+// holds the boundaries' LRU) in a 512 MB container. Every family can be full
+// at once (entries leave by LRU, a delete or a write, never by age alone),
+// so the budgets below add up to the 74 MB. A change to auditions or
+// testimonies can move any of them (the map groups, the auditions list and
+// every place count carry testimony counts), so a write invalidates them all.
 
 const MB = 1024 * 1024;
 const MINUTE = 60_000;
 
 /**
- * The place counts (map phase 1): per unit, and each units= answer assembled
- * from them (modules/places/readRoutes.ts). An entry may take 6 MB: a unit's
- * answer is at most 2 MB of JSON (modules/places/read.ts), an assembled
- * batch at most 4 MB plus its gzip — kept, not built again per request.
+ * The place counts (map phase 1), per unit, and the filter dialog's facets:
+ * answers read from the database. A unit's is at most 2 MB of JSON
+ * (modules/places/read.ts) plus its gzip, within the default entry limit
+ * (a quarter of the family). Nothing assembled from them is kept here
+ * (assembledCache): an assembly, cheap to make again, never evicts an
+ * answer that costs a database call.
  */
-export const placesCache = new CacheFamily({
-  name: "places",
-  maxBytes: 18 * MB,
+export const placesCache = new CacheFamily({ name: "places", maxBytes: 18 * MB, ttlMs: MINUTE });
+/**
+ * Responses assembled from cached answers, under their ETag (the hash of
+ * their parts' tags, so a key always names the same bytes): a units= batch
+ * of place counts, an answer with "textIgnored" (modules/places/readRoutes.ts).
+ * Their own family, so that however many there are they only evict one
+ * another. An entry may take 6 MB: a batch is at most 4 MB of JSON
+ * (BATCH_MAX_BYTES) plus its gzip — kept, not built again per request. The
+ * TTL only bounds how long an unused one stays (the LRU and a write drop it
+ * sooner).
+ */
+export const assembledCache = new CacheFamily({
+  name: "assembled",
+  maxBytes: 10 * MB,
   maxEntryBytes: 6 * MB,
-  ttlMs: MINUTE,
+  ttlMs: 10 * MINUTE,
 });
 // A lieu's answer may be as heavy as a read brings back (lib/supabase.ts,
 // 2 MB of JSON, plus its gzip): kept, not read again per request.
@@ -67,6 +80,7 @@ export const legacyCache = new CacheFamily({
 /** Every public family: what a write invalidates. */
 export const PUBLIC_FAMILIES = [
   placesCache,
+  assembledCache,
   lieuCache,
   resultsCache,
   tpageCache,

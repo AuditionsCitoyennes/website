@@ -110,7 +110,11 @@ export interface PlaceResultRow {
   lieu: PlaceResultLieu;
 }
 
-/** The key of the next results page: [date, rank, lieu id, id]. */
+/**
+ * The key of the next results page, as audition_results gives it: [date,
+ * rank, tie, id], the tie being the id of the lieu's newest audition (a
+ * uuid, not the lieu's id). Sent back as is, comma-separated, as `after`.
+ */
 export type PlaceResultsCursor = [string, string, string, string];
 
 /** GET /api/places/results */

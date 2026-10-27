@@ -48,6 +48,8 @@ const ADMIN = "00000000-0000-4000-8000-0000000000bb";
 const NOBODY = "00000000-0000-4000-8000-0000000000cc";
 const AUDITION = "00000000-0000-4000-8000-000000000001";
 const LIEU = "l:0123456789abcdef";
+// A results cursor's tie: the id of a lieu's newest audition (never the lieu's id).
+const TIE = "00000000-0000-4000-8000-000000000002";
 
 /** What the stubs were called with, per RPC. */
 let calls: Record<string, Row[]> = {};
@@ -289,8 +291,12 @@ test("refused before any call: bad parameters", async () => {
     ["/api/places/results?limit=101", /Limite/],
     ["/api/places/results?sort=old", /Tri/],
     ["/api/places/results?after=2025-01-01,2025-01-01,l:0123456789abcdef", /Curseur/],
+    // The tie is an audition's id: a lieu's id there is not a cursor of audition_results.
+    [`/api/places/results?after=2025-01-01,2025-01-01,${LIEU},${AUDITION}`, /Curseur/],
+    [`/api/places/results?after=2025-01-01,2025-01-01,${TIE},${LIEU}`, /Curseur/],
+    [`/api/places/results?after=2025-01-01,2025-01,${TIE},${AUDITION}`, /Curseur/],
     [
-      `/api/places/results?after=2025-01-01,2025-01-01,${LIEU},${AUDITION}&through=${AUDITION}`,
+      `/api/places/results?after=2025-01-01,2025-01-01,${TIE},${AUDITION}&through=${AUDITION}`,
       /exclusifs/,
     ],
     [`/api/auditions/${AUDITION}/testimonies?after=yesterday,${AUDITION}`, /Curseur/],
@@ -452,7 +458,7 @@ test("a visitor's misses: 30 RPC calls per 10 s, 20 with a text; then 429 with R
 });
 
 test("later pages are misses too: they count against the visitor's limit", async () => {
-  const page = `/api/places/results?after=2025-05-01,2025-05-02,${LIEU},${AUDITION}`;
+  const page = `/api/places/results?after=2025-05-01,2025-05-02,${TIE},${AUDITION}`;
   for (let i = 0; i < 30; i++) assert.equal((await get(page)).statusCode, 200, `page ${i}`);
   const refused = await get(page);
   assert.equal(refused.statusCode, 429);
@@ -579,11 +585,11 @@ test("an answer past the read limit: 400, not kept; a units= answer past its lim
 });
 
 test("units=: the answer assembled once, kept under its parts' tags; hits and 304s build nothing", async () => {
-  const { placesCache } = await import("../../lib/publicCache");
+  const { assembledCache } = await import("../../lib/publicCache");
   const units = ["world", "FR", "fr:reg:84"];
   for (const u of units) await get(`/api/places?unit=${encodeURIComponent(u)}`);
   const url = `/api/places?units=${units.join(",")}`;
-  const fills = () => placesCache.stats().fills;
+  const fills = () => assembledCache.stats().fills;
   const before = fills();
   // Twenty at once, every unit cached: one assembly between them all.
   const all = await Promise.all(Array.from({ length: 20 }, () => get(url)));
@@ -633,6 +639,181 @@ test("units=: an assembly that reaches no database costs its visitor one call; a
   assert.equal(another.headers.etag, undefined);
   assert.equal(another.headers["cache-control"], "no-store");
   assert.equal((await get("/api/places?units=world,FR")).statusCode, 200, "a hit: free");
+});
+
+/** Three units whose answers weigh `bytes` each (with the stub's `n`), served by place_counts_many. */
+function heavyUnits(bytes: number) {
+  stub("place_counts_many", (a) =>
+    (a.p_units as string[]).map((u) => ({ unit: u, n: version, pad: "x".repeat(bytes) })),
+  );
+  return ["fr:reg:84", "fr:reg:11", "fr:reg:52"];
+}
+const plainUnits = () =>
+  stub("place_counts_many", (a) => (a.p_units as string[]).map((u) => countsOf(u, a)));
+
+test("units=: a client holding the batch is told 304 before anything is assembled", async () => {
+  const { assembledCache } = await import("../../lib/publicCache");
+  const url = "/api/places?units=world,FR&q=ab";
+  const first = await get(url);
+  assert.equal(first.statusCode, 200);
+  const etag = String(first.headers.etag);
+  // A write drops everything; the units are read again, the same bytes: the
+  // batch's tag is the same, and its bytes are nowhere.
+  invalidatePublicCaches();
+  for (const u of ["world", "FR"]) await get(`/api/places?unit=${u}`);
+  const fills = assembledCache.stats().fills;
+  const rpcs = calls.place_counts_many.length;
+  const held = await get(url, { "if-none-match": etag });
+  assert.equal(held.statusCode, 304);
+  assert.equal(held.headers.etag, etag);
+  assert.equal(held.body, "");
+  assert.equal(assembledCache.stats().fills, fills, "nothing assembled for a 304");
+  assert.equal(assembledCache.stats().entries, 0);
+  assert.equal(calls.place_counts_many.length, rpcs, "nor read");
+  // The same for one answer with textIgnored.
+  const one = await get("/api/places?unit=world&q=ab");
+  invalidatePublicCaches();
+  await get("/api/places?unit=world");
+  const before = assembledCache.stats().fills;
+  const heldOne = await get("/api/places?unit=world&q=ab", {
+    "if-none-match": String(one.headers.etag),
+  });
+  assert.equal(heldOne.statusCode, 304);
+  assert.equal(assembledCache.stats().fills, before);
+});
+
+test("units=: four assemblies at a time, then a queue, then 503; the gate's refusal costs nothing", async () => {
+  const { assemblyGate } = await import("./readRoutes");
+  const { assembledCache } = await import("../../lib/publicCache");
+  for (const u of ["world", "FR"]) await get(`/api/places?unit=${u}`, {}, "10.253.0.1");
+  let release!: () => void;
+  const blocker = new Promise<void>((resolve) => (release = resolve));
+  const running = Array.from({ length: 4 }, () => assemblyGate.run(() => blocker));
+  let queued: Promise<unknown>[] = [];
+  try {
+    // Four assemblies under way (the blockers): a fifth waits for a slot.
+    const waiting = get("/api/places?units=world,FR", {}, "10.253.0.2");
+    const first = await Promise.race([
+      waiting.then(() => "answered"),
+      sleep(150).then(() => "waiting"),
+    ]);
+    assert.equal(first, "waiting", "no assembly past the four at once");
+    assert.deepEqual(assemblyGate.stats(), { active: 4, held: 0, waiting: 1 });
+    assert.equal(assembledCache.stats().entries, 0);
+    // The queue full (50 waiting): another order is refused at once.
+    queued = Array.from({ length: 49 }, () =>
+      assemblyGate.run(() => blocker).catch(() => undefined),
+    );
+    const refused = await get("/api/places?units=FR,world", {}, "10.253.0.3");
+    assert.equal(refused.statusCode, 503);
+    assert.equal(refused.json().message, "Réessayez dans un instant.");
+    assert.equal(refused.headers["retry-after"], "1");
+    assert.equal(refused.headers["cache-control"], "no-store");
+    assert.equal(refused.headers.etag, undefined);
+    release();
+    assert.equal((await waiting).statusCode, 200, "built once a slot was free");
+  } finally {
+    release();
+    await Promise.all([...running, ...queued]);
+  }
+  assert.equal(assembledCache.stats().entries, 1);
+  // The visitor the gate refused paid nothing: its 30 misses are whole.
+  for (let i = 0; i < 30; i++) {
+    const res = await get(`/api/places?unit=fr:com:${74000 + i}`, {}, "10.253.0.3");
+    assert.equal(res.statusCode, 200, `miss ${i}`);
+  }
+  assert.equal((await get("/api/places?unit=fr:com:74999", {}, "10.253.0.3")).statusCode, 429);
+  // The one whose assembly ran paid one call for it.
+  for (let i = 0; i < 29; i++) {
+    const res = await get(`/api/places?unit=fr:com:${75000 + i}`, {}, "10.253.0.2");
+    assert.equal(res.statusCode, 200, `miss ${i}`);
+  }
+  assert.equal((await get("/api/places?unit=fr:com:75999", {}, "10.253.0.2")).statusCode, 429);
+});
+
+test("units=: a batch of about 4 MB is kept; the next request sends it as built", async () => {
+  const { assembledCache } = await import("../../lib/publicCache");
+  const { BATCH_MAX_BYTES } = await import("./readRoutes");
+  const three = heavyUnits(1_300_000);
+  try {
+    for (const u of three) assert.equal((await get(`/api/places?unit=${u}`)).statusCode, 200);
+    const url = `/api/places?units=${three.join(",")}`;
+    const fills = assembledCache.stats().fills;
+    const first = await get(url);
+    assert.equal(first.statusCode, 200, first.body.slice(0, 200));
+    assert.ok(first.rawPayload.length > 3_900_000 && first.rawPayload.length < BATCH_MAX_BYTES);
+    assert.equal(assembledCache.stats().fills, fills + 1);
+    assert.ok(assembledCache.stats().bytes > first.rawPayload.length, "kept");
+    const again = await get(url);
+    assert.equal(again.statusCode, 200);
+    assert.ok(again.rawPayload.equals(first.rawPayload));
+    assert.equal(assembledCache.stats().fills, fills + 1, "not built again");
+    assert.equal(calls.place_counts_many.length, 3);
+  } finally {
+    plainUnits();
+  }
+});
+
+test("units=: assembled answers live apart — however many, they never evict a unit's answer", async () => {
+  const { assembledCache, placesCache } = await import("../../lib/publicCache");
+  // The oldest entry of the per-unit family, then three units of 1.3 MB.
+  assert.equal((await get("/api/places?unit=world")).statusCode, 200);
+  const three = heavyUnits(1_300_000);
+  try {
+    for (const u of three) assert.equal((await get(`/api/places?unit=${u}`)).statusCode, 200);
+    const evictions = placesCache.stats().evictions;
+    // Every order of the three: six batches of 3.9 MB, 23 MB in all.
+    const [a, b, c] = three;
+    const orders = [
+      [a, b, c],
+      [a, c, b],
+      [b, a, c],
+      [b, c, a],
+      [c, a, b],
+      [c, b, a],
+    ];
+    for (const [i, order] of orders.entries()) {
+      const res = await get(`/api/places?units=${order.join(",")}`, {}, `10.254.0.${i + 1}`);
+      assert.equal(res.statusCode, 200, `order ${i}`);
+    }
+    const rpcs = calls.place_counts_many.length;
+    for (const u of ["world", ...three]) {
+      const res = await get(`/api/places?unit=${u}`);
+      assert.equal(res.headers["x-cache"], "hit", `${u}: still kept`);
+    }
+    assert.equal(calls.place_counts_many.length, rpcs, "nothing read again");
+    assert.equal(placesCache.stats().evictions, evictions, "never among the units' answers");
+    assert.ok(assembledCache.stats().evictions > 0, "the batches made room among themselves");
+  } finally {
+    plainUnits();
+  }
+});
+
+test("units=: a refill behind a stale reply that has to split is the cache's upkeep, never charged", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const { READ_ANSWER_MAX_BYTES } = await import("./read");
+  // Together past a call's limit, each alone under it: every call of the three splits.
+  const three = heavyUnits(Math.floor(READ_ANSWER_MAX_BYTES * 0.4));
+  try {
+    const url = `/api/places?units=${three.join(",")}`;
+    // Another visitor's request read them (1 call, split into 3) and kept their batch.
+    assert.equal((await get(url, {}, "10.255.0.1")).statusCode, 200);
+    assert.equal(calls.place_counts_many.length, 4);
+    // Past the units' TTL (not the batch's): served stale, refilled behind the reply.
+    t.mock.timers.tick(61_000);
+    const stale = await get(url);
+    assert.equal(stale.statusCode, 200);
+    assert.equal(stale.headers["x-cache"], "stale");
+    for (let i = 0; i < 400 && calls.place_counts_many.length < 8; i++) await sleep(5);
+    assert.equal(calls.place_counts_many.length, 8, "the refill split too: 1 + 3 calls");
+  } finally {
+    plainUnits();
+  }
+  // None of those calls was this visitor's: its 30 misses are whole.
+  for (let i = 0; i < 30; i++) {
+    assert.equal((await get(`/api/places?unit=fr:com:${76000 + i}`)).statusCode, 200, `miss ${i}`);
+  }
+  assert.equal((await get("/api/places?unit=fr:com:76999")).statusCode, 429);
 });
 
 test("units=: a call too heavy is made again unit by unit; the same answer cold or warm", async () => {
@@ -711,11 +892,12 @@ test("lieu, results, facets, testimonies: first pages cached, later ones read th
     (await get("/api/places/results?v=1&limit=20&sort=ancien")).headers["x-cache"],
     "hit",
   );
-  const after = `/api/places/results?after=2025-05-01,2025-05-02,${LIEU},${AUDITION}`;
+  const after = `/api/places/results?after=2025-05-01,2025-05-02,${TIE},${AUDITION}`;
   await get(after);
   const page2 = await get(after);
+  assert.equal(page2.statusCode, 200, page2.body);
   assert.equal(page2.headers["x-cache"], "miss");
-  assert.deepEqual(page2.json().echo.p_after, ["2025-05-01", "2025-05-02", LIEU, AUDITION]);
+  assert.deepEqual(page2.json().echo.p_after, ["2025-05-01", "2025-05-02", TIE, AUDITION]);
   const through = await get(`/api/places/results?through=${AUDITION}`);
   assert.equal(through.json().echo.p_through, AUDITION);
   assert.equal(calls.audition_results.length, 4);
@@ -744,6 +926,104 @@ test("lieu, results, facets, testimonies: first pages cached, later ones read th
     `/api/auditions/${AUDITION}/testimonies?after=${encodeURIComponent("2026-05-01T10:00:00.123+00:00")},${AUDITION}`,
   );
   assert.deepEqual(t3.json().echo.p_after, ["2026-05-01T10:00:00.123+00:00", AUDITION]);
+});
+
+// audition_results over these rows as its SQL pages them: (date dir, rank
+// desc, tie, id), after p_after = [date, rank, tie, id], and `next` built as
+// jsonb_build_array(date, rank, tie, id) of the last row shown — the tie a
+// uuid (the id of the lieu's newest audition). Ties on every part of the key.
+interface ResultRow {
+  id: string;
+  date: string;
+  rank: string;
+  tie: string;
+  lieu: string;
+}
+const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+/** A row of lieu `lieu` (one hex digit), its rank and tie its newest audition's. */
+const resultRow = (id: number, date: string, rank: string, tie: number, lieu: string) => ({
+  id: uuid(id),
+  date,
+  rank,
+  tie: uuid(tie),
+  lieu: `l:${lieu.padStart(16, "0")}`,
+});
+const RESULT_ROWS: ResultRow[] = [
+  // Lieu a: its newest audition 110 (2025-06-01), the tie of its rows.
+  resultRow(110, "2025-06-01", "2025-06-01", 110, "a"),
+  resultRow(111, "2025-03-01", "2025-06-01", 110, "a"),
+  resultRow(112, "2025-03-01", "2025-06-01", 110, "a"),
+  // Lieu b: the same rank as a, a greater tie.
+  resultRow(120, "2025-06-01", "2025-06-01", 120, "b"),
+  resultRow(121, "2025-03-01", "2025-06-01", 120, "b"),
+  // Lieu c: an older rank.
+  resultRow(130, "2025-03-01", "2025-04-01", 131, "c"),
+  resultRow(131, "2025-04-01", "2025-04-01", 131, "c"),
+];
+
+function keysetResults(rows: ResultRow[]) {
+  return (a: Row) => {
+    const dir = a.p_sort === "ancien" ? 1 : -1;
+    const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+    const order = (p: Omit<ResultRow, "lieu">, q: Omit<ResultRow, "lieu">) =>
+      dir * cmp(p.date, q.date) || -cmp(p.rank, q.rank) || cmp(p.tie, q.tie) || cmp(p.id, q.id);
+    const after = a.p_after as string[] | undefined;
+    const key = after && { date: after[0], rank: after[1], tie: after[2], id: after[3] };
+    const rest = [...rows].sort(order).filter((r) => !key || order(r, key) > 0);
+    const shown = rest.slice(0, a.p_limit as number);
+    const last = shown.at(-1);
+    return {
+      auditions: shown.map((r) => ({
+        id: r.id,
+        title: `A ${r.id.slice(-3)}`,
+        date: r.date,
+        n: 1,
+        lieu: { id: r.lieu, key: r.lieu, unit: "FR", path: ["FR"], lat: 45, lng: 4, city: null },
+      })),
+      next: rest.length > shown.length && last ? [last.date, last.rank, last.tie, last.id] : null,
+      ...(!key && { total: { auditions: rows.length, lieux: 3, n: rows.length }, frame: null }),
+    };
+  };
+}
+
+test("results: each page's next, sent back as after, brings the page after it — to the last", async () => {
+  stub("audition_results", keysetResults(RESULT_ROWS));
+  try {
+    for (const sort of ["recent", "ancien"]) {
+      const all = (await get(`/api/places/results?sort=${sort}&limit=100`)).json();
+      assert.equal(all.next, null);
+      assert.equal(all.auditions.length, RESULT_ROWS.length);
+      if (sort === "recent") {
+        // The SQL's order: date desc, rank desc, tie, id.
+        assert.deepEqual(
+          all.auditions.map((r: { id: string }) => r.id),
+          [110, 120, 131, 111, 112, 121, 130].map(uuid),
+        );
+      }
+      const seen: string[] = [];
+      let page = (await get(`/api/places/results?sort=${sort}&limit=2`)).json();
+      let pages = 1;
+      for (;;) {
+        seen.push(...page.auditions.map((r: { id: string }) => r.id));
+        if (page.next === null) break;
+        // As a client sends it: the cursor as the RPC gave it, comma-separated.
+        const q = new URLSearchParams({ sort, limit: "2", after: page.next.join(",") });
+        const res = await get(`/api/places/results?${q}`);
+        assert.equal(res.statusCode, 200, `${sort}, page ${pages + 1}: ${res.body}`);
+        assert.deepEqual(calls.audition_results.at(-1)!.p_after, page.next, "sent on as is");
+        page = res.json();
+        pages++;
+      }
+      assert.equal(pages, 4, sort);
+      assert.deepEqual(
+        seen,
+        all.auditions.map((r: { id: string }) => r.id),
+        `${sort}: every row once, in the list's order`,
+      );
+    }
+  } finally {
+    stub("audition_results", (a) => ({ auditions: [], next: null, echo: a }));
+  }
 });
 
 test("the admin filter: admins only, reachable auditions by role, never cached", async () => {
@@ -949,10 +1229,11 @@ test("/api/health?details=1 (testing tools): the memory budget", async () => {
   assert.ok(details.memoryMb.rss > 0);
   assert.deepEqual(
     details.families.map((f: { name: string }) => f.name),
-    ["places", "lieu", "results", "tpage", "audition", "legacy"],
+    ["places", "assembled", "lieu", "results", "tpage", "audition", "legacy"],
   );
-  // Design A19: 64 MB of Buffers; the boundaries' 32 MB are parsed values, on the heap.
-  assert.equal(details.budgetMb.familiesMax, 64);
+  // Design A19: 74 MB of Buffers (64 of answers, 10 assembled from them); the
+  // boundaries' 32 MB are parsed values, on the heap.
+  assert.equal(details.budgetMb.familiesMax, 74);
   assert.equal(details.budgetMb.heapStoresMax, 32);
   assert.equal(details.budgetMb.externalStoresMax, 0);
   assert.deepEqual(

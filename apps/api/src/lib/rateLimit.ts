@@ -1,6 +1,7 @@
 // A small in-memory, fixed-window rate limiter — for the one public form that
-// sends emails to addresses typed by strangers. Per process: enough for a
-// single API instance; a shared store would be needed beyond that.
+// sends emails to addresses typed by strangers, and the place reads' misses.
+// Per process: enough for a single API instance; a shared store would be
+// needed beyond that.
 
 interface Window {
   until: number;
@@ -67,6 +68,20 @@ export function takeHits(rules: readonly HitRule[]): number {
     for (let i = 0; i < r.n; i++) allowHit(r.key, r.max, r.windowMs);
   }
   return 0;
+}
+
+/**
+ * Gives back hits that takeHits() counted at `takenAt` for work that never
+ * ran (a gate refused it): from the window they were counted in, while it
+ * lasts. A window opened since never held them, and keeps its count.
+ */
+export function refundHits(rules: readonly HitRule[], takenAt: number): void {
+  const now = Date.now();
+  for (const r of rules) {
+    const w = windows.get(r.key);
+    if (!w || w.until <= now || w.until - r.windowMs > takenAt) continue;
+    w.count = Math.max(0, w.count - r.n);
+  }
 }
 
 /**

@@ -512,10 +512,10 @@ Since PR A, `/api/map`'s rows come `date desc, id`, so today's ties are determin
   | Part | Budget |
   |---|---|
   | V8 heap | `--max-old-space-size=256` |
-  | Cache families | ≤ 64 MB of Buffers |
-  | Boundaries LRU (`boundaries/service.ts:41`) | ≤ 32 MB |
+  | Boundaries LRU (`boundaries/service.ts:41`), parsed values within the heap (PR H) | ≤ 32 MB |
+  | Cache families | ≤ 74 MB of Buffers: 64 MB of answers, 10 MB of responses assembled from them (D1, D3) |
   | Gazetteer chunk LRU | ≤ 16 MB |
-  | **External total** | **≤ 112 MB** |
+  | **External total** (families and gazetteer) | **≤ 90 MB** |
 
 - `/api/health?details=1` (staging) reports RSS, heap, external, and bytes per family and per LRU.
 
@@ -1325,7 +1325,7 @@ All public GETs are `no-cache` with ETag/304 through `sendCached` (`apps/api/src
 | GET `/api/auditions/admin/filter` | `v`, `t`, `q`; `requireAdmin` | `admin_audition_filter` | `{matches: {[id]: [nAll, nNoText]}, themes: number[16]}` | not cached |
 | POST `/api/admin/places/sweep` | `dryRun=1`; super admin | placement job | `{placed, unplaced, failed, rulesRestamped}` | — |
 
-- A `units=` response is assembled from per-unit cached JSON buffers. Its ETag is a hash of the per-unit ETags, and the assembled bytes and their gzip are kept in the `places` family under that ETag: built once (at most 4 at a time), not per request. A build that reaches no database costs its visitor one miss. An answer with `textIgnored` is kept the same way.
+- A `units=` response is assembled from per-unit cached JSON buffers, its results in the order asked. Its ETag is a hash of the per-unit ETags (so each order is its own ETag and its own entry: the order is the body's). A client that holds that ETag is answered 304 before anything is assembled. Otherwise the assembled bytes and their gzip are kept under that ETag in a family of their own, `assembled` (D3), never beside the per-unit answers: however many assemblies there are, they only evict one another, never an answer that costs a database call. Each is built once, not per request, through a gate of its own (4 at a time, 50 more waiting up to 5 s, then 503 "Réessayez dans un instant." with `Retry-After: 1`). A build that reaches no database costs its visitor one miss: taken before (a 429 past the limit, as any miss), given back when the gate refuses the build. An answer with `textIgnored` is kept the same way.
 - The module is `apps/api/src/modules/places`, registered beside the others (`apps/api/src/server.ts:122-133`).
 - `GET /api/auditions/:id` (`apps/api/src/modules/auditions/routes.ts:45-60`) stays whole.
 
@@ -1355,21 +1355,21 @@ All public GETs are `no-cache` with ETag/304 through `sendCached` (`apps/api/src
 - entry bytes = `json.length + gz.length`;
 - LRU by bytes;
 - one generation per family;
-- a value bigger than a quarter of its family's budget is served but not cached.
+- a value heavier than an entry may be (a quarter of its family's budget unless the family sets its own) is served but not cached.
 
-| Family | Budget (Buffers) | TTL / SWR |
-|---|---|---|
-| `places` | 24 MB | 60 s / 5 min |
-| `lieu` | 6 MB | 60 s / 5 min |
-| `results` (first pages) | 12 MB | 60 s / 5 min |
-| `tpage` (first pages) | 12 MB | 60 s / 5 min |
-| `audition` (moves `audition:<id>` here, `publicCache.ts:20-37`) | 6 MB | 60 s |
-| `legacy` (`/api/auditions`, `/api/map`, `/api/testimonies` values) | 4 MB, oversize served uncached | today's TTLs |
+| Family | Budget (Buffers) | Entry ≤ | TTL / SWR |
+|---|---|---|---|
+| `places` (per unit; the facets) | 18 MB | 4.5 MB | 60 s / 5 min |
+| `assembled` (`units=` batches and `textIgnored` answers, built from cached answers, D1) | 10 MB | 6 MB (a 4 MB batch and its gzip) | 10 min / 5 min |
+| `lieu` | 6 MB | 3 MB | 60 s / 5 min |
+| `results` (first pages) | 8 MB | 2 MB | 60 s / 5 min |
+| `tpage` (first pages) | 8 MB | 2 MB | 60 s / 5 min |
+| `audition` (moves `audition:<id>` here, `publicCache.ts:20-37`) | 4 MB | 1 MB | 60 s / 5 min |
+| `legacy` (`/api/auditions`, `/api/map`, `/api/testimonies` values) | 20 MB | 16 MB; heavier refused (503, remembered for the TTL) | today's TTLs |
 
 **Process budget (A19).**
-- heap `--max-old-space-size=256`;
-- families ≤ 64 MB;
-- boundaries LRU ≤ 32 MB (replaces the unbounded Map at `boundaries/service.ts:41`);
+- heap `--max-old-space-size=256`, the boundaries LRU's ≤ 32 MB of parsed values within it (replaces the unbounded Map at `boundaries/service.ts:41`);
+- families ≤ 74 MB (64 MB of answers, 10 MB assembled from them);
 - gazetteer LRU ≤ 16 MB.
 
 `/api/health?details=1` on staging reports them.

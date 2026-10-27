@@ -40,8 +40,14 @@ import {
   type DbTiming,
 } from "../../lib/dbGate";
 import { sendCached, sendNotModified } from "../../lib/httpCache";
-import { lieuCache, placesCache, resultsCache, tpageCache } from "../../lib/publicCache";
-import { clientKey, forceHits, takeHits, type HitRule } from "../../lib/rateLimit";
+import {
+  assembledCache,
+  lieuCache,
+  placesCache,
+  resultsCache,
+  tpageCache,
+} from "../../lib/publicCache";
+import { clientKey, forceHits, refundHits, takeHits, type HitRule } from "../../lib/rateLimit";
 import { visitorIp } from "../../lib/visitor";
 import { nudgePlacementJobFromRead } from "./placementJob";
 import {
@@ -66,10 +72,12 @@ import {
 // goes through the database gate (lib/dbGate.ts).
 //
 // A response assembled from cached answers (a units= batch, an answer with
-// "textIgnored") is kept too, under its ETag — the hash of its parts' tags,
-// so it is exactly the bytes those parts make — and built once, through a
-// gate of its own; a visitor's request that builds one without reaching the
-// database pays one call for it. A hit, and a 304, build nothing.
+// "textIgnored") is kept too, in a family of its own (assembledCache: it
+// never evicts the answers it is made of), under its ETag — the hash of its
+// parts' tags, so it is exactly the bytes those parts make — and built once,
+// through a gate of its own; a visitor's request that builds one without
+// reaching the database pays one call for it, and nothing when the gate
+// refuses it. A hit, and a 304, build nothing.
 //
 // Each read nudges the placement job (at most once a minute, as /api/map
 // does): a row the old app wrote is placed, and shows here, within about a
@@ -95,18 +103,11 @@ const BUDGET_DEFAULT = 600;
 export const BATCH_MAX_BYTES = 4 * 1024 * 1024;
 
 /**
- * How long an assembled response is kept. Its key is its parts' tags, so it
- * never differs from what they make: the TTL only bounds how long an unused
- * one stays (the family's LRU and a write drop it sooner).
- */
-const DERIVED_TTL_MS = 10 * 60_000;
-
-/**
  * Assemblies at once (each up to BATCH_MAX_BYTES of JSON and its gzip), the
  * rest waiting their turn a while, then 503: the Buffers they make are
- * outside the heap, and nothing else bounds them.
+ * outside the heap, and nothing else bounds them. (Exported for the tests.)
  */
-const assemblyGate = new DbGate({
+export const assemblyGate = new DbGate({
   max: 4,
   queue: 50,
   waitMs: 5000,
@@ -176,13 +177,13 @@ const resultsQuery = placeFilterQuerySchema
   .extend({
     sort,
     limit,
-    // The `next` of the page before: date, rank, lieu id, audition id.
+    // The `next` of the page before, as audition_results gives it: date,
+    // rank, tie (the id of its lieu's newest audition), audition id.
     after: z
       .string(oneParam("after"))
       .transform(list)
       .refine(
-        (a) =>
-          a.length === 4 && isDay(a[0]) && isDay(a[1]) && LIEU_ID.test(a[2]) && UUID.test(a[3]),
+        (a) => a.length === 4 && isDay(a[0]) && isDay(a[1]) && UUID.test(a[2]) && UUID.test(a[3]),
         "Curseur invalide.",
       )
       .optional(),
@@ -250,10 +251,16 @@ function limitsOf(req: FastifyRequest, calls: number, search: boolean): HitRule[
   return rules;
 }
 
-/** Counts `calls` RPC calls against the visitor's limits, or throws RateLimitedError. */
-function charge(req: FastifyRequest, calls: number, search: boolean): void {
-  const waitMs = takeHits(limitsOf(req, calls, search));
+/**
+ * Counts `calls` RPC calls against the visitor's limits, or throws
+ * RateLimitedError; returns how to give them back (work that never ran).
+ */
+function charge(req: FastifyRequest, calls: number, search: boolean): () => void {
+  const rules = limitsOf(req, calls, search);
+  const waitMs = takeHits(rules);
   if (waitMs > 0) throw new RateLimitedError(waitMs);
+  const takenAt = Date.now();
+  return () => refundHits(rules, takenAt);
 }
 
 /** Counts calls already under way (a split batch): never refused, paid from the next request on. */
@@ -312,27 +319,36 @@ function timed(reply: FastifyReply, state: CacheState, timing: DbTiming, waitedM
 
 /**
  * A response assembled from cached parts, tagged `etag` (theirs, combined):
- * a 304 when the client holds it; else kept in `family` under that tag and
- * built once — through the assembly gate, one call charged to a request
- * that reached no database — and its bytes sent as they are kept.
+ * a 304 when the client holds it, before anything is built; else kept in
+ * assembledCache under that tag and built once, through the assembly gate,
+ * and its bytes sent as they are kept. A request that reached no database
+ * pays one call for an assembly it starts: taken before (all or none, as
+ * any miss), given back when the gate refuses the assembly — a visitor
+ * turned away by the gate is charged nothing.
  */
 async function sendDerived(
   req: FastifyRequest,
   reply: FastifyReply,
-  family: CacheFamily,
   etag: string,
   build: () => Buffer,
   timing: DbTiming,
 ): Promise<FastifyReply> {
   const held = sendNotModified(req, reply, etag, "no-cache");
   if (held) return held;
-  const hit = await family.get(
+  let refund: (() => void) | undefined;
+  const hit = await assembledCache.get(
     `derived|${etag}`,
-    async () => new Prebuilt(await assemblyGate.run(() => responseOf(build(), etag))),
+    async () => {
+      try {
+        return new Prebuilt(await assemblyGate.run(() => responseOf(build(), etag)));
+      } catch (err) {
+        if (err instanceof DbBusyError) refund?.();
+        throw err;
+      }
+    },
     {
-      ttlMs: DERIVED_TTL_MS,
       beforeFill: (calls) => {
-        if (timing.calls === 0) charge(req, calls, false);
+        if (timing.calls === 0) refund = charge(req, calls, false);
       },
       transient: isTransientDbError,
     },
@@ -344,7 +360,6 @@ async function sendDerived(
 function sendOne(
   req: FastifyRequest,
   reply: FastifyReply,
-  family: CacheFamily,
   res: CachedResponse,
   f: PlaceFilters,
   timing: DbTiming,
@@ -354,7 +369,6 @@ function sendOne(
   return sendDerived(
     req,
     reply,
-    family,
     combinedEtag([res.etag, "textIgnored"]),
     () => Buffer.concat([head, res.json.subarray(1)]),
     timing,
@@ -411,11 +425,11 @@ async function serveRead(
   try {
     if ("family" in read) {
       const hit = await read.family.get(read.key, () => read.fetch(timing), {
-        beforeFill: (calls) => charge(req, calls, f.needle !== ""),
+        beforeFill: (calls) => void charge(req, calls, f.needle !== ""),
         transient: isTransientDbError,
       });
       timed(reply, hit.state, timing, performance.now() - started);
-      return await sendOne(req, reply, read.family, hit.res, f, timing);
+      return await sendOne(req, reply, hit.res, f, timing);
     }
     charge(req, 1, f.needle !== "");
     const value = await read.fetch(timing);
@@ -478,7 +492,7 @@ export default async function placeReadRoutes(app: FastifyInstance) {
           ),
         {
           chunk: UNITS_PER_CALL,
-          beforeFill: (calls) => charge(req, calls, search),
+          beforeFill: (calls) => void charge(req, calls, search),
           transient: isTransientDbError,
         },
       );
@@ -490,11 +504,12 @@ export default async function placeReadRoutes(app: FastifyInstance) {
 
     try {
       if (q.unit !== undefined) {
-        return await sendOne(req, reply, placesCache, hits[0].res, f, timing);
+        return await sendOne(req, reply, hits[0].res, f, timing);
       }
       // {results: [...]} from the per-unit bytes, in the order asked: the same
       // limit cold or warm (each unit's answer is at most a read's, whatever
-      // call brought it — see countsSplitting).
+      // call brought it — see countsSplitting). The order is the body's (and
+      // so the ETag's): each order asked is its own assembly.
       const parts = hits.map((h) => h.res);
       if (parts.reduce((n, p) => n + p.json.length, 0) > BATCH_MAX_BYTES) {
         reply.header("Cache-Control", "no-store");
@@ -510,7 +525,7 @@ export default async function placeReadRoutes(app: FastifyInstance) {
           ...parts.flatMap((p, i) => (i === 0 ? [p.json] : [COMMA, p.json])),
           Buffer.from("]}"),
         ]);
-      return await sendDerived(req, reply, placesCache, etag, build, timing);
+      return await sendDerived(req, reply, etag, build, timing);
     } catch (err) {
       return replyError(req, reply, err);
     }
