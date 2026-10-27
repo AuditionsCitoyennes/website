@@ -1,5 +1,6 @@
-// Where the fake auditions happen. Real geography (the map geocodes these
-// names), nothing else real: no real audition is reproduced here.
+// Where the fake auditions happen. Real geography (the API places these
+// names: scripts/seed/fixtures), nothing else real: no real audition is
+// reproduced here.
 
 import type { Theme } from "./texts";
 
@@ -8,6 +9,12 @@ export interface FrancePlace {
   location: string;
   /** How many auditions were held there. */
   times: number;
+  /**
+   * How many of them (the last ones) the old app wrote: location only, never
+   * placed, so stale until the API places them — from the others, which hold
+   * the same lieu.
+   */
+  legacy?: number;
 }
 
 export interface Cluster {
@@ -34,14 +41,14 @@ const LYON: Cluster = {
     écologie: 1.5,
   },
   places: [
-    { location: "Marché des Gratte-Ciel, Villeurbanne", times: 5 },
-    { location: "Place Grandclément, Villeurbanne", times: 4 },
-    { location: "Marché des Charpennes, Villeurbanne", times: 3 },
+    { location: "Marché des Gratte-Ciel, Villeurbanne", times: 5, legacy: 1 },
+    { location: "Place Grandclément, Villeurbanne", times: 4, legacy: 1 },
+    { location: "Marché des Charpennes, Villeurbanne", times: 3, legacy: 1 },
     { location: "Parvis de la médiathèque, Bron", times: 2 },
     { location: "Marché de la Croix-Rousse, Lyon", times: 2 },
     { location: "Place Jean Macé, Lyon 7", times: 2 },
     { location: "Marché Saint-Antoine, Lyon", times: 2 },
-    { location: "Gare Part-Dieu, Lyon", times: 2 },
+    { location: "Gare Part-Dieu, Lyon", times: 2, legacy: 1 },
     { location: "Place Bellecour, Lyon", times: 1 },
     { location: "Place Guichard, Lyon", times: 1 },
     { location: "Marché de Monplaisir, Lyon", times: 1 },
@@ -54,7 +61,7 @@ const LYON: Cluster = {
     { location: "Place Sathonay, Lyon", times: 1 },
     { location: "Quai Saint-Vincent, Lyon", times: 1 },
     { location: "Place Carnot, Lyon", times: 1 },
-    { location: "La Tour-du-Pin", times: 4 },
+    { location: "La Tour-du-Pin", times: 4, legacy: 1 },
   ],
 };
 
@@ -103,8 +110,13 @@ const ELSEWHERE: Cluster = {
 
 /**
  * Places that test the edges of geocoding: a département instead of a town,
- * overseas towns (outside the map's mainland box), a homonym (Saint-Denis,
- * 93 or Réunion), a very long place name.
+ * overseas towns (outside the map's mainland box), same-named communes
+ * (Saint-Denis, 93 or Réunion, left unplaced; Serres, settled in the
+ * Hautes-Alpes by population alone, that one being over five times the size
+ * of any other; Châteauvieux, three of nearly the same size, settled in the
+ * Hautes-Alpes only by the lieux the seed holds there: placement_support()),
+ * a commune merged into another (Ribiers, a commune déléguée: no commune by
+ * that name), a name that is no place ("France"), a very long place name.
  */
 const EDGES: Cluster = {
   name: "edges",
@@ -117,85 +129,31 @@ const EDGES: Cluster = {
     "Saint-Pierre, La Réunion",
     "Cayenne",
     "Saint-Denis",
+    "Serres",
+    "Châteauvieux",
+    "Ribiers",
+    "France",
     "Parvis de la Maison des Jeunes et de la Culture du quartier des États-Unis, Lyon 8",
   ].map((location) => ({ location, times: 1 })),
 };
 
 export const FRANCE_CLUSTERS: Cluster[] = [LYON, ALPS, ELSEWHERE, EDGES];
 
-/** Online auditions: one per town hall and month (see submit_online_testimony). */
+/**
+ * Online auditions: one per town hall and month (see submit_online_testimony),
+ * labelled as the online form files them. Their point and names (the bucket's
+ * `place`) are the form's too, from geo.api.gouv.fr: fixtures/fr-places.json.
+ */
 export interface OnlineTownHall {
   location: string;
   citycode: string;
-  place: {
-    insee: string;
-    commune: string;
-    arrondissement: string | null;
-    departementCode: string;
-    departementName: string;
-    region: string;
-    lat: number;
-    lng: number;
-  };
 }
 
 export const ONLINE_TOWN_HALLS: OnlineTownHall[] = [
-  {
-    location: "Mairie de Villeurbanne (69)",
-    citycode: "69266",
-    place: {
-      insee: "69266",
-      commune: "Villeurbanne",
-      arrondissement: null,
-      departementCode: "69",
-      departementName: "Rhône",
-      region: "Auvergne-Rhône-Alpes",
-      lat: 45.7667,
-      lng: 4.8803,
-    },
-  },
-  {
-    location: "Mairie du 7e arrondissement de Lyon",
-    citycode: "69387",
-    place: {
-      insee: "69387",
-      commune: "Lyon",
-      arrondissement: "Lyon 7e",
-      departementCode: "69",
-      departementName: "Rhône",
-      region: "Auvergne-Rhône-Alpes",
-      lat: 45.7457,
-      lng: 4.8424,
-    },
-  },
-  {
-    location: "Mairie de Grenoble (38)",
-    citycode: "38185",
-    place: {
-      insee: "38185",
-      commune: "Grenoble",
-      arrondissement: null,
-      departementCode: "38",
-      departementName: "Isère",
-      region: "Auvergne-Rhône-Alpes",
-      lat: 45.1885,
-      lng: 5.7245,
-    },
-  },
-  {
-    location: "Mairie de Gap (05)",
-    citycode: "05061",
-    place: {
-      insee: "05061",
-      commune: "Gap",
-      arrondissement: null,
-      departementCode: "05",
-      departementName: "Hautes-Alpes",
-      region: "Provence-Alpes-Côte d'Azur",
-      lat: 44.5594,
-      lng: 6.0786,
-    },
-  },
+  { location: "Mairie de Villeurbanne (69)", citycode: "69266" },
+  { location: "Mairie du 7e arrondissement de Lyon", citycode: "69387" },
+  { location: "Mairie de Grenoble (38)", citycode: "38185" },
+  { location: "Mairie de Gap (05)", citycode: "05061" },
 ];
 
 /** Every country but France (the `france` profile covers it), in French,

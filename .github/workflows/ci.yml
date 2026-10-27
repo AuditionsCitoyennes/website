@@ -53,6 +53,9 @@ jobs:
       - name: Test (API cache)
         run: npm run test --workspace=@ac/api
 
+      - name: Test (scripts)
+        run: npm run test:scripts
+
       # The SQL helpers of the testimonies' derived columns are generated from
       # @ac/shared: a change on one side only fails here.
       - name: Generated SQL matches @ac/shared
@@ -82,7 +85,8 @@ jobs:
           version: 2.75.0
 
       # Both profiles, so a schema change that the fake data no longer fits
-      # fails here.
+      # fails here. French rows come placed, from committed fixtures (no
+      # network): scripts/seed/fixtures.
       - name: Generate the fake data
         run: npm run db:seed
         env:
@@ -155,15 +159,21 @@ jobs:
           fi
 
       # Grant guard (scripts/db-checks/allowlist.json), the derived testimony
-      # columns against @ac/shared over the seed and an edge corpus, and writes
-      # shaped like the old app's (as authenticated and anon), rolled back.
+      # columns against @ac/shared over the seed and an edge corpus, writes
+      # shaped like the old app's (as authenticated and anon), rolled back,
+      # place paths against geo_units, and the seed's places against its
+      # fixtures (strict here: CI=true).
       - name: Database checks
         run: npm run db:check
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       # Last: it resets the database (recreating its container from the image
-      # of the registry kept above). The migrations newer than the seed's shape
-      # are applied on top of the seeded rows, as on staging and prod.
+      # of the registry kept above) to the migrations before map phase 1,
+      # loads the seed as its rows stood then (SEED_SHAPE=legacy, written by
+      # the check itself), and applies the newer migrations on top of the
+      # seeded rows, as on staging and prod.
       - name: Migrations on top of seeded data
         run: npm run db:check:seeded -- --yes --workdir .
+        env:
+          SEED_PROFILE: all

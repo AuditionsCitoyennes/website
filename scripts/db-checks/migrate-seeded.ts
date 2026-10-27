@@ -2,10 +2,13 @@
 // migration to an empty one and only then loading the seed, so a migration
 // that rewrites existing rows never meets any there. This rebuilds a local
 // database as it stood before map phase 1, loads the seed into it with psql,
-// then applies the newer migrations over the rows, as staging and production
-// will see them, and checks the result.
+// in the shape of its rows then (SEED_SHAPE=legacy: no place column, no
+// geo_units; profile SEED_PROFILE, all by default), then applies the newer
+// migrations over the rows, as staging and production will see them, and
+// checks the result.
 //
-//   npm run db:check:seeded -- --yes --workdir <dir>   (<dir>/supabase/config.toml, seed.sql)
+//   npm run db:check:seeded -- --yes --workdir <dir>   (<dir>/supabase/config.toml)
+//   … --seed <file>                                    another seed of that shape
 //
 // It wipes that stack's database: --yes is required. Outside CI it refuses the
 // project's own stack (the project_id of supabase/config.toml, shared by every
@@ -22,6 +25,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { seedSql, type Profile } from "../seed/generate";
 import { sqlJson } from "./psql";
 
 /** The last migration before phase 1: the shape the seed was written for. */
@@ -69,7 +73,11 @@ if (process.env.PSQL || process.env.DATABASE_URL) {
   console.log(`PSQL and DATABASE_URL are ignored: the database is ${container}'s.`);
 }
 const from = option("--from") ?? BEFORE_PHASE_1;
-const seed = resolve(option("--seed") ?? `${workdir}/supabase/seed.sql`);
+const seedFile = option("--seed");
+const profile = (process.env.SEED_PROFILE ?? "all") as Profile;
+if (!seedFile && !["france", "world", "all"].includes(profile)) {
+  fail(`SEED_PROFILE must be france, world or all (got "${profile}")`);
+}
 
 function supabase(...args: string[]) {
   const argv = [...args, "--workdir", workdir];
@@ -86,9 +94,13 @@ function sql<T>(script: string): T[] {
   }
 }
 
+const seed = seedFile
+  ? { sql: readFileSync(resolve(seedFile), "utf8"), summary: resolve(seedFile) }
+  : seedSql(profile, "legacy");
 supabase("db", "reset", "--version", from, "--no-seed");
-console.log(`$ ${psql} < ${seed}`);
-sql(readFileSync(seed, "utf8"));
+console.log(`$ ${psql} < ${seedFile ? seed.summary : "the legacy-shaped seed"}`);
+if (!seedFile) console.log(seed.summary);
+sql(seed.sql);
 supabase("migration", "up");
 
 const [r] = sql<{ total: number; underived: number; auditions: number; placed: number }>(`
