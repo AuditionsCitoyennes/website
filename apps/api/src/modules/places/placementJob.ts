@@ -633,7 +633,12 @@ export function nudgePlacementJob(): void {
   if (started) schedule(AFTER_WRITE_MS);
 }
 
-/** A read found rows not placed yet (the old app's): a pass soon, at most once a minute. */
+/**
+ * A read that found rows not placed yet (the old app's, /api/map), or one
+ * that cannot tell (the place reads, /api/places): a pass soon, at most once
+ * a minute — so an old-app write is placed, and shows, within about a minute
+ * while the site is being read.
+ */
 export function nudgePlacementJobFromRead(): void {
   const now = Date.now();
   if (!started || now - lastReadNudge < READ_NUDGE_MS) return;

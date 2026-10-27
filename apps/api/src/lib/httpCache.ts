@@ -19,17 +19,32 @@ export function sendCached(
   res: CachedResponse,
   cacheControl: string,
 ): FastifyReply {
-  reply.header("ETag", res.etag);
-  reply.header("Cache-Control", cacheControl);
-  // One URL, two bodies: a shared cache keys its copies on the encoding.
-  vary(reply, "Accept-Encoding");
-  if (matches(req.headers["if-none-match"], res.etag)) return reply.code(304).send();
+  const held = sendNotModified(req, reply, res.etag, cacheControl);
+  if (held) return held;
   reply.header("Content-Type", "application/json; charset=utf-8");
   if (acceptsGzip(req.headers["accept-encoding"])) {
     reply.header("Content-Encoding", "gzip");
     return reply.send(res.gz);
   }
   return reply.send(res.json);
+}
+
+/**
+ * The headers of a representation tagged `etag`, and the bodiless 304 when
+ * the client already holds it (else null: the body is the caller's to send).
+ * Asked before a body is built, it saves building one the client has.
+ */
+export function sendNotModified(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  etag: string,
+  cacheControl: string,
+): FastifyReply | null {
+  reply.header("ETag", etag);
+  reply.header("Cache-Control", cacheControl);
+  // One URL, two bodies: a shared cache keys its copies on the encoding.
+  vary(reply, "Accept-Encoding");
+  return matches(req.headers["if-none-match"], etag) ? reply.code(304).send() : null;
 }
 
 /** Add a field to `Vary` without dropping what is there (@fastify/cors's Origin). */

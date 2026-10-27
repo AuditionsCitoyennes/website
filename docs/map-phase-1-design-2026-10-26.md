@@ -142,7 +142,7 @@ The lazy path runs only on the 300k staging set, or locally with `?budget=0`.
 | 22 | Reuse and LOCATION_RULES overrode explicit picks ("Hebron" → Bron). | An explicit pick skips reuse. Gazetteer picks key on `normalizeLocation` without rules. The job keeps non-French placements (A6, A15, D5). |
 | 23 | J's serveur mode had no list data. | In J, `/api/map` and the corpus stay mounted for the lists; K moves the lists (E1, J). |
 | 24 | No rule for lieu labels in server mode. | Lieu rows carry `city` (today's group city); labels are compared in parity (B5.1, E2). |
-| 25 | The heap cap did not bound Buffers; `/api/auditions` was cached whole. | Heap 256 MB plus one external-memory budget (≤ 112 MB). `/api/auditions` and `/api/map` get a family and a 5,000-audition guard (A19, D3, D8). |
+| 25 | The heap cap did not bound Buffers; `/api/auditions` was cached whole. | Heap 256 MB plus one external-memory budget (≤ 112 MB: cache families ≤ 74 MB, external total ≤ 90 MB). `/api/auditions` and `/api/map` get a family and a 5,000-audition guard (A19, D3, D8). |
 | 26, 32 | Search and pick validation scanned every region chunk; size estimate wrong. | Per-country search index; picks carry a chunk index; measured sizes; size report (A14, C3, C5). |
 | 27 | The staging seed load could not finish. | Spooled per-table COPYs; drop and recreate the big indexes; `statement_timeout = 0`; loaded from the laptop; never `replica` mode; `-U postgres` (F2). |
 | 28 | k6 from one IP measured the limiter; CPU share unknown. | Per-VU `X-Visitor-IP`; one single-IP scenario; `cpu_limit` set and reported (F3). |
@@ -353,7 +353,7 @@ Without `SUPABASE_SERVICE_ROLE_KEY`, the places routes answer 503 (no anon fallb
 
 **API side** (D4):
 - `abortSignal(AbortSignal.timeout(7000))` as the network backstop.
-- 57014 and AbortError both map to the same uncached 503, and stale data is served if held (SWR at `lib/cache.ts:176-191`).
+- 57014 maps to an uncached 503 "Recherche trop large : précisez-la."; the API's abort, and a database out of reach (PostgREST's PGRST000-003, a pooler's prepared-statement errors, a gateway's 5xx, a fetch that threw), to an uncached 503 "Réessayez dans un instant.". In both cases stale data is served if held.
 - A gate slot is released when the call settles. If the abort fired first, the slot is held 5 s more, so at most 6 statements run at once.
 
 **Rejected.**
@@ -512,10 +512,10 @@ Since PR A, `/api/map`'s rows come `date desc, id`, so today's ties are determin
   | Part | Budget |
   |---|---|
   | V8 heap | `--max-old-space-size=256` |
-  | Cache families | ≤ 64 MB of Buffers |
-  | Boundaries LRU (`boundaries/service.ts:41`) | ≤ 32 MB |
+  | Boundaries LRU (`boundaries/service.ts:41`), parsed values within the heap (PR H) | ≤ 32 MB |
+  | Cache families | ≤ 74 MB of Buffers: 64 MB of answers, 10 MB of responses assembled from them (D1, D3) |
   | Gazetteer chunk LRU | ≤ 16 MB |
-  | **External total** | **≤ 112 MB** |
+  | **External total** (families and gazetteer) | **≤ 90 MB** |
 
 - `/api/health?details=1` (staging) reports RSS, heap, external, and bytes per family and per LRU.
 
@@ -556,7 +556,7 @@ Everything not listed here must come out of the harnesses identical.
 | D11 | Conditional: a 3-character search minimum, only if the load test forces it. |
 | D12 | An admin's explicit BAN pick places that audition at the pick, even when another audition with the same lieu name is placed elsewhere. Today the text is re-geocoded and same-named lieux always merge. |
 | D13 | Lazy path only (above 600 units plus lieux, i.e. staging at scale): opening a lieu waits for its audition list, with LoadingDots in the list. |
-| D14 | A change to `LOCATION_RULES` regroups stored lieux on the job's first pass after the deploy, not at the next read. Likewise, the read RPCs read an audition the old app inserted or moved (`place_stale`) at its stored place until the job's next pass (at most 10 minutes): an insert stays unplaced, a moved one at its previous lieu. `/api/map` (D6) files such a row by its name at once. |
+| D14 | A change to `LOCATION_RULES` regroups stored lieux on the job's first pass after the deploy, not at the next read. Likewise, the read RPCs read an audition the old app inserted or moved (`place_stale`) at its stored place until the job's next pass: an insert stays unplaced, a moved one at its previous lieu. The place reads nudge the job (at most once a minute), so while the site is read that is about a minute; otherwise at most 10 minutes. `/api/map` (D6) files such a row by its name at once. |
 
 ### A22. Admin list filters on the server (contract)
 
@@ -1325,7 +1325,7 @@ All public GETs are `no-cache` with ETag/304 through `sendCached` (`apps/api/src
 | GET `/api/auditions/admin/filter` | `v`, `t`, `q`; `requireAdmin` | `admin_audition_filter` | `{matches: {[id]: [nAll, nNoText]}, themes: number[16]}` | not cached |
 | POST `/api/admin/places/sweep` | `dryRun=1`; super admin | placement job | `{placed, unplaced, failed, rulesRestamped}` | — |
 
-- A `units=` response is assembled from per-unit cached JSON buffers, gzipped per response. Its ETag is a hash of the per-unit ETags.
+- A `units=` response is assembled from per-unit cached JSON buffers, its results in the order asked. Its ETag is a hash of the per-unit ETags (so each order is its own ETag and its own entry: the order is the body's). A client that holds that ETag is answered 304 before anything is assembled. Otherwise the assembled bytes and their gzip are kept under that ETag in a family of their own, `assembled` (D3), never beside the per-unit answers: however many assemblies there are, they only evict one another, never an answer that costs a database call. Each is built once, not per request, through a gate of its own (4 at a time, 50 more waiting up to 5 s, then 503 "Réessayez dans un instant." with `Retry-After: 1`). A build that reaches no database costs its visitor one miss: taken before (a 429 past the limit, as any miss), given back when the gate refuses the build. An answer with `textIgnored` is kept the same way.
 - The module is `apps/api/src/modules/places`, registered beside the others (`apps/api/src/server.ts:122-133`).
 - `GET /api/auditions/:id` (`apps/api/src/modules/auditions/routes.ts:45-60`) stays whole.
 
@@ -1355,21 +1355,21 @@ All public GETs are `no-cache` with ETag/304 through `sendCached` (`apps/api/src
 - entry bytes = `json.length + gz.length`;
 - LRU by bytes;
 - one generation per family;
-- a value bigger than a quarter of its family's budget is served but not cached.
+- a value heavier than an entry may be (a quarter of its family's budget unless the family sets its own) is served but not cached.
 
-| Family | Budget (Buffers) | TTL / SWR |
-|---|---|---|
-| `places` | 24 MB | 60 s / 5 min |
-| `lieu` | 6 MB | 60 s / 5 min |
-| `results` (first pages) | 12 MB | 60 s / 5 min |
-| `tpage` (first pages) | 12 MB | 60 s / 5 min |
-| `audition` (moves `audition:<id>` here, `publicCache.ts:20-37`) | 6 MB | 60 s |
-| `legacy` (`/api/auditions`, `/api/map`, `/api/testimonies` values) | 4 MB, oversize served uncached | today's TTLs |
+| Family | Budget (Buffers) | Entry ≤ | TTL / SWR |
+|---|---|---|---|
+| `places` (per unit; the facets) | 18 MB | 4.5 MB | 60 s / 5 min |
+| `assembled` (`units=` batches and `textIgnored` answers, built from cached answers, D1) | 10 MB | 6 MB (a 4 MB batch and its gzip) | 10 min / 5 min |
+| `lieu` | 6 MB | 3 MB | 60 s / 5 min |
+| `results` (first pages) | 8 MB | 2 MB | 60 s / 5 min |
+| `tpage` (first pages) | 8 MB | 2 MB | 60 s / 5 min |
+| `audition` (moves `audition:<id>` here, `publicCache.ts:20-37`) | 4 MB | 1 MB | 60 s / 5 min |
+| `legacy` (`/api/auditions`, `/api/map`, `/api/testimonies` values) | 20 MB | 16 MB; heavier refused (503, remembered for the TTL) | today's TTLs |
 
 **Process budget (A19).**
-- heap `--max-old-space-size=256`;
-- families ≤ 64 MB;
-- boundaries LRU ≤ 32 MB (replaces the unbounded Map at `boundaries/service.ts:41`);
+- heap `--max-old-space-size=256`, the boundaries LRU's ≤ 32 MB of parsed values within it (replaces the unbounded Map at `boundaries/service.ts:41`);
+- families ≤ 74 MB (64 MB of answers, 10 MB assembled from them);
 - gazetteer LRU ≤ 16 MB.
 
 `/api/health?details=1` on staging reports them.
@@ -1383,10 +1383,11 @@ All public GETs are `no-cache` with ETag/304 through `sendCached` (`apps/api/src
 ### D4. DB gate, timeouts, errors, rate limits, timing
 
 - **`lib/dbGate.ts`.** At most 6 concurrent RPC calls, a queue of 50, a 5 s wait, then 503 "Réessayez dans un instant." (never cached). A slot is released when its call settles. After an abort, the slot is held 5 s more (A11).
-- **Batching.** A `units=` miss set is split into RPC calls of ≤ 20 units. Each call takes one gate slot and counts as one miss.
+- **Batching.** A `units=` miss set is split into RPC calls of ≤ 20 units. Each call takes one gate slot and counts as one miss. A call whose answer passes the 2 MB read cap is made again unit by unit (the extra calls charged to the visitor afterwards), so only a unit whose own answer passes 2 MB is refused, cold or warm.
 - **Timeouts.** Every RPC call uses `.abortSignal(AbortSignal.timeout(7000))`; `service_role` is bounded at 5 s (M4).
 - **Errors.**
-  - Postgres `57014` and AbortError → 503 "Recherche trop large : précisez-la.", never cached; a stale value is served if held.
+  - Postgres `57014` → 503 "Recherche trop large : précisez-la.", never cached; a stale value is served if held.
+  - AbortError, PGRST000-003, `42P05`/`26000` (prepared statements), connection codes, a gateway's 5xx, a fetch that threw → 503 "Réessayez dans un instant.", never cached; a stale value is served if held.
   - `22023` → 400.
 - **Rate limits** (`apps/api/src/lib/rateLimit.ts:26,59`, keyed by `clientKey(visitorIp(req))`, `apps/api/src/lib/visitor.ts:13-17`):
   - `':places-miss'`: 30 RPC calls per 10 s;
@@ -1506,8 +1507,8 @@ Every placement stores `placed_location = location` and `placed_rules = RULES_HA
 - `townHall.ts`, extended.
 - `boundaries/` and `dem/`.
 
-**Whole-table guards (H).** These answer 503 "Liste trop longue : utilisez /api/places." and cache nothing above a threshold, so they only bite at staging scale until prod grows:
-- `/api/testimonies` (`testimonies/service.ts:52-71`): exact head count through **`adminClient`**, 503 above 25,000. A count as anon takes 32 s at 300k (§0.1). A count error or 57014 also gives 503.
+**Whole-table guards (H).** These answer 503 "Liste trop longue : utilisez /api/places." and cache nothing above a threshold, so they only bite at staging scale until prod grows. A refusal is remembered for the key's TTL (or until a write): one count per TTL, and a value held from before is not served past it:
+- `/api/testimonies` (`testimonies/service.ts:52-71`): exact head count through **`adminClient`**, 503 above 25,000. A count as anon takes 32 s at 300k (§0.1). A count error or 57014 also gives 503 (not remembered).
 - `/api/auditions` and `/api/map`: head count of published auditions through `adminClient`, 503 above 5,000. Below that, their values live in the byte-bounded `legacy` family, not the unbounded store (`auditions/routes.ts:22-33`, `lib/cache.ts:71`).
 
 **Deploy check.** `deploy-staging.yml:135` stops curling `/api/auditions` (a whole-table pull) and curls `/api/places/facets` as the Worker instead, which also proves the service-role key.

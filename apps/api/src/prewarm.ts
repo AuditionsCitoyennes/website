@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
-import { cachedResponse } from "./lib/cache";
-import { PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "./lib/publicCache";
-import { fetchPublishedAuditions } from "./modules/auditions/service";
+import { TooLongError } from "./lib/guards";
+import { legacyCache, PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "./lib/publicCache";
+import { guardedPublishedAuditions } from "./modules/auditions/service";
 import { buildLocationGroups } from "./modules/map/locationGroups";
 
 /**
@@ -21,23 +21,24 @@ export async function prewarmPublicCaches(log: FastifyBaseLogger): Promise<void>
     [
       PUBLIC_CACHE_KEYS.auditions,
       () =>
-        cachedResponse(
-          PUBLIC_CACHE_KEYS.auditions,
-          PUBLIC_CACHE_TTL_MS.auditions,
-          fetchPublishedAuditions,
-        ),
+        legacyCache.response(PUBLIC_CACHE_KEYS.auditions, guardedPublishedAuditions, {
+          ttlMs: PUBLIC_CACHE_TTL_MS.auditions,
+        }),
     ],
     // Reads the auditions through the key above: one Supabase pull for both.
     [
       PUBLIC_CACHE_KEYS.map,
       () =>
-        cachedResponse(PUBLIC_CACHE_KEYS.map, PUBLIC_CACHE_TTL_MS.map, () =>
-          buildLocationGroups(undefined, log),
-        ),
+        legacyCache.response(PUBLIC_CACHE_KEYS.map, () => buildLocationGroups(undefined, log), {
+          ttlMs: PUBLIC_CACHE_TTL_MS.map,
+        }),
     ],
   ];
   const results = await Promise.allSettled(fills.map(([, run]) => run()));
   results.forEach((r, i) => {
-    if (r.status === "rejected") log.warn({ key: fills[i][0], err: r.reason }, "prewarm failed");
+    if (r.status !== "rejected") return;
+    // Too large to be served whole (lib/guards.ts): nothing to warm.
+    if (r.reason instanceof TooLongError) log.info({ key: fills[i][0] }, "prewarm: refused whole");
+    else log.warn({ key: fills[i][0], err: r.reason }, "prewarm failed");
   });
 }

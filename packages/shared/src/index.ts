@@ -6,6 +6,8 @@ export * from "./db";
 export * from "./filters";
 export * from "./frSplitCities";
 export * from "./locations";
+export * from "./placeFilters";
+export * from "./places";
 export * from "./sanitize";
 export * from "./schemas";
 export * from "./testimonies";

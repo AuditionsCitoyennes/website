@@ -18,7 +18,13 @@ import {
 import { mapSource } from "../../config";
 import { publicClient } from "../../lib/supabase";
 import { PAGE, quoted, selectAll } from "../../lib/paging";
-import { invalidatePublicCaches } from "../../lib/publicCache";
+import { guardPublishedAuditions } from "../../lib/guards";
+import {
+  invalidatePublicCaches,
+  legacyCache,
+  PUBLIC_CACHE_KEYS,
+  PUBLIC_CACHE_TTL_MS,
+} from "../../lib/publicCache";
 import { logAudit } from "../../lib/audit";
 import { frDate } from "../../lib/dates";
 import {
@@ -108,6 +114,26 @@ export async function fetchPublishedAuditions(): Promise<AuditionWithCount[]> {
       // database already hides it until then; this holds even if it did not.
       .filter((a) => !(a.audition_en_ligne && a.testimony_count === 0))
   );
+}
+
+/**
+ * The published auditions as /api/auditions sends them and /api/map groups
+ * them, refused past AUDITIONS_MAX (lib/guards.ts).
+ */
+export async function guardedPublishedAuditions(): Promise<AuditionWithCount[]> {
+  await guardPublishedAuditions();
+  return fetchPublishedAuditions();
+}
+
+/**
+ * The published auditions through the legacy cache: one Supabase pull per
+ * TTL for the list, the map's two builds and the geocoder's warm pass, and
+ * one invalidation (invalidatePublicCaches) for all.
+ */
+export function cachedPublishedAuditions(): Promise<AuditionWithCount[]> {
+  return legacyCache.value(PUBLIC_CACHE_KEYS.auditions, guardedPublishedAuditions, {
+    ttlMs: PUBLIC_CACHE_TTL_MS.auditions,
+  });
 }
 
 /**

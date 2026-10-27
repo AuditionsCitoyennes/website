@@ -1,0 +1,293 @@
+import { strict as assert } from "node:assert";
+import { after, test } from "node:test";
+import {
+  DbBusyError,
+  dbErrorOf,
+  DbGate,
+  DbRefusedError,
+  DbTimeoutError,
+  DbTooLargeError,
+  DbUnavailableError,
+  isTransientDbError,
+  newTiming,
+} from "./dbGate";
+import { AnswerTooLargeError, cappedFetch } from "./cappedFetch";
+import { forceHits, refundHits, takeHits } from "./rateLimit";
+
+// The database gate (lib/dbGate.ts): so many calls at once, so many waiting
+// so long, then 503; the slot of an aborted call held a while; what a
+// failed call means. And the rate limiter's all-or-none count.
+
+const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// The gate's abort and hold timers do not keep a process alive (a server's
+// sockets do): a test's own timer does.
+const alive = setInterval(() => {}, 1000);
+after(() => clearInterval(alive));
+
+const gate = (o: Partial<DbGate["opts"]> = {}) =>
+  new DbGate({ max: 2, queue: 2, waitMs: 1000, timeoutMs: 1000, holdMs: 50, ...o });
+
+/** A call that ends when told to. */
+function held() {
+  let end!: () => void;
+  const done = new Promise<void>((r) => (end = r));
+  return { run: () => done.then(() => "ok"), end };
+}
+
+test("at most `max` calls at once; the next wait their turn, in order", async () => {
+  const g = gate();
+  const a = held();
+  const b = held();
+  const order: string[] = [];
+  const pa = g.run(a.run);
+  const pb = g.run(b.run);
+  const pc = g.run(async () => {
+    order.push("c");
+    return "c";
+  });
+  await tick(5);
+  assert.deepEqual(g.stats(), { active: 2, held: 0, waiting: 1 });
+  assert.deepEqual(order, [], "c waits for a slot");
+  a.end();
+  assert.equal(await pc, "c");
+  b.end();
+  await Promise.all([pa, pb]);
+  assert.deepEqual(g.stats(), { active: 0, held: 0, waiting: 0 });
+});
+
+test("a full queue answers busy at once; a wait past waitMs answers busy", async () => {
+  const g = gate({ waitMs: 30 });
+  const slots = [held(), held()];
+  const running = slots.map((s) => g.run(s.run));
+  const queued = [g.run(async () => 1), g.run(async () => 2)];
+  await assert.rejects(
+    g.run(async () => 3),
+    DbBusyError,
+    "queue of 2 full",
+  );
+  await assert.rejects(queued[0], DbBusyError, "waited 30 ms");
+  await assert.rejects(queued[1], DbBusyError);
+  assert.equal(g.stats().waiting, 0);
+  slots.forEach((s) => s.end());
+  await Promise.all(running);
+  assert.equal(await g.run(async () => "free again"), "free again");
+});
+
+test("an aborted call holds its slot a while after it settles", async () => {
+  const g = gate({ max: 1, timeoutMs: 20, holdMs: 80 });
+  // The call waits for its abort (what a fetch does).
+  const aborted = g.run(
+    (signal) =>
+      new Promise((_, reject) =>
+        signal.addEventListener("abort", () => reject(new Error("TimeoutError: aborted"))),
+      ),
+  );
+  await assert.rejects(aborted, /TimeoutError/);
+  assert.deepEqual(g.stats(), { active: 1, held: 1, waiting: 0 });
+  let started = 0;
+  const next = g.run(async () => (started = Date.now()));
+  const t0 = Date.now();
+  await next;
+  assert.ok(started - t0 >= 60, `the next call waited for the hold (${started - t0} ms)`);
+  assert.deepEqual(g.stats(), { active: 0, held: 0, waiting: 0 });
+});
+
+test("a call that ends on time frees its slot at once", async () => {
+  const g = gate({ max: 1, holdMs: 10_000 });
+  await g.run(async () => "quick");
+  const t0 = Date.now();
+  await g.run(async () => "next");
+  assert.ok(Date.now() - t0 < 50);
+});
+
+test("timing: the wait for a slot and the calls", async () => {
+  const g = gate({ max: 1 });
+  const timing = newTiming();
+  const first = g.run(() => tick(30));
+  await g.run(() => tick(10), timing);
+  await first;
+  assert.equal(timing.calls, 1);
+  assert.ok(timing.gateMs >= 20, `gate ${timing.gateMs}`);
+  assert.ok(timing.dbMs >= 8, `db ${timing.dbMs}`);
+});
+
+test("what a failed call means: 57014 a timeout, 22023 a refusal, too large", () => {
+  const live = new AbortController().signal;
+  const timeout = dbErrorOf({ code: "57014", message: "canceling statement" }, live, 500);
+  assert.ok(timeout instanceof DbTimeoutError);
+  assert.equal(timeout.message, "Recherche trop large : précisez-la.");
+  assert.ok(
+    dbErrorOf({ code: "22023", message: "filters: bad" }, live, 400) instanceof DbRefusedError,
+  );
+  // Text Postgres cannot hold (a NUL in jsonb): the request's fault, not the server's.
+  assert.ok(
+    dbErrorOf(
+      { code: "22P05", message: "unsupported Unicode escape sequence" },
+      live,
+      400,
+    ) instanceof DbRefusedError,
+  );
+  // An answer past its limit (lib/cappedFetch.ts), as supabase-js reports what its fetch threw.
+  const large = dbErrorOf(
+    { code: "", message: `${new AnswerTooLargeError(9, 8).name}: answer over 8 bytes` },
+    live,
+    0,
+  );
+  assert.ok(large instanceof DbTooLargeError);
+  assert.equal(large.statusCode, 400);
+  assert.ok(!isTransientDbError(large));
+  // The database's own errors stay what they are: a 500.
+  for (const [code, status] of [
+    ["42501", 401],
+    ["XX000", 500],
+    ["42883", 404],
+  ] as const) {
+    const other = dbErrorOf({ code, message: "some error" }, live, status);
+    assert.equal(other.constructor, Error, code);
+    assert.ok(!isTransientDbError(other), code);
+  }
+  assert.equal(new DbTimeoutError("x").statusCode, 503);
+  assert.equal(new DbBusyError().message, "Réessayez dans un instant.");
+  assert.ok(isTransientDbError(new DbBusyError()) && isTransientDbError(new DbTimeoutError("")));
+  assert.ok(!isTransientDbError(new DbRefusedError("")) && !isTransientDbError(new Error()));
+});
+
+test("a database out of reach is a moment's trouble, not a search too large: 503, transient", () => {
+  const live = new AbortController().signal;
+  const cases: [string, { code?: string; message: string }, AbortSignal, number | undefined][] = [
+    // The API's own abort, however supabase-js words it.
+    ["abort", { code: "", message: "AbortError: This operation was aborted" }, live, 0],
+    ["timeout signal", { code: "", message: "TimeoutError: The operation timed out" }, live, 0],
+    ["aborted signal", { code: "", message: "fetch failed" }, AbortSignal.abort(), 0],
+    // A fetch that threw (connection refused, reset, a body cut short).
+    ["network", { code: "", message: "TypeError: fetch failed" }, live, 0],
+    ["terminated", { code: "", message: "TypeError: terminated" }, live, 0],
+    // PostgREST cannot reach the database, its schema cache, its pool.
+    ["PGRST000", { code: "PGRST000", message: "Could not connect" }, live, 503],
+    ["PGRST001", { code: "PGRST001", message: "Database client error" }, live, 503],
+    ["PGRST002", { code: "PGRST002", message: "Could not query the database" }, live, 503],
+    ["PGRST003", { code: "PGRST003", message: "Timed out acquiring connection" }, live, 504],
+    // A transaction pooler's prepared statements, mixed up across sessions.
+    ["42P05", { code: "42P05", message: 'prepared statement "6" already exists' }, live, 500],
+    ["26000", { code: "26000", message: 'prepared statement "6" does not exist' }, live, 500],
+    ["by its words", { message: 'prepared statement "6" already exists' }, live, 500],
+    // Too many connections, a restart.
+    ["53300", { code: "53300", message: "too many connections" }, live, 500],
+    ["57P01", { code: "57P01", message: "terminating connection" }, live, 503],
+    ["08006", { code: "08006", message: "connection failure" }, live, 503],
+    // A gateway's answer (Kong), with no code of the database's.
+    [
+      "Kong 502",
+      { message: "An invalid response was received from the upstream server" },
+      live,
+      502,
+    ],
+    ["504", { code: "", message: "upstream request timeout" }, live, 504],
+    ["5xx, no code", { code: "", message: "Internal Server Error" }, live, 500],
+  ];
+  for (const [what, error, signal, status] of cases) {
+    const err = dbErrorOf(error, signal, status);
+    assert.ok(err instanceof DbUnavailableError, what);
+    assert.equal(err.statusCode, 503, what);
+    assert.equal(err.message, "Réessayez dans un instant.", what);
+    assert.ok(isTransientDbError(err), what);
+  }
+});
+
+test("takeHits: all or none, and how long until the refusing window ends", () => {
+  const w = 10_000;
+  assert.equal(takeHits([{ key: "t:a", n: 25, max: 30, windowMs: w }]), 0);
+  // 6 more do not fit: nothing is counted, on either key.
+  const wait = takeHits([
+    { key: "t:a", n: 6, max: 30, windowMs: w },
+    { key: "t:b", n: 6, max: 20, windowMs: w },
+  ]);
+  assert.ok(wait > 9_000 && wait <= w, `${wait}`);
+  assert.equal(takeHits([{ key: "t:b", n: 20, max: 20, windowMs: w }]), 0, "t:b untouched");
+  assert.equal(takeHits([{ key: "t:a", n: 5, max: 30, windowMs: w }]), 0);
+  assert.ok(takeHits([{ key: "t:a", n: 1, max: 30, windowMs: w }]) > 0);
+  // More than a window allows: refused for a window.
+  assert.equal(takeHits([{ key: "t:c", n: 31, max: 30, windowMs: w }]), w);
+});
+
+test("forceHits: counted past the max (work under way), refused from the next take on", () => {
+  const w = 10_000;
+  assert.equal(takeHits([{ key: "t:f", n: 28, max: 30, windowMs: w }]), 0);
+  forceHits([{ key: "t:f", n: 5, max: 30, windowMs: w }]);
+  assert.ok(takeHits([{ key: "t:f", n: 1, max: 30, windowMs: w }]) > 0, "33 of 30 used");
+  // A key with no window yet: one opened, all counted.
+  forceHits([{ key: "t:g", n: 30, max: 30, windowMs: w }]);
+  assert.ok(takeHits([{ key: "t:g", n: 1, max: 30, windowMs: w }]) > 0);
+  forceHits([{ key: "t:h", n: 0, max: 30, windowMs: w }]);
+  assert.equal(takeHits([{ key: "t:h", n: 30, max: 30, windowMs: w }]), 0, "nothing for 0");
+});
+
+test("refundHits: given back to the window they were counted in, never to a later one", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const w = 10_000;
+  const rule = (key: string, n = 1) => ({ key, n, max: 30, windowMs: w });
+
+  // Refused while its window lasts: the call is given back.
+  assert.equal(takeHits([rule("t:r", 29)]), 0);
+  const takenAt = Date.now();
+  assert.equal(takeHits([rule("t:r")]), 0, "the 30th");
+  t.mock.timers.tick(4_000);
+  refundHits([rule("t:r")], takenAt);
+  assert.equal(takeHits([rule("t:r")]), 0, "the refunded call can be taken again");
+  assert.ok(takeHits([rule("t:r")]) > 0, "and only that one");
+
+  // Counted at the end of one window, refused after the next one opened: the
+  // new window never held it, and keeps its count.
+  assert.equal(takeHits([rule("t:s", 30)]), 0);
+  const lateTakenAt = Date.now();
+  t.mock.timers.tick(w + 1);
+  assert.equal(takeHits([rule("t:s", 30)]), 0, "a new window, full");
+  refundHits([rule("t:s")], lateTakenAt);
+  assert.ok(takeHits([rule("t:s")]) > 0, "nothing given back to the new window");
+
+  // Its window over and none since: nothing to give back, nothing opened.
+  assert.equal(takeHits([rule("t:u", 30)]), 0);
+  const goneAt = Date.now();
+  t.mock.timers.tick(w + 1);
+  refundHits([rule("t:u")], goneAt);
+  assert.equal(takeHits([rule("t:u", 30)]), 0, "a fresh window, all 30");
+});
+
+test("cappedFetch: an answer within the limit as it came; past it, cut unread", async () => {
+  const real = globalThis.fetch;
+  let cancelled = false;
+  const stream = (chunks: number, size: number) =>
+    new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (chunks-- === 0) c.close();
+        else c.enqueue(new Uint8Array(size).fill(0x61));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+  try {
+    globalThis.fetch = (async () =>
+      new Response(stream(4, 100), { status: 201, headers: { "x-k": "v" } })) as typeof fetch;
+    const ok = await cappedFetch(400)("http://db.test/rpc/f");
+    assert.equal(ok.status, 201);
+    assert.equal(ok.headers.get("x-k"), "v");
+    assert.equal((await ok.text()).length, 400);
+
+    globalThis.fetch = (async () => new Response(stream(1000, 100))) as typeof fetch;
+    await assert.rejects(cappedFetch(400)("http://db.test/rpc/f"), (e: Error) => {
+      assert.ok(e instanceof AnswerTooLargeError);
+      assert.equal(e.name, "AnswerTooLargeError");
+      return true;
+    });
+    assert.ok(cancelled, "the rest of the body is not read");
+
+    // Declared too large: not read at all.
+    globalThis.fetch = (async () =>
+      new Response("x", { headers: { "content-length": "401" } })) as typeof fetch;
+    await assert.rejects(cappedFetch(400)("http://db.test/rpc/f"), AnswerTooLargeError);
+  } finally {
+    globalThis.fetch = real;
+  }
+});

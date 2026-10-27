@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { createTestimonySchema, updateTestimonySchema } from "@ac/shared";
-import { cachedResponse } from "../../lib/cache";
+import { guardTestimonies } from "../../lib/guards";
 import { sendCached } from "../../lib/httpCache";
-import { PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "../../lib/publicCache";
+import { legacyCache, PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "../../lib/publicCache";
 import { requireAdmin, requireSuperAdmin } from "../../lib/auth";
 import { AnalysisDisabledError, AnalysisError } from "./analysis";
 import {
@@ -30,10 +30,15 @@ export default async function testimonyRoutes(app: FastifyInstance) {
     // per request. `no-cache`: a returning visitor asks whether it changed and
     // is told so in a 304 instead of downloading 1.5 MB again, while an admin's
     // write still shows at the next load.
-    const res = await cachedResponse(
+    // Refused past TESTIMONIES_MAX (lib/guards.ts), or heavier than the
+    // legacy family keeps (lib/publicCache.ts): nothing served uncached.
+    const res = await legacyCache.response(
       PUBLIC_CACHE_KEYS.testimonies,
-      PUBLIC_CACHE_TTL_MS.testimonies,
-      fetchPublicTestimonies,
+      async () => {
+        await guardTestimonies();
+        return fetchPublicTestimonies();
+      },
+      { ttlMs: PUBLIC_CACHE_TTL_MS.testimonies },
     );
     return sendCached(req, reply, res, "no-cache");
   });

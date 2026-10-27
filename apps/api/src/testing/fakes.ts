@@ -146,8 +146,18 @@ const PRECISIONS = new Set([
 
 const isNull = (v: unknown) => v === null || v === undefined;
 
-/** What the migration grants to the service role alone. */
-const SERVICE_ONLY = new Set(["geo_units", "rpc/placement_support"]);
+/** What the migrations grant to the service role alone. */
+const SERVICE_ONLY = new Set([
+  "geo_units",
+  "rpc/placement_support",
+  "rpc/place_counts",
+  "rpc/place_counts_many",
+  "rpc/lieu_auditions",
+  "rpc/audition_results",
+  "rpc/testimony_page",
+  "rpc/place_facets",
+  "rpc/admin_audition_filter",
+]);
 
 /** A request's PostgREST error, as `refuse` makes one up. */
 export interface FakeError {
@@ -171,7 +181,10 @@ export function fakeToken(sub: string): string {
 export class FakeDb {
   tables: Record<string, Row[]> = { auditions: [], geo_units: [] };
   rpcs: Record<string, (args: Row) => unknown> = {};
-  requests: { method: string; url: URL; body: unknown }[] = [];
+  /** Every request, with the key it carried (the service role's or the anon one). */
+  requests: { method: string; url: URL; body: unknown; apikey: string | null }[] = [];
+  /** A table's exact count as a counting read reports it (undefined: its rows'). */
+  countOf: (table: string, url: URL) => number | undefined = () => undefined;
   /** Runs before each request is answered (a concurrent write, say). */
   beforeAnswer: (method: string, url: URL) => void = () => {};
   /** A made-up error for a request (null: answered as usual). */
@@ -277,7 +290,7 @@ export class FakeDb {
   }
 
   answer(method: string, url: URL, headers: Headers, body: unknown): Response {
-    this.requests.push({ method, url, body });
+    this.requests.push({ method, url, body, apikey: headers.get("apikey") });
     this.beforeAnswer(method, url);
     if (url.pathname === "/auth/v1/user") return this.user(headers);
     const made = this.refuse(method, url, body);
@@ -338,7 +351,7 @@ export class FakeDb {
 
     if (method === "GET" || method === "HEAD") {
       let rows = sorted(filtered(table, url.searchParams), url.searchParams.get("order"));
-      const total = rows.length;
+      const total = this.countOf(name, url) ?? rows.length;
       const offset = Number(url.searchParams.get("offset") ?? 0);
       const limit = Number(url.searchParams.get("limit") ?? Infinity);
       rows = rows.slice(offset, offset + limit);
@@ -506,6 +519,8 @@ export function installFakes(fakes: { db?: FakeDb; ban?: FakeBan; geo?: FakeGeoA
 /** The environment the API's config reads, for a test against the fakes. */
 export function fakeEnv(cacheDir: string, extra: Record<string, string> = {}): void {
   Object.assign(process.env, {
+    // A developer's apps/api/.env must not fill in what a test leaves unset.
+    DOTENV_CONFIG_PATH: "/nonexistent",
     APP_ENV: "local",
     EMAIL_MODE: "log",
     SUPABASE_URL,

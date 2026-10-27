@@ -1,6 +1,7 @@
 // A small in-memory, fixed-window rate limiter — for the one public form that
-// sends emails to addresses typed by strangers. Per process: enough for a
-// single API instance; a shared store would be needed beyond that.
+// sends emails to addresses typed by strangers, and the place reads' misses.
+// Per process: enough for a single API instance; a shared store would be
+// needed beyond that.
 
 interface Window {
   until: number;
@@ -37,6 +38,65 @@ export function allowHit(key: string, max: number, windowMs: number): boolean {
   }
   while (windows.size > MAX_KEYS) windows.delete(windows.keys().next().value!);
   return true;
+}
+
+/** One limit a request is counted against: `n` more hits on `key`, at most `max` per `windowMs`. */
+export interface HitRule {
+  key: string;
+  n: number;
+  max: number;
+  windowMs: number;
+}
+
+/**
+ * Counts the hits of every rule, all or none: 0 when they all fit in their
+ * current windows (then counted), else how many ms until the latest of the
+ * refusing windows ends (nothing counted).
+ */
+export function takeHits(rules: readonly HitRule[]): number {
+  const now = Date.now();
+  let waitMs = 0;
+  for (const r of rules) {
+    const w = windows.get(r.key);
+    const used = w && w.until > now ? w.count : 0;
+    if (used + r.n > r.max) waitMs = Math.max(waitMs, w && w.until > now ? w.until - now : 0);
+    // More than a whole window allows: refused for a window.
+    if (r.n > r.max) waitMs = Math.max(waitMs, r.windowMs);
+  }
+  if (waitMs > 0) return waitMs;
+  for (const r of rules) {
+    for (let i = 0; i < r.n; i++) allowHit(r.key, r.max, r.windowMs);
+  }
+  return 0;
+}
+
+/**
+ * Gives back hits that takeHits() counted at `takenAt` for work that never
+ * ran (a gate refused it): from the window they were counted in, while it
+ * lasts. A window opened since never held them, and keeps its count.
+ */
+export function refundHits(rules: readonly HitRule[], takenAt: number): void {
+  const now = Date.now();
+  for (const r of rules) {
+    const w = windows.get(r.key);
+    if (!w || w.until <= now || w.until - r.windowMs > takenAt) continue;
+    w.count = Math.max(0, w.count - r.n);
+  }
+}
+
+/**
+ * Counts the hits of every rule even past its max: work already under way
+ * that the visitor caused (a batch split in the middle of a fill). Nothing
+ * is refused now; the visitor's next requests pay for it.
+ */
+export function forceHits(rules: readonly HitRule[]): void {
+  for (const r of rules) {
+    if (r.n <= 0) continue;
+    // One hit, opening a new window if the last one ended; then the rest.
+    allowHit(r.key, Number.POSITIVE_INFINITY, r.windowMs);
+    const w = windows.get(r.key);
+    if (w) w.count += r.n - 1;
+  }
 }
 
 // The site-wide ceiling lives apart: a flood of keys must never evict it.

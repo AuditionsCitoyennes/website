@@ -187,6 +187,13 @@ function cacheTile(key: string, png: Buffer): Buffer {
   return png;
 }
 
+/** The rendered tiles held, for /api/health. */
+export function demTileStats(): { entries: number; bytes: number } {
+  let bytes = 0;
+  for (const png of tileCache.values()) bytes += png.length;
+  return { entries: tileCache.size, bytes };
+}
+
 /** Drop a version's rendered tiles when the version itself is evicted. */
 function dropTilesFor(version: string): void {
   const prefix = `${version}/`;

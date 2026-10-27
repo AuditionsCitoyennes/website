@@ -107,6 +107,16 @@ const schema = z
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
+    // The shortest free text the place reads apply (/api/places…): 1, any,
+    // as the Témoignages page always searched; 3 if the load test shows 1-2
+    // letter searches too slow at scale (shorter texts are then ignored, and
+    // the answer says textIgnored).
+    SEARCH_MIN_CHARS: z.coerce.number().int().min(1).max(10).default(1),
+    // "relaxed": the place reads' miss and search limits and the online
+    // form's limits, ×100 — for a load campaign on staging only (refused
+    // anywhere else), with emails kept (EMAIL_MODE outbox or log): the form
+    // would otherwise send up to 30,000 real emails a day to typed addresses.
+    RATE_LIMITS: z.enum(["normal", "relaxed"]).default("normal"),
   })
   .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
     message: "EMAIL_MODE=redirect needs EMAIL_REDIRECT_TO",
@@ -125,6 +135,15 @@ const schema = z
   .refine((c) => !(c.TEST_TOOLS && c.APP_ENV === "production"), {
     message: "TEST_TOOLS=true is refused in production",
     path: ["TEST_TOOLS"],
+  })
+  .refine((c) => c.RATE_LIMITS !== "relaxed" || c.APP_ENV === "staging", {
+    message: "RATE_LIMITS=relaxed is refused outside staging",
+    path: ["RATE_LIMITS"],
+  })
+  // Staging's default email mode is log (see emailMode below).
+  .refine((c) => c.RATE_LIMITS !== "relaxed" || ["outbox", "log"].includes(c.EMAIL_MODE ?? "log"), {
+    message: "RATE_LIMITS=relaxed needs EMAIL_MODE outbox or log",
+    path: ["RATE_LIMITS"],
   });
 
 const parsed = schema.safeParse(process.env);
@@ -155,6 +174,9 @@ export const hasServiceRole = config.SUPABASE_SERVICE_ROLE_KEY.length > 0;
  */
 export const mapSource: "db" | "geocoder" =
   config.MAP_SOURCE === "db" && hasServiceRole ? "db" : "geocoder";
+
+/** What the rate limits are multiplied by: 100 under RATE_LIMITS=relaxed (staging load tests). */
+export const rateLimitFactor = config.RATE_LIMITS === "relaxed" ? 100 : 1;
 
 /** Local development, and nothing else: the only place shortcuts are allowed. */
 export const isDev = config.APP_ENV === "local";
