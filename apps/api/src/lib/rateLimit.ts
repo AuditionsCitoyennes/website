@@ -69,6 +69,21 @@ export function takeHits(rules: readonly HitRule[]): number {
   return 0;
 }
 
+/**
+ * Counts the hits of every rule even past its max: work already under way
+ * that the visitor caused (a batch split in the middle of a fill). Nothing
+ * is refused now; the visitor's next requests pay for it.
+ */
+export function forceHits(rules: readonly HitRule[]): void {
+  for (const r of rules) {
+    if (r.n <= 0) continue;
+    // One hit, opening a new window if the last one ended; then the rest.
+    allowHit(r.key, Number.POSITIVE_INFINITY, r.windowMs);
+    const w = windows.get(r.key);
+    if (w) w.count += r.n - 1;
+  }
+}
+
 // The site-wide ceiling lives apart: a flood of keys must never evict it.
 const global: Window = { until: 0, count: 0 };
 

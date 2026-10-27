@@ -1,9 +1,5 @@
-import { promisify } from "node:util";
-import { gzip } from "node:zlib";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { CachedResponse } from "./cache";
-
-const gzipAsync = promisify(gzip);
 
 // Sending a cachedResponse(): its validator and the freshness rule in the
 // headers; a bodiless 304 when the client already holds these bytes; the
@@ -23,11 +19,8 @@ export function sendCached(
   res: CachedResponse,
   cacheControl: string,
 ): FastifyReply {
-  reply.header("ETag", res.etag);
-  reply.header("Cache-Control", cacheControl);
-  // One URL, two bodies: a shared cache keys its copies on the encoding.
-  vary(reply, "Accept-Encoding");
-  if (matches(req.headers["if-none-match"], res.etag)) return reply.code(304).send();
+  const held = sendNotModified(req, reply, res.etag, cacheControl);
+  if (held) return held;
   reply.header("Content-Type", "application/json; charset=utf-8");
   if (acceptsGzip(req.headers["accept-encoding"])) {
     reply.header("Content-Encoding", "gzip");
@@ -37,21 +30,21 @@ export function sendCached(
 }
 
 /**
- * sendCached() for a body built for this reply alone (assembled from cached
- * parts): the same headers and 304, the gzip made only when the client
- * takes it and does not already hold these bytes.
+ * The headers of a representation tagged `etag`, and the bodiless 304 when
+ * the client already holds it (else null: the body is the caller's to send).
+ * Asked before a body is built, it saves building one the client has.
  */
-export async function sendJson(
+export function sendNotModified(
   req: FastifyRequest,
   reply: FastifyReply,
-  body: { json: Buffer; etag: string },
+  etag: string,
   cacheControl: string,
-): Promise<FastifyReply> {
-  const gz =
-    acceptsGzip(req.headers["accept-encoding"]) && !matches(req.headers["if-none-match"], body.etag)
-      ? await gzipAsync(body.json)
-      : body.json;
-  return sendCached(req, reply, { json: body.json, gz, etag: body.etag }, cacheControl);
+): FastifyReply | null {
+  reply.header("ETag", etag);
+  reply.header("Cache-Control", cacheControl);
+  // One URL, two bodies: a shared cache keys its copies on the encoding.
+  vary(reply, "Accept-Encoding");
+  return matches(req.headers["if-none-match"], etag) ? reply.code(304).send() : null;
 }
 
 /** Add a field to `Vary` without dropping what is there (@fastify/cors's Origin). */

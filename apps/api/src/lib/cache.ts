@@ -140,15 +140,18 @@ export async function cachedResponse(
 
 /** `value` as HTTP sends it: JSON, gzipped, tagged. */
 export async function buildResponse(value: unknown): Promise<CachedResponse> {
-  const json = Buffer.from(JSON.stringify(value ?? null));
+  return responseOf(Buffer.from(JSON.stringify(value ?? null)));
+}
+
+/** JSON bytes as HTTP sends them: gzipped, tagged (by default, with the hash of the bytes). */
+export async function responseOf(json: Buffer, etag?: string): Promise<CachedResponse> {
   // zlib's threadpool, never gzipSync: the corpus takes ~60 ms to compress,
   // which must not stall every other request. Gzip only — brotli at its
   // default quality takes seconds on a body this size.
   const gz = await gzipAsync(json);
   // The hash of the bytes, not of the fill: a refill that yields the same JSON
   // keeps the tag, and with it every client's copy.
-  const etag = `"${createHash("sha1").update(json).digest("base64url")}"`;
-  return { json, gz, etag };
+  return { json, gz, etag: etag ?? `"${createHash("sha1").update(json).digest("base64url")}"` };
 }
 
 /** One fill per key at a time; stored only if nothing invalidated the key meanwhile. */
@@ -244,7 +247,15 @@ export function storeStats(): { entries: number; bytes: number } {
 //
 // Batched reads (/api/places?units=…) fill many keys in one upstream call:
 // getMany() groups the misses into chunks, one call each, and every key of a
-// chunk is single-flighted on that call.
+// chunk is single-flighted on that call. A call may answer a key's own
+// failure (KeyFailure) in place of its value: that key fails, the others of
+// the chunk are kept. A fill may also answer a response it built itself
+// (Prebuilt: the bytes of an assembled batch), kept as is.
+//
+// Errors a family remembers (`remembers`: the whole-table guards' "too
+// long") are refused like an oversize value: for the key's TTL, to every
+// caller, without reading upstream again; the value the key held is no
+// longer served.
 
 export type CacheState = "hit" | "stale" | "miss";
 
@@ -269,6 +280,31 @@ export interface CacheFamilyOptions {
    * the TTL ends (or a write), without reading it upstream again.
    */
   refuseOversize?: (key: string, bytes: number) => Error;
+  /**
+   * Errors of a fill remembered the same way: every caller of the key gets
+   * the error until the TTL ends (or a write), and what the key held is
+   * dropped — never served past it.
+   */
+  remembers?: (err: unknown) => boolean;
+}
+
+/** How a getMany's upstream call is made. */
+export interface FetchInfo {
+  /** A refill behind stale replies (no caller waits on it, nor was charged for it). */
+  refill: boolean;
+}
+
+/** Fetches `keys`: one value per key, in their order. */
+export type FetchMany = (keys: string[], info: FetchInfo) => Promise<unknown[]>;
+
+/** A key's own failure, answered by a fetchMany in place of its value (the rest of the chunk is kept). */
+export class KeyFailure {
+  constructor(readonly error: unknown) {}
+}
+
+/** A fill's answer already as HTTP sends it: kept as is (no JSON or gzip built again). */
+export class Prebuilt {
+  constructor(readonly res: CachedResponse) {}
 }
 
 export interface FamilyHit {
@@ -310,6 +346,8 @@ export interface CacheFamilyStats {
   /** Values served (or refused) but not kept: heavier than an entry may be. */
   oversize: number;
   evictions: number;
+  /** Upstream calls started (one per chunk of misses, one per refill). */
+  fills: number;
 }
 
 interface FamilyEntry {
@@ -350,17 +388,19 @@ export class CacheFamily {
   private readonly staleForMs: number;
   private readonly holdForMs: number;
   private readonly refuseOversize?: (key: string, bytes: number) => Error;
+  private readonly remembers?: (err: unknown) => boolean;
   // Insertion order is recency: a hit moves its key to the end, eviction
   // takes from the front.
   private readonly entries = new Map<string, FamilyEntry>();
   private readonly inflight = new Map<string, Promise<Filled>>();
-  // Keys whose value was too heavy (refuseOversize), until their TTL ends.
+  // Keys whose value was too heavy (refuseOversize), or whose fill failed
+  // with an error the family remembers, until their TTL ends.
   private readonly refusals = new Map<string, { until: number; error: Error }>();
   // Per key deleted since the last invalidate(): a fill reads it before and after.
   private readonly epochs = new Map<string, number>();
   private generation = 0;
   private bytes = 0;
-  private counts = { hits: 0, stale: 0, misses: 0, oversize: 0, evictions: 0 };
+  private counts = { hits: 0, stale: 0, misses: 0, oversize: 0, evictions: 0, fills: 0 };
   private oversizeLoggedAt = 0;
 
   constructor(opts: CacheFamilyOptions) {
@@ -370,6 +410,7 @@ export class CacheFamily {
     this.staleForMs = opts.staleForMs ?? STALE_FOR_MS;
     this.holdForMs = opts.holdForMs ?? this.staleForMs;
     this.refuseOversize = opts.refuseOversize;
+    this.remembers = opts.remembers;
     this.maxEntryBytes = opts.maxEntryBytes ?? Math.floor(opts.maxBytes / 4);
     families.push(this);
   }
@@ -410,11 +451,12 @@ export class CacheFamily {
    * Many keys at once, in their order. Fresh and stale entries are served
    * from memory (a stale one refilled behind the reply); keys being filled
    * wait for that fill; the rest are fetched by `fetchMany`, `chunk` keys a
-   * call, which must answer one value per key in the order given.
+   * call, which must answer one value per key in the order given (or a
+   * KeyFailure for a key that failed alone).
    */
   getMany(
     keys: readonly string[],
-    fetchMany: (keys: string[]) => Promise<unknown[]>,
+    fetchMany: FetchMany,
     opts: FamilyGetOptions = {},
   ): Promise<FamilyHit[]> {
     const now = Date.now();
@@ -488,6 +530,7 @@ export class CacheFamily {
         fetchMany,
         ttlMs,
         opts.keepValue ?? false,
+        false,
       );
       part.forEach((m, j) => {
         const served = this.served(m.key, fills[j], opts);
@@ -554,41 +597,57 @@ export class CacheFamily {
   /** One upstream call for `keys`: a promise per key, each single-flighted. */
   private fill(
     keys: string[],
-    fetchMany: (keys: string[]) => Promise<unknown[]>,
+    fetchMany: FetchMany,
     ttlMs: number,
     keepValue: boolean,
+    refill: boolean,
   ): Promise<Filled>[] {
+    this.counts.fills++;
     const generation = this.generation;
     const epochs = keys.map((k) => this.epochs.get(k) ?? 0);
-    const batch = fetchMany(keys).then((values) => {
+    // A write landed meanwhile (the family, or this key): what the fill
+    // brought may predate it, and is not kept (its caller still gets it).
+    const current = (i: number) =>
+      this.generation === generation && (this.epochs.get(keys[i]) ?? 0) === epochs[i];
+    const batch = fetchMany(keys, { refill }).then((values) => {
       if (!Array.isArray(values) || values.length !== keys.length) {
         throw new Error(`cache ${this.name}: ${keys.length} values expected`);
       }
       return values;
     });
     return keys.map((key, i) => {
-      const promise = batch.then(async (values) => {
-        const value = values[i];
-        const res = await buildResponse(value);
-        // A write landed meanwhile (the family, or this key): the value may
-        // predate it. Not kept; this caller still gets it.
-        const current = this.generation === generation && (this.epochs.get(key) ?? 0) === epochs[i];
-        const bytes = res.json.length + res.gz.length + key.length + ENTRY_OVERHEAD;
-        if (bytes > this.maxEntryBytes) {
-          this.oversize(key, bytes);
-          // What the key held is older than this value: not served again.
-          const old = current ? this.entries.get(key) : undefined;
-          if (old) this.drop(key, old);
-          if (this.refuseOversize) {
-            const error = this.refuseOversize(key, bytes);
-            if (current) this.refusals.set(key, { until: Date.now() + ttlMs, error });
-            throw error;
+      const promise = batch
+        .then(async (answer) => {
+          const got = answer[i];
+          if (got instanceof KeyFailure) throw got.error;
+          const value = got instanceof Prebuilt ? undefined : got;
+          const res = got instanceof Prebuilt ? got.res : await buildResponse(value);
+          const bytes = res.json.length + res.gz.length + key.length + ENTRY_OVERHEAD;
+          if (bytes > this.maxEntryBytes) {
+            this.oversize(key, bytes);
+            // What the key held is older than this value: not served again.
+            const old = current(i) ? this.entries.get(key) : undefined;
+            if (old) this.drop(key, old);
+            if (this.refuseOversize) {
+              const error = this.refuseOversize(key, bytes);
+              if (current(i)) this.refusals.set(key, { until: Date.now() + ttlMs, error });
+              throw error;
+            }
+          } else if (current(i)) {
+            this.put(key, res, keepValue ? value : undefined, bytes, ttlMs);
           }
-        } else if (current) {
-          this.put(key, res, keepValue ? value : undefined, bytes, ttlMs);
-        }
-        return { res, value };
-      });
+          return { res, value };
+        })
+        .catch((err: unknown) => {
+          // Remembered: refused to every caller until the TTL ends, and what
+          // the key held (a value served stale meanwhile) is not served again.
+          if (this.remembers?.(err) && current(i)) {
+            const old = this.entries.get(key);
+            if (old) this.drop(key, old);
+            this.refusals.set(key, { until: Date.now() + ttlMs, error: err as Error });
+          }
+          throw err;
+        });
       this.inflight.set(key, promise);
       // Its own slot only: invalidate() may have dropped it, and a newer
       // fill may hold the key by the time this one settles.
@@ -601,14 +660,10 @@ export class CacheFamily {
   }
 
   /** Refills behind stale replies: a failure keeps the entries and backs them off. */
-  private refill(
-    keys: string[],
-    fetchMany: (keys: string[]) => Promise<unknown[]>,
-    ttlMs: number,
-  ): void {
+  private refill(keys: string[], fetchMany: FetchMany, ttlMs: number): void {
     // An entry whose value was kept keeps it across its refill.
     const keepValue = keys.some((k) => this.entries.get(k)?.value !== undefined);
-    const fills = this.fill(keys, fetchMany, ttlMs, keepValue);
+    const fills = this.fill(keys, fetchMany, ttlMs, keepValue, true);
     fills.forEach((p, i) => {
       p.catch((err: unknown) => {
         const entry = this.entries.get(keys[i]);

@@ -1,12 +1,14 @@
 import type { Json, RpcPlaceFilters } from "@ac/shared";
-import { dbErrorOf, dbGate, type DbGate, type DbTiming } from "../../lib/dbGate";
+import { dbErrorOf, dbGate, type DbFailure, type DbGate, type DbTiming } from "../../lib/dbGate";
 import { cappedServiceClient } from "../../lib/supabase";
 
 // The read RPCs (supabase/migrations/20261026200000_read_rpcs.sql), each call
 // through the gate (lib/dbGate.ts) with its abort signal, through the service
 // role: they are granted to it alone. A failed call throws what the routes
-// map: DbTimeoutError (57014, the abort) → 503, DbRefusedError (22023) and
-// DbTooLargeError (an answer past its limit) → 400, anything else → 500.
+// map: DbTimeoutError (57014) and DbUnavailableError (no connection, a
+// gateway's 5xx, a fetch that threw, the abort) → 503, DbRefusedError
+// (22023) and DbTooLargeError (an answer past its limit) → 400, anything
+// else → 500.
 
 /** Units per place_counts_many call (the function takes 1 to 20). */
 export const UNITS_PER_CALL = 20;
@@ -39,7 +41,9 @@ export interface CountsArgs {
 
 interface RpcAnswer {
   data: unknown;
-  error: { code?: string; message: string } | null;
+  error: DbFailure | null;
+  /** The HTTP status (0: the fetch threw). */
+  status?: number;
 }
 
 /** One gated call: `run` gets the signal its request must carry. */
@@ -49,8 +53,8 @@ async function gated(
   gate: DbGate = dbGate,
 ): Promise<unknown> {
   return gate.run(async (signal) => {
-    const { data, error } = await run(signal);
-    if (error) throw dbErrorOf(error, signal);
+    const { data, error, status } = await run(signal);
+    if (error) throw dbErrorOf(error, signal, status);
     return data;
   }, timing);
 }

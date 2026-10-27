@@ -7,11 +7,12 @@ import {
   DbRefusedError,
   DbTimeoutError,
   DbTooLargeError,
+  DbUnavailableError,
   isTransientDbError,
   newTiming,
 } from "./dbGate";
 import { AnswerTooLargeError, cappedFetch } from "./cappedFetch";
-import { takeHits } from "./rateLimit";
+import { forceHits, takeHits } from "./rateLimit";
 
 // The database gate (lib/dbGate.ts): so many calls at once, so many waiting
 // so long, then 503; the slot of an aborted call held a while; what a
@@ -111,43 +112,87 @@ test("timing: the wait for a slot and the calls", async () => {
   assert.ok(timing.dbMs >= 8, `db ${timing.dbMs}`);
 });
 
-test("what a failed call means: 57014 and aborts are timeouts, 22023 a refusal, too large", () => {
+test("what a failed call means: 57014 a timeout, 22023 a refusal, too large", () => {
   const live = new AbortController().signal;
+  const timeout = dbErrorOf({ code: "57014", message: "canceling statement" }, live, 500);
+  assert.ok(timeout instanceof DbTimeoutError);
+  assert.equal(timeout.message, "Recherche trop large : précisez-la.");
   assert.ok(
-    dbErrorOf({ code: "57014", message: "canceling statement" }, live) instanceof DbTimeoutError,
+    dbErrorOf({ code: "22023", message: "filters: bad" }, live, 400) instanceof DbRefusedError,
   );
-  assert.ok(
-    dbErrorOf({ code: "", message: "AbortError: This operation was aborted" }, live) instanceof
-      DbTimeoutError,
-  );
-  assert.ok(
-    dbErrorOf({ code: "", message: "TimeoutError: The operation timed out" }, live) instanceof
-      DbTimeoutError,
-  );
-  assert.ok(
-    dbErrorOf({ code: "", message: "fetch failed" }, AbortSignal.abort()) instanceof DbTimeoutError,
-  );
-  assert.ok(dbErrorOf({ code: "22023", message: "filters: bad" }, live) instanceof DbRefusedError);
   // Text Postgres cannot hold (a NUL in jsonb): the request's fault, not the server's.
   assert.ok(
-    dbErrorOf({ code: "22P05", message: "unsupported Unicode escape sequence" }, live) instanceof
-      DbRefusedError,
+    dbErrorOf(
+      { code: "22P05", message: "unsupported Unicode escape sequence" },
+      live,
+      400,
+    ) instanceof DbRefusedError,
   );
   // An answer past its limit (lib/cappedFetch.ts), as supabase-js reports what its fetch threw.
   const large = dbErrorOf(
     { code: "", message: `${new AnswerTooLargeError(9, 8).name}: answer over 8 bytes` },
     live,
+    0,
   );
   assert.ok(large instanceof DbTooLargeError);
   assert.equal(large.statusCode, 400);
   assert.ok(!isTransientDbError(large));
-  const other = dbErrorOf({ code: "42501", message: "permission denied" }, live);
-  assert.ok(!(other instanceof DbTimeoutError) && !(other instanceof DbRefusedError));
+  // The database's own errors stay what they are: a 500.
+  for (const [code, status] of [
+    ["42501", 401],
+    ["XX000", 500],
+    ["42883", 404],
+  ] as const) {
+    const other = dbErrorOf({ code, message: "some error" }, live, status);
+    assert.equal(other.constructor, Error, code);
+    assert.ok(!isTransientDbError(other), code);
+  }
   assert.equal(new DbTimeoutError("x").statusCode, 503);
-  assert.equal(new DbTimeoutError("x").message, "Recherche trop large : précisez-la.");
   assert.equal(new DbBusyError().message, "Réessayez dans un instant.");
   assert.ok(isTransientDbError(new DbBusyError()) && isTransientDbError(new DbTimeoutError("")));
   assert.ok(!isTransientDbError(new DbRefusedError("")) && !isTransientDbError(new Error()));
+});
+
+test("a database out of reach is a moment's trouble, not a search too large: 503, transient", () => {
+  const live = new AbortController().signal;
+  const cases: [string, { code?: string; message: string }, AbortSignal, number | undefined][] = [
+    // The API's own abort, however supabase-js words it.
+    ["abort", { code: "", message: "AbortError: This operation was aborted" }, live, 0],
+    ["timeout signal", { code: "", message: "TimeoutError: The operation timed out" }, live, 0],
+    ["aborted signal", { code: "", message: "fetch failed" }, AbortSignal.abort(), 0],
+    // A fetch that threw (connection refused, reset, a body cut short).
+    ["network", { code: "", message: "TypeError: fetch failed" }, live, 0],
+    ["terminated", { code: "", message: "TypeError: terminated" }, live, 0],
+    // PostgREST cannot reach the database, its schema cache, its pool.
+    ["PGRST000", { code: "PGRST000", message: "Could not connect" }, live, 503],
+    ["PGRST001", { code: "PGRST001", message: "Database client error" }, live, 503],
+    ["PGRST002", { code: "PGRST002", message: "Could not query the database" }, live, 503],
+    ["PGRST003", { code: "PGRST003", message: "Timed out acquiring connection" }, live, 504],
+    // A transaction pooler's prepared statements, mixed up across sessions.
+    ["42P05", { code: "42P05", message: 'prepared statement "6" already exists' }, live, 500],
+    ["26000", { code: "26000", message: 'prepared statement "6" does not exist' }, live, 500],
+    ["by its words", { message: 'prepared statement "6" already exists' }, live, 500],
+    // Too many connections, a restart.
+    ["53300", { code: "53300", message: "too many connections" }, live, 500],
+    ["57P01", { code: "57P01", message: "terminating connection" }, live, 503],
+    ["08006", { code: "08006", message: "connection failure" }, live, 503],
+    // A gateway's answer (Kong), with no code of the database's.
+    [
+      "Kong 502",
+      { message: "An invalid response was received from the upstream server" },
+      live,
+      502,
+    ],
+    ["504", { code: "", message: "upstream request timeout" }, live, 504],
+    ["5xx, no code", { code: "", message: "Internal Server Error" }, live, 500],
+  ];
+  for (const [what, error, signal, status] of cases) {
+    const err = dbErrorOf(error, signal, status);
+    assert.ok(err instanceof DbUnavailableError, what);
+    assert.equal(err.statusCode, 503, what);
+    assert.equal(err.message, "Réessayez dans un instant.", what);
+    assert.ok(isTransientDbError(err), what);
+  }
 });
 
 test("takeHits: all or none, and how long until the refusing window ends", () => {
@@ -164,6 +209,18 @@ test("takeHits: all or none, and how long until the refusing window ends", () =>
   assert.ok(takeHits([{ key: "t:a", n: 1, max: 30, windowMs: w }]) > 0);
   // More than a window allows: refused for a window.
   assert.equal(takeHits([{ key: "t:c", n: 31, max: 30, windowMs: w }]), w);
+});
+
+test("forceHits: counted past the max (work under way), refused from the next take on", () => {
+  const w = 10_000;
+  assert.equal(takeHits([{ key: "t:f", n: 28, max: 30, windowMs: w }]), 0);
+  forceHits([{ key: "t:f", n: 5, max: 30, windowMs: w }]);
+  assert.ok(takeHits([{ key: "t:f", n: 1, max: 30, windowMs: w }]) > 0, "33 of 30 used");
+  // A key with no window yet: one opened, all counted.
+  forceHits([{ key: "t:g", n: 30, max: 30, windowMs: w }]);
+  assert.ok(takeHits([{ key: "t:g", n: 1, max: 30, windowMs: w }]) > 0);
+  forceHits([{ key: "t:h", n: 0, max: 30, windowMs: w }]);
+  assert.equal(takeHits([{ key: "t:h", n: 30, max: 30, windowMs: w }]), 0, "nothing for 0");
 });
 
 test("cappedFetch: an answer within the limit as it came; past it, cut unread", async () => {

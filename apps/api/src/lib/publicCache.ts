@@ -13,8 +13,18 @@ import { TooLongError } from "./guards";
 const MB = 1024 * 1024;
 const MINUTE = 60_000;
 
-/** The place reads (map phase 1): per unit, per lieu, the results' and testimonies' first pages. */
-export const placesCache = new CacheFamily({ name: "places", maxBytes: 18 * MB, ttlMs: MINUTE });
+/**
+ * The place counts (map phase 1): per unit, and each units= answer assembled
+ * from them (modules/places/readRoutes.ts). An entry may take 6 MB: a unit's
+ * answer is at most 2 MB of JSON (modules/places/read.ts), an assembled
+ * batch at most 4 MB plus its gzip — kept, not built again per request.
+ */
+export const placesCache = new CacheFamily({
+  name: "places",
+  maxBytes: 18 * MB,
+  maxEntryBytes: 6 * MB,
+  ttlMs: MINUTE,
+});
 // A lieu's answer may be as heavy as a read brings back (lib/supabase.ts,
 // 2 MB of JSON, plus its gzip): kept, not read again per request.
 export const lieuCache = new CacheFamily({
@@ -41,7 +51,9 @@ export const auditionCache = new CacheFamily({
  * the family holds it beside the auditions list at its guard (5,000
  * auditions, about 4 MB) and the map. A value heavier than 16 MB is refused
  * (503 "Liste trop longue"), remembered for its TTL: never pulled per
- * request.
+ * request. So is a table past its guard's count (lib/guards.ts): one count
+ * per TTL, not one per request, and the value held before is not served
+ * past the refusal.
  */
 export const legacyCache = new CacheFamily({
   name: "legacy",
@@ -49,6 +61,7 @@ export const legacyCache = new CacheFamily({
   maxEntryBytes: 16 * MB,
   ttlMs: MINUTE,
   refuseOversize: (key, bytes) => new TooLongError(key, bytes),
+  remembers: (err) => err instanceof TooLongError,
 });
 
 /** Every public family: what a write invalidates. */

@@ -10,6 +10,9 @@ import { adminClient } from "./supabase";
 // the service role (a developer's API) there is no guard. Below the counts,
 // a value too heavy for the legacy family is refused too, by its bytes
 // (lib/publicCache.ts): never served uncached, a whole-table pull per view.
+// Either refusal is remembered by that family for the key's TTL (or until a
+// write): one count per TTL while a table is over its threshold, and a
+// value held from before is not served past it.
 
 /**
  * Testimonies past which /api/testimonies refuses. Not the design's 25,000:

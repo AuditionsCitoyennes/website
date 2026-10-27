@@ -1,12 +1,21 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { ByteLru } from "./byteLru";
-import { CacheFamily, setCacheLogger } from "./cache";
+import {
+  buildResponse,
+  CacheFamily,
+  KeyFailure,
+  Prebuilt,
+  responseOf,
+  setCacheLogger,
+} from "./cache";
 
 // A family's rules (lib/cache.ts): bounded in bytes, least recently used out
 // first; a value too heavy for it served and not kept; one generation, and a
 // fill across a write not kept; served stale while refilled; single flight,
-// per key and per batch; a held value instead of a transient error.
+// per key and per batch; a held value instead of a transient error; a key's
+// own failure within a batch, a response built by its fill, and the errors a
+// family remembers.
 
 setCacheLogger({ warn() {} });
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -401,4 +410,107 @@ test("every entry weighs its bytes and its overhead: tiny entries are bounded to
   const st = f.stats();
   assert.ok(st.entries < 40, `${st.entries} entries`);
   assert.ok(st.bytes <= 10_000);
+});
+
+test("getMany: a key's own failure fails that key alone; the rest of its chunk is kept", async () => {
+  const f = family();
+  class TooLarge extends Error {}
+  const fetchMany = async (keys: string[]) =>
+    keys.map((k) => (k === "huge" ? new KeyFailure(new TooLarge(k)) : `v:${k}`));
+  await assert.rejects(f.getMany(["a", "huge", "b"], fetchMany, { chunk: 20 }), TooLarge);
+  await tick(20); // the others' gzip, on the threadpool
+  // A reader of "a" alone, then: kept by that call, not fetched again.
+  const [a] = await f.getMany(["a"], async () => assert.fail("a was kept"));
+  assert.equal(a.state, "hit");
+  assert.equal(JSON.parse(a.res.json.toString()), "v:a");
+  assert.equal((await f.get("b", async () => assert.fail("b was kept"))).state, "hit");
+  // The failed key was not.
+  assert.equal((await f.get("huge", async () => "now small")).state, "miss");
+  assert.equal(f.stats().fills, 2, "one call for the chunk, one for the key asked again");
+});
+
+test("Prebuilt: a response its fill built, kept and served as is", async () => {
+  const f = family();
+  const json = Buffer.from('{"results":[1,2]}');
+  const built = await responseOf(json, '"assembled"');
+  const first = await f.get("batch", async () => new Prebuilt(built));
+  assert.equal(first.state, "miss");
+  assert.equal(first.res, built, "the very bytes");
+  const again = await f.get("batch", async () => assert.fail("kept"));
+  assert.equal(again.state, "hit");
+  assert.equal(again.res, built);
+  assert.equal(again.res.etag, '"assembled"');
+  assert.equal(again.value, undefined);
+  assert.ok(f.stats().bytes >= json.length + built.gz.length);
+  // Without a tag of its own, the hash of the bytes (as for any value).
+  assert.equal((await responseOf(json)).etag, (await buildResponse({ results: [1, 2] })).etag);
+});
+
+test("remembers: an error remembered for the TTL, the value held before not served past it", async () => {
+  class TooLong extends Error {}
+  const f = family({ ttlMs: 300, remembers: (e) => e instanceof TooLong });
+  let fills = 0;
+  let over = false;
+  const fn = async () => {
+    fills++;
+    if (over) throw new TooLong("past the threshold");
+    return "whole table";
+  };
+  await f.get("list", fn);
+  over = true;
+  await tick(320); // stale: served, and its refill behind the reply is refused
+  assert.equal((await f.get("list", fn)).state, "stale");
+  for (let i = 0; i < 200 && fills < 2; i++) await tick(5);
+  await tick(5);
+  assert.equal(fills, 2);
+  await assert.rejects(f.get("list", fn), TooLong, "the stale value is not served past it");
+  await assert.rejects(f.get("list", fn), TooLong);
+  assert.equal(fills, 2, "remembered: not counted again per request");
+  assert.equal(f.stats().entries, 0);
+  assert.equal(f.stats().bytes, 0);
+  // Past the TTL: asked again (still over, so refused and remembered again).
+  await tick(320);
+  await assert.rejects(f.get("list", fn), TooLong);
+  assert.equal(fills, 3);
+  // A write: asked again at once.
+  f.invalidate();
+  over = false;
+  assert.equal((await f.get("list", fn)).state, "miss");
+  assert.equal(fills, 4);
+  // Any other error is not remembered.
+  const g = family({ ttlMs: 300, remembers: (e) => e instanceof TooLong });
+  let tries = 0;
+  const flaky = async () => {
+    tries++;
+    throw new Error("boom");
+  };
+  await assert.rejects(g.get("k", flaky), /boom/);
+  await assert.rejects(g.get("k", flaky), /boom/);
+  assert.equal(tries, 2);
+});
+
+test("a refusal remembered while a write lands is not kept", async () => {
+  class TooLong extends Error {}
+  const f = family({ ttlMs: 60_000, remembers: (e) => e instanceof TooLong });
+  let fail!: (e: Error) => void;
+  const pending = f.get("list", () => new Promise((_, reject) => (fail = reject)));
+  f.invalidate();
+  fail(new TooLong("counted before the write"));
+  await assert.rejects(pending, TooLong);
+  assert.equal((await f.get("list", async () => "after the write")).state, "miss");
+});
+
+test("fetchMany is told a refill from a miss (a refill is nobody's to pay for)", async () => {
+  const f = family({ ttlMs: 20 });
+  const seen: boolean[] = [];
+  const fetchMany = async (keys: string[], { refill }: { refill: boolean }) => {
+    seen.push(refill);
+    return keys.map((k) => k);
+  };
+  await f.getMany(["a"], fetchMany);
+  await tick(30);
+  assert.equal((await f.getMany(["a"], fetchMany))[0].state, "stale");
+  for (let i = 0; i < 100 && seen.length < 2; i++) await tick(5);
+  assert.deepEqual(seen, [false, true]);
+  assert.equal(f.stats().fills, 2);
 });

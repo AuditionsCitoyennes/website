@@ -353,7 +353,7 @@ Without `SUPABASE_SERVICE_ROLE_KEY`, the places routes answer 503 (no anon fallb
 
 **API side** (D4):
 - `abortSignal(AbortSignal.timeout(7000))` as the network backstop.
-- 57014 and AbortError both map to the same uncached 503, and stale data is served if held (SWR at `lib/cache.ts:176-191`).
+- 57014 maps to an uncached 503 "Recherche trop large : précisez-la."; the API's abort, and a database out of reach (PostgREST's PGRST000-003, a pooler's prepared-statement errors, a gateway's 5xx, a fetch that threw), to an uncached 503 "Réessayez dans un instant.". In both cases stale data is served if held.
 - A gate slot is released when the call settles. If the abort fired first, the slot is held 5 s more, so at most 6 statements run at once.
 
 **Rejected.**
@@ -556,7 +556,7 @@ Everything not listed here must come out of the harnesses identical.
 | D11 | Conditional: a 3-character search minimum, only if the load test forces it. |
 | D12 | An admin's explicit BAN pick places that audition at the pick, even when another audition with the same lieu name is placed elsewhere. Today the text is re-geocoded and same-named lieux always merge. |
 | D13 | Lazy path only (above 600 units plus lieux, i.e. staging at scale): opening a lieu waits for its audition list, with LoadingDots in the list. |
-| D14 | A change to `LOCATION_RULES` regroups stored lieux on the job's first pass after the deploy, not at the next read. Likewise, the read RPCs read an audition the old app inserted or moved (`place_stale`) at its stored place until the job's next pass (at most 10 minutes): an insert stays unplaced, a moved one at its previous lieu. `/api/map` (D6) files such a row by its name at once. |
+| D14 | A change to `LOCATION_RULES` regroups stored lieux on the job's first pass after the deploy, not at the next read. Likewise, the read RPCs read an audition the old app inserted or moved (`place_stale`) at its stored place until the job's next pass: an insert stays unplaced, a moved one at its previous lieu. The place reads nudge the job (at most once a minute), so while the site is read that is about a minute; otherwise at most 10 minutes. `/api/map` (D6) files such a row by its name at once. |
 
 ### A22. Admin list filters on the server (contract)
 
@@ -1325,7 +1325,7 @@ All public GETs are `no-cache` with ETag/304 through `sendCached` (`apps/api/src
 | GET `/api/auditions/admin/filter` | `v`, `t`, `q`; `requireAdmin` | `admin_audition_filter` | `{matches: {[id]: [nAll, nNoText]}, themes: number[16]}` | not cached |
 | POST `/api/admin/places/sweep` | `dryRun=1`; super admin | placement job | `{placed, unplaced, failed, rulesRestamped}` | — |
 
-- A `units=` response is assembled from per-unit cached JSON buffers, gzipped per response. Its ETag is a hash of the per-unit ETags.
+- A `units=` response is assembled from per-unit cached JSON buffers. Its ETag is a hash of the per-unit ETags, and the assembled bytes and their gzip are kept in the `places` family under that ETag: built once (at most 4 at a time), not per request. A build that reaches no database costs its visitor one miss. An answer with `textIgnored` is kept the same way.
 - The module is `apps/api/src/modules/places`, registered beside the others (`apps/api/src/server.ts:122-133`).
 - `GET /api/auditions/:id` (`apps/api/src/modules/auditions/routes.ts:45-60`) stays whole.
 
@@ -1383,10 +1383,11 @@ All public GETs are `no-cache` with ETag/304 through `sendCached` (`apps/api/src
 ### D4. DB gate, timeouts, errors, rate limits, timing
 
 - **`lib/dbGate.ts`.** At most 6 concurrent RPC calls, a queue of 50, a 5 s wait, then 503 "Réessayez dans un instant." (never cached). A slot is released when its call settles. After an abort, the slot is held 5 s more (A11).
-- **Batching.** A `units=` miss set is split into RPC calls of ≤ 20 units. Each call takes one gate slot and counts as one miss.
+- **Batching.** A `units=` miss set is split into RPC calls of ≤ 20 units. Each call takes one gate slot and counts as one miss. A call whose answer passes the 2 MB read cap is made again unit by unit (the extra calls charged to the visitor afterwards), so only a unit whose own answer passes 2 MB is refused, cold or warm.
 - **Timeouts.** Every RPC call uses `.abortSignal(AbortSignal.timeout(7000))`; `service_role` is bounded at 5 s (M4).
 - **Errors.**
-  - Postgres `57014` and AbortError → 503 "Recherche trop large : précisez-la.", never cached; a stale value is served if held.
+  - Postgres `57014` → 503 "Recherche trop large : précisez-la.", never cached; a stale value is served if held.
+  - AbortError, PGRST000-003, `42P05`/`26000` (prepared statements), connection codes, a gateway's 5xx, a fetch that threw → 503 "Réessayez dans un instant.", never cached; a stale value is served if held.
   - `22023` → 400.
 - **Rate limits** (`apps/api/src/lib/rateLimit.ts:26,59`, keyed by `clientKey(visitorIp(req))`, `apps/api/src/lib/visitor.ts:13-17`):
   - `':places-miss'`: 30 RPC calls per 10 s;
@@ -1506,8 +1507,8 @@ Every placement stores `placed_location = location` and `placed_rules = RULES_HA
 - `townHall.ts`, extended.
 - `boundaries/` and `dem/`.
 
-**Whole-table guards (H).** These answer 503 "Liste trop longue : utilisez /api/places." and cache nothing above a threshold, so they only bite at staging scale until prod grows:
-- `/api/testimonies` (`testimonies/service.ts:52-71`): exact head count through **`adminClient`**, 503 above 25,000. A count as anon takes 32 s at 300k (§0.1). A count error or 57014 also gives 503.
+**Whole-table guards (H).** These answer 503 "Liste trop longue : utilisez /api/places." and cache nothing above a threshold, so they only bite at staging scale until prod grows. A refusal is remembered for the key's TTL (or until a write): one count per TTL, and a value held from before is not served past it:
+- `/api/testimonies` (`testimonies/service.ts:52-71`): exact head count through **`adminClient`**, 503 above 25,000. A count as anon takes 32 s at 300k (§0.1). A count error or 57014 also gives 503 (not remembered).
 - `/api/auditions` and `/api/map`: head count of published auditions through `adminClient`, 503 above 5,000. Below that, their values live in the byte-bounded `legacy` family, not the unbounded store (`auditions/routes.ts:22-33`, `lib/cache.ts:71`).
 
 **Deploy check.** `deploy-staging.yml:135` stops curling `/api/auditions` (a whole-table pull) and curls `/api/places/facets` as the Worker instead, which also proves the service-role key.

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { gunzipSync } from "node:zlib";
 import type { FastifyInstance } from "fastify";
 import { FakeDb, fakeEnv, fakeToken, installFakes, type Row } from "../../testing/fakes";
 
@@ -18,10 +19,12 @@ fakeEnv(cacheDir, { TEST_TOOLS: "true", SEARCH_MIN_CHARS: "3" });
 const db = new FakeDb();
 const restore = installFakes({ db });
 
-// The read RPCs named here answer late, or fail as a call aborted by its
-// signal does (only when the API gave it one). Every RPC call and count
-// records whether it carried an abort signal.
+// The read RPCs named here answer late, fail as a call aborted by its signal
+// does (only when the API gave it one), or as a fetch that could not reach
+// the server. Every RPC call and count records whether it carried an abort
+// signal.
 const abortRpcs = new Set<string>();
+const unreachableRpcs = new Set<string>();
 const slowRpcs = new Map<string, number>();
 let signals: { path: string; method: string; signal: boolean }[] = [];
 const fakeFetch = globalThis.fetch;
@@ -36,6 +39,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   if (rpc && abortRpcs.has(rpc) && signal) {
     throw new DOMException("This operation was aborted", "AbortError");
   }
+  if (rpc && unreachableRpcs.has(rpc)) throw new TypeError("fetch failed");
   return fakeFetch(input, init);
 }) as typeof fetch;
 
@@ -118,6 +122,7 @@ beforeEach(() => {
   db.refuse = () => null;
   db.countOf = () => undefined;
   abortRpcs.clear();
+  unreachableRpcs.clear();
   slowRpcs.clear();
   signals = [];
   invalidatePublicCaches();
@@ -325,7 +330,7 @@ test("empty=1 and budget (testing tools) reach the RPC", async () => {
   });
 });
 
-test("57014: 503, nothing cached; 22023: 400; an aborted call: 503", async () => {
+test("57014: 503, nothing cached; 22023: 400; an aborted call: 503, to try again", async () => {
   db.refuse = (_m, url) =>
     url.pathname.endsWith("/rpc/place_counts_many")
       ? { status: 500, code: "57014", message: "canceling statement due to statement timeout" }
@@ -346,12 +351,76 @@ test("57014: 503, nothing cached; 22023: 400; an aborted call: 503", async () =>
   const ok = await get("/api/places?unit=world&q=climat");
   assert.equal(ok.statusCode, 200, "the 503 was not cached");
 
+  // The API's abort: the database is not answering, the search is not to blame.
   abortRpcs.add("lieu_auditions");
   const aborted = await get(`/api/places/lieu?id=${LIEU}`);
   assert.equal(aborted.statusCode, 503);
-  assert.equal(aborted.json().message, "Recherche trop large : précisez-la.");
+  assert.equal(aborted.json().message, "Réessayez dans un instant.");
   abortRpcs.clear();
   assert.equal((await get(`/api/places/lieu?id=${LIEU}`)).statusCode, 200);
+});
+
+test("a database out of reach: 503 to try again, a value still held served instead", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const first = await get("/api/places?unit=world");
+  assert.equal(first.statusCode, 200);
+  // Past the TTL and the stale window: a miss, and the database fails it.
+  t.mock.timers.tick(6 * 60_000 + 1000);
+  const outages: [string, () => void][] = [
+    [
+      "Kong's 502",
+      () =>
+        (db.refuse = (_m, url) =>
+          url.pathname.includes("/rpc/")
+            ? {
+                status: 502,
+                code: "",
+                message: "An invalid response was received from the upstream server",
+              }
+            : null),
+    ],
+    [
+      "PostgREST's pool",
+      () =>
+        (db.refuse = (_m, url) =>
+          url.pathname.includes("/rpc/")
+            ? { status: 504, code: "PGRST003", message: "Timed out acquiring connection" }
+            : null),
+    ],
+    [
+      "a pooler's prepared statements",
+      () =>
+        (db.refuse = (_m, url) =>
+          url.pathname.includes("/rpc/")
+            ? { status: 500, code: "42P05", message: 'prepared statement "6" already exists' }
+            : null),
+    ],
+    [
+      "a fetch that threw",
+      () => {
+        db.refuse = () => null;
+        for (const rpc of ["place_counts_many", "place_facets"]) unreachableRpcs.add(rpc);
+      },
+    ],
+  ];
+  for (const [what, outage] of outages) {
+    outage();
+    const held = await get("/api/places?unit=world");
+    assert.equal(held.statusCode, 200, `${what}: ${held.body}`);
+    assert.equal(held.headers["x-cache"], "stale", what);
+    assert.equal(held.body, first.body, what);
+    // Nothing held: the error, never "Recherche trop large" (facets have no search).
+    for (const url of ["/api/places?unit=FR", "/api/places/facets"]) {
+      const res = await get(url);
+      assert.equal(res.statusCode, 503, `${what}: ${url}`);
+      assert.equal(res.json().message, "Réessayez dans un instant.", `${what}: ${url}`);
+      assert.equal(res.headers["cache-control"], "no-store", `${what}: ${url}`);
+      assert.equal(res.headers["retry-after"], "5", `${what}: ${url}`);
+    }
+  }
+  db.refuse = () => null;
+  unreachableRpcs.clear();
+  assert.equal((await get("/api/places?unit=FR")).statusCode, 200, "nothing kept of it");
 });
 
 test("a visitor's misses: 30 RPC calls per 10 s, 20 with a text; then 429 with Retry-After", async () => {
@@ -509,6 +578,122 @@ test("an answer past the read limit: 400, not kept; a units= answer past its lim
   }
 });
 
+test("units=: the answer assembled once, kept under its parts' tags; hits and 304s build nothing", async () => {
+  const { placesCache } = await import("../../lib/publicCache");
+  const units = ["world", "FR", "fr:reg:84"];
+  for (const u of units) await get(`/api/places?unit=${encodeURIComponent(u)}`);
+  const url = `/api/places?units=${units.join(",")}`;
+  const fills = () => placesCache.stats().fills;
+  const before = fills();
+  // Twenty at once, every unit cached: one assembly between them all.
+  const all = await Promise.all(Array.from({ length: 20 }, () => get(url)));
+  for (const res of all) {
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.body, all[0].body);
+    assert.equal(res.headers.etag, all[0].headers.etag);
+  }
+  assert.equal(fills() - before, 1, "one assembly");
+  assert.equal(calls.place_counts_many.length, 3, "no call: every unit was cached");
+  // Then a hit: the kept bytes, as is.
+  const again = await get(url);
+  assert.equal(again.headers["x-cache"], "hit");
+  assert.equal(again.body, all[0].body);
+  const gz = await get(url, { "accept-encoding": "gzip" });
+  assert.equal(gz.headers["content-encoding"], "gzip");
+  assert.equal(gunzipSync(gz.rawPayload).toString(), again.body);
+  const held = await get(url, { "if-none-match": String(again.headers.etag) });
+  assert.equal(held.statusCode, 304);
+  assert.equal(fills() - before, 1, "a hit, a gzip, a 304: nothing built");
+
+  // A unit that changes moves the batch's tag: a new assembly, never the old bytes.
+  invalidatePublicCaches();
+  version = 2;
+  const moved = await get(url);
+  assert.notEqual(moved.headers.etag, again.headers.etag);
+  assert.equal(moved.json().results[0].self.n, 2);
+  // An answer with textIgnored is kept the same way.
+  await get("/api/places?unit=world&q=ab");
+  const built = fills();
+  const short = await get("/api/places?unit=world&q=ab");
+  assert.equal(short.json().textIgnored, true);
+  assert.equal(fills(), built, "kept");
+});
+
+test("units=: an assembly that reaches no database costs its visitor one call; a hit, none", async () => {
+  // Another visitor's requests cached the units.
+  for (const u of ["world", "FR"]) await get(`/api/places?unit=${u}`, {}, "10.250.0.1");
+  // This one spends 29 of its 30 misses.
+  for (let i = 0; i < 29; i++) {
+    assert.equal((await get(`/api/places?unit=fr:com:${71000 + i}`)).statusCode, 200);
+  }
+  const built = await get("/api/places?units=world,FR");
+  assert.equal(built.statusCode, 200, "the 30th: one assembly");
+  const another = await get("/api/places?units=FR,world");
+  assert.equal(another.statusCode, 429, "another order is another assembly");
+  assert.equal(another.headers.etag, undefined);
+  assert.equal(another.headers["cache-control"], "no-store");
+  assert.equal((await get("/api/places?units=world,FR")).statusCode, 200, "a hit: free");
+});
+
+test("units=: a call too heavy is made again unit by unit; the same answer cold or warm", async () => {
+  const { READ_ANSWER_MAX_BYTES } = await import("./read");
+  // Three of these pass a call's limit together; each alone does not.
+  const pad = Math.floor(READ_ANSWER_MAX_BYTES * 0.4);
+  stub("place_counts_many", (a) =>
+    (a.p_units as string[]).map((u) => ({
+      unit: u,
+      pad: u === "fr:reg:93" ? "y".repeat(READ_ANSWER_MAX_BYTES) : "x".repeat(pad),
+    })),
+  );
+  const units = () => calls.place_counts_many.map((c) => c.p_units);
+  try {
+    const three = "/api/places?units=fr:reg:84,fr:reg:11,fr:reg:52";
+    const cold = await get(three);
+    assert.equal(cold.statusCode, 200, cold.body);
+    assert.deepEqual(units(), [
+      ["fr:reg:84", "fr:reg:11", "fr:reg:52"],
+      ["fr:reg:84"],
+      ["fr:reg:11"],
+      ["fr:reg:52"],
+    ]);
+    assert.deepEqual(
+      cold.json().results.map((r: { unit: string }) => r.unit),
+      ["fr:reg:84", "fr:reg:11", "fr:reg:52"],
+    );
+    const warm = await get(three);
+    assert.equal(warm.statusCode, 200);
+    assert.equal(warm.headers["x-cache"], "hit");
+    assert.equal(warm.body, cold.body);
+    assert.equal(warm.headers.etag, cold.headers.etag);
+
+    // A unit too heavy on its own is refused, cold or warm; the one beside it is kept.
+    calls = {};
+    const mixed = "/api/places?units=fr:reg:93,fr:reg:76";
+    for (let i = 0; i < 2; i++) {
+      const res = await get(mixed);
+      assert.equal(res.statusCode, 400, res.body);
+      assert.equal(res.json().message, "Réponse trop volumineuse : précisez la demande.");
+      assert.equal(res.headers["cache-control"], "no-store");
+    }
+    assert.deepEqual(units(), [
+      ["fr:reg:93", "fr:reg:76"],
+      ["fr:reg:93"],
+      ["fr:reg:76"],
+      ["fr:reg:93"],
+    ]);
+    // (Its fill may still be gzipping: joined, then, but never fetched again.)
+    assert.equal((await get("/api/places?unit=fr:reg:76")).statusCode, 200);
+    assert.equal(units().length, 4, "kept from the split: not fetched again");
+  } finally {
+    stub("place_counts_many", (a) => (a.p_units as string[]).map((u) => countsOf(u, a)));
+  }
+  // The calls made again were the visitor's: 1 + 3, then 1 + 2, then 1 — 8 of its 30.
+  for (let i = 0; i < 22; i++) {
+    assert.equal((await get(`/api/places?unit=fr:com:${72000 + i}`)).statusCode, 200, `miss ${i}`);
+  }
+  assert.equal((await get("/api/places?unit=fr:com:72999")).statusCode, 429);
+});
+
 test("lieu, results, facets, testimonies: first pages cached, later ones read through", async () => {
   const lieu = `/api/places/lieu?id=${LIEU}`;
   await get(lieu);
@@ -620,7 +805,12 @@ const published = (n: number): Row[] =>
     audition_en_ligne: false,
   }));
 
-test("/api/testimonies: 503 past 10,000, counted with the service role; nothing cached", async () => {
+const heads = () => db.requests.filter((r) => r.method === "HEAD").length;
+const publishedOver = (n: number) => (table: string, url: URL) =>
+  table === "auditions" && url.searchParams.get("status") === "eq.published" ? n : undefined;
+
+test("/api/testimonies: 503 past 10,000, counted with the service role, once per TTL", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   db.tables.testimonies = [];
   db.countOf = (table) => (table === "testimonies" ? 10_001 : undefined);
   const refused = await get("/api/testimonies");
@@ -635,12 +825,25 @@ test("/api/testimonies: 503 past 10,000, counted with the service role; nothing 
     "the corpus was not read",
   );
 
+  // Remembered for the TTL: refused again without a count per request.
   db.countOf = (table) => (table === "testimonies" ? 10_000 : undefined);
-  const served = await get("/api/testimonies");
-  assert.equal(served.statusCode, 200, "at the threshold: served (refusal not cached)");
+  for (let i = 0; i < 3; i++) assert.equal((await get("/api/testimonies")).statusCode, 503);
+  assert.equal(heads(), 1, "no count while the refusal stands");
+  // Its TTL over: counted again, and at the threshold, served.
+  t.mock.timers.tick(61_000);
+  assert.equal((await get("/api/testimonies")).statusCode, 200, "at the threshold: served");
+  assert.equal(heads(), 2);
 
+  // A write ends a refusal at once (a deletion may have brought the table under).
+  invalidatePublicCaches();
+  db.countOf = (table) => (table === "testimonies" ? 10_001 : undefined);
+  assert.equal((await get("/api/testimonies")).statusCode, 503);
   invalidatePublicCaches();
   db.countOf = () => undefined;
+  assert.equal((await get("/api/testimonies")).statusCode, 200, "counted again after the write");
+
+  // A count that fails is not remembered: the next request counts again.
+  invalidatePublicCaches();
   db.refuse = (method, url) =>
     method === "HEAD" && url.pathname === "/rest/v1/testimonies"
       ? { status: 500, code: "57014", message: "canceling statement due to statement timeout" }
@@ -648,23 +851,58 @@ test("/api/testimonies: 503 past 10,000, counted with the service role; nothing 
   const failed = await get("/api/testimonies");
   assert.equal(failed.statusCode, 503);
   assert.equal(failed.json().message, "Réessayez dans un instant.");
+  const before = heads();
+  assert.equal((await get("/api/testimonies")).statusCode, 503);
+  assert.equal(heads(), before + 1);
 });
 
-test("/api/auditions and /api/map: 503 past 5,000 published auditions", async () => {
+test("/api/testimonies heavier than the legacy family keeps: 503, pulled once, not per request", async () => {
+  // Under the count's threshold, over the 16 MB an entry may weigh.
+  const text = "x".repeat(900_000);
+  db.tables.testimonies = Array.from({ length: 20 }, (_, i) => ({
+    id: `00000000-0000-4000-8000-${String(200000000000 + i)}`,
+    person_name: "A",
+    content: text,
+    verification_status: "verified",
+    created_at: "2025-01-01T00:00:00.000Z",
+  }));
+  try {
+    const pulls = () =>
+      db.requests.filter((r) => r.method === "GET" && r.url.pathname === "/rest/v1/testimonies")
+        .length;
+    const refused = await get("/api/testimonies");
+    assert.equal(refused.statusCode, 503, "refused, not served uncached");
+    assert.equal(refused.json().message, "Liste trop longue : utilisez /api/places.");
+    const pulled = pulls();
+    assert.ok(pulled >= 1);
+    const again = await get("/api/testimonies");
+    assert.equal(again.statusCode, 503);
+    assert.equal(pulls(), pulled, "the refusal remembered: not pulled again");
+    assert.equal(heads(), 1, "nor counted again");
+    const { legacyCache } = await import("../../lib/publicCache");
+    assert.equal(legacyCache.stats().bytes, 0, "nothing kept of it");
+    assert.ok(legacyCache.stats().oversize >= 1);
+  } finally {
+    db.tables.testimonies = [];
+  }
+});
+
+test("/api/auditions and /api/map: 503 past 5,000 published auditions, one count per TTL", async () => {
   db.tables.auditions = published(3);
   db.tables.audition_testimony_counts = [];
-  db.countOf = (table, url) =>
-    table === "auditions" && url.searchParams.get("status") === "eq.published" ? 5001 : undefined;
-  for (const url of ["/api/auditions", "/api/map"]) {
+  db.countOf = publishedOver(5001);
+  for (const url of ["/api/auditions", "/api/map", "/api/auditions", "/api/map"]) {
     const res = await get(url);
     assert.equal(res.statusCode, 503, url);
     assert.equal(res.json().message, "Liste trop longue : utilisez /api/places.");
   }
   const counts = db.requests.filter((r) => r.method === "HEAD");
-  assert.ok(counts.length >= 2 && counts.every((r) => r.apikey === "service"));
+  assert.equal(counts.length, 1, "the map reads the list's refusal; neither counts again");
+  assert.equal(counts[0].apikey, "service");
 
-  db.countOf = (table, url) =>
-    table === "auditions" && url.searchParams.get("status") === "eq.published" ? 5000 : undefined;
+  // A write: counted again; at the threshold, served.
+  invalidatePublicCaches();
+  db.countOf = publishedOver(5000);
   for (const url of ["/api/auditions", "/api/map"]) {
     assert.equal((await get(url)).statusCode, 200, `${url} at the threshold: served`);
   }
@@ -675,6 +913,32 @@ test("/api/auditions and /api/map: 503 past 5,000 published auditions", async ()
   assert.equal(list.json().length, 3);
   assert.equal((await get("/api/map")).statusCode, 200);
   db.tables.auditions = [];
+});
+
+test("/api/auditions: the value held is not served past a refill the guard refuses", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  db.tables.auditions = published(3);
+  db.tables.audition_testimony_counts = [];
+  try {
+    const first = await get("/api/auditions");
+    assert.equal(first.statusCode, 200);
+    db.countOf = publishedOver(5001);
+    // Past its TTL: served stale at once, refilled behind the reply — refused.
+    t.mock.timers.tick(61_000);
+    const stale = await get("/api/auditions");
+    assert.equal(stale.statusCode, 200);
+    assert.equal(stale.body, first.body);
+    for (let i = 0; i < 200 && heads() < 2; i++) await sleep(5);
+    await sleep(20);
+    const refused = await get("/api/auditions");
+    assert.equal(refused.statusCode, 503, "the stale value is not served past the refusal");
+    assert.equal(refused.json().message, "Liste trop longue : utilisez /api/places.");
+    const counted = heads();
+    assert.equal((await get("/api/auditions")).statusCode, 503);
+    assert.equal(heads(), counted, "remembered: no count per request");
+  } finally {
+    db.tables.auditions = [];
+  }
 });
 
 test("/api/health?details=1 (testing tools): the memory budget", async () => {
