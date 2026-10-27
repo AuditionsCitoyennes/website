@@ -107,6 +107,13 @@ jobs:
           # every request come from 127.0.0.1), the others in front of it on
           # private addresses. The visitor's address is the one they forward.
           ENV_TRUST_PROXY: 127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
+          # The map from the places stored with the auditions (map phase 1);
+          # /api/map?source=geocoder serves the geocoder's build beside it.
+          # The placement job places what the old app writes (and, on its
+          # first run, the seed's rows), through BAN and geo.api.
+          ENV_MAP_SOURCE: db
+          ENV_PLACEMENT_JOB: "true"
+          ENV_TEST_TOOLS: "true"
           SECRET_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
           SECRET_SEND_EMAIL_HOOK_SECRET: ${{ secrets.STAGING_SEND_EMAIL_HOOK_SECRET }}
           # Shared with the site's Worker (deploy-staging-web.yml): vouches for
@@ -133,6 +140,14 @@ jobs:
           # service role only, so this also proves the database key).
           curl -sS --fail --max-time 15 -o /dev/null -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/outbox"
           curl -sS --fail --max-time 30 -o /dev/null -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/auditions"
+          # The map, from the stored places: its groups carry lieuId. Without
+          # them it fell back to the geocoder's build — geo_units unreadable
+          # (the place migration not pushed to staging, or the key refused).
+          map=$(curl -sS --fail --max-time 30 -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/map")
+          if ! jq -e 'length == 0 or (.[0] | has("lieuId"))' <<<"$map" >/dev/null; then
+            echo "::error::/api/map is the geocoder's build: are the place migrations on the staging database?"
+            exit 1
+          fi
           # As anyone else, straight to the API's address: refused.
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$URL/api/outbox")
           if [ "$code" != 403 ]; then

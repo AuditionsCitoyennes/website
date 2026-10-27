@@ -1,28 +1,43 @@
 import { buildServer } from "./server";
-import { config, emailMode, hasServiceRole } from "./config";
+import { config, emailMode, hasServiceRole, mapSource } from "./config";
 import { loadBoundariesCache } from "./modules/boundaries/service";
 import { loadGeocodeCache } from "./modules/geo/geocode";
 import { warmLocationGeocodes } from "./modules/map/locationGroups";
+import { startPlacementJob } from "./modules/places/placementJob";
 import { prewarmPublicCaches } from "./prewarm";
 
 const app = buildServer();
-app.log.info({ env: config.APP_ENV, version: config.APP_VERSION, emailMode }, "starting");
+app.log.info(
+  {
+    env: config.APP_ENV,
+    version: config.APP_VERSION,
+    emailMode,
+    mapSource,
+    placementJob: config.PLACEMENT_JOB,
+  },
+  "starting",
+);
+if (config.MAP_SOURCE === "db" && mapSource !== "db") {
+  app.log.warn("MAP_SOURCE=db without SUPABASE_SERVICE_ROLE_KEY: the map is built by the geocoder");
+}
 
-// The two disk caches are read before anything can ask for them — the warm
-// pass and the prewarm below, the first requests once listening — so that no
-// lieu already geocoded is queried again and no commune already fetched is
-// fetched again on a cold start. (The boundaries read also splits the one-file
-// cache of earlier versions into its directory, the one time it finds it.)
+// The two disk caches are read before anything can ask for them — the
+// placement job and the prewarm below, the first requests once listening — so
+// that no lieu already geocoded is queried again and no commune already
+// fetched is fetched again on a cold start. (The boundaries read also splits
+// the one-file cache of earlier versions into its directory, the one time it
+// finds it.)
 const [geocode, boundaries] = await Promise.all([loadGeocodeCache(), loadBoundariesCache()]);
 app.log.info(
   { geocode: geocode.entries, boundaries: boundaries.keys, migrated: boundaries.migrated },
   "disk caches loaded",
 );
 
-// Warm the location geocode cache, then the public read caches, in the
-// background on boot (the second needs the first's persisted entries, which
-// buildLocationGroups awaits itself).
-void warmLocationGeocodes();
+// Auditions not placed yet are placed by the job (10 s after boot, then every
+// 10 minutes) where PLACEMENT_JOB turns it on. The geocoder's build of the
+// map warms its cache itself.
+startPlacementJob(app.log);
+if (mapSource === "geocoder") void warmLocationGeocodes();
 void prewarmPublicCaches(app.log);
 
 if (!hasServiceRole) {

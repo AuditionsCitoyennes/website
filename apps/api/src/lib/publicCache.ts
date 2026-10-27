@@ -7,13 +7,16 @@ export const PUBLIC_CACHE_KEYS = {
   testimonies: "testimonies:public",
   auditions: "auditions:published",
   map: "map:groups",
+  // The geocoder's build of the map, beside the stored places' (testing
+  // tools: /api/map?source=geocoder).
+  mapGeocoder: "map:groups:geocoder",
 } as const;
 
 /** How long each is served as is before a refill (behind the reply, see lib/cache.ts). */
 export const PUBLIC_CACHE_TTL_MS = {
   testimonies: 60_000,
   auditions: 60_000,
-  // Short: a newly geocoded lieu must surface within a poll or two.
+  // Short: a newly placed lieu must surface within a poll or two.
   map: 15_000,
 } as const;
 

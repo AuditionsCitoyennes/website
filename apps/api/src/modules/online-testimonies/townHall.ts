@@ -1,104 +1,31 @@
-import type { OnlinePlace } from "@ac/shared";
-import { arrondissementFromCitycode } from "../geo/geocode";
+import {
+  arrondissementFromCitycode,
+  ordinalFr,
+  SHARED_MAIRIE,
+  splitCityOfArrondissement,
+  splitCityOfCommune,
+  type OnlinePlace,
+} from "@ac/shared";
+import {
+  fetchCommune,
+  frChainOfCommune,
+  PlaceError,
+  type FrChain,
+  type GeoCommune,
+} from "../places/fr";
+
+export { PlaceError };
 
 // The town hall of a commune — or of an arrondissement in Paris, Lyon and
 // Marseille — for online auditions, from the official commune API
-// (geo.api.gouv.fr, "Découpage administratif"). The visitor's browser only
-// sends an INSEE code: the name, the town hall's position and its place in
-// the map's hierarchy are all resolved here, never taken from the client.
+// (geo.api.gouv.fr, "Découpage administratif"; see places/fr.ts). The
+// visitor's browser only sends an INSEE code: the name, the town hall's
+// position and its place in the map's hierarchy are all resolved here, never
+// taken from the client.
 //
 // Not through the BAN geocoder: "Mairie de X" does not geocode to the town
 // hall, and the shared LOCATION_RULES would hijack some labels (any "bron").
 // The commune API gives the town hall's point directly (`mairie`).
-
-const GEO = "https://geo.api.gouv.fr/communes";
-const FIELDS = "nom,code,type,codeParent,departement,region,mairie,centre,zone";
-
-/** Paris, Lyon and Marseille as a whole: an arrondissement must be chosen. */
-const SPLIT_CITIES = new Set(["75056", "69123", "13055"]);
-
-/**
- * Arrondissements whose town hall is another's: Paris 1er–4e share Paris
- * Centre's (in the 3e), and Marseille's sixteen share eight, one per sector
- * (filed under its first arrondissement). One online audition per town hall.
- */
-const SHARED_MAIRIE: Record<string, string> = {
-  "75101": "75103",
-  "75102": "75103",
-  "75104": "75103",
-  "13207": "13201",
-  "13203": "13202",
-  "13204": "13205",
-  "13206": "13208",
-  "13210": "13209",
-  "13211": "13212",
-  "13213": "13214",
-  "13216": "13215",
-};
-
-export class PlaceError extends Error {
-  constructor(
-    message: string,
-    public status: 400 | 503,
-  ) {
-    super(message);
-    this.name = "PlaceError";
-  }
-}
-
-interface GeoPoint {
-  type: "Point";
-  coordinates: [number, number]; // [lng, lat]
-}
-
-interface GeoCommune {
-  nom: string;
-  code: string;
-  type?: string;
-  codeParent?: string;
-  departement?: { code: string; nom: string };
-  region?: { code: string; nom: string };
-  mairie?: GeoPoint;
-  centre?: GeoPoint;
-  zone?: string;
-}
-
-// A commune's town hall hardly moves: kept a month (a code that does not
-// exist, an hour).
-const cache = new Map<string, { until: number; value: GeoCommune | null }>();
-const DAY = 24 * 60 * 60 * 1000;
-
-async function fetchCommune(code: string): Promise<GeoCommune | null> {
-  const hit = cache.get(code);
-  if (hit && hit.until > Date.now()) return hit.value;
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(`${GEO}/${code}?fields=${FIELDS}`, {
-        headers: { "User-Agent": "AuditionsCitoyennes/1.0" },
-        signal: AbortSignal.timeout(4000),
-      });
-      if (res.status === 404) {
-        cache.set(code, { until: Date.now() + DAY / 24, value: null });
-        return null;
-      }
-      if (!res.ok) throw new Error(`geo.api.gouv.fr ${res.status}`);
-      const value = (await res.json()) as GeoCommune;
-      cache.set(code, { until: Date.now() + 30 * DAY, value });
-      return value;
-    } catch (e) {
-      lastError = e;
-    }
-  }
-  const unavailable = new PlaceError(
-    "Le service des communes ne répond pas pour le moment. Réessayez dans un instant.",
-    503,
-  );
-  unavailable.cause = lastError;
-  throw unavailable;
-}
-
-const ordinal = (n: number) => (n === 1 ? "1er" : `${n}e`);
 
 /** "de Lyon", "d'Annecy", "du Havre", "des Lilas". */
 function deCommune(name: string): string {
@@ -108,29 +35,22 @@ function deCommune(name: string): string {
   return `de ${name}`;
 }
 
-function splitCityOf(code: string): { name: string; base: number } | null {
-  if (/^751\d\d$/.test(code)) return { name: "Paris", base: 75100 };
-  if (/^6938\d$/.test(code)) return { name: "Lyon", base: 69380 };
-  if (/^132\d\d$/.test(code)) return { name: "Marseille", base: 13200 };
-  return null;
-}
-
 /**
  * The town hall's name — which is also the online audition's `location`, and
  * so the place's name on the map: it must be unique. Town halls of communes
  * carry their département ("Mairie de Saint-Denis (93)" is not Réunion's).
  */
 function mairieLabel(commune: GeoCommune, key: string): string {
-  const split = splitCityOf(key);
+  const split = splitCityOfArrondissement(key);
   if (!split) return `Mairie ${deCommune(commune.nom)} (${commune.departement?.code ?? "?"})`;
   if (key === "75103") return "Mairie de Paris Centre";
   const sector = [key, ...Object.keys(SHARED_MAIRIE).filter((c) => SHARED_MAIRIE[c] === key)]
     .map((c) => Number(c) - split.base)
     .sort((a, b) => a - b);
   if (sector.length > 1) {
-    return `Mairie des ${sector.map(ordinal).join(" et ")} arrondissements de ${split.name}`;
+    return `Mairie des ${sector.map(ordinalFr).join(" et ")} arrondissements de ${split.name}`;
   }
-  return `Mairie du ${ordinal(sector[0])} arrondissement de ${split.name}`;
+  return `Mairie du ${ordinalFr(sector[0])} arrondissement de ${split.name}`;
 }
 
 export interface OnlineTownHall {
@@ -139,11 +59,15 @@ export interface OnlineTownHall {
   /** Its name, and the online audition's location. */
   location: string;
   place: OnlinePlace;
+  /** Where the point is: the town hall itself, or the commune's centre when geo.api has no town hall. */
+  pointKind: "mairie" | "centre";
+  /** Where the town hall's commune or arrondissement sits (the audition's place_path); null if geo.api leaves it out. */
+  chain: FrChain | null;
 }
 
 /** The town hall of the commune or arrondissement with this INSEE code. */
 export async function resolveTownHall(insee: string): Promise<OnlineTownHall> {
-  if (SPLIT_CITIES.has(insee)) {
+  if (splitCityOfCommune(insee)) {
     throw new PlaceError("Pour Paris, Lyon et Marseille, choisissez votre arrondissement.", 400);
   }
   const key = SHARED_MAIRIE[insee] ?? insee;
@@ -155,7 +79,7 @@ export async function resolveTownHall(insee: string): Promise<OnlineTownHall> {
   }
   const point = commune.mairie?.coordinates ?? commune.centre?.coordinates;
   if (!point) throw new PlaceError("La mairie de cette commune est introuvable.", 400);
-  const split = splitCityOf(key);
+  const split = splitCityOfArrondissement(key);
   return {
     key,
     location: mairieLabel(commune, key),
@@ -169,5 +93,7 @@ export async function resolveTownHall(insee: string): Promise<OnlineTownHall> {
       lat: point[1],
       lng: point[0],
     },
+    pointKind: commune.mairie ? "mairie" : "centre",
+    chain: frChainOfCommune(commune),
   };
 }

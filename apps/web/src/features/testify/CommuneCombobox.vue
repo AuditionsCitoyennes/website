@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { arrondissementCodes, ordinalFr, splitCityOfCommune } from "@ac/shared";
 
 // A commune — never a street — picked from the official geocoder (the IGN's
 // Géoplateforme, successor of the BAN, which tolerates typos: "villeurbane"
@@ -30,12 +31,6 @@ defineOptions({ inheritAttrs: false });
 
 defineProps<{ modelValue: Commune | null; placeholder?: string }>();
 const emit = defineEmits<{ "update:modelValue": [value: Commune | null] }>();
-
-const SPLIT: Record<string, { name: string; first: number; count: number; dep: string }> = {
-  "75056": { name: "Paris", first: 75101, count: 20, dep: "75" },
-  "69123": { name: "Lyon", first: 69381, count: 9, dep: "69" },
-  "13055": { name: "Marseille", first: 13201, count: 16, dep: "13" },
-};
 
 const root = ref<HTMLElement | null>(null);
 const searchEl = ref<HTMLInputElement | null>(null);
@@ -102,7 +97,7 @@ watch(search, (q) => {
 });
 
 function pick(m: Municipality) {
-  if (SPLIT[m.properties.citycode]) {
+  if (splitCityOfCommune(m.properties.citycode)) {
     splitCity.value = m.properties.citycode;
     // The keyboard goes on into the list of arrondissements.
     void nextTick(() => listEl.value?.querySelector<HTMLElement>(".combo-item")?.focus());
@@ -126,10 +121,10 @@ function closePanel() {
 }
 
 function arrondissements(code: string): Commune[] {
-  const city = SPLIT[code];
-  return Array.from({ length: city.count }, (_, i) => ({
-    code: String(city.first + i),
-    label: `${city.name} ${i === 0 ? "1er" : `${i + 1}e`} Arrondissement (${city.dep})`,
+  const city = splitCityOfCommune(code)!;
+  return arrondissementCodes(city).map((arr, i) => ({
+    code: arr,
+    label: `${city.name} ${ordinalFr(i + 1)} Arrondissement (${city.dep})`,
   }));
 }
 
@@ -198,7 +193,9 @@ onBeforeUnmount(() => {
       <div ref="listEl" class="combo-list" role="listbox" @keydown.esc.stop.prevent="closePanel">
         <!-- Paris, Lyon, Marseille: which arrondissement. -->
         <template v-if="splitCity">
-          <p class="combo-note">Choisissez votre arrondissement de {{ SPLIT[splitCity].name }} :</p>
+          <p class="combo-note">
+            Choisissez votre arrondissement de {{ splitCityOfCommune(splitCity)?.name }} :
+          </p>
           <button
             v-for="c in arrondissements(splitCity)"
             :key="c.code"
@@ -229,7 +226,7 @@ onBeforeUnmount(() => {
             @click="pick(m)"
           >
             {{ labelOf(m) }}
-            <span v-if="SPLIT[m.properties.citycode]" class="combo-hint">
+            <span v-if="splitCityOfCommune(m.properties.citycode)" class="combo-hint">
               — choisir l'arrondissement
             </span>
           </button>

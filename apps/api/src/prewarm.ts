@@ -30,7 +30,10 @@ export async function prewarmPublicCaches(log: FastifyBaseLogger): Promise<void>
     // Reads the auditions through the key above: one Supabase pull for both.
     [
       PUBLIC_CACHE_KEYS.map,
-      () => cachedResponse(PUBLIC_CACHE_KEYS.map, PUBLIC_CACHE_TTL_MS.map, buildLocationGroups),
+      () =>
+        cachedResponse(PUBLIC_CACHE_KEYS.map, PUBLIC_CACHE_TTL_MS.map, () =>
+          buildLocationGroups(undefined, log),
+        ),
     ],
   ];
   const results = await Promise.allSettled(fills.map(([, run]) => run()));

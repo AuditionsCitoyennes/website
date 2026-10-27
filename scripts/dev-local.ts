@@ -37,6 +37,10 @@ const child = spawn("npm", ["run", "dev"], {
     VITE_SUPABASE_URL: status.API_URL,
     VITE_SUPABASE_PUBLISHABLE_KEY: publishable,
     APP_ENV: "local",
+    // The map from the stored places, kept by the placement job: a local
+    // stack is where both are tried.
+    MAP_SOURCE: "db",
+    PLACEMENT_JOB: "true",
     EMAIL_MODE: "outbox",
     SEND_EMAIL_HOOK_SECRET: hookSecret ?? "",
     RESEND_API_KEY: "",

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { testimonyInputSchema } from "@ac/shared";
+import { testimonyInputSchema, type BanPick } from "@ac/shared";
 import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
-import LocationCombobox from "./LocationCombobox.vue";
+import LocationCombobox, { type LocationPick } from "./LocationCombobox.vue";
 
 const props = defineProps<{ open: boolean }>();
 
@@ -50,6 +50,13 @@ const form = ref({
 });
 const draftTestimonies = ref<DraftTestimony[]>([]);
 let nextDraftKey = 1;
+
+/** The address picked for the lieu: the audition is placed there. */
+const pick = ref<BanPick | null>(null);
+
+function onPick({ label, ...where }: LocationPick) {
+  pick.value = label === form.value.location ? { kind: "ban", ...where } : null;
+}
 
 const blankDraft = (): DraftTestimony => ({
   key: nextDraftKey++,
@@ -197,6 +204,7 @@ async function handleCreate() {
       "/api/auditions",
       {
         ...form.value,
+        ...(pick.value ? { place: pick.value } : {}),
         testimonies: testimonies.map(payloadOf),
       },
     );
@@ -209,6 +217,7 @@ async function handleCreate() {
       });
     }
     form.value = { title: "", date: "", location: "", content: "", status: "published" };
+    pick.value = null;
     draftTestimonies.value = [];
     step.value = 0;
     emit("created");
@@ -297,7 +306,11 @@ const title = computed(() => {
             </div>
             <div class="form-field">
               <label class="form-label">Lieu</label>
-              <LocationCombobox v-model="form.location" placeholder="Ex: Villeurbanne" />
+              <LocationCombobox
+                v-model="form.location"
+                placeholder="Ex: Villeurbanne"
+                @pick="onPick"
+              />
             </div>
           </div>
 

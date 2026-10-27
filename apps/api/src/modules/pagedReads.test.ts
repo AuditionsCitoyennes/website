@@ -17,6 +17,8 @@ Object.assign(process.env, {
   EMAIL_MODE: "log",
   SUPABASE_URL: "http://supabase.test",
   SUPABASE_ANON_KEY: "anon",
+  // As in CI, whatever a local apps/api/.env holds: the anon key's paths.
+  SUPABASE_SERVICE_ROLE_KEY: "",
   LOG_LEVEL: "fatal",
   CACHE_DIR: cacheDir,
 });

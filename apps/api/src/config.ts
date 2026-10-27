@@ -75,6 +75,38 @@ const schema = z
     // Where the geocode and boundary caches live on disk (a volume, in a
     // container). Empty: the apps/api directory, as always for a developer.
     CACHE_DIR: z.string().optional().default(""),
+    // The Base Adresse Nationale the geocoder asks (its /search/ and
+    // /reverse/ live under it): api-adresse.data.gouv.fr, or its successor
+    // https://data.geopf.fr/geocodage.
+    BAN_BASE_URL: z
+      .string()
+      .url()
+      .default("https://api-adresse.data.gouv.fr")
+      .transform((s) => s.replace(/\/+$/, "")),
+    // Where /api/map and the admin list read where each audition is: "db",
+    // the place columns the API stores when an audition is written (map phase
+    // 1); "geocoder", the geocode cache, at read time, as before (the
+    // default, until a database has been placed). Without the service role,
+    // or when the stored places cannot be read, "db" falls back to
+    // "geocoder" (geo_units is server only).
+    MAP_SOURCE: z.enum(["db", "geocoder"]).default("geocoder"),
+    // "true": the placement job runs (modules/places/placementJob.ts): it
+    // places, through the service role, every audition the old app wrote or
+    // moved, and re-places the lieux a LOCATION_RULES change moves. Off by
+    // default: a database is placed for the first time by its reviewed
+    // backfill or the super admin's sweep (dry run first), never by whichever
+    // API happens to boot against it. Needs MAP_SOURCE=db.
+    PLACEMENT_JOB: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    // "true": the testing tools (staging, local), such as ?source=geocoder on
+    // /api/map and the admin list, which serves the other build. Refused in
+    // production.
+    TEST_TOOLS: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
   })
   .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
     message: "EMAIL_MODE=redirect needs EMAIL_REDIRECT_TO",
@@ -89,6 +121,10 @@ const schema = z
   .refine((c) => !(c.EMAIL_MODE === "outbox" && c.APP_ENV === "production"), {
     message: "EMAIL_MODE=outbox is refused in production",
     path: ["EMAIL_MODE"],
+  })
+  .refine((c) => !(c.TEST_TOOLS && c.APP_ENV === "production"), {
+    message: "TEST_TOOLS=true is refused in production",
+    path: ["TEST_TOOLS"],
   });
 
 const parsed = schema.safeParse(process.env);
@@ -111,8 +147,25 @@ export const config = {
 /** Whether privileged operations (analysis, emails, role mgmt) are available. */
 export const hasServiceRole = config.SUPABASE_SERVICE_ROLE_KEY.length > 0;
 
+/**
+ * Where /api/map and the admin list read places from: MAP_SOURCE, but the
+ * geocode cache without the service role (geo_units is server only). The
+ * stored build also falls back to the geocoder's, per request, when the
+ * place columns or geo_units cannot be read (a database without them yet).
+ */
+export const mapSource: "db" | "geocoder" =
+  config.MAP_SOURCE === "db" && hasServiceRole ? "db" : "geocoder";
+
 /** Local development, and nothing else: the only place shortcuts are allowed. */
 export const isDev = config.APP_ENV === "local";
+
+const databaseHost = new URL(config.SUPABASE_URL).hostname;
+
+/** Whether SUPABASE_URL is a stack on this machine (`supabase start`, tests), not a hosted project. */
+export const localDatabase =
+  ["localhost", "127.0.0.1", "[::1]", "host.docker.internal"].includes(databaseHost) ||
+  databaseHost.endsWith(".localhost") ||
+  databaseHost.endsWith(".test");
 
 /** How emails leave (see EMAIL_MODE above). */
 export const emailMode = config.EMAIL_MODE ?? (config.APP_ENV === "production" ? "live" : "log");

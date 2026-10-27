@@ -4,6 +4,7 @@ export * from "./auditions";
 export * from "./database.types";
 export * from "./db";
 export * from "./filters";
+export * from "./frSplitCities";
 export * from "./locations";
 export * from "./sanitize";
 export * from "./schemas";

@@ -6,6 +6,7 @@ import { cached, cachedResponse } from "../../lib/cache";
 import { sendCached } from "../../lib/httpCache";
 import { auditionCacheKey, PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "../../lib/publicCache";
 import { requireAdmin } from "../../lib/auth";
+import { requestedSource } from "../map/locationGroups";
 import {
   createAudition,
   deleteAudition,
@@ -34,13 +35,18 @@ export default async function auditionRoutes(app: FastifyInstance) {
 
   // ---- Admin (role-gated; queries RLS-scoped to the caller) ----
 
-  // Admin management list, each audition with its `area` for the place filter.
-  app.get("/admin/list", { preHandler: app.authenticate }, async (req, reply) => {
-    if (!(await requireAdmin(req, reply))) return reply;
-    const result = await fetchAdminAuditions(req.supabase);
-    if (result.kind === "dbError") return reply.internalServerError(result.message);
-    return result.auditions;
-  });
+  // Admin management list, each audition with its `area` for the place filter
+  // (testing tools: ?source=geocoder, the geocoder's areas).
+  app.get<{ Querystring: { source?: string } }>(
+    "/admin/list",
+    { preHandler: app.authenticate },
+    async (req, reply) => {
+      if (!(await requireAdmin(req, reply))) return reply;
+      const result = await fetchAdminAuditions(req.supabase, requestedSource(req.query), req.log);
+      if (result.kind === "dbError") return reply.internalServerError(result.message);
+      return result.auditions;
+    },
+  );
 
   // One published audition with its visible testimonies (public detail page).
   app.get<{ Params: { id: string } }>("/:id", async (req, reply) => {

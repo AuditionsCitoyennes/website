@@ -4,6 +4,7 @@ import {
   type LocationGroup,
   type MapAudition,
 } from "@ac/shared";
+import { config, mapSource } from "../../config";
 import { fetchPublishedAuditions, onlinePlaceOf, placeKeyOf } from "../auditions/service";
 import {
   backoffUntil,
@@ -12,6 +13,10 @@ import {
   placeLieux,
   resolve,
 } from "../geo/geocode";
+import type { GeoEntry } from "../geo/match";
+import { readGeoUnits } from "../places/geoUnits";
+import { groupsFromRows, storedPlacementOf } from "../places/groups";
+import { nudgePlacementJobFromRead } from "../places/placementJob";
 import { cached, invalidate } from "../../lib/cache";
 import {
   PUBLIC_CACHE_KEYS,
@@ -41,10 +46,68 @@ function toMapAudition(a: AuditionWithCount): MapAudition {
   };
 }
 
+/** Where /api/map's groups come from: the stored places, or the geocode cache (see config MAP_SOURCE). */
+export type MapSource = "db" | "geocoder";
+
+/** The build a request asks for: MAP_SOURCE's, or — testing tools only — the geocoder's (?source=geocoder). */
+export function requestedSource(query: { source?: unknown }): MapSource {
+  return config.TEST_TOOLS && query.source === "geocoder" ? "geocoder" : mapSource;
+}
+
+interface MapLogger {
+  warn(obj: object, msg: string): void;
+}
+const consoleLog: MapLogger = { warn: (obj, msg) => console.warn(msg, obj) };
+
+/** /api/map's groups, from `source` (MAP_SOURCE by default). */
+export function buildLocationGroups(
+  source: MapSource = mapSource,
+  log?: MapLogger,
+): Promise<LocationGroup[]> {
+  return source === "db" ? buildFromStoredPlaces(log) : buildFromGeocoder();
+}
+
+/**
+ * The groups from the places stored on the rows (map phase 1): no geocoder
+ * call, no geocode cache — but for the rows not placed yet (the old app's,
+ * moved since), filed as the geocoder files them, from its cache, until the
+ * placement job places them (nudged here). When the stored places cannot be
+ * read (geo_units missing — a database the place migration has not reached
+ * yet — or the service role refused), the geocoder's build, logged.
+ */
+async function buildFromStoredPlaces(log?: MapLogger): Promise<LocationGroup[]> {
+  const auditions = await cached(
+    PUBLIC_CACHE_KEYS.auditions,
+    PUBLIC_CACHE_TTL_MS.auditions,
+    fetchPublishedAuditions,
+  );
+  let units;
+  try {
+    units = await readGeoUnits(auditions.map((a) => a.place_path));
+  } catch (err) {
+    (log ?? consoleLog).warn(
+      { err },
+      "map: stored places not readable, the geocoder builds the map meanwhile",
+    );
+    void warmLocationGeocodes();
+    return buildFromGeocoder();
+  }
+  const offline = auditions.filter((a) => !onlinePlaceOf(a));
+  let fallback = new Map<string, GeoEntry | null>();
+  if (offline.some((a) => storedPlacementOf(a, units).kind === "stale")) {
+    nudgePlacementJobFromRead();
+    await loadGeocodeCache();
+    // Settled against every lieu of the map, as the geocoder build does.
+    fallback = placeLieux(new Set(offline.map(placeKeyOf)));
+  }
+  return groupsFromRows(auditions, units, fallback);
+}
+
 /** Build map groups from known coords + the cached geocode entries (no
  *  network). Prefers hardcoded rule coordinates for precise markers, and
- *  attaches the administrative area from the cached BAN entry. */
-export async function buildLocationGroups(): Promise<LocationGroup[]> {
+ *  attaches the administrative area from the cached BAN entry. The build
+ *  before map phase 1 (MAP_SOURCE=geocoder, or no service role). */
+async function buildFromGeocoder(): Promise<LocationGroup[]> {
   // The persisted geocode entries, before reading them: the first map after a
   // boot was otherwise built from an empty cache — and cached, pins missing.
   await loadGeocodeCache();
@@ -101,6 +164,8 @@ export async function buildLocationGroups(): Promise<LocationGroup[]> {
 
 // Resolve any not-yet-cached canonical locations (throttled + cached). All
 // canonicals are resolved — even rule-based ones — so they carry an admin area.
+// The geocoder build's (MAP_SOURCE=geocoder): from stored places, the
+// placement job does this when an audition is written, never a read.
 let warming: Promise<void> | null = null;
 
 // Set once a pass finds nothing left to resolve. /api/map calls this on EVERY
@@ -161,7 +226,7 @@ export function warmLocationGeocodes(): Promise<void> {
       // Newly geocoded locations only reach the client if the cached map
       // response is dropped — otherwise they wait out the full TTL, which is
       // longer than the client's entire polling window.
-      if (changed) invalidate(PUBLIC_CACHE_KEYS.map);
+      if (changed) invalidate(PUBLIC_CACHE_KEYS.map, PUBLIC_CACHE_KEYS.mapGeocoder);
     } catch {
       /* ignore — best-effort warm */
     } finally {

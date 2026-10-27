@@ -285,7 +285,8 @@ const ATTEMPTS: [label: string, sql: string, expected: string][] = [
   ],
   [
     "a unit an audition names, renamed in place",
-    "update public.geo_units set id = 'fr:com:69388' where id = 'fr:com:69387'",
+    // To an id no database holds: a placed one has Lyon 8e already.
+    "update public.geo_units set id = 'fr:com:00000' where id = 'fr:com:69387'",
     "23503 auditions_place_unit_fkey",
   ],
   [

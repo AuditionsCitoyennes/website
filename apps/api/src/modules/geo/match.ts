@@ -1,4 +1,12 @@
-import type { LieuCandidate, LieuPlacement } from "@ac/shared";
+import {
+  arrondissementFromCitycode,
+  ordinalFr,
+  splitCityNamed,
+  splitCityOfArrondissement,
+  type LieuCandidate,
+  type LieuPlacement,
+} from "@ac/shared";
+import { FOREIGN_COUNTRIES } from "./countries";
 import { FR_DEPARTMENTS, FR_REGIONS, departementFromPostcode } from "./frDepartments";
 
 // Where a lieu goes on the map, from what BAN answers about it. No I/O here:
@@ -11,6 +19,9 @@ import { FR_DEPARTMENTS, FR_REGIONS, departementFromPostcode } from "./frDepartm
 //   - Overseas (DROM-COM) is France: BAN covers it, so does the map.
 //   - "X, Commune": a point found by BAN inside that commune, else the
 //     commune itself. A hit in another commune, or a weak one, is no point.
+//   - "X, Country" ("Berne, Suisse"): abroad, even when a commune bears the
+//     country's name (Suisse, Moselle): that commune only where BAN finds X
+//     itself inside it, never the commune by default.
 //   - "X, Département" / "X (05)": the commune X of that département, else
 //     the département.
 //   - Same-named communes ("Saint-Denis": 93, 974, Aude, Gard) are kept as
@@ -114,11 +125,7 @@ export function nameKey(s: string): string {
     .trim();
 }
 
-const SPLIT = {
-  paris: { name: "Paris", base: 75100, max: 20 },
-  lyon: { name: "Lyon", base: 69380, max: 9 },
-  marseille: { name: "Marseille", base: 13200, max: 16 },
-} as const;
+export { arrondissementFromCitycode };
 
 /** "Lyon 7", "Lyon 7e", "Lyon 7e Arrondissement" → Lyon's 7th; null for anything else. */
 function arrondissementOf(text: string): { city: string; n: number; citycode: string } | null {
@@ -127,9 +134,9 @@ function arrondissementOf(text: string): { city: string; n: number; citycode: st
       nameKey(text),
     );
   if (!m) return null;
-  const split = SPLIT[m[1] as keyof typeof SPLIT];
+  const split = splitCityNamed(m[1][0].toUpperCase() + m[1].slice(1))!;
   const n = Number(m[2]);
-  if (n < 1 || n > split.max) return null;
+  if (n < 1 || n > split.count) return null;
   return { city: split.name, n, citycode: String(split.base + n) };
 }
 
@@ -138,27 +145,6 @@ function communeKey(text: string): string {
   const arr = arrondissementOf(text);
   return arr ? `${nameKey(arr.city)} ${arr.n}` : nameKey(text);
 }
-
-// French ordinal for an arrondissement number: 1 → "1er", n → "ne".
-function ordinalFr(n: number): string {
-  return n === 1 ? "1er" : `${n}e`;
-}
-
-// Decode an arrondissement label from BAN's `citycode` (the 5-digit INSEE code).
-// Only Paris (751xx), Lyon (693xx) and Marseille (132xx) split their commune into
-// arrondissements; the code's last two digits give the number. Everywhere else
-// the commune *is* the smallest unit, so there's no arrondissement.
-export function arrondissementFromCitycode(citycode: string | null): string | null {
-  if (!citycode || !/^\d{5}$/.test(citycode)) return null;
-  const n = Number(citycode);
-  if (n >= 75101 && n <= 75120) return `Paris ${ordinalFr(n - 75100)}`;
-  if (n >= 69381 && n <= 69389) return `Lyon ${ordinalFr(n - 69380)}`;
-  if (n >= 13201 && n <= 13216) return `Marseille ${ordinalFr(n - 13200)}`;
-  return null;
-}
-
-/** The whole commune's INSEE code of a Paris/Lyon/Marseille arrondissement. */
-const SPLIT_COMMUNE: Record<string, string> = { Paris: "75056", Lyon: "69123", Marseille: "13055" };
 
 // ---- Areas ------------------------------------------------------------------
 
@@ -184,6 +170,9 @@ for (const [alias, key] of [
 }
 
 const AREA_PREFIX = /^(?:departement|dept|region)(?: (?:de la|de l|des|du|de|d))? /;
+
+/** The countries abroad, as compared (countries.ts). */
+const FOREIGN_COUNTRY_KEYS = new Set(FOREIGN_COUNTRIES.map(nameKey));
 
 /** A département or région named by `text` ("Hautes-Alpes", "Département de l'Ardèche", "PACA"); codes ("05") only when `codes`. */
 export function matchArea(text: string, codes = false): Area | null {
@@ -360,13 +349,22 @@ async function locateParts(
 
   if (communes.length > 0) {
     if (head.length === 0) return oneOrHomonyms(communes.map(communeEntry));
+    // "Berne, Suisse", "Buenos Aires, Argentine", "Khartoum, Soudan": a
+    // country, though BAN knows communes by those names. Unless an area says
+    // the commune is meant ("Gouyave, Grenade (31)"), it holds the lieu only
+    // where BAN finds the place the text names inside it: no commune by default.
+    const abroad = area === null && FOREIGN_COUNTRY_KEYS.has(nameKey(last));
     // A point inside the commune, found by the whole text, or the commune.
     const hits = (await search([...head, last].join(", "), { postcode, limit: 10 })).filter(
-      (h) => h.type !== "municipality" && h.score >= ADDRESS_MIN_SCORE,
+      (h) =>
+        h.type !== "municipality" &&
+        h.score >= ADDRESS_MIN_SCORE &&
+        (!abroad || head.some((part) => namesAll(h, part))),
     );
-    const placed = communes.map((c) => {
+    const placed = communes.flatMap((c): { hit?: BanFeature; entry: Homonym }[] => {
       const hit = hits.find((h) => inCommune(h, c));
-      return { hit, entry: hit ? addressEntry(hit, c) : communeEntry(c) };
+      if (hit) return [{ hit, entry: addressEntry(hit, c) }];
+      return abroad ? [] : [{ entry: communeEntry(c) }];
     });
     // Several "Saint-Denis" but the street is in only one: that one.
     const withHit = placed.filter((p) => p.hit);
@@ -414,8 +412,7 @@ function namesAll(hit: BanFeature, text: string): boolean {
 
 /** The commune a hit lies in (Paris, Lyon, Marseille whole, not the arrondissement). */
 function communeCodeOf(h: BanFeature): string | null {
-  const arr = arrondissementFromCitycode(h.citycode);
-  return arr ? SPLIT_COMMUNE[arr.split(" ")[0]] : h.citycode;
+  return splitCityOfArrondissement(h.citycode)?.commune ?? h.citycode;
 }
 
 async function bareAddress(
