@@ -232,6 +232,80 @@ test("“X, Commune” is BAN's point only inside that commune, and only a stron
   );
 });
 
+test("“City, Country” is abroad, even when a commune bears the country's name", async () => {
+  const MOSELLE = "57, Moselle, Grand Est";
+  const HAUTE_GARONNE = "31, Haute-Garonne, Occitanie";
+  const LOIRE_ATLANTIQUE = "44, Loire-Atlantique, Pays de la Loire";
+  const ban = fakeBan({
+    municipality: {
+      Suisse: [commune("Suisse", "57662", MOSELLE, 94, [48.966294, 6.578961])],
+      Argentine: [
+        commune("Argentine", "73019", "73, Savoie, Auvergne-Rhône-Alpes", 959),
+        commune("La Rochebeaucourt-et-Argentine", "24353", "24, Dordogne, Nouvelle-Aquitaine", 331),
+      ],
+      Grenade: [
+        commune("Grenade", "31232", HAUTE_GARONNE, 9062, [43.764143, 1.289286]),
+        commune("Grenade-sur-l'Adour", "40117", "40, Landes, Nouvelle-Aquitaine", 2398),
+      ],
+      Soudan: [
+        commune("Soudan", "44199", LOIRE_ATLANTIQUE, 1959),
+        commune("Soudan", "79316", "79, Deux-Sèvres, Nouvelle-Aquitaine", 424),
+      ],
+      Villeurbanne: [commune("Villeurbanne", "69266", RHONE, 156928)],
+      Serres: [
+        commune("Serres", "05166", HAUTES_ALPES, 1298),
+        commune("Serres", "54502", "54, Meurthe-et-Moselle, Grand Est", 254),
+      ],
+    },
+    address: {
+      // Inside the commune, but weak, and no place the text names.
+      "Khartoum, Soudan": [street("la Gare", "Soudan", "44199", LOIRE_ATLANTIQUE, 0.326)],
+      "Port-Soudan, Soudan": [street("Landasson", "Soudan", "44199", LOIRE_ATLANTIQUE, 0.409)],
+      "Saint-Georges, Grenade": [
+        street("Route de Saint-Jory", "Grenade", "31232", HAUTE_GARONNE, 0.366),
+      ],
+      // Strong, inside, but a street the text does not name: no place of it.
+      "Zurich, Suisse": [street("Rue de la Gare", "Suisse", "57662", MOSELLE, 0.62)],
+      // The street the text names, inside the commune: that point.
+      "Rue de la Gare, Suisse": [
+        street("Rue de la Gare", "Suisse", "57662", MOSELLE, 0.88, [48.9671, 6.5794]),
+      ],
+    },
+  });
+  // Never a guess: unplaced, with no same-named communes to settle against
+  // the other lieux (Soudan: Loire-Atlantique or Deux-Sèvres).
+  for (const text of [
+    "Berne, Suisse",
+    "Genève, Suisse",
+    "Lausanne, Suisse",
+    "Zurich, Suisse",
+    "Buenos Aires, Argentine",
+    "Córdoba, Argentine",
+    "Mendoza, Argentine",
+    "Rosario, Argentine",
+    "Gouyave, Grenade",
+    "Saint-Georges, Grenade",
+    "Khartoum, Soudan",
+    "Omdurman, Soudan",
+    "Port-Soudan, Soudan",
+  ]) {
+    assert.equal(await locate(text, ban), null, text);
+  }
+  const gare = placed(await locate("Rue de la Gare, Suisse", ban));
+  assert.deepEqual(
+    [gare.level, gare.citycode, gare.coords],
+    ["address", "57662", [48.9671, 6.5794]],
+  );
+  // An area says the French commune is meant; a bare name is the commune.
+  assert.equal(placed(await locate("Gouyave, Grenade (31)", ban)).citycode, "31232");
+  assert.equal(placed(await locate("Gouyave, Grenade, Haute-Garonne", ban)).citycode, "31232");
+  assert.equal(placed(await locate("Grenade", ban)).citycode, "31232");
+  // Communes that are no country keep "X, Commune" and "Ville, Département".
+  const salle = placed(await locate("Salle des fêtes, Villeurbanne", ban));
+  assert.deepEqual([salle.level, salle.citycode], ["commune", "69266"]);
+  assert.equal(placed(await locate("Serres, Hautes-Alpes", ban)).citycode, "05166");
+});
+
 test("a lieu with no commune named stands only if it reads as one sure address", async () => {
   const ban = fakeBan({
     address: {

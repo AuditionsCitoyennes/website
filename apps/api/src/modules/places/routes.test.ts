@@ -174,6 +174,39 @@ test("the sweep's dry run reports and writes nothing; the sweep then places", as
   assert.equal(db.tables.auditions[0].place_unit, "fr:com:69029");
 });
 
+test("a dryRun the sweep does not know is refused: a typo never runs a real sweep", async () => {
+  /** Whether a pass read the stale rows, or anything was written. */
+  const swept = () =>
+    db.requests.some(
+      (r) =>
+        r.url.searchParams.get("place_stale") === "eq.true" ||
+        (r.method !== "GET" && !r.url.pathname.includes("/rpc/")),
+    );
+  for (const query of [
+    "?dryRun=yes",
+    "?dryRun=",
+    "?dryRun",
+    "?dryRun=TRUE",
+    "?dryRun=toString",
+    "?dryRun=1&dryRun=1",
+  ]) {
+    const res = await sweep(query, SUPER);
+    assert.equal(res.statusCode, 400, `${query}: ${res.body}`);
+  }
+  assert.equal(swept(), false);
+  assert.equal(db.tables.auditions[0].place_stale, true);
+
+  // The other spellings it knows.
+  const dry = await sweep("?dryRun=true", SUPER);
+  assert.equal(dry.statusCode, 200, dry.body);
+  assert.equal(dry.json().dryRun, true);
+  assert.equal(db.tables.auditions[0].place_stale, true);
+  const real = await sweep("?dryRun=0", SUPER);
+  assert.equal(real.statusCode, 200, real.body);
+  assert.deepEqual([real.json().dryRun, real.json().placed], [false, 1]);
+  assert.equal(db.tables.auditions[0].place_stale, false);
+});
+
 test("the placement job stays off unless PLACEMENT_JOB turns it on", async () => {
   const notes: string[] = [];
   const { startPlacementJob, nudgePlacementJob } = await import("./placementJob");

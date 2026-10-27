@@ -6,6 +6,7 @@ import {
   type LieuCandidate,
   type LieuPlacement,
 } from "@ac/shared";
+import { FOREIGN_COUNTRIES } from "./countries";
 import { FR_DEPARTMENTS, FR_REGIONS, departementFromPostcode } from "./frDepartments";
 
 // Where a lieu goes on the map, from what BAN answers about it. No I/O here:
@@ -18,6 +19,9 @@ import { FR_DEPARTMENTS, FR_REGIONS, departementFromPostcode } from "./frDepartm
 //   - Overseas (DROM-COM) is France: BAN covers it, so does the map.
 //   - "X, Commune": a point found by BAN inside that commune, else the
 //     commune itself. A hit in another commune, or a weak one, is no point.
+//   - "X, Country" ("Berne, Suisse"): abroad, even when a commune bears the
+//     country's name (Suisse, Moselle): that commune only where BAN finds X
+//     itself inside it, never the commune by default.
 //   - "X, Département" / "X (05)": the commune X of that département, else
 //     the département.
 //   - Same-named communes ("Saint-Denis": 93, 974, Aude, Gard) are kept as
@@ -166,6 +170,9 @@ for (const [alias, key] of [
 }
 
 const AREA_PREFIX = /^(?:departement|dept|region)(?: (?:de la|de l|des|du|de|d))? /;
+
+/** The countries abroad, as compared (countries.ts). */
+const FOREIGN_COUNTRY_KEYS = new Set(FOREIGN_COUNTRIES.map(nameKey));
 
 /** A département or région named by `text` ("Hautes-Alpes", "Département de l'Ardèche", "PACA"); codes ("05") only when `codes`. */
 export function matchArea(text: string, codes = false): Area | null {
@@ -342,13 +349,22 @@ async function locateParts(
 
   if (communes.length > 0) {
     if (head.length === 0) return oneOrHomonyms(communes.map(communeEntry));
+    // "Berne, Suisse", "Buenos Aires, Argentine", "Khartoum, Soudan": a
+    // country, though BAN knows communes by those names. Unless an area says
+    // the commune is meant ("Gouyave, Grenade (31)"), it holds the lieu only
+    // where BAN finds the place the text names inside it: no commune by default.
+    const abroad = area === null && FOREIGN_COUNTRY_KEYS.has(nameKey(last));
     // A point inside the commune, found by the whole text, or the commune.
     const hits = (await search([...head, last].join(", "), { postcode, limit: 10 })).filter(
-      (h) => h.type !== "municipality" && h.score >= ADDRESS_MIN_SCORE,
+      (h) =>
+        h.type !== "municipality" &&
+        h.score >= ADDRESS_MIN_SCORE &&
+        (!abroad || head.some((part) => namesAll(h, part))),
     );
-    const placed = communes.map((c) => {
+    const placed = communes.flatMap((c): { hit?: BanFeature; entry: Homonym }[] => {
       const hit = hits.find((h) => inCommune(h, c));
-      return { hit, entry: hit ? addressEntry(hit, c) : communeEntry(c) };
+      if (hit) return [{ hit, entry: addressEntry(hit, c) }];
+      return abroad ? [] : [{ entry: communeEntry(c) }];
     });
     // Several "Saint-Denis" but the street is in only one: that one.
     const withHit = placed.filter((p) => p.hit);

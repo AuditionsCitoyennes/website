@@ -34,10 +34,17 @@ type Coords = [number, number];
 // field, so a fresh file is built (re-querying BAN once per location) rather than
 // serving stale, citycode-less data. v4: lieux are placed by match.ts (exact
 // commune names, départements and régions, overseas, homonyms kept as
-// candidates); v3 entries hold the mis-pins it fixes, and lack `level`.
-const CACHE_FILE = join(config.CACHE_DIR, ".geocode-cache-v4.json");
+// candidates); v3 entries hold the mis-pins it fixes, and lack `level`. v5:
+// "City, Country" is abroad even when a commune bears the country's name;
+// v4 entries hold "Berne, Suisse" in Moselle's Suisse.
+const CACHE_FILE = join(config.CACHE_DIR, ".geocode-cache-v5.json");
 // The files the bumps left behind: never read again, removed once at boot.
-const STALE_FILES = [".geocode-cache.json", ".geocode-cache-v2.json", ".geocode-cache-v3.json"];
+const STALE_FILES = [
+  ".geocode-cache.json",
+  ".geocode-cache-v2.json",
+  ".geocode-cache-v3.json",
+  ".geocode-cache-v4.json",
+];
 
 const cache = new Map<string, Located>();
 
