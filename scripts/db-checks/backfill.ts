@@ -1,8 +1,9 @@
 // The reviewed backfill of production's places (design B4, B7 step 8): its
 // SQL places the listed rows exactly as listed, online rows at their own
 // point under their own label, leaves a row changed since the review stale and
-// a row already placed as it is, and a second run changes nothing — each
-// fixture test run in a transaction rolled back.
+// a row already placed as it is (offline or online), and a second run changes
+// nothing; its NOTICEs count what each run placed and left as the table does —
+// each fixture test run in a transaction rolled back.
 //
 // - The generator's SQL, rendered from a fixed sample (Lyon, a keyword-rule
 //   collapse, a generic text, same-named communes, a town hall, one geo.api
@@ -22,11 +23,12 @@ import {
   EXPECTED_FILE,
   inlineIncludes,
   migrationSql,
+  noticeErrors,
   testSql,
   type Backfill,
   type ExpectedList,
 } from "../place-backfill/sql";
-import { runSql } from "./psql";
+import { runSqlLogged } from "./psql";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -199,15 +201,19 @@ function withIncludes(file: string): string {
   );
 }
 
+/** A fixture test: its checks pass, and the NOTICEs of its two runs say what the table says. */
 function attempt(what: string, sql: string, errors: string[]): void {
+  let out: { stdout: string; stderr: string };
   try {
-    runSql(sql);
+    out = runSqlLogged(sql);
   } catch (e) {
     // psql prints the migration's notices first: the error is what matters.
     const lines = (e as Error).message.split("\n");
     const shown = lines.filter((l) => /ERROR|DETAIL|CONTEXT/.test(l));
     errors.push(`${what}: ${(shown.length ? shown : lines).slice(0, 4).join(" / ")}`);
+    return;
   }
+  for (const e of noticeErrors(out.stdout, out.stderr)) errors.push(`${what}: ${e}`);
 }
 
 export function checkBackfill(): string[] {

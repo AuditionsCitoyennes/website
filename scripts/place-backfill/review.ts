@@ -1,12 +1,21 @@
 // The review table of a backfill (docs/backfill-places-<date>.md): what the
 // migration writes on each lieu, and what a person should look at before it
 // is pushed — keyword-rule collapses, lieux within 50 m of each other,
-// same-named communes, lieux on no point, the Etalab cross-check.
+// same-named communes, communes named by the text's last segment, lieux on no
+// point, the Etalab cross-check.
 
 import type { PlaceCandidate } from "@ac/shared";
+import { nameKey } from "../../apps/api/src/modules/geo/match";
 import { distanceKm } from "../../apps/api/src/modules/places/placeLieu";
 import type { ContourCheck } from "./etalab";
-import { curatedPoint, ruleCollapses, type LieuClass, type Plan, type PlannedLieu } from "./plan";
+import {
+  curatedPoint,
+  departementOf,
+  ruleCollapses,
+  type LieuClass,
+  type Plan,
+  type PlannedLieu,
+} from "./plan";
 import type { Backfill } from "./sql";
 
 /** Two lieux closer than this may be one place typed two ways. */
@@ -52,6 +61,45 @@ export function nearDuplicates(plan: Plan, metres = NEAR_METRES): NearPair[] {
     }
   }
   return pairs;
+}
+
+/** A trailing "France" adds nothing (match.ts drops it the same way). */
+const FRANCE = new Set(["france", "france metropolitaine"]);
+
+export interface LastSegmentCommune {
+  /** The spelling (or the lieu key) whose last segment names the commune. */
+  text: string;
+  /** The commune on the lieu's path that bears that name. */
+  unit: string;
+}
+
+/**
+ * An offline lieu filed under a commune its text names only by the last comma
+ * segment ("X, Name"), or null. "Berne, Suisse" landed in Suisse (Moselle)
+ * before match.ts set aside the countries it lists: a country or region
+ * abroad that it does not list, or a misspelt one, still would. Most such
+ * lieux are the French commune meant ("Place Bellecour, Lyon"); the review
+ * lists them all, for a person to tell.
+ */
+export function lastSegmentCommune(
+  l: PlannedLieu,
+  names: ReadonlyMap<string, string>,
+): LastSegmentCommune | null {
+  if (l.online) return null;
+  const communes = (l.placement.columns.place_path ?? []).filter((id) => id.startsWith("fr:com:"));
+  if (!communes.length) return null;
+  for (const text of [l.key, ...l.locations]) {
+    const parts = text
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    while (parts.length > 1 && FRANCE.has(nameKey(parts[parts.length - 1]))) parts.pop();
+    if (parts.length < 2) continue;
+    const last = nameKey(parts[parts.length - 1]);
+    const unit = communes.find((id) => nameKey(names.get(id) ?? "") === last);
+    if (unit) return { text, unit };
+  }
+  return null;
 }
 
 const md = (s: string) =>
@@ -108,6 +156,8 @@ export function reviewMarkdown(input: ReviewInput): string {
   const nearOf = (i: number) =>
     near.filter((p) => p.a === i || p.b === i).map((p) => (p.a === i ? p.b : p.a));
   const contours = typeof input.contours === "string" ? null : input.contours;
+  const names = new Map(plan.units.map((u) => [u.id, u.name]));
+  const byLastSegment = plan.lieux.map((l) => lastSegmentCommune(l, names));
 
   const flagsOf = (l: PlannedLieu, i: number): string[] => {
     const flags: string[] = [];
@@ -115,6 +165,7 @@ export function reviewMarkdown(input: ReviewInput): string {
     if (!l.online && l.locations.length > 1) flags.push("spellings");
     if (!l.online && curatedPoint(l.key)) flags.push("curated point");
     if (l.placement.columns.place_candidates) flags.push("same-named");
+    if (byLastSegment[i]) flags.push("commune by last segment");
     for (const j of nearOf(i)) flags.push(`near #${j + 1}`);
     const check = contours?.get(i);
     if (check?.kind === "outside") flags.push(`Etalab: ${check.metres} m out`);
@@ -226,6 +277,25 @@ export function reviewMarkdown(input: ReviewInput): string {
         return `- ${ref(index(l))} ${quoted(l.key)}: ${candidatesText(candidates, plan.support)}. ${outcome}.`;
       }),
     "No lieu's name is shared by several communes.",
+  );
+  const lastSegment = plan.lieux.flatMap((l, i) => {
+    const hit = byLastSegment[i];
+    if (!hit) return [];
+    const dep = departementOf(l.placement.columns.place_path ?? null);
+    return [
+      `- ${ref(i)} ${quoted(hit.text)} → ${md(names.get(hit.unit) ?? hit.unit)} (${dep ?? "?"}, ${hit.unit}), ${l.klass}.`,
+    ];
+  });
+  section(
+    "Communes named by the text's last segment",
+    lastSegment.length
+      ? [
+          `"X, Name" is filed in the French commune called Name. A country or region abroad that shares a commune's name lands there too ("Berne, Suisse" in Suisse, Moselle): match.ts sets aside the countries geo/countries.ts lists, not the others nor a misspelt one. Check each is the commune meant.`,
+          "",
+          ...lastSegment,
+        ]
+      : [],
+    "No lieu is filed under a commune named by its text's last segment.",
   );
   section(
     "On no point",

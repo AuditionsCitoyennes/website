@@ -12,7 +12,7 @@ admin pick, no reuse of stored rows — and writes four files:
 | File | What |
 |---|---|
 | `supabase/migrations/<version>_backfill_places_fr.sql` | The migration: `geo_units` inserts (`on conflict do nothing`), then a `DO` block of keyed `UPDATE`s of the rows never placed (offline by raw location; online by town hall code, at their own point, or on no point without one) and NOTICEs of what this run placed. |
-| `supabase/tests/backfill_places_fr.sql` | Its fixture test: listed rows placed as listed, online rows at their own point under their own label (on no point without one), a row changed since the review, an offline row carrying a listed code, an online row labelled like a listed spelling and an online point out of range left stale, a row already placed left alone, a second run changes nothing. Run by `npm run db:check` (check `backfill`). |
+| `supabase/tests/backfill_places_fr.sql` | Its fixture test: listed rows placed as listed, online rows at their own point under their own label (on no point without one), a row changed since the review, an offline row carrying a listed code, an online row labelled like a listed spelling and an online point out of range left stale, rows already placed left alone (offline, and online with a point and without, of a town hall geo.api knows or not), a second run changes nothing. After each run it prints what the table says the run placed and left; `npm run db:check` (check `backfill`) runs it and holds the migration's NOTICEs to those counts. |
 | `supabase/tests/backfill_places_fr.expected.json` | Raw location (offline) or town hall code (online) → unit chain. Read by `db:check` and by `db:check:seeded` (B7 step 5). |
 | `docs/backfill-places-<date>.md` | The review table, for the founder's sign-off. |
 
@@ -76,8 +76,10 @@ key: it needs none, and must see only what the public sees.
 
 2. **Review** `$TMPDIR/backfill/docs/backfill-places-<date>.md` with the founder:
    every lieu's units and point, and the "To look at" sections — keyword-rule
-   collapses, lieux within 50 m of each other, same-named communes, lieux on no
-   point, town halls whose months disagree, Etalab warnings. A wrong lieu is
+   collapses, lieux within 50 m of each other, same-named communes, communes
+   named by the text's last segment (a place abroad, "Berne, Suisse", must not
+   sit in a French commune of that name: Suisse, Moselle), lieux on no point,
+   town halls whose months disagree, Etalab warnings. A wrong lieu is
    fixed at its source (`LOCATION_RULES`, the audition's text through the admin,
    or later by an admin pick), then generated again — never by editing the SQL.
 

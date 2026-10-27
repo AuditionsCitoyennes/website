@@ -24,9 +24,9 @@ const { FakeBan, FakeDb, FakeGeoApi, BAN_URL, SUPABASE_URL, installFakes } =
   await import("../../apps/api/src/testing/fakes");
 const { backfillOf, buildPlan, checkUpstreams, mostlyNowhere } = await import("./plan");
 const { checkPoint } = await import("./etalab");
-const { nearDuplicates, reviewMarkdown } = await import("./review");
+const { lastSegmentCommune, nearDuplicates, reviewMarkdown } = await import("./review");
 const { countOrphanTestimonies, readAuditions, refuseKey } = await import("./source");
-const { checkBackfill, expectedList, inlineIncludes, migrationSql, testSql } =
+const { checkBackfill, expectedList, inlineIncludes, migrationSql, noticeErrors, testSql } =
   await import("./sql");
 const { installGentleFetch, upstreamDeps } = await import("./upstream");
 
@@ -70,6 +70,8 @@ const MUNICIPALITIES: Record<string, BanFeature[]> = {
   ],
   Ribiers: [],
   Lyon: [commune("Lyon", "69123", RHONE, 520000, [45.758, 4.835])],
+  // A commune of Moselle that bears a country's name ("Berne, Suisse").
+  Suisse: [commune("Suisse", "57662", "57, Moselle, Grand Est", 150, [48.9719, 6.7106])],
 };
 const search: BanSearch = async (q, opts) => (opts?.municipality ? (MUNICIPALITIES[q] ?? []) : []);
 
@@ -113,6 +115,7 @@ const CHAINS: Record<string, FrChain> = {
   "93055": chain("93055", "Pantin", ["93", "Seine-Saint-Denis"], IDF, [48.8944, 2.4094]),
   "93066": chain("93066", "Saint-Denis", ["93", "Seine-Saint-Denis"], IDF, [48.9362, 2.3574]),
   "69123": chain("69123", "Lyon", ["69", "Rhône"], AURA, [45.758, 4.835], [45.7675, 4.8357]),
+  "57662": chain("57662", "Suisse", ["57", "Moselle"], ["44", "Grand Est"], [48.9719, 6.7106]),
 };
 
 function deps(over: Partial<PlanDeps> = {}): PlanDeps {
@@ -379,9 +382,19 @@ test("the migration keys offline rows by text, town halls by code, never-placed 
   );
   assert.ok(sql.includes("('69029'::text, 'fr:com:69029'::text, "));
   assert.match(sql, /'Provence-Alpes-Côte d''Azur'/);
-  // NOTICEs of what this run placed, and of what it left.
-  assert.match(sql, /get diagnostics n_pointless = row_count;/);
+  // NOTICEs of what this run placed, and of what it left. The listed online
+  // rows already placed are counted over every town hall (69029 and 69266:
+  // known or not), before either online UPDATE places one.
+  assert.match(sql, /get diagnostics n_own = row_count;/);
   assert.match(sql, /into n_map, n_nowhere, n_kept_offline/);
+  assert.match(
+    sql,
+    /\(select count\(\*\) from public\.auditions a join t on a\.citycode = t\.citycode\n\s+where a\.audition_en_ligne and a\.placed_location is not null\)\n\s+into n_pointless, n_kept_online/,
+  );
+  assert.ok(
+    sql.indexOf("into n_pointless, n_kept_online") < sql.indexOf("set place_unit = t.unit"),
+  );
+  assert.ok(sql.includes("('69029'::text, true),"));
   assert.match(sql, /raise notice 'backfill_places_fr: placed now: /);
   assert.match(sql, /already placed \(by the placement job, or a run before this one\)/);
   // Units before the rows that reference them, parents before children.
@@ -393,6 +406,34 @@ test("the migration keys offline rows by text, town halls by code, never-placed 
   const onlineOnly = migrationSql({ ...b, values: b.values.filter((v) => v.online) }, "r.md");
   assert.doesNotMatch(onlineOnly, /a\.location = v\.location/);
   assert.match(onlineOnly, /n_map bigint := 0;/);
+  // Only town halls geo.api does not know: no own-point UPDATE, and their rows
+  // already placed are counted all the same.
+  const unknownOnly = migrationSql(
+    {
+      ...b,
+      units: [],
+      values: [
+        {
+          online: true,
+          location: "Mairie inconnue",
+          citycode: "00000",
+          key: null,
+          unit: null,
+          path: null,
+          locality: null,
+          lat: null,
+          lng: null,
+          precision: "unplaced",
+          candidates: null,
+          release: null,
+        },
+      ],
+    },
+    "r.md",
+  );
+  assert.doesNotMatch(unknownOnly, /set place_unit = t\.unit/);
+  assert.match(unknownOnly, /\('00000'::text, false\)/);
+  assert.match(unknownOnly, /into n_pointless, n_kept_online/);
 });
 
 test("the fixture test runs the migration twice, by \\ir, and inlines", async () => {
@@ -426,6 +467,36 @@ test("the fixture test runs the migration twice, by \\ir, and inlines", async ()
     /\('pointless', \d+, 'Sans point \(fixture\)', true, '69029', '\{\}'::jsonb\)/,
   );
   assert.match(fixture, /\('far', \d+, 'Point hors limites \(fixture\)', true, '69029', /);
+  // Online rows already placed, with a point and without: kept as they are.
+  assert.match(
+    fixture,
+    /\('placed', null, 'Déjà placée \(fixture\)', true, '69029', '\{"lat": 45\.3, "lng": 5\.3\}'::jsonb\)/,
+  );
+  assert.match(
+    fixture,
+    /\('placed', null, 'Déjà placée, sans point \(fixture\)', true, '69029', '\{\}'::jsonb\)/,
+  );
+  assert.match(fixture, /except select \* from backfill_placed_before p where p\.id = f\.id/);
+  // What each run placed and left, printed for db:check to hold the NOTICEs to.
+  assert.equal(fixture.match(/^insert into backfill_seen /gm)?.length, 2);
+  assert.equal(
+    fixture.match(/^select pg_catalog\.jsonb_build_object\(\n\s+'run', [12],/gm)?.length,
+    2,
+  );
+  // A town hall geo.api does not know gets its own already-placed row.
+  const unknown = {
+    ...b.values.find((v) => v.online)!,
+    citycode: "00000",
+    unit: null,
+    path: null,
+    locality: null,
+    precision: "unplaced",
+    release: null,
+  };
+  assert.match(
+    testSql({ ...b, values: [...b.values, unknown] }, "m.sql"),
+    /\('placed', null, 'Déjà placée, mairie inconnue \(fixture\)', true, '00000', /,
+  );
   const inlined = inlineIncludes(fixture, () => "-- the migration");
   assert.equal(inlined.match(/^-- the migration$/gm)?.length, 2);
   assert.doesNotMatch(inlined, /^\\ir /m);
@@ -453,6 +524,48 @@ test("a backfill the UPDATE would apply ambiguously is refused", async () => {
   assert.throws(
     () => checkBackfill({ ...b, values: [{ ...b.values[0], location: "x $backfill$ y" }] }),
     /holds \$backfill\$/,
+  );
+});
+
+test("the NOTICEs of each run are held to what the table says", () => {
+  const notices = (runs: number[][]) =>
+    runs
+      .flatMap(([map, nowhere, own, pointless, ko, kn, so, sn]) => [
+        `psql:<stdin>:40: NOTICE:  backfill_places_fr: placed now: ${map + nowhere} offline auditions (${map} on the map, ${nowhere} on no point), ${own + pointless} online (${own} at their own point, ${pointless} on no point)`,
+        `psql:<stdin>:40: NOTICE:  backfill_places_fr: ${ko + kn} listed auditions were already placed (by the placement job, or a run before this one): left as they were (${ko} offline, ${kn} online)`,
+        `psql:<stdin>:40: NOTICE:  backfill_places_fr: ${so + sn} auditions still stale (${so} offline, ${sn} online): changed since the review, or not listed — the placement job places them`,
+      ])
+      .join("\n");
+  const table = (runs: number[][]) =>
+    runs
+      .map(([map, nowhere, own, pointless, ko, kn, so, sn], i) =>
+        JSON.stringify({
+          run: i + 1,
+          map,
+          nowhere,
+          own,
+          pointless,
+          kept_offline: ko,
+          kept_online: kn,
+          stale_offline: so,
+          stale_online: sn,
+        }),
+      )
+      .join("\n");
+  const runs = [
+    [5, 2, 3, 2, 1, 3, 9, 4],
+    [0, 0, 0, 0, 8, 8, 9, 4],
+  ];
+  assert.deepEqual(noticeErrors(table(runs), notices(runs)), []);
+  // The second run counts the unknown town hall's rows the first placed; NOTICEs miss them.
+  const missed = [runs[0], [0, 0, 0, 0, 8, 6, 9, 4]];
+  assert.deepEqual(noticeErrors(table(runs), notices(missed)), [
+    "run 2: the NOTICEs say kept_online 6; the table kept_online 8",
+  ]);
+  assert.match(noticeErrors(table(runs), notices(runs.slice(0, 1)))[0], /NOTICEs for 1/);
+  assert.match(
+    noticeErrors(table(runs), notices(runs).replace("left as they were", "kept"))[0],
+    /run 1: NOTICEs not as the migration words them/,
   );
 });
 
@@ -504,6 +617,85 @@ test("the review lists every lieu and flags what to look at", async () => {
   assert.match(md, /1 month\(s\) stored another point than the newest: each keeps its own/);
   assert.match(md, /1 month\(s\) with no point of their own: on no point/);
   assert.match(md, /a generic text \(GENERIC_LOCATION\)/);
+});
+
+test("a lieu filed under the commune its text's last segment names is flagged", async () => {
+  // As if Suisse were missing from geo/countries.ts (or misspelt): "Berne,
+  // Suisse" reaches the commune of Moselle, as it did before match.ts set the
+  // countries it lists aside.
+  const unguarded = deps({
+    locate: (key) => locate(key === "Berne, Suisse" ? "Suisse" : key, search),
+  });
+  const plan = await buildPlan(
+    [row("Berne, Suisse"), row("Place Dosse, Embrun"), row("Embrun"), row("Bobigny")],
+    unguarded,
+  );
+  const names = new Map(plan.units.map((u) => [u.id, u.name]));
+  assert.deepEqual(lastSegmentCommune(lieu(plan, "Berne, Suisse"), names), {
+    text: "Berne, Suisse",
+    unit: "fr:com:57662",
+  });
+  // The French commune meant, filed the same way: listed too, for a person to tell.
+  assert.equal(lastSegmentCommune(lieu(plan, "Place Dosse, Embrun"), names)?.unit, "fr:com:05046");
+  // A text with no comma names its commune outright.
+  assert.equal(lastSegmentCommune(lieu(plan, "Embrun"), names), null);
+  assert.equal(lastSegmentCommune(lieu(plan, "Bobigny"), names), null);
+  // A trailing "France" is dropped, as match.ts drops it.
+  const withFrance = {
+    ...lieu(plan, "Place Dosse, Embrun"),
+    key: "Place Dosse, Embrun, France",
+    locations: ["Place Dosse, Embrun, France"],
+  };
+  assert.equal(lastSegmentCommune(withFrance, names)?.unit, "fr:com:05046");
+  // A town hall is placed by its code, never by its text.
+  assert.equal(
+    lastSegmentCommune({ ...lieu(plan, "Place Dosse, Embrun"), online: true }, names),
+    null,
+  );
+
+  const md = reviewMarkdown({
+    plan,
+    backfill: backfillOf(plan, META),
+    migrationPath: "supabase/migrations/20261026203000_backfill_places_fr.sql",
+    reviewPath: "docs/backfill-places-2026-10-26.md",
+    ban: "https://api-adresse.data.gouv.fr",
+    rows: 4,
+    nullCreatedAt: 0,
+    nullStatus: 0,
+    published: 4,
+    drafts: 0,
+    orphans: 0,
+    contours: "no contours",
+  });
+  assert.match(md, /^\| 1 \| Berne, Suisse \| .*\| commune by last segment \|$/m);
+  assert.match(md, /^\| 4 \| Place Dosse, Embrun \| .*\| commune by last segment, near #3 \|$/m);
+  assert.doesNotMatch(md, /^\| [23] \| .*commune by last segment/m);
+  assert.match(md, /^### Communes named by the text's last segment$/m);
+  assert.match(md, /^- #1 «&nbsp;Berne, Suisse&nbsp;» → Suisse \(57, fr:com:57662\), commune\.$/m);
+  assert.match(
+    md,
+    /^- #4 «&nbsp;Place Dosse, Embrun&nbsp;» → Embrun \(05, fr:com:05046\), commune\.$/m,
+  );
+
+  // match.ts itself keeps "Berne, Suisse" off the map: nothing to flag there.
+  const guarded = await buildPlan([row("Berne, Suisse")], deps());
+  assert.equal(lieu(guarded, "Berne, Suisse").klass, "unplaced");
+  assert.equal(lastSegmentCommune(lieu(guarded, "Berne, Suisse"), names), null);
+  const none = reviewMarkdown({
+    plan: guarded,
+    backfill: backfillOf(guarded, META),
+    migrationPath: "m.sql",
+    reviewPath: "r.md",
+    ban: "https://api-adresse.data.gouv.fr",
+    rows: 1,
+    nullCreatedAt: 0,
+    nullStatus: 0,
+    published: 1,
+    drafts: 0,
+    orphans: 0,
+    contours: "no contours",
+  });
+  assert.match(none, /No lieu is filed under a commune named by its text's last segment\./);
 });
 
 test("a point is checked against its unit's polygon", () => {
