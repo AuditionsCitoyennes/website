@@ -2,9 +2,14 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { createAuditionSchema, updateAuditionSchema } from "@ac/shared";
 import { publicClient } from "../../lib/supabase";
-import { cached, cachedResponse } from "../../lib/cache";
 import { sendCached } from "../../lib/httpCache";
-import { auditionCacheKey, PUBLIC_CACHE_KEYS, PUBLIC_CACHE_TTL_MS } from "../../lib/publicCache";
+import {
+  auditionCache,
+  auditionCacheKey,
+  legacyCache,
+  PUBLIC_CACHE_KEYS,
+  PUBLIC_CACHE_TTL_MS,
+} from "../../lib/publicCache";
 import { requireAdmin } from "../../lib/auth";
 import { requestedSource } from "../map/locationGroups";
 import {
@@ -12,9 +17,11 @@ import {
   deleteAudition,
   fetchAdminAuditions,
   fetchPublishedAudition,
-  fetchPublishedAuditions,
+  guardedPublishedAuditions,
   updateAudition,
 } from "./service";
+
+const NULL_JSON = Buffer.from("null");
 
 export default async function auditionRoutes(app: FastifyInstance) {
   // ---- Public reads (RLS as anon: published auditions + visible testimonies) ----
@@ -25,11 +32,10 @@ export default async function auditionRoutes(app: FastifyInstance) {
     // writes (which invalidate it). Public API only: the website itself no
     // longer reads it (its analyses are built from /api/map + /api/testimonies).
     // `no-cache`: a client revalidates (304) rather than keep a copy past a write.
-    const res = await cachedResponse(
-      PUBLIC_CACHE_KEYS.auditions,
-      PUBLIC_CACHE_TTL_MS.auditions,
-      fetchPublishedAuditions,
-    );
+    // Refused past AUDITIONS_MAX (lib/guards.ts).
+    const res = await legacyCache.response(PUBLIC_CACHE_KEYS.auditions, guardedPublishedAuditions, {
+      ttlMs: PUBLIC_CACHE_TTL_MS.auditions,
+    });
     return sendCached(req, reply, res, "no-cache");
   });
 
@@ -56,13 +62,18 @@ export default async function auditionRoutes(app: FastifyInstance) {
     // Cached per id, dropped with the other public caches on any write: this
     // was the only public read that went to Supabase on every request. A
     // failed read is not kept.
-    const result = await cached(auditionCacheKey(id), PUBLIC_CACHE_TTL_MS.auditions, async () => {
-      const r = await fetchPublishedAudition(publicClient, id);
-      if (r.kind === "dbError") throw new Error(r.message);
-      return r;
-    });
-    if (result.kind === "notFound") return reply.notFound("Audition introuvable");
-    return result.audition;
+    // Kept as its JSON (null: no such published audition), sent as is.
+    const res = await auditionCache.response(
+      auditionCacheKey(id),
+      async () => {
+        const r = await fetchPublishedAudition(publicClient, id);
+        if (r.kind === "dbError") throw new Error(r.message);
+        return r.kind === "notFound" ? null : r.audition;
+      },
+      { ttlMs: PUBLIC_CACHE_TTL_MS.auditions },
+    );
+    if (res.json.equals(NULL_JSON)) return reply.notFound("Audition introuvable");
+    return reply.type("application/json; charset=utf-8").send(res.json);
   });
 
   // Create an audition with optional inline testimonies; testimonies with an

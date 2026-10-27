@@ -34,8 +34,7 @@ after(async () => {
 
 test("prewarm reads the auditions and builds the map, not the corpus", async () => {
   const { prewarmPublicCaches } = await import("./prewarm");
-  const { cached } = await import("./lib/cache");
-  const { PUBLIC_CACHE_KEYS } = await import("./lib/publicCache");
+  const { legacyCache, PUBLIC_CACHE_KEYS } = await import("./lib/publicCache");
 
   const warnings: unknown[] = [];
   const log = { warn: (...args: unknown[]) => warnings.push(args) } as unknown as FastifyBaseLogger;
@@ -49,10 +48,10 @@ test("prewarm reads the auditions and builds the map, not the corpus", async () 
 
   // Filled: served without a read.
   const unexpected = async () => assert.fail("filled at boot, read again");
-  await cached(PUBLIC_CACHE_KEYS.auditions, 60_000, unexpected);
-  await cached(PUBLIC_CACHE_KEYS.map, 60_000, unexpected);
+  await legacyCache.value(PUBLIC_CACHE_KEYS.auditions, unexpected);
+  await legacyCache.value(PUBLIC_CACHE_KEYS.map, unexpected);
   // Not filled: the first request reads it.
   let corpusReads = 0;
-  await cached(PUBLIC_CACHE_KEYS.testimonies, 60_000, async () => ++corpusReads);
+  await legacyCache.value(PUBLIC_CACHE_KEYS.testimonies, async () => ++corpusReads);
   assert.equal(corpusReads, 1);
 });

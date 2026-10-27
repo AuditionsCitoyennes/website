@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../../config";
+import { ByteLru } from "../../lib/byteLru";
 import { readJson, writeAtomic } from "../../lib/diskCache";
 import {
   DEP_MAX_TOLERANCE_M,
@@ -38,7 +39,12 @@ const CACHE_ROOT = join(config.CACHE_DIR, ".boundaries-cache");
 // What the cache was before: the whole map in one file, split into the
 // directory once, at boot, without fetching anything (migrateLegacyFile).
 const LEGACY_FILE = join(config.CACHE_DIR, ".boundaries-cache.json");
-const memory = new Map<string, BoundaryCollection>();
+// In memory, within the process budget (design A19): the most recently used
+// 32 MB of JSON; the rest is read back from its file when asked again
+// (`recall`), never fetched again.
+const memory = new ByteLru<BoundaryCollection>("boundaries", 32 * 1024 * 1024);
+// The keys that have a file, written or found at boot.
+const onDisk = new Set<string>();
 
 function fileOf(key: string): string {
   return join(CACHE_ROOT, `${encodeURIComponent(key)}.json`);
@@ -68,20 +74,14 @@ async function readCache(): Promise<BoundariesLoadReport> {
   await Promise.all(
     names.filter((n) => n.endsWith(".tmp")).map((n) => rm(join(CACHE_ROOT, n), { force: true })),
   );
-  await pool(
-    names.filter((n) => n.endsWith(".json")),
-    16,
-    async (name) => {
-      const key = decodeURIComponent(name.slice(0, -".json".length));
-      const value = await readJson<BoundaryCollection>(join(CACHE_ROOT, name)).catch(
-        () => undefined,
-      );
-      if (value?.type === "FeatureCollection" && Array.isArray(value.features)) {
-        memory.set(key, value);
-      }
-    },
-  );
-  return { keys: memory.size, migrated };
+  const files = names.filter((n) => n.endsWith(".json"));
+  for (const name of files) onDisk.add(decodeURIComponent(name.slice(0, -".json".length)));
+  // Into memory while it has room; the others are read when first asked.
+  await pool(files, 16, async (name) => {
+    if (memory.bytes >= memory.maxBytes * 0.9) return;
+    await readKey(decodeURIComponent(name.slice(0, -".json".length)));
+  });
+  return { keys: onDisk.size, migrated };
 }
 
 /**
@@ -122,14 +122,54 @@ async function limited<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function persistKey(key: string): void {
-  const value = memory.get(key);
-  if (!value) return;
-  const task = limited(() => writeAtomic(fileOf(key), JSON.stringify(value))).catch(() => {
-    /* a cache: the entry is still in memory, fetched again after a restart at worst */
-  });
+/** Keep a value in memory and in its file (once: keys never change once set). */
+function remember(key: string, value: BoundaryCollection): void {
+  const text = JSON.stringify(value);
+  memory.set(key, value, text.length);
+  if (onDisk.has(key)) return;
+  const task = limited(() => writeAtomic(fileOf(key), text))
+    .then(() => {
+      onDisk.add(key);
+    })
+    .catch(() => {
+      /* a cache: the entry is still in memory, fetched again after a restart at worst */
+    });
   pendingWrites.add(task);
   void task.finally(() => pendingWrites.delete(task));
+}
+
+/** A key's file, back into memory (undefined: no file, or not a collection). */
+async function readKey(key: string): Promise<BoundaryCollection | undefined> {
+  let text: string;
+  try {
+    text = await readFile(fileOf(key), "utf8");
+  } catch {
+    onDisk.delete(key);
+    return undefined;
+  }
+  let value: BoundaryCollection | undefined;
+  try {
+    value = JSON.parse(text) as BoundaryCollection;
+  } catch {
+    value = undefined;
+  }
+  // A file an older version wrote by halves: as if there were none.
+  if (value?.type !== "FeatureCollection" || !Array.isArray(value.features)) {
+    onDisk.delete(key);
+    return undefined;
+  }
+  memory.set(key, value, text.length);
+  return value;
+}
+
+/** A key from memory, else from its file. */
+async function recall(key: string): Promise<BoundaryCollection | undefined> {
+  return memory.get(key) ?? (onDisk.has(key) ? readKey(key) : undefined);
+}
+
+/** The boundaries held in memory, for /api/health. */
+export function boundariesMemoryStats() {
+  return { ...memory.stats(), onDisk: onDisk.size };
 }
 
 /**
@@ -178,11 +218,10 @@ async function readLevel(level: string): Promise<BoundaryCollection> {
 /** Métropole / régions / départements as one enriched FeatureCollection (cached). */
 export async function getLevel(level: string): Promise<BoundaryCollection> {
   await load();
-  const cached = memory.get(level);
+  const cached = await recall(level);
   if (cached) return cached;
   const fc = await readLevel(level);
-  memory.set(level, fc);
-  persistKey(level);
+  remember(level, fc);
   return fc;
 }
 
@@ -237,7 +276,7 @@ async function pool<T>(items: T[], size: number, run: (item: T) => Promise<void>
 export async function getCommune(insee: string): Promise<BoundaryFeature> {
   await load();
   const key = `commune:${insee}`;
-  const cached = memory.get(key);
+  const cached = await recall(key);
   if (cached?.features[0]) return cached.features[0];
 
   return upstreamOnce(key, async () => {
@@ -247,8 +286,7 @@ export async function getCommune(insee: string): Promise<BoundaryFeature> {
     if (!res.ok) throw new Error(`commune fetch ${res.status} for ${insee}`);
     const feat = (await res.json()) as { geometry: Geometry; properties: Record<string, unknown> };
     const enriched = enrich(feat);
-    memory.set(key, { type: "FeatureCollection", features: [enriched] });
-    persistKey(key);
+    remember(key, { type: "FeatureCollection", features: [enriched] });
     return enriched;
   });
 }
@@ -277,8 +315,7 @@ async function fetchDepartementCommunes(dep: string): Promise<BoundaryFeature[]>
       features.push(enriched);
       const key = `commune:${enriched.properties.code}`;
       if (enriched.properties.code && !memory.has(key)) {
-        memory.set(key, { type: "FeatureCollection", features: [enriched] });
-        persistKey(key);
+        remember(key, { type: "FeatureCollection", features: [enriched] });
       }
     }
     return features;
@@ -310,11 +347,12 @@ export async function getCommunes(codes: string[]): Promise<BoundaryCollection> 
   const cachedOf = (c: string) => memory.get(`commune:${c}`)?.features[0];
   const found = new Map<string, BoundaryFeature>();
   const missing: string[] = [];
-  for (const c of unique) {
-    const hit = cachedOf(c);
+  // From memory, or read back from disk: a commune is fetched once.
+  await pool(unique, 16, async (c) => {
+    const hit = (await recall(`commune:${c}`))?.features[0];
     if (hit) found.set(c, hit);
     else missing.push(c);
-  }
+  });
 
   // Several misses in one département: its whole set in the one request
   // getDepartement already makes, which seeds every commune of it.
@@ -377,7 +415,7 @@ export async function getDepartement(code: string): Promise<BoundaryFeature> {
   await load();
   // The recipe in the key: an outline cached under other limits is made again.
   const key = `departement:${code}:${DEP_MAX_VERTICES}/${DEP_MAX_TOLERANCE_M}m`;
-  const cached = memory.get(key);
+  const cached = await recall(key);
   if (cached?.features[0]) return cached.features[0];
 
   return upstreamOnce(key, async () => {
@@ -389,8 +427,7 @@ export async function getDepartement(code: string): Promise<BoundaryFeature> {
       geometry: simplifyToBudget(merged, DEP_MAX_VERTICES, DEP_MAX_TOLERANCE_M),
       properties: { code, nom: nom?.properties.nom ?? "" },
     });
-    memory.set(key, { type: "FeatureCollection", features: [enriched] });
-    persistKey(key);
+    remember(key, { type: "FeatureCollection", features: [enriched] });
     return enriched;
   });
 }
