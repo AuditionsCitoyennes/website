@@ -11,7 +11,8 @@
 //
 //   npm run db:check:seeded -- --yes --workdir <dir>
 //     <dir>/supabase/config.toml, migrations/ (a copy, or a symlink)
-//   … --seed <file>                                    another seed of that shape
+//   … --seed <file>
+//     another seed of that shape, instead of the one generated
 //
 // The expected list (backfill_places_fr.expected.json) is the one beside the
 // migrations applied: supabase/tests next to the directory migrations/
