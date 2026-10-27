@@ -162,8 +162,9 @@ jobs:
       # service role's alone, bounded at 5 s), the derived testimony
       # columns against @ac/shared over the seed and an edge corpus, writes
       # shaped like the old app's (as authenticated and anon), rolled back,
-      # place paths against geo_units, and the seed's places against its
-      # fixtures (strict here: CI=true).
+      # place paths against geo_units, the seed's places against its
+      # fixtures (strict here: CI=true), and the reviewed backfill's fixture
+      # test (its NOTICEs held to its table).
       - name: Database checks
         run: npm run db:check
         env:
@@ -183,7 +184,9 @@ jobs:
       # of the registry kept above) to the migrations before map phase 1,
       # loads the seed as its rows stood then (SEED_SHAPE=legacy, written by
       # the check itself), and applies the newer migrations on top of the
-      # seeded rows, as on staging and prod.
+      # seeded rows, as on staging and prod: the reviewed backfill places
+      # exactly the rows it lists, the others stay stale, and running it
+      # again changes nothing.
       - name: Migrations on top of seeded data
         run: npm run db:check:seeded -- --yes --workdir .
         env:

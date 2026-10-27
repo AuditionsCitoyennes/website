@@ -34,8 +34,9 @@ import {
   type FrUnit,
 } from "./fr";
 
-// The API's config is read when its modules load: give it a database that is
-// not there, so that nothing (an .env included) can point it at a real one.
+// The API's config is read when the placement code first geocodes: give it a
+// database that is not there, so that nothing (an .env included) can point it
+// at a real one.
 // No database call is made: reuse and support are passed in.
 const cacheDir = process.env.FIXTURES_CACHE_DIR ?? join(homedir(), ".cache/ac-seed/fixtures");
 mkdirSync(cacheDir, { recursive: true });

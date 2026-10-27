@@ -37,9 +37,10 @@ function command(): string {
 /** Every script starts here: UTF-8 both ways, nothing found by search_path. */
 const PREAMBLE = "set client_encoding = 'UTF8';\nset search_path = '';\n";
 
-/** Runs a script; returns what it printed (unaligned, tuples only). By default
- *  through PSQL or DATABASE_URL; `psql` names another command. */
-export function runSql(sql: string, psql = command()): string {
+/** Runs a script; returns what it printed (unaligned, tuples only) and its
+ *  messages (NOTICEs). By default through PSQL or DATABASE_URL; `psql` names
+ *  another command. */
+export function runSqlLogged(sql: string, psql = command()): { stdout: string; stderr: string } {
   const r = spawnSync("sh", ["-c", `${psql} -X -q -A -t -v ON_ERROR_STOP=1`], {
     input: PREAMBLE + sql,
     encoding: "utf8",
@@ -47,7 +48,12 @@ export function runSql(sql: string, psql = command()): string {
   });
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`psql exited with ${r.status}:\n${r.stderr.trim()}`);
-  return r.stdout;
+  return { stdout: r.stdout, stderr: r.stderr };
+}
+
+/** Runs a script; returns what it printed (unaligned, tuples only). */
+export function runSql(sql: string, psql?: string): string {
+  return runSqlLogged(sql, psql).stdout;
 }
 
 /** Runs a script whose selects each print one json/jsonb value; returns them in order. */

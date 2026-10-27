@@ -15,8 +15,6 @@ import {
   type PlaceCandidate,
   type PlacePick,
 } from "@ac/shared";
-import { adminClient } from "../../lib/supabase";
-import { getCachedEntry, resolve } from "../geo/geocode";
 import {
   isHomonyms,
   pickHomonym,
@@ -36,6 +34,7 @@ import {
   type GeoReadOptions,
   type GeoUnitWrite,
 } from "./fr";
+import { onlinePlaceOf } from "./lieu";
 
 // Where an audition's lieu goes, computed once when the audition is written
 // and stored on its row (auditions.place_*), instead of at every read. In
@@ -128,8 +127,15 @@ export class RetryLater extends Error {
 const STORED =
   "place_unit, place_path, locality_id, lat, lng, place_precision, place_candidates, geo_release";
 
+// The database and the geocoder's cache, loaded on first use: the backfill
+// generator (scripts/place-backfill) places lieux with this module and deps of
+// its own, without the API's configuration (config.ts reads apps/api/.env).
+const database = async () => (await import("../../lib/supabase")).adminClient;
+const geocoder = () => import("../geo/geocode");
+
 export const defaultPlaceDeps: PlaceDeps = {
   async locate(key, opts) {
+    const { getCachedEntry, resolve } = await geocoder();
     if (opts?.cachedOnly) {
       const known = getCachedEntry(key);
       return known === undefined ? "retry" : known;
@@ -146,7 +152,9 @@ export const defaultPlaceDeps: PlaceDeps = {
     // others (before the boot's rules pass, or by an older instance still
     // running) is not copied — copied, it would carry the current stamp, and
     // no rules pass would ever correct it.
-    const { data, error } = await adminClient
+    const { data, error } = await (
+      await database()
+    )
       .from("auditions")
       .select(STORED)
       .eq("lieu_key", key)
@@ -162,7 +170,7 @@ export const defaultPlaceDeps: PlaceDeps = {
     return data[0] ?? null;
   },
   async support() {
-    const { data, error } = await adminClient.rpc("placement_support");
+    const { data, error } = await (await database()).rpc("placement_support");
     if (error) throw new RetryLater(`placement_support: ${error.message}`);
     const counts = (data ?? {}) as Record<string, number>;
     return new Map(Object.entries(counts));
@@ -463,6 +471,65 @@ export function keepPlacedAbroad(row: AbroadRow): Placement | null {
       placed_location: row.location,
       placed_rules: row.placed_rules,
       geo_release: row.geo_release,
+    },
+  };
+}
+
+/** What placeOnline reads of a row. */
+export type OnlineRow = Pick<Audition, "location" | "audition_en_ligne" | "citycode" | "place">;
+
+/**
+ * An online audition: its town hall's units, the point stored with it, its
+ * own label as lieu key. 'retry' when the commune API did not answer (or,
+ * `cachedOnly`, was not to be asked).
+ */
+export async function placeOnline(
+  row: OnlineRow,
+  deps: Partial<PlaceDeps> = {},
+  cachedOnly = false,
+): Promise<Placement | "retry"> {
+  const online = onlinePlaceOf(row);
+  const none: Placement = {
+    units: [],
+    columns: {
+      place_unit: null,
+      place_path: null,
+      locality_id: null,
+      lieu_key: row.location,
+      lat: null,
+      lng: null,
+      place_precision: "unplaced",
+      place_candidates: null,
+      placed_location: row.location,
+      placed_rules: null,
+      geo_release: null,
+    },
+  };
+  if (!online || !row.citycode) return none;
+  let chain;
+  try {
+    chain = await (deps.commune ?? frChain)(row.citycode, { cachedOnly });
+  } catch (e) {
+    if (e instanceof PlaceError && e.status === 503) return "retry";
+    throw e;
+  }
+  if (!chain) return none;
+  return {
+    units: chain.units,
+    columns: {
+      place_unit: chain.unit,
+      place_path: chain.path,
+      locality_id: chain.localityId,
+      lieu_key: row.location,
+      lat: online.lat,
+      lng: online.lng,
+      // As the online form files it (resolveTownHall): the town hall's own
+      // point, or the commune's centre where geo.api has no town hall.
+      place_precision: chain.mairie ? "address" : "commune",
+      place_candidates: null,
+      placed_location: row.location,
+      placed_rules: null,
+      geo_release: FR_GEO_RELEASE,
     },
   };
 }
