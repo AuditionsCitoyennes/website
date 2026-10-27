@@ -142,7 +142,7 @@ The lazy path runs only on the 300k staging set, or locally with `?budget=0`.
 | 22 | Reuse and LOCATION_RULES overrode explicit picks ("Hebron" → Bron). | An explicit pick skips reuse. Gazetteer picks key on `normalizeLocation` without rules. The job keeps non-French placements (A6, A15, D5). |
 | 23 | J's serveur mode had no list data. | In J, `/api/map` and the corpus stay mounted for the lists; K moves the lists (E1, J). |
 | 24 | No rule for lieu labels in server mode. | Lieu rows carry `city` (today's group city); labels are compared in parity (B5.1, E2). |
-| 25 | The heap cap did not bound Buffers; `/api/auditions` was cached whole. | Heap 256 MB plus one external-memory budget (≤ 112 MB). `/api/auditions` and `/api/map` get a family and a 5,000-audition guard (A19, D3, D8). |
+| 25 | The heap cap did not bound Buffers; `/api/auditions` was cached whole. | Heap 256 MB plus one external-memory budget (≤ 112 MB: cache families ≤ 74 MB, external total ≤ 90 MB). `/api/auditions` and `/api/map` get a family and a 5,000-audition guard (A19, D3, D8). |
 | 26, 32 | Search and pick validation scanned every region chunk; size estimate wrong. | Per-country search index; picks carry a chunk index; measured sizes; size report (A14, C3, C5). |
 | 27 | The staging seed load could not finish. | Spooled per-table COPYs; drop and recreate the big indexes; `statement_timeout = 0`; loaded from the laptop; never `replica` mode; `-U postgres` (F2). |
 | 28 | k6 from one IP measured the limiter; CPU share unknown. | Per-VU `X-Visitor-IP`; one single-IP scenario; `cpu_limit` set and reported (F3). |

@@ -12,7 +12,7 @@ import {
   newTiming,
 } from "./dbGate";
 import { AnswerTooLargeError, cappedFetch } from "./cappedFetch";
-import { forceHits, takeHits } from "./rateLimit";
+import { forceHits, refundHits, takeHits } from "./rateLimit";
 
 // The database gate (lib/dbGate.ts): so many calls at once, so many waiting
 // so long, then 503; the slot of an aborted call held a while; what a
@@ -221,6 +221,37 @@ test("forceHits: counted past the max (work under way), refused from the next ta
   assert.ok(takeHits([{ key: "t:g", n: 1, max: 30, windowMs: w }]) > 0);
   forceHits([{ key: "t:h", n: 0, max: 30, windowMs: w }]);
   assert.equal(takeHits([{ key: "t:h", n: 30, max: 30, windowMs: w }]), 0, "nothing for 0");
+});
+
+test("refundHits: given back to the window they were counted in, never to a later one", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const w = 10_000;
+  const rule = (key: string, n = 1) => ({ key, n, max: 30, windowMs: w });
+
+  // Refused while its window lasts: the call is given back.
+  assert.equal(takeHits([rule("t:r", 29)]), 0);
+  const takenAt = Date.now();
+  assert.equal(takeHits([rule("t:r")]), 0, "the 30th");
+  t.mock.timers.tick(4_000);
+  refundHits([rule("t:r")], takenAt);
+  assert.equal(takeHits([rule("t:r")]), 0, "the refunded call can be taken again");
+  assert.ok(takeHits([rule("t:r")]) > 0, "and only that one");
+
+  // Counted at the end of one window, refused after the next one opened: the
+  // new window never held it, and keeps its count.
+  assert.equal(takeHits([rule("t:s", 30)]), 0);
+  const lateTakenAt = Date.now();
+  t.mock.timers.tick(w + 1);
+  assert.equal(takeHits([rule("t:s", 30)]), 0, "a new window, full");
+  refundHits([rule("t:s")], lateTakenAt);
+  assert.ok(takeHits([rule("t:s")]) > 0, "nothing given back to the new window");
+
+  // Its window over and none since: nothing to give back, nothing opened.
+  assert.equal(takeHits([rule("t:u", 30)]), 0);
+  const goneAt = Date.now();
+  t.mock.timers.tick(w + 1);
+  refundHits([rule("t:u")], goneAt);
+  assert.equal(takeHits([rule("t:u", 30)]), 0, "a fresh window, all 30");
 });
 
 test("cappedFetch: an answer within the limit as it came; past it, cut unread", async () => {
