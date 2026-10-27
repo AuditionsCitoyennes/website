@@ -9,7 +9,7 @@ import {
   type Json,
   type OnlineTestimonyInput,
 } from "@ac/shared";
-import { config, emailMode, hasEmail, hasServiceRole, isDev } from "../../config";
+import { config, emailMode, hasEmail, hasServiceRole, isDev, rateLimitFactor } from "../../config";
 import { logAudit } from "../../lib/audit";
 import { EmailRetryableError } from "../../lib/email/resend";
 import { sendOnlineVerificationEmail } from "../../lib/email/verification";
@@ -191,7 +191,7 @@ export async function submitOnlineTestimony(
 
   // And a ceiling for the whole site, spent only by well-formed submissions
   // about to send an email — not by junk anyone can fire at it.
-  if (!allowGlobalHit(300, 24 * HOUR)) return { kind: "saturated" };
+  if (!allowGlobalHit(300 * rateLimitFactor, 24 * HOUR)) return { kind: "saturated" };
 
   const month = currentMonth();
   const title = auditionTitle(month.name);

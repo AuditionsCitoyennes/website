@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { config, hasServiceRole } from "../../config";
 import { byteLrus } from "../../lib/byteLru";
 import { cacheFamilies, storeStats } from "../../lib/cache";
+import { dbGate } from "../../lib/dbGate";
 import { visitorIp } from "../../lib/visitor";
 import { boundariesMemoryStats } from "../boundaries/service";
 import { demTileStats } from "../dem/service";
@@ -60,5 +61,6 @@ function memoryDetails() {
     // The static responses (boundary levels and départements) and the DEM tiles.
     staticResponses: { entries: store.entries, mb: mb(store.bytes) },
     demTiles: { entries: dem.entries, mb: mb(dem.bytes) },
+    dbGate: dbGate.stats(),
   };
 }

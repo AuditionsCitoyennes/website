@@ -139,12 +139,23 @@ jobs:
           # As the site's Worker: answered (the outbox is readable by the
           # service role only, so this also proves the database key).
           curl -sS --fail --max-time 15 -o /dev/null -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/outbox"
-          curl -sS --fail --max-time 30 -o /dev/null -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/auditions"
+          # A place read, through the service role's read functions (never a
+          # whole-table pull): the read RPC migration is on the database and
+          # the key may call it.
+          facets=$(curl -sS --fail --max-time 30 -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/places/facets")
+          jq -e '.themes | type == "array"' <<<"$facets" >/dev/null
           # The map, from the stored places: its groups carry lieuId. Without
           # them it fell back to the geocoder's build — geo_units unreadable
           # (the place migration not pushed to staging, or the key refused).
-          map=$(curl -sS --fail --max-time 30 -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/map")
-          if ! jq -e 'length == 0 or (.[0] | has("lieuId"))' <<<"$map" >/dev/null; then
+          # Past 5,000 published auditions it refuses whole (503, "Liste trop
+          # longue"): the load-test data, nothing to check then.
+          code=$(curl -sS -o "$RUNNER_TEMP/map.json" -w '%{http_code}' --max-time 30 -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/map")
+          if [ "$code" = 503 ] && jq -e '.message | startswith("Liste trop longue")' "$RUNNER_TEMP/map.json" >/dev/null; then
+            echo "::notice::/api/map refuses whole at this size; not checked"
+          elif [ "$code" != 200 ]; then
+            echo "::error::/api/map answers $code"
+            exit 1
+          elif ! jq -e 'length == 0 or (.[0] | has("lieuId"))' "$RUNNER_TEMP/map.json" >/dev/null; then
             echo "::error::/api/map is the geocoder's build: are the place migrations on the staging database?"
             exit 1
           fi

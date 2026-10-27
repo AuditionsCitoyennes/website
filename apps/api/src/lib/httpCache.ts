@@ -1,5 +1,9 @@
+import { promisify } from "node:util";
+import { gzip } from "node:zlib";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { CachedResponse } from "./cache";
+
+const gzipAsync = promisify(gzip);
 
 // Sending a cachedResponse(): its validator and the freshness rule in the
 // headers; a bodiless 304 when the client already holds these bytes; the
@@ -30,6 +34,24 @@ export function sendCached(
     return reply.send(res.gz);
   }
   return reply.send(res.json);
+}
+
+/**
+ * sendCached() for a body built for this reply alone (assembled from cached
+ * parts): the same headers and 304, the gzip made only when the client
+ * takes it and does not already hold these bytes.
+ */
+export async function sendJson(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  body: { json: Buffer; etag: string },
+  cacheControl: string,
+): Promise<FastifyReply> {
+  const gz =
+    acceptsGzip(req.headers["accept-encoding"]) && !matches(req.headers["if-none-match"], body.etag)
+      ? await gzipAsync(body.json)
+      : body.json;
+  return sendCached(req, reply, { json: body.json, gz, etag: body.etag }, cacheControl);
 }
 
 /** Add a field to `Vary` without dropping what is there (@fastify/cors's Origin). */

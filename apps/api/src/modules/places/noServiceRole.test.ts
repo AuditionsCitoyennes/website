@@ -86,3 +86,27 @@ test("the sweep without the service role: 503, nothing placed", async () => {
     await app.close();
   }
 });
+
+test("the place reads without the service role: 503, never anon", async () => {
+  const { buildServer } = await import("../../server");
+  const app = buildServer();
+  await app.ready();
+  db.requests = [];
+  try {
+    for (const url of [
+      "/api/places?unit=world",
+      "/api/places?units=world,FR",
+      "/api/places/lieu?id=l:0123456789abcdef",
+      "/api/places/results",
+      "/api/places/facets",
+      "/api/auditions/00000000-0000-4000-8000-000000000001/testimonies",
+    ]) {
+      const res = await app.inject({ url });
+      assert.equal(res.statusCode, 503, url);
+      assert.equal(res.json().message, "Les lieux ne sont pas disponibles pour le moment.");
+    }
+    assert.ok(!db.requests.some((r) => r.url.pathname.includes("/rpc/")));
+  } finally {
+    await app.close();
+  }
+});

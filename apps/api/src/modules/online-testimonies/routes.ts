@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { onlineTestimonySchema } from "@ac/shared";
+import { rateLimitFactor } from "../../config";
 import { adminClient } from "../../lib/supabase";
 import { allowHit, clientKey } from "../../lib/rateLimit";
 import { visitorIp } from "../../lib/visitor";
@@ -22,7 +23,7 @@ export default async function onlineTestimonyRoutes(app: FastifyInstance) {
 
     // A few tries an hour per visitor — this form sends emails to whatever
     // address is typed into it.
-    if (!allowHit(`ip:${clientKey(visitorIp(req))}`, 5, HOUR)) {
+    if (!allowHit(`ip:${clientKey(visitorIp(req))}`, 5 * rateLimitFactor, HOUR)) {
       return reply.tooManyRequests("Trop de tentatives. Réessayez un peu plus tard.");
     }
 

@@ -18,6 +18,7 @@ import boundaryRoutes from "./modules/boundaries/routes";
 import demRoutes from "./modules/dem/routes";
 import adminRoutes from "./modules/admin/routes";
 import placeRoutes from "./modules/places/routes";
+import placeReadRoutes from "./modules/places/readRoutes";
 import verifyRoutes from "./modules/verification/routes";
 import meRoutes from "./modules/account/routes";
 import onlineTestimonyRoutes from "./modules/online-testimonies/routes";
@@ -128,6 +129,9 @@ export function buildServer() {
   app.register(demRoutes, { prefix: "/api/dem" });
   app.register(adminRoutes, { prefix: "/api/admin" });
   app.register(placeRoutes, { prefix: "/api/admin/places" });
+  // /api/places…, and an audition's testimony pages and the admin list's
+  // filters beside /api/auditions (full paths).
+  app.register(placeReadRoutes);
   app.register(verifyRoutes, { prefix: "/api/verify" });
   app.register(meRoutes, { prefix: "/api/me" });
   app.register(onlineTestimonyRoutes, { prefix: "/api/online-testimonies" });

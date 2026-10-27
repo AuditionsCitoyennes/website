@@ -39,6 +39,36 @@ export function allowHit(key: string, max: number, windowMs: number): boolean {
   return true;
 }
 
+/** One limit a request is counted against: `n` more hits on `key`, at most `max` per `windowMs`. */
+export interface HitRule {
+  key: string;
+  n: number;
+  max: number;
+  windowMs: number;
+}
+
+/**
+ * Counts the hits of every rule, all or none: 0 when they all fit in their
+ * current windows (then counted), else how many ms until the latest of the
+ * refusing windows ends (nothing counted).
+ */
+export function takeHits(rules: readonly HitRule[]): number {
+  const now = Date.now();
+  let waitMs = 0;
+  for (const r of rules) {
+    const w = windows.get(r.key);
+    const used = w && w.until > now ? w.count : 0;
+    if (used + r.n > r.max) waitMs = Math.max(waitMs, w && w.until > now ? w.until - now : 0);
+    // More than a whole window allows: refused for a window.
+    if (r.n > r.max) waitMs = Math.max(waitMs, r.windowMs);
+  }
+  if (waitMs > 0) return waitMs;
+  for (const r of rules) {
+    for (let i = 0; i < r.n; i++) allowHit(r.key, r.max, r.windowMs);
+  }
+  return 0;
+}
+
 // The site-wide ceiling lives apart: a flood of keys must never evict it.
 const global: Window = { until: 0, count: 0 };
 
