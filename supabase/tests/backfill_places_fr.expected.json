@@ -1,10 +1,189 @@
 {
   "about": "Written by scripts/place-backfill/generate.ts with the migration it names: where that reviewed backfill places each audition never placed. Read by scripts/db-checks (backfill, migrate-seeded).",
-  "migration": null,
-  "test": null,
-  "generated": null,
-  "source": null,
-  "rules": null,
-  "offline": {},
+  "migration": "20261027053536_backfill_places_fr.sql",
+  "test": "backfill_places_fr.sql",
+  "generated": "2026-10-27T05:35:36Z",
+  "source": "nnnhefcdanzxsgnaletc.supabase.co",
+  "rules": "6c6fb15e",
+  "offline": {
+    "2 Rue D'enghien, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69382"
+    ],
+    "Avenue Roger Salengro, Villeurbanne": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69266"
+    ],
+    "Cordeliers, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69382"
+    ],
+    "La Tour-Du-Pin": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:38",
+      "fr:com:38509"
+    ],
+    "Les États-Unis, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69388"
+    ],
+    "Manif Interfac Jean Macé, Lyon 7": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69387"
+    ],
+    "Croix-Rousse, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69381"
+    ],
+    "Marché de la Croix-Rousse, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69381"
+    ],
+    "Charpennes, Villeurbanne": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69266"
+    ],
+    "Marché des Charpennes, Villeurbanne": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69266"
+    ],
+    "Marché des Gratte-Ciel, Villeurbanne": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69266"
+    ],
+    "Maison Des Jeunes Et De La Culture Jean Macé, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69387"
+    ],
+    "Marché Jean Macé, Lyon 7": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69387"
+    ],
+    "Place Jean Macé, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69387"
+    ],
+    "Parc Blandan, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69387"
+    ],
+    "Part-Dieu, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69383"
+    ],
+    "Médiathèque Jean Prévost, Bron": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69029"
+    ],
+    "Parvis Médiathèque, Bron": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69029"
+    ],
+    "Place Carnot, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69382"
+    ],
+    "Place Colbert, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69381"
+    ],
+    "Place Du Docteur Lazare Goujon, Villeurbanne": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69266"
+    ],
+    "Grandclément, Villeurbanne": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69266"
+    ],
+    "Place Grandclément, Villeurbanne": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69266"
+    ],
+    "Place Sathonay, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69381"
+    ],
+    "Place Wilson, Villeurbanne": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69266"
+    ],
+    "Quai Augagneur, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69383"
+    ],
+    "Quai Victor Augagneur, Lyon": [
+      "FR",
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69383"
+    ]
+  },
   "online": {}
 }
