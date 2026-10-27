@@ -158,13 +158,24 @@ jobs:
             exit 1
           fi
 
-      # Grant guard (scripts/db-checks/allowlist.json), the derived testimony
+      # Grant guard (scripts/db-checks/allowlist.json), the read RPCs (the
+      # service role's alone, bounded at 5 s), the derived testimony
       # columns against @ac/shared over the seed and an edge corpus, writes
       # shaped like the old app's (as authenticated and anon), rolled back,
       # place paths against geo_units, and the seed's places against its
       # fixtures (strict here: CI=true).
       - name: Database checks
         run: npm run db:check
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # The read RPCs against a frozen copy of the client pipeline they
+      # replace (scripts/parity/legacy), over the seed and the edge cases its
+      # setup adds: every filter of the matrix, every unit, lieu, result and
+      # testimony page, every order. Only the design's D1 and D14 may differ;
+      # the report lists them.
+      - name: Read RPCs match the client pipeline
+        run: npm run db:parity
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 

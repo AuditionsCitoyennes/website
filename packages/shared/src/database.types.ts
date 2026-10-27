@@ -361,6 +361,10 @@ export type Database = {
       };
     };
     Functions: {
+      admin_audition_filter: {
+        Args: { p_filters?: Json; p_reachable_by?: string };
+        Returns: Json;
+      };
       admin_testimonies: {
         Args: { p_audition_id?: string; p_id?: string };
         Returns: {
@@ -375,6 +379,16 @@ export type Database = {
           topics: string[];
           verification_status: string;
         }[];
+      };
+      audition_results: {
+        Args: {
+          p_after?: Json;
+          p_filters?: Json;
+          p_limit?: number;
+          p_sort?: string;
+          p_through?: string;
+        };
+        Returns: Json;
       };
       get_audit_log: {
         Args: { p_limit?: number; p_offset?: number };
@@ -430,10 +444,37 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean };
       is_online_audition: { Args: { p_audition: string }; Returns: boolean };
       is_super_admin: { Args: never; Returns: boolean };
+      lieu_auditions: {
+        Args: { p_filters?: Json; p_lieu: string; p_sort?: string };
+        Returns: Json;
+      };
       online_testimony_ids: {
         Args: { p_unverified_only: boolean };
         Returns: string[];
       };
+      place_counts: {
+        Args: {
+          p_budget?: number;
+          p_depth?: number;
+          p_empty?: boolean;
+          p_facts?: boolean;
+          p_filters?: Json;
+          p_unit?: string;
+        };
+        Returns: Json;
+      };
+      place_counts_many: {
+        Args: {
+          p_budget?: number;
+          p_depth?: number;
+          p_empty?: boolean;
+          p_facts?: boolean;
+          p_filters?: Json;
+          p_units: string[];
+        };
+        Returns: Json;
+      };
+      place_facets: { Args: never; Returns: Json };
       placement_support: { Args: never; Returns: Json };
       reject_testimony_by_token: { Args: { p_token: string }; Returns: boolean };
       submit_online_testimony: {
@@ -470,6 +511,15 @@ export type Database = {
           person_name: string;
           verification_status: string;
         }[];
+      };
+      testimony_page: {
+        Args: {
+          p_after?: Json;
+          p_audition: string;
+          p_filters?: Json;
+          p_limit?: number;
+        };
+        Returns: Json;
       };
       verify_testimony: {
         Args: { p_action: string; p_token: string };

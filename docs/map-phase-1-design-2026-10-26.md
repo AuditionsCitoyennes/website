@@ -486,19 +486,20 @@ The leaf must be a locality or localadmin, or the deepest polygon unit when a co
 
 **Decision.** Every RPC computes, per lieu, over the unfiltered visible set:
 - `rank(lieu) = max(date)`;
-- the lieu's point and `city`, from its newest audition (`order by date desc, id`).
+- `tie(lieu)`, the id of that newest audition (`order by date desc, id`);
+- the lieu's point and `city`, from that audition.
 
-A unit's rank is the max over its matching lieux.
+A unit's rank and tie are those of its first matching lieu in (rank desc, tie) order.
 
 | What | Order |
 |---|---|
-| Children | testimonies desc, rank desc, id |
-| Results | date (asc or desc), rank desc, lieu_id, id |
-| Largest audition | n desc, rank desc, lieu_id, date desc, id |
+| Children | testimonies desc, rank desc, tie, id |
+| Results | date (asc or desc), rank desc, tie, id |
+| Largest audition | n desc, rank desc, tie, date desc, id |
 | Lieu auditions | date (asc or desc), id |
 | Panel testimonies | `coalesce(created_at, '-infinity') asc, id desc` (`auditions.ts:46-48` over `testimonies/service.ts:62-63`) |
 
-Only ties that depend on PostgREST's unspecified order for equal dates become deterministic (D3). `date` is NOT NULL (`B:598`).
+Since PR A, `/api/map`'s rows come `date desc, id`, so today's ties are deterministic: groups follow their newest audition's (date, id). The RPCs reproduce that order exactly (no D3 left; changed in PR G's review). Every unit and lieu of `place_counts` carries its `tie`, so the web merges siblings from different answers in the same order. `date` is NOT NULL (`B:598`).
 
 ### A19. Caches and memory: byte-bounded families, a generation counter, one memory budget
 
@@ -544,7 +545,7 @@ Everything not listed here must come out of the harnesses identical.
 |---|---|
 | D1 | Testimonies of draft (or NULL-status) auditions leave "N résultats", search results and the theme facet. Audition-less testimonies leave the theme facet. |
 | D2 | Place-filter tokens become unit and lieu ids. A ville pick no longer matches a same-named ville in another département (`filters.ts:30`). |
-| D3 | Ties that depend on unspecified DB order for equal dates are broken by `lieu_id`, then audition id. |
+| D3 | Retired in PR G's review: today's tie order is deterministic since PR A, and the RPCs reproduce it (A18). |
 | D4 | A homonym is settled once and never moves; an unsettled one is retried as support grows. |
 | D5 | Staging only, until L: the first visitor after a deploy waits for the corpus. |
 | D6 | In server mode, **every filter change** answers asynchronously (one round trip; text debounced 300 ms). The previous tree, lists and figures stay on screen until the answer arrives. List mode turns on with the debounced text, not the first keystroke. |
@@ -555,7 +556,7 @@ Everything not listed here must come out of the harnesses identical.
 | D11 | Conditional: a 3-character search minimum, only if the load test forces it. |
 | D12 | An admin's explicit BAN pick places that audition at the pick, even when another audition with the same lieu name is placed elsewhere. Today the text is re-geocoded and same-named lieux always merge. |
 | D13 | Lazy path only (above 600 units plus lieux, i.e. staging at scale): opening a lieu waits for its audition list, with LoadingDots in the list. |
-| D14 | A change to `LOCATION_RULES` regroups stored lieux on the job's first pass after the deploy, not at the next read. |
+| D14 | A change to `LOCATION_RULES` regroups stored lieux on the job's first pass after the deploy, not at the next read. Likewise, the read RPCs read an audition the old app inserted or moved (`place_stale`) at its stored place until the job's next pass (at most 10 minutes): an insert stays unplaced, a moved one at its previous lieu. `/api/map` (D6) files such a row by its name at once. |
 
 ### A22. Admin list filters on the server (contract)
 
@@ -924,7 +925,7 @@ jsonb_build_object(
   'first', min("date") filter (where cohort = 'terrain' and n > 0),
   'last',  max("date") filter (where cohort = 'terrain' and n > 0),
   'largest', (array_agg(jsonb_build_array(id, lieu_id, lieu_key, n, pcity)
-               order by n desc, rank desc, lieu_id, "date" desc, id) filter (where n > 0))[1])
+               order by n desc, rank desc, tie, "date" desc, id) filter (where n > 0))[1])
 ```
 
 #### 1. `place_counts` and `place_counts_many`
@@ -947,8 +948,8 @@ vis as (      -- what /api/map lists today, unfiltered: published and placed; on
     and ($7 = 'world' or a.place_path @> array[$7])
     and (not a.audition_en_ligne or exists (select 1 from public.testimonies v       -- M7:97-99 index
            where v.audition_id = a.id and v.verification_status = 'verified'))),
-lmd as (      -- per lieu, its newest visible audition: today's group order, pin and city (A18)
-  select distinct on (lieu_id) lieu_id, "date" as rank, lat as plat, lng as plng, city as pcity
+lmd as (      -- per lieu, its newest visible audition: today's group order (rank, tie), pin and city (A18)
+  select distinct on (lieu_id) lieu_id, "date" as rank, id as tie, lat as plat, lng as plng, city as pcity
   from vis order by lieu_id, "date" desc, id),
 m as (        -- matching visible testimonies per audition; index-only on the facts index
   select t.audition_id, count(*)::int as n,
@@ -983,7 +984,7 @@ select jsonb_build_object(
              'id', r.id, 'parent', g.parent_id, 'level', g.level, 'name', g.name, 'code', g.code,
              'country', g.country, 'polygon', g.polygon, 'd', r.d, 'n', r.n, 'auditions', r.auditions,
              'rank', r.rank, 'bbox', jsonb_build_array(r.min_lat, r.min_lng, r.max_lat, r.max_lng),
-             'wrap', (r.max_lng - r.min_lng) > 180, 'facts', r.facts) order by r.n desc, r.rank desc, r.id)
+             'wrap', (r.max_lng - r.min_lng) > 180, 'facts', r.facts) order by r.n desc, r.rank desc, r.tie, r.id)
            from (select u.unit as id, min(u.d) as d, sum(u.n)::int as n,
                         count(*) filter (where u.n > 0)::int as auditions, max(u.rank) as rank,
                         min(u.plat) as min_lat, min(u.plng) as min_lng, max(u.plat) as max_lat, max(u.plng) as max_lng,
@@ -996,7 +997,7 @@ select jsonb_build_object(
              'lat', l.plat, 'lng', l.plng, 'precision', l.prec, 'n', l.n, 'auditions', l.auditions,
              'rank', l.rank,
              'list', case when (select depth from lim) = 99 then l.list end)      -- complete: the open lieu's list
-             order by l.n desc, l.rank desc, l.lieu_id)
+             order by l.n desc, l.rank desc, l.tie)
            from (select lieu_id, place_unit, lieu_key, pcity, plat, plng, min(place_precision) as prec,
                         sum(n)::int as n, count(*) filter (where n > 0)::int as auditions, max(rank) as rank,
                         jsonb_agg(jsonb_build_array(id, title, "date", n) order by "date" desc, id) as list
@@ -1030,7 +1031,7 @@ What it reproduces:
 
 - **Rows.** Matching **placed** auditions (`usePanelAuditions.ts:77-82`), each `{id, title, date, n, lieu:{id, key, unit, path, lat, lng, city}}`. The lieu point and city come from `lmd`, so a result can be opened, flown to and labelled without the tree.
 - **Zero filters** are accepted and return every placed visible audition.
-- **Keyset.** On `(date dir, rank desc, lieu_id, id)`, with `p_after = [date, rank, lieu_id, id]`. For `recent`: `date < d or (date = d and (rank < r or (rank = r and (lieu_id > l or (lieu_id = l and id > i)))))`; for `ancien`, the date comparison is swapped.
+- **Keyset.** On `(date dir, rank desc, tie, id)`, with `p_after = [date, rank, tie, id]`, the key of the last row served (`next`). For `recent`: `date < d or (date = d and (rank < r or (rank = r and (tie > t or (tie = t and id > i)))))`; for `ancien`, the date comparison is swapped. The cursor carries the tie it was cut at; it is never re-read from the lieu (changed in PR G's verification: re-reading it skipped the lieux between a lieu's old and new tie when its newest audition was unpublished between two pages). When a lieu's newest audition changes between two pages, its rows are taken by their new key; every row whose own key held is served once, none skipped or repeated.
 - **`p_limit`** ≤ 100.
 - **`p_through`** returns rows up to and including that audition (cap 2,000), plus `throughFound`.
 - **First page only:** `total {auditions, lieux, n}` and `frame`, an exact port of `resultBounds` (`auditions.ts:94-116`, called at `apps/web/src/features/geo-nav/model/useCamera.ts:200`) over the result lieux' points:
@@ -1178,7 +1179,7 @@ EXPLAIN plans are recorded in PR descriptions, not gated.
   - `through=`; testimony pages; facets; `resultCount`; frame;
   - the admin list's passing set and theme options for a super admin and for a plain admin, over every content-filter combination, with needles found only in an audition's title, location or content.
 
-Only D1 and D3 may differ. The harness stays after Q as a regression test.
+Only D1 and D14 (rows the job has not re-placed yet) may differ, each listed; every order must match. The harness stays after Q as a regression test.
 
 ### B8. Escape hatches
 
@@ -1627,7 +1628,7 @@ The picker is a lazy chunk.
 ### E5. Verification method
 
 - **CI.** The parity harness (B7a).
-- **In page.** The comparer on local and staging prod-like data: zero diffs except D1 and D3. It covers lieu labels, embedded lists, every unit's figures, results, frames and testimony lists.
+- **In page.** The comparer on local and staging prod-like data: zero diffs except D1 (and D14 while the job has stale rows). It covers lieu labels, embedded lists, every unit's figures, results, frames and testimony lists.
 - **Pane walks** (memory: preview-pane-verification). DOM snapshots and a PIL pixel diff across France → région → Rhône → Lyon → Lyon 7e → lieu, in results mode, with analyses on. Taken before and after I, then serveur against corpus at prod size.
 - **Lazy path.** `?budget=0` locally: no plateau sink on a filter change, and no scroll jump while paging results.
 - **Performance.** `__acPerf` select→plateau must not regress.

@@ -66,7 +66,14 @@
     "public.online_testimony_submissions"
   ],
   "serviceRoleOnly": [
+    "public.admin_audition_filter(p_filters jsonb, p_reachable_by uuid)",
+    "public.audition_results(p_filters jsonb, p_sort text, p_after jsonb, p_limit integer, p_through uuid)",
+    "public.lieu_auditions(p_lieu text, p_filters jsonb, p_sort text)",
+    "public.place_counts(p_unit text, p_filters jsonb, p_depth integer, p_facts boolean, p_budget integer, p_empty boolean)",
+    "public.place_counts_many(p_units text[], p_filters jsonb, p_depth integer, p_facts boolean, p_budget integer, p_empty boolean)",
+    "public.place_facets()",
     "public.placement_support()",
-    "public.submit_online_testimony(p_email_hash text, p_person_name text, p_person_info text, p_content text, p_citycode text, p_location text, p_place jsonb, p_month date, p_title text, p_audition_content text, p_token uuid, p_place_unit text, p_place_path text[], p_locality_id text, p_lat double precision, p_lng double precision, p_place_precision text, p_geo_release text)"
+    "public.submit_online_testimony(p_email_hash text, p_person_name text, p_person_info text, p_content text, p_citycode text, p_location text, p_place jsonb, p_month date, p_title text, p_audition_content text, p_token uuid, p_place_unit text, p_place_path text[], p_locality_id text, p_lat double precision, p_lng double precision, p_place_precision text, p_geo_release text)",
+    "public.testimony_page(p_audition uuid, p_filters jsonb, p_after jsonb, p_limit integer)"
   ]
 }
