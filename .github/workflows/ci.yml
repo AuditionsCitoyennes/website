@@ -53,6 +53,9 @@ jobs:
       - name: Test (API cache)
         run: npm run test --workspace=@ac/api
 
+      - name: Test (scripts)
+        run: npm run test:scripts
+
       # The SQL helpers of the testimonies' derived columns are generated from
       # @ac/shared: a change on one side only fails here.
       - name: Generated SQL matches @ac/shared

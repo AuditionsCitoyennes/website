@@ -822,15 +822,16 @@ function toSql(
         stale: data.auditions.filter((a) => !placeOf(a)).length,
       }
     : null;
-  // The marker the guard above looks for; with what the seed placed and the
-  // fingerprint of its place data as loaded, which db:check compares with
-  // the database.
+  // The marker the guard above looks for; with what the seed placed, the
+  // fingerprint of its place data as loaded and the LOCATION_RULES its rows
+  // are stamped with, which db:check compares with the database and its own
+  // (scripts/db-checks/seedGate.ts).
   out.push(
     "insert into public.audit_log (action, target_type, metadata)",
     counts
       ? `values ('fake_seed_loaded', 'database', jsonb_build_object('profile', ${str(profile)}, 'shape', ${str(shape)}, ` +
           `'auditions', ${data.auditions.length + data.online.length}, 'placed', ${counts.placed}, 'unplaced', ${counts.unplaced}, 'stale', ${counts.stale},\n` +
-          `  'places', ${PLACES_FINGERPRINT}));`
+          `  'rules', ${str(RULES_HASH)}, 'places', ${PLACES_FINGERPRINT}));`
       : `values ('fake_seed_loaded', 'database', jsonb_build_object('profile', ${str(profile)}));`,
     "",
     "commit;",

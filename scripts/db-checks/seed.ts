@@ -1,11 +1,13 @@
 // The fake seed's places (scripts/seed/generate.ts), on a database it filled:
 //
 // - the counts of placed, unplaced and stale auditions, always reported;
-// - while the database is as the seed left it (the fingerprint of its place
-//   data, scripts/seed/fingerprint.ts, is the one the seed recorded in its
-//   fake_seed_loaded entry; in CI, required): every French row holds exactly
-//   its lieu's fixture place (scripts/seed/fixtures) under the current
-//   LOCATION_RULES, the online buckets as submit_online_testimony places them;
+// - while the database is as the seed left it, seeded under the current
+//   LOCATION_RULES (the fingerprint of its place data,
+//   scripts/seed/fingerprint.ts, and the rules hash the seed recorded in its
+//   fake_seed_loaded entry: seedGate.ts; in CI, required): every French row
+//   holds exactly its lieu's fixture place (scripts/seed/fixtures) under the
+//   current LOCATION_RULES, the online buckets as submit_online_testimony
+//   places them;
 //   the edge lieux are placed as the design says, each same-named commune
 //   settled by what the design says settles it; the rows the old app wrote
 //   are stale, and each can be placed by reuse from a placed row of its lieu
@@ -15,8 +17,9 @@
 //   placement_support() (so the job's retries leave them where they are);
 //   geo_units holds the fixture's units the rows reference, and only those.
 //
-// A database used since the seed was loaded (the job ran, an admin wrote)
-// gets its counts reported, and the rest skipped.
+// A database used since the seed was loaded (the job ran, an admin wrote), or
+// seeded before a LOCATION_RULES change, gets its counts reported, and the
+// rest skipped.
 
 import { isDeepStrictEqual } from "node:util";
 import { getCanonicalLocation, type PlaceCandidate } from "@ac/shared";
@@ -26,15 +29,15 @@ import { PLACES_FINGERPRINT } from "../seed/fingerprint";
 import { FRANCE_CLUSTERS } from "../seed/places";
 import { lieuId } from "./places";
 import { sqlJson } from "./psql";
+import { seedGate, type SeedStamp } from "./seedGate";
 
-interface Marker {
+interface Marker extends SeedStamp {
   profile?: string;
   shape?: string;
   auditions?: number;
   placed?: number;
   unplaced?: number;
   stale?: number;
-  places?: string;
 }
 
 interface Row {
@@ -172,11 +175,10 @@ export function checkSeed(): string[] {
       `${stale.filter((r) => r.online).length} online, ${stale.filter((r) => !r.online && !french(r)).length} abroad)`,
   );
 
-  if (marker.places !== fingerprint) {
-    if (process.env.CI === "true") {
-      return ["the database's place data is not what the seed loaded (fingerprint differs)"];
-    }
-    console.log("  the place data changed since the seed was loaded: the rest is skipped");
+  const gate = seedGate(marker, { fingerprint, rules: RULES_HASH }, process.env.CI === "true");
+  if (!gate.compare) {
+    if (gate.error) return [gate.error];
+    console.log(`  ${gate.note}`);
     return [];
   }
 
