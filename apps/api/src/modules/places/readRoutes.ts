@@ -5,6 +5,7 @@ import {
   contentFiltersOf,
   isDay,
   LIEU_ID,
+  oneParam,
   PLACE_IDS_MAX,
   PLACE_SORTS,
   placeFilterKey,
@@ -28,6 +29,7 @@ import {
   DbBusyError,
   DbRefusedError,
   DbTimeoutError,
+  DbTooLargeError,
   isTransientDbError,
   newTiming,
   type DbTiming,
@@ -68,6 +70,14 @@ const PAGE_DEFAULT = 50;
 const PAGE_MAX = 100;
 const BUDGET_DEFAULT = 600;
 
+/**
+ * The heaviest units= answer assembled (the sum of its units' JSON): a hit
+ * costs no limit, so without it one large cached unit asked 50 times was a
+ * 50-fold body built and gzipped on every request. The web's heaviest batch
+ * (the scope's chain under a filter) stays well below.
+ */
+export const BATCH_MAX_BYTES = 4 * 1024 * 1024;
+
 // ---- Query parameters ------------------------------------------------------------
 
 const list = (s: string) =>
@@ -83,7 +93,7 @@ const flag = z
 const sort = z.enum(PLACE_SORTS, { error: "Tri invalide (recent ou ancien)." }).default("recent");
 
 const limit = z
-  .string()
+  .string(oneParam("limit"))
   .regex(/^\d{1,3}$/, `Limite invalide (1 à ${PAGE_MAX}).`)
   .transform(Number)
   .refine((n) => n >= 1 && n <= PAGE_MAX, `Limite invalide (1 à ${PAGE_MAX}).`)
@@ -94,9 +104,9 @@ const placeUnit = (u: string) => u === "world" || UNIT_ID.test(u);
 
 const countsQuery = placeFilterQuerySchema
   .extend({
-    unit: z.string().refine(placeUnit, "Unité invalide.").optional(),
+    unit: z.string(oneParam("unit")).refine(placeUnit, "Unité invalide.").optional(),
     units: z
-      .string()
+      .string(oneParam("units"))
       .transform(list)
       .refine((us) => us.length >= 1 && us.length <= PLACE_IDS_MAX, {
         error: `De 1 à ${PLACE_IDS_MAX} unités.`,
@@ -107,7 +117,7 @@ const countsQuery = placeFilterQuerySchema
     facts: flag.optional(),
     empty: flag.optional(),
     budget: z
-      .string()
+      .string(oneParam("budget"))
       .regex(/^\d{1,4}$/, "Budget invalide (0 à 2000).")
       .transform(Number)
       .refine((n) => n <= 2000, "Budget invalide (0 à 2000).")
@@ -118,7 +128,11 @@ const countsQuery = placeFilterQuerySchema
   });
 
 const lieuQuery = placeFilterQuerySchema.extend({
-  id: z.string({ error: "Lieu requis." }).regex(LIEU_ID, "Lieu invalide."),
+  id: z
+    .string({
+      error: (issue) => (issue.input === undefined ? "Lieu requis." : oneParam("id").error),
+    })
+    .regex(LIEU_ID, "Lieu invalide."),
   sort,
 });
 
@@ -128,7 +142,7 @@ const resultsQuery = placeFilterQuerySchema
     limit,
     // The `next` of the page before: date, rank, lieu id, audition id.
     after: z
-      .string()
+      .string(oneParam("after"))
       .transform(list)
       .refine(
         (a) =>
@@ -136,7 +150,7 @@ const resultsQuery = placeFilterQuerySchema
         "Curseur invalide.",
       )
       .optional(),
-    through: z.string().regex(UUID, "Audition invalide.").optional(),
+    through: z.string(oneParam("through")).regex(UUID, "Audition invalide.").optional(),
   })
   .refine((q) => !(q.after && q.through), { error: "after et through sont exclusifs." });
 
@@ -146,7 +160,7 @@ const testimoniesQuery = contentQuery.extend({
   limit,
   // The `next` of the page before: created_at (empty: none), id.
   after: z
-    .string()
+    .string(oneParam("after"))
     .refine((s) => {
       const parts = s.split(",");
       return (
@@ -216,7 +230,7 @@ function replyError(req: FastifyRequest, reply: FastifyReply, err: unknown): Fas
     req.log.warn({ detail: err.detail, route: req.routeOptions.url }, "place read timed out");
     return reply.serviceUnavailable(err.message);
   }
-  if (err instanceof DbRefusedError) {
+  if (err instanceof DbRefusedError || err instanceof DbTooLargeError) {
     req.log.warn({ detail: err.detail, route: req.routeOptions.url }, "place read refused");
     return reply.badRequest(err.message);
   }
@@ -321,8 +335,8 @@ export default async function placeReadRoutes(app: FastifyInstance) {
       budget: config.TEST_TOOLS && q.budget !== undefined ? q.budget : BUDGET_DEFAULT,
       filters: rpcPlaceFilters(f),
     };
-    const asked = q.unit !== undefined ? [q.unit] : q.units!;
-    const units = [...new Set(asked)];
+    // Each unit once, in the order first asked (the answers carry their unit).
+    const units = q.unit !== undefined ? [q.unit] : [...new Set(q.units)];
     const keyOf = (unit: string) =>
       `places|${unit}|d${args.depth}|x${Number(args.facts)}|e${Number(empty)}|b${args.budget}|${fkey}`;
     const unitOfKey = new Map(units.map((u) => [keyOf(u), u]));
@@ -353,8 +367,11 @@ export default async function placeReadRoutes(app: FastifyInstance) {
 
     if (q.unit !== undefined) return sendOne(req, reply, hits[0].res, f);
     // {results: [...]} from the per-unit bytes, in the order asked.
-    const byUnit = new Map(units.map((u, i) => [u, hits[i].res]));
-    const parts = asked.map((u) => byUnit.get(u)!);
+    const parts = hits.map((h) => h.res);
+    if (parts.reduce((n, p) => n + p.json.length, 0) > BATCH_MAX_BYTES) {
+      reply.header("Cache-Control", "no-store");
+      return reply.badRequest("Réponse trop volumineuse : demandez moins d'unités à la fois.");
+    }
     const json = Buffer.concat([
       Buffer.from(f.textIgnored ? '{"textIgnored":true,"results":[' : '{"results":['),
       ...parts.flatMap((p, i) => (i === 0 ? [p.json] : [COMMA, p.json])),

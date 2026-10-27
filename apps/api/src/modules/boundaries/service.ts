@@ -40,9 +40,13 @@ const CACHE_ROOT = join(config.CACHE_DIR, ".boundaries-cache");
 // directory once, at boot, without fetching anything (migrateLegacyFile).
 const LEGACY_FILE = join(config.CACHE_DIR, ".boundaries-cache.json");
 // In memory, within the process budget (design A19): the most recently used
-// 32 MB of JSON; the rest is read back from its file when asked again
-// (`recall`), never fetched again.
-const memory = new ByteLru<BoundaryCollection>("boundaries", 32 * 1024 * 1024);
+// 32 MB of the heap; the rest is read back from its file when asked again
+// (`recall`), never fetched again. The values are parsed GeoJSON, on the
+// heap, weighed at HEAP_PER_JSON_BYTE times their JSON: measured 1.9 for the
+// levels' large features, 3.4 for a cache of communes' small ones.
+const HEAP_PER_JSON_BYTE = 3.5;
+const memory = new ByteLru<BoundaryCollection>("boundaries", 32 * 1024 * 1024, "heap");
+const weigh = (json: string) => Math.ceil(json.length * HEAP_PER_JSON_BYTE);
 // The keys that have a file, written or found at boot.
 const onDisk = new Set<string>();
 
@@ -125,7 +129,7 @@ async function limited<T>(fn: () => Promise<T>): Promise<T> {
 /** Keep a value in memory and in its file (once: keys never change once set). */
 function remember(key: string, value: BoundaryCollection): void {
   const text = JSON.stringify(value);
-  memory.set(key, value, text.length);
+  memory.set(key, value, weigh(text));
   if (onDisk.has(key)) return;
   const task = limited(() => writeAtomic(fileOf(key), text))
     .then(() => {
@@ -158,7 +162,7 @@ async function readKey(key: string): Promise<BoundaryCollection | undefined> {
     onDisk.delete(key);
     return undefined;
   }
-  memory.set(key, value, text.length);
+  memory.set(key, value, weigh(text));
   return value;
 }
 

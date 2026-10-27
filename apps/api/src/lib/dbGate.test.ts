@@ -6,9 +6,11 @@ import {
   DbGate,
   DbRefusedError,
   DbTimeoutError,
+  DbTooLargeError,
   isTransientDbError,
   newTiming,
 } from "./dbGate";
+import { AnswerTooLargeError, cappedFetch } from "./cappedFetch";
 import { takeHits } from "./rateLimit";
 
 // The database gate (lib/dbGate.ts): so many calls at once, so many waiting
@@ -109,7 +111,7 @@ test("timing: the wait for a slot and the calls", async () => {
   assert.ok(timing.dbMs >= 8, `db ${timing.dbMs}`);
 });
 
-test("what a failed call means: 57014 and aborts are timeouts, 22023 a refusal", () => {
+test("what a failed call means: 57014 and aborts are timeouts, 22023 a refusal, too large", () => {
   const live = new AbortController().signal;
   assert.ok(
     dbErrorOf({ code: "57014", message: "canceling statement" }, live) instanceof DbTimeoutError,
@@ -126,6 +128,19 @@ test("what a failed call means: 57014 and aborts are timeouts, 22023 a refusal",
     dbErrorOf({ code: "", message: "fetch failed" }, AbortSignal.abort()) instanceof DbTimeoutError,
   );
   assert.ok(dbErrorOf({ code: "22023", message: "filters: bad" }, live) instanceof DbRefusedError);
+  // Text Postgres cannot hold (a NUL in jsonb): the request's fault, not the server's.
+  assert.ok(
+    dbErrorOf({ code: "22P05", message: "unsupported Unicode escape sequence" }, live) instanceof
+      DbRefusedError,
+  );
+  // An answer past its limit (lib/cappedFetch.ts), as supabase-js reports what its fetch threw.
+  const large = dbErrorOf(
+    { code: "", message: `${new AnswerTooLargeError(9, 8).name}: answer over 8 bytes` },
+    live,
+  );
+  assert.ok(large instanceof DbTooLargeError);
+  assert.equal(large.statusCode, 400);
+  assert.ok(!isTransientDbError(large));
   const other = dbErrorOf({ code: "42501", message: "permission denied" }, live);
   assert.ok(!(other instanceof DbTimeoutError) && !(other instanceof DbRefusedError));
   assert.equal(new DbTimeoutError("x").statusCode, 503);
@@ -149,4 +164,42 @@ test("takeHits: all or none, and how long until the refusing window ends", () =>
   assert.ok(takeHits([{ key: "t:a", n: 1, max: 30, windowMs: w }]) > 0);
   // More than a window allows: refused for a window.
   assert.equal(takeHits([{ key: "t:c", n: 31, max: 30, windowMs: w }]), w);
+});
+
+test("cappedFetch: an answer within the limit as it came; past it, cut unread", async () => {
+  const real = globalThis.fetch;
+  let cancelled = false;
+  const stream = (chunks: number, size: number) =>
+    new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (chunks-- === 0) c.close();
+        else c.enqueue(new Uint8Array(size).fill(0x61));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+  try {
+    globalThis.fetch = (async () =>
+      new Response(stream(4, 100), { status: 201, headers: { "x-k": "v" } })) as typeof fetch;
+    const ok = await cappedFetch(400)("http://db.test/rpc/f");
+    assert.equal(ok.status, 201);
+    assert.equal(ok.headers.get("x-k"), "v");
+    assert.equal((await ok.text()).length, 400);
+
+    globalThis.fetch = (async () => new Response(stream(1000, 100))) as typeof fetch;
+    await assert.rejects(cappedFetch(400)("http://db.test/rpc/f"), (e: Error) => {
+      assert.ok(e instanceof AnswerTooLargeError);
+      assert.equal(e.name, "AnswerTooLargeError");
+      return true;
+    });
+    assert.ok(cancelled, "the rest of the body is not read");
+
+    // Declared too large: not read at all.
+    globalThis.fetch = (async () =>
+      new Response("x", { headers: { "content-length": "401" } })) as typeof fetch;
+    await assert.rejects(cappedFetch(400)("http://db.test/rpc/f"), AnswerTooLargeError);
+  } finally {
+    globalThis.fetch = real;
+  }
 });

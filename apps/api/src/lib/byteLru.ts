@@ -1,11 +1,16 @@
 // A map bounded in bytes, least recently used out first: the process memory
 // budget's in-memory stores that are not caches of responses (the boundary
 // geometry, the gazetteer chunks). The bytes are what the caller says a
-// value weighs (its JSON's length); a value heavier than the whole budget is
-// not kept.
+// value weighs where it lives: on the V8 heap (parsed objects: an estimate
+// of their heap size) or outside it (Buffers: their length). A value
+// heavier than the whole budget is not kept.
+
+/** Where a store's values live: parsed on the V8 heap, or Buffers outside it. */
+export type Resident = "heap" | "external";
 
 export interface ByteLruStats {
   name: string;
+  resident: Resident;
   entries: number;
   bytes: number;
   maxBytes: number;
@@ -28,6 +33,7 @@ export class ByteLru<V> {
   constructor(
     readonly name: string,
     readonly maxBytes: number,
+    readonly resident: Resident,
   ) {
     lrus.push(this as ByteLru<unknown>);
   }
@@ -77,6 +83,7 @@ export class ByteLru<V> {
   stats(): ByteLruStats {
     return {
       name: this.name,
+      resident: this.resident,
       entries: this.map.size,
       bytes: this.total,
       maxBytes: this.maxBytes,

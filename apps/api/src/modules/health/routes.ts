@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { config, hasServiceRole } from "../../config";
-import { byteLrus } from "../../lib/byteLru";
+import { byteLrus, type Resident } from "../../lib/byteLru";
 import { cacheFamilies, storeStats } from "../../lib/cache";
 import { dbGate } from "../../lib/dbGate";
 import { visitorIp } from "../../lib/visitor";
@@ -38,6 +38,8 @@ function memoryDetails() {
   const m = process.memoryUsage();
   const families = cacheFamilies().map((f) => f.stats());
   const lrus = byteLrus().map((l) => l.stats());
+  const sum = (resident: Resident, of: "bytes" | "maxBytes") =>
+    mb(lrus.filter((l) => l.resident === resident).reduce((s, l) => s + l[of], 0));
   const boundaries = boundariesMemoryStats();
   const store = storeStats();
   const dem = demTileStats();
@@ -50,10 +52,14 @@ function memoryDetails() {
       arrayBuffers: mb(m.arrayBuffers),
     },
     budgetMb: {
+      // Buffers, outside the heap.
       families: mb(families.reduce((s, f) => s + f.bytes, 0)),
       familiesMax: mb(families.reduce((s, f) => s + f.maxBytes, 0)),
-      lrus: mb(lrus.reduce((s, l) => s + l.bytes, 0)),
-      lrusMax: mb(lrus.reduce((s, l) => s + l.maxBytes, 0)),
+      externalStores: sum("external", "bytes"),
+      externalStoresMax: sum("external", "maxBytes"),
+      // Parsed values, an estimate of their share of the heap (within heapUsed).
+      heapStores: sum("heap", "bytes"),
+      heapStoresMax: sum("heap", "maxBytes"),
     },
     families: families.map((f) => ({ ...f, mb: mb(f.bytes), maxMb: mb(f.maxBytes) })),
     lrus: lrus.map((l) => ({ ...l, mb: mb(l.bytes), maxMb: mb(l.maxBytes) })),

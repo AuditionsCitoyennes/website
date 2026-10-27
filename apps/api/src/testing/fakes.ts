@@ -519,6 +519,8 @@ export function installFakes(fakes: { db?: FakeDb; ban?: FakeBan; geo?: FakeGeoA
 /** The environment the API's config reads, for a test against the fakes. */
 export function fakeEnv(cacheDir: string, extra: Record<string, string> = {}): void {
   Object.assign(process.env, {
+    // A developer's apps/api/.env must not fill in what a test leaves unset.
+    DOTENV_CONFIG_PATH: "/nonexistent",
     APP_ENV: "local",
     EMAIL_MODE: "log",
     SUPABASE_URL,

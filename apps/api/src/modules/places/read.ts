@@ -1,15 +1,33 @@
 import type { Json, RpcPlaceFilters } from "@ac/shared";
 import { dbErrorOf, dbGate, type DbGate, type DbTiming } from "../../lib/dbGate";
-import { adminClient } from "../../lib/supabase";
+import { cappedServiceClient } from "../../lib/supabase";
 
 // The read RPCs (supabase/migrations/20261026200000_read_rpcs.sql), each call
 // through the gate (lib/dbGate.ts) with its abort signal, through the service
 // role: they are granted to it alone. A failed call throws what the routes
-// map: DbTimeoutError (57014, the abort) → 503, DbRefusedError (22023) →
-// 400, anything else → 500.
+// map: DbTimeoutError (57014, the abort) → 503, DbRefusedError (22023) and
+// DbTooLargeError (an answer past its limit) → 400, anything else → 500.
 
 /** Units per place_counts_many call (the function takes 1 to 20). */
 export const UNITS_PER_CALL = 20;
+
+const MB = 1024 * 1024;
+
+/**
+ * The heaviest answer a public read brings back, in bytes of JSON. A call
+ * holds about 7 times its answer on the heap while it is read, parsed and
+ * each part serialised again (measured on place_counts-shaped JSON), and
+ * the gate runs 6 at once within the 256 MB heap: 2 MB keeps them under
+ * 90 MB. A région's communes two levels down with every commune placed
+ * weigh about 1.2 MB; a country's three levels down (11 MB) is refused, as
+ * is a call of large units together.
+ */
+export const READ_ANSWER_MAX_BYTES = 2 * MB;
+/** The admin filter's: an entry per audition (about 50 bytes), admins only, never cached. */
+export const ADMIN_ANSWER_MAX_BYTES = 16 * MB;
+
+const readClient = cappedServiceClient(READ_ANSWER_MAX_BYTES);
+const adminReadClient = cappedServiceClient(ADMIN_ANSWER_MAX_BYTES);
 
 export interface CountsArgs {
   depth: number;
@@ -47,7 +65,7 @@ export async function placeCountsMany(
 ): Promise<unknown[]> {
   const data = await gated(
     (signal) =>
-      adminClient
+      readClient
         .rpc("place_counts_many", {
           p_units: units,
           p_filters: asJson(a.filters),
@@ -73,7 +91,7 @@ export function lieuAuditions(
 ): Promise<unknown> {
   return gated(
     (signal) =>
-      adminClient
+      readClient
         .rpc("lieu_auditions", { p_lieu: lieu, p_filters: asJson(filters), p_sort: sort })
         .abortSignal(signal),
     timing,
@@ -91,7 +109,7 @@ export interface ResultsArgs {
 export function auditionResults(a: ResultsArgs, timing?: DbTiming): Promise<unknown> {
   return gated(
     (signal) =>
-      adminClient
+      readClient
         .rpc("audition_results", {
           p_filters: asJson(a.filters),
           p_sort: a.sort,
@@ -114,7 +132,7 @@ export interface TestimonyPageArgs {
 export function testimonyPage(a: TestimonyPageArgs, timing?: DbTiming): Promise<unknown> {
   return gated(
     (signal) =>
-      adminClient
+      readClient
         .rpc("testimony_page", {
           p_audition: a.audition,
           p_filters: asJson(a.filters),
@@ -127,7 +145,7 @@ export function testimonyPage(a: TestimonyPageArgs, timing?: DbTiming): Promise<
 }
 
 export function placeFacets(timing?: DbTiming): Promise<unknown> {
-  return gated((signal) => adminClient.rpc("place_facets").abortSignal(signal), timing);
+  return gated((signal) => readClient.rpc("place_facets").abortSignal(signal), timing);
 }
 
 /** The admin list's content filters; `reachableBy` null for a super admin (every audition). */
@@ -138,7 +156,7 @@ export function adminAuditionFilter(
 ): Promise<unknown> {
   return gated(
     (signal) =>
-      adminClient
+      adminReadClient
         .rpc("admin_audition_filter", {
           p_filters: asJson(filters),
           ...(reachableBy && { p_reachable_by: reachableBy }),

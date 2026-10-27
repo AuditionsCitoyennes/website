@@ -228,11 +228,16 @@ export function storeStats(): { entries: number; bytes: number } {
 // HTTP sends it (JSON, gzip, ETag, built once per fill) and weighs
 // json + gz; past the family's budget the least recently used entries go,
 // and a value heavier than an entry may be (a quarter of the budget by
-// default) is served to its caller but never kept.
+// default) is served to its caller but never kept — or, in a family that
+// refuses them (the whole-table reads), refused for its TTL: never read
+// upstream on every request.
 //
 // The rules of the store above hold per family: single flight per key, a
 // value past its TTL served stale while one refill runs behind the reply
 // (backing off when it fails), and a write that wins over a fill in flight.
+// When the database is in distress (a timeout, a full gate), an entry past
+// its stale window still answers for one more window (`holdForMs`), as
+// stale; after that it is dropped, and the error is the answer.
 // Writes invalidate a whole family at once: invalidate() bumps its one
 // generation counter, and a fill started under an older generation is not
 // kept. delete() drops a few keys of a family (the map's two builds).
@@ -251,8 +256,19 @@ export interface CacheFamilyOptions {
   ttlMs: number;
   /** How long past its TTL a value is still served while it is refilled. */
   staleForMs?: number;
+  /**
+   * How long past its stale window a value still answers a transient error
+   * (a timeout, a full gate) instead of that error. Default: staleForMs.
+   */
+  holdForMs?: number;
   /** The heaviest entry kept; heavier ones are served uncached. Default: a quarter of maxBytes. */
   maxEntryBytes?: number;
+  /**
+   * Refuse a value heavier than an entry may be instead of serving it
+   * uncached: the error its caller gets, and every caller of that key until
+   * the TTL ends (or a write), without reading it upstream again.
+   */
+  refuseOversize?: (key: string, bytes: number) => Error;
 }
 
 export interface FamilyHit {
@@ -275,7 +291,7 @@ export interface FamilyGetOptions {
   /**
    * Whether an error leaves an entry still held usable: a timeout, a full
    * gate. Then the last value of this generation is served (as stale) rather
-   * than the error, however old.
+   * than the error, for `holdForMs` past its stale window.
    */
   transient?: (err: unknown) => boolean;
   /** Keep the value on the entry (value() reads it without parsing the JSON again). */
@@ -291,7 +307,7 @@ export interface CacheFamilyStats {
   hits: number;
   stale: number;
   misses: number;
-  /** Values served but not kept: heavier than an entry may be. */
+  /** Values served (or refused) but not kept: heavier than an entry may be. */
   oversize: number;
   evictions: number;
 }
@@ -302,6 +318,8 @@ interface FamilyEntry {
   bytes: number;
   fresh: number;
   stale: number;
+  /** Until then it may answer a transient error; past it, dropped. */
+  held: number;
   retryAt?: number;
   backoff?: number;
 }
@@ -330,10 +348,14 @@ export class CacheFamily {
   readonly maxEntryBytes: number;
   private readonly ttlMs: number;
   private readonly staleForMs: number;
+  private readonly holdForMs: number;
+  private readonly refuseOversize?: (key: string, bytes: number) => Error;
   // Insertion order is recency: a hit moves its key to the end, eviction
   // takes from the front.
   private readonly entries = new Map<string, FamilyEntry>();
   private readonly inflight = new Map<string, Promise<Filled>>();
+  // Keys whose value was too heavy (refuseOversize), until their TTL ends.
+  private readonly refusals = new Map<string, { until: number; error: Error }>();
   // Per key deleted since the last invalidate(): a fill reads it before and after.
   private readonly epochs = new Map<string, number>();
   private generation = 0;
@@ -346,6 +368,8 @@ export class CacheFamily {
     this.maxBytes = opts.maxBytes;
     this.ttlMs = opts.ttlMs;
     this.staleForMs = opts.staleForMs ?? STALE_FOR_MS;
+    this.holdForMs = opts.holdForMs ?? this.staleForMs;
+    this.refuseOversize = opts.refuseOversize;
     this.maxEntryBytes = opts.maxEntryBytes ?? Math.floor(opts.maxBytes / 4);
     families.push(this);
   }
@@ -396,29 +420,43 @@ export class CacheFamily {
     const now = Date.now();
     const ttlMs = opts.ttlMs ?? this.ttlMs;
     const chunk = Math.max(1, opts.chunk ?? 1);
-    const out: (FamilyHit | Promise<FamilyHit> | undefined)[] = [];
+    // Every key is sorted first and the calls charged, before any promise
+    // is made: a refused batch must leave nothing behind (a key joined on
+    // another request's fill, abandoned, would reject unhandled when that
+    // fill fails — and take the process down).
+    const out: (FamilyHit | Promise<FamilyHit> | undefined)[] = new Array(keys.length);
+    const joins: { at: number; key: string; pending: Promise<Filled> }[] = [];
     const missing: { key: string; at: number[] }[] = [];
     const missingAt = new Map<string, number[]>();
     const refills = new Set<string>();
 
-    for (const key of keys) {
+    for (const [at, key] of keys.entries()) {
       const again = missingAt.get(key);
       if (again) {
-        again.push(out.length);
-        out.push(undefined);
+        again.push(at);
         continue;
       }
-      const entry = this.entries.get(key);
+      const refusal = this.refusals.get(key);
+      if (refusal) {
+        if (refusal.until > now) return Promise.reject(refusal.error);
+        this.refusals.delete(key);
+      }
+      let entry = this.entries.get(key);
+      if (entry && entry.held <= now) {
+        // Past every window: of no use any more, its bytes go back.
+        this.drop(key, entry);
+        entry = undefined;
+      }
       if (entry && entry.fresh > now) {
         this.touch(key, entry);
         this.counts.hits++;
-        out.push({ res: entry.res, state: "hit", value: entry.value });
+        out[at] = { res: entry.res, state: "hit", value: entry.value };
         continue;
       }
       if (entry && entry.stale > now) {
         this.touch(key, entry);
         this.counts.stale++;
-        out.push({ res: entry.res, state: "stale", value: entry.value });
+        out[at] = { res: entry.res, state: "stale", value: entry.value };
         const backingOff = entry.retryAt !== undefined && entry.retryAt > now;
         if (!this.inflight.has(key) && !backingOff) refills.add(key);
         continue;
@@ -426,13 +464,12 @@ export class CacheFamily {
       this.counts.misses++;
       const pending = this.inflight.get(key);
       if (pending) {
-        out.push(this.served(key, pending, opts));
+        joins.push({ at, key, pending });
         continue;
       }
-      const at = [out.length];
-      missing.push({ key, at });
-      missingAt.set(key, at);
-      out.push(undefined);
+      const list = [at];
+      missing.push({ key, at: list });
+      missingAt.set(key, list);
     }
 
     const calls = Math.ceil(missing.length / chunk);
@@ -443,6 +480,7 @@ export class CacheFamily {
         return Promise.reject(e);
       }
     }
+    for (const j of joins) out[j.at] = this.served(j.key, j.pending, opts);
     for (let i = 0; i < missing.length; i += chunk) {
       const part = missing.slice(i, i + chunk);
       const fills = this.fill(
@@ -469,6 +507,7 @@ export class CacheFamily {
     this.entries.clear();
     this.inflight.clear();
     this.epochs.clear();
+    this.refusals.clear();
     this.bytes = 0;
   }
 
@@ -477,11 +516,9 @@ export class CacheFamily {
     for (const key of keys) {
       this.epochs.set(key, (this.epochs.get(key) ?? 0) + 1);
       const entry = this.entries.get(key);
-      if (entry) {
-        this.bytes -= entry.bytes;
-        this.entries.delete(key);
-      }
+      if (entry) this.drop(key, entry);
       this.inflight.delete(key);
+      this.refusals.delete(key);
     }
   }
 
@@ -507,7 +544,7 @@ export class CacheFamily {
       return { res, value, state: "miss" };
     } catch (err) {
       const held = this.entries.get(key);
-      if (held && opts.transient?.(err)) {
+      if (held && held.held > Date.now() && opts.transient?.(err)) {
         return { res: held.res, value: held.value, state: "stale" };
       }
       throw err;
@@ -535,8 +572,20 @@ export class CacheFamily {
         const res = await buildResponse(value);
         // A write landed meanwhile (the family, or this key): the value may
         // predate it. Not kept; this caller still gets it.
-        if (this.generation === generation && (this.epochs.get(key) ?? 0) === epochs[i]) {
-          this.put(key, res, keepValue ? value : undefined, ttlMs);
+        const current = this.generation === generation && (this.epochs.get(key) ?? 0) === epochs[i];
+        const bytes = res.json.length + res.gz.length + key.length + ENTRY_OVERHEAD;
+        if (bytes > this.maxEntryBytes) {
+          this.oversize(key, bytes);
+          // What the key held is older than this value: not served again.
+          const old = current ? this.entries.get(key) : undefined;
+          if (old) this.drop(key, old);
+          if (this.refuseOversize) {
+            const error = this.refuseOversize(key, bytes);
+            if (current) this.refusals.set(key, { until: Date.now() + ttlMs, error });
+            throw error;
+          }
+        } else if (current) {
+          this.put(key, res, keepValue ? value : undefined, bytes, ttlMs);
         }
         return { res, value };
       });
@@ -577,41 +626,51 @@ export class CacheFamily {
     });
   }
 
-  private put(key: string, res: CachedResponse, value: unknown, ttlMs: number): void {
+  private put(
+    key: string,
+    res: CachedResponse,
+    value: unknown,
+    bytes: number,
+    ttlMs: number,
+  ): void {
     const old = this.entries.get(key);
-    if (old) {
-      this.bytes -= old.bytes;
-      this.entries.delete(key);
-    }
-    const bytes = res.json.length + res.gz.length + key.length + ENTRY_OVERHEAD;
-    if (bytes > this.maxEntryBytes) {
-      this.counts.oversize++;
-      // Said once in a while: served uncached, the value is read upstream again per request.
-      const now = Date.now();
-      if (now - this.oversizeLoggedAt > OVERSIZE_LOG_EVERY_MS) {
-        this.oversizeLoggedAt = now;
-        log.warn(
-          { family: this.name, key, bytes, maxEntryBytes: this.maxEntryBytes },
-          "cache: value over the entry limit, served uncached",
-        );
-      }
-      return;
-    }
+    if (old) this.drop(key, old);
     const now = Date.now();
+    const stale = now + ttlMs + this.staleForMs;
     this.entries.set(key, {
       res,
       value,
       bytes,
       fresh: now + ttlMs,
-      stale: now + ttlMs + this.staleForMs,
+      stale,
+      held: stale + this.holdForMs,
     });
     this.bytes += bytes;
     for (const [k, e] of this.entries) {
       if (this.bytes <= this.maxBytes) break;
-      this.entries.delete(k);
-      this.bytes -= e.bytes;
+      this.drop(k, e);
       this.counts.evictions++;
     }
+  }
+
+  /** A value too heavy to keep: counted, and said once in a while. */
+  private oversize(key: string, bytes: number): void {
+    this.counts.oversize++;
+    const now = Date.now();
+    if (now - this.oversizeLoggedAt > OVERSIZE_LOG_EVERY_MS) {
+      this.oversizeLoggedAt = now;
+      log.warn(
+        { family: this.name, key, bytes, maxEntryBytes: this.maxEntryBytes },
+        this.refuseOversize
+          ? "cache: value over the entry limit, refused"
+          : "cache: value over the entry limit, served uncached",
+      );
+    }
+  }
+
+  private drop(key: string, entry: FamilyEntry): void {
+    this.entries.delete(key);
+    this.bytes -= entry.bytes;
   }
 
   private touch(key: string, entry: FamilyEntry): void {

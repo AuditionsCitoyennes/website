@@ -49,7 +49,11 @@ const list = (s: string) =>
 const canonical = <T extends string | number>(xs: T[]): T[] =>
   [...new Set(xs)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
-const one = (what: string) => ({ error: `Paramètre ${what} invalide (un seul attendu).` });
+/** zod's error for a parameter that must come once, as a string (a repeated one comes as a list). */
+export const oneParam = (what: string) => ({
+  error: `Paramètre ${what} invalide (un seul attendu).`,
+});
+const one = oneParam;
 
 const idList = (re: RegExp, param: string, plural: string, invalid: string) =>
   z
@@ -74,6 +78,8 @@ export const placeFilterQuerySchema = z.object({
   q: z
     .string(one("q"))
     .max(SEARCH_TEXT_MAX, `Texte trop long (${SEARCH_TEXT_MAX} caractères au plus).`)
+    // Postgres text cannot hold a NUL (22P05).
+    .refine((s) => !s.includes("\u0000"), { error: "Texte invalide." })
     .refine((s) => fold(s.trim()).length <= SEARCH_TEXT_MAX, {
       error: `Texte trop long (${SEARCH_TEXT_MAX} caractères au plus).`,
     })

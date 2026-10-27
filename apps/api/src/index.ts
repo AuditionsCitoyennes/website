@@ -7,6 +7,14 @@ import { startPlacementJob } from "./modules/places/placementJob";
 import { prewarmPublicCaches } from "./prewarm";
 
 const app = buildServer();
+
+// A promise nobody awaits that rejects (a bug: an abandoned fill, a
+// forgotten catch) is logged, not the end of the process — and of every
+// request in flight with it. Tests keep Node's default: there it fails the run.
+process.on("unhandledRejection", (err) => {
+  app.log.error({ err }, "unhandled promise rejection");
+});
+
 app.log.info(
   {
     env: config.APP_ENV,

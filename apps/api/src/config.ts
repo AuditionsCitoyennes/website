@@ -114,7 +114,8 @@ const schema = z
     SEARCH_MIN_CHARS: z.coerce.number().int().min(1).max(10).default(1),
     // "relaxed": the place reads' miss and search limits and the online
     // form's limits, ×100 — for a load campaign on staging only (refused
-    // anywhere else).
+    // anywhere else), with emails kept (EMAIL_MODE outbox or log): the form
+    // would otherwise send up to 30,000 real emails a day to typed addresses.
     RATE_LIMITS: z.enum(["normal", "relaxed"]).default("normal"),
   })
   .refine((c) => c.EMAIL_MODE !== "redirect" || c.EMAIL_REDIRECT_TO, {
@@ -137,6 +138,11 @@ const schema = z
   })
   .refine((c) => c.RATE_LIMITS !== "relaxed" || c.APP_ENV === "staging", {
     message: "RATE_LIMITS=relaxed is refused outside staging",
+    path: ["RATE_LIMITS"],
+  })
+  // Staging's default email mode is log (see emailMode below).
+  .refine((c) => c.RATE_LIMITS !== "relaxed" || ["outbox", "log"].includes(c.EMAIL_MODE ?? "log"), {
+    message: "RATE_LIMITS=relaxed needs EMAIL_MODE outbox or log",
     path: ["RATE_LIMITS"],
   });
 

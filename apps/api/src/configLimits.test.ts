@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 // RATE_LIMITS=relaxed multiplies the limits by 100 for a load campaign, on
-// staging only: the API refuses to start with it anywhere else.
+// staging only and with emails kept (outbox or log): the API refuses to
+// start with it anywhere else, or with emails that leave.
 
 const apiDir = fileURLToPath(new URL("..", import.meta.url));
 
@@ -50,4 +51,18 @@ test("RATE_LIMITS=relaxed on staging: ×100; normal: ×1", () => {
   const normal = boot({ APP_ENV: "production" });
   assert.equal(normal.status, 0, normal.stderr);
   assert.match(normal.stdout, /factor 1\b/);
+});
+
+test("RATE_LIMITS=relaxed is refused when emails leave (live, redirect)", () => {
+  for (const env of [
+    { EMAIL_MODE: "live" } as Record<string, string>,
+    { EMAIL_MODE: "redirect", EMAIL_REDIRECT_TO: "tests@example.test" },
+  ]) {
+    const r = boot({ APP_ENV: "staging", RATE_LIMITS: "relaxed", ...env });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /RATE_LIMITS/);
+  }
+  const outbox = boot({ APP_ENV: "staging", RATE_LIMITS: "relaxed", EMAIL_MODE: "outbox" });
+  assert.equal(outbox.status, 0, outbox.stderr);
+  assert.match(outbox.stdout, /factor 100/);
 });

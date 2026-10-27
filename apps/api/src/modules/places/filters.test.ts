@@ -45,6 +45,9 @@ test("refused: bad ids, themes, dates, lengths, repeated parameters", () => {
   assert.match(message({ to: "25-01-01" }), /Date de fin invalide/);
   assert.match(message({ q: "x".repeat(201) }), /Texte trop long/);
   assert.match(message({ q: ["a", "b"] }), /un seul attendu/);
+  // A NUL: Postgres text cannot hold it (22P05 from jsonb).
+  assert.equal(message({ q: "a\u0000b" }), "Texte invalide.");
+  assert.ok(parse({ q: "a\tb\u00e9\ud83d\ude00" }).success, "other characters pass");
   // What folds longer than it was typed (Hangul syllables into their letters).
   assert.match(message({ q: "한".repeat(150) }), /Texte trop long/);
 });

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@ac/shared";
 import { config } from "../config";
+import { cappedFetch } from "./cappedFetch";
 
 type DB = SupabaseClient<Database>;
 
@@ -15,6 +16,22 @@ export const adminClient: DB = createClient<Database>(
   config.SUPABASE_SERVICE_ROLE_KEY || config.SUPABASE_ANON_KEY,
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
+
+/**
+ * The service-role client of the place reads (modules/places/read.ts): an
+ * answer heavier than `maxBytes` is dropped unread, and the call fails with
+ * an AnswerTooLargeError (lib/cappedFetch.ts, mapped by lib/dbGate.ts).
+ */
+export function cappedServiceClient(maxBytes: number): DB {
+  return createClient<Database>(
+    config.SUPABASE_URL,
+    config.SUPABASE_SERVICE_ROLE_KEY || config.SUPABASE_ANON_KEY,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: cappedFetch(maxBytes) },
+    },
+  );
+}
 
 /** Anonymous client — RLS applies as the `anon` role (public reads only). */
 export const publicClient: DB = createClient<Database>(

@@ -7,6 +7,7 @@
 // keeps the number of those bounded.
 
 import { performance } from "node:perf_hooks";
+import { ANSWER_TOO_LARGE } from "./cappedFetch";
 
 /** The gate is full: 503, never cached. */
 export class DbBusyError extends Error {
@@ -26,7 +27,7 @@ export class DbTimeoutError extends Error {
   }
 }
 
-/** The database refused the arguments (22023): 400. */
+/** The database refused the arguments (22023, or text it cannot hold: 22P05, 22021): 400. */
 export class DbRefusedError extends Error {
   readonly statusCode = 400;
   constructor(readonly detail: string) {
@@ -35,13 +36,27 @@ export class DbRefusedError extends Error {
   }
 }
 
+/** The answer was heavier than a read may bring back (lib/cappedFetch.ts): 400, never cached. */
+export class DbTooLargeError extends Error {
+  readonly statusCode = 400;
+  constructor(readonly detail: string) {
+    super("Réponse trop volumineuse : précisez la demande.");
+    this.name = "DbTooLargeError";
+  }
+}
+
 /** Whether a failed call may be answered with a value still held (a timeout, a full gate). */
 export function isTransientDbError(err: unknown): boolean {
   return err instanceof DbTimeoutError || err instanceof DbBusyError;
 }
 
+/** Codes of arguments the database refuses: invalid parameter, text it cannot store. */
+const REFUSED = new Set(["22023", "22P05", "22021"]);
+
 /** What a supabase-js error from a gated call means. */
 export function dbErrorOf(error: { code?: string; message: string }, signal: AbortSignal): Error {
+  // supabase-js turns what its fetch threw into "<name>: <message>".
+  if (error.message.startsWith(`${ANSWER_TOO_LARGE}:`)) return new DbTooLargeError(error.message);
   if (
     error.code === "57014" ||
     signal.aborted ||
@@ -49,7 +64,7 @@ export function dbErrorOf(error: { code?: string; message: string }, signal: Abo
   ) {
     return new DbTimeoutError(error.message);
   }
-  if (error.code === "22023") return new DbRefusedError(error.message);
+  if (error.code && REFUSED.has(error.code)) return new DbRefusedError(error.message);
   return new Error(error.message);
 }
 

@@ -30,7 +30,8 @@ export default async function testimonyRoutes(app: FastifyInstance) {
     // per request. `no-cache`: a returning visitor asks whether it changed and
     // is told so in a 304 instead of downloading 1.5 MB again, while an admin's
     // write still shows at the next load.
-    // Refused past TESTIMONIES_MAX (lib/guards.ts): nothing cached then.
+    // Refused past TESTIMONIES_MAX (lib/guards.ts), or heavier than the
+    // legacy family keeps (lib/publicCache.ts): nothing served uncached.
     const res = await legacyCache.response(
       PUBLIC_CACHE_KEYS.testimonies,
       async () => {

@@ -7,21 +7,29 @@ import { adminClient } from "./supabase";
 // data, production some day), they refuse and point to the place reads
 // (design D8). The count goes through the service role: as anon, the
 // testimonies' RESTRICTIVE policy makes it a 32 s scan at 300k rows. Without
-// the service role (a developer's API) there is no guard.
+// the service role (a developer's API) there is no guard. Below the counts,
+// a value too heavy for the legacy family is refused too, by its bytes
+// (lib/publicCache.ts): never served uncached, a whole-table pull per view.
 
-/** Testimonies past which /api/testimonies refuses. */
-export const TESTIMONIES_MAX = 25_000;
+/**
+ * Testimonies past which /api/testimonies refuses. Not the design's 25,000:
+ * the legacy family keeps the corpus up to 16 MB of JSON and gzip, about
+ * 12,000 testimonies of the seed's shape (1.36 KB each) and fewer of the
+ * real corpus's longer texts; and one pull of 25,000 peaks near 120 MB of
+ * the 256 MB heap. Past here the corpus is neither cached nor pulled.
+ */
+export const TESTIMONIES_MAX = 10_000;
 /** Published auditions past which /api/auditions and /api/map refuse. */
 export const AUDITIONS_MAX = 5_000;
 
 const COUNT_TIMEOUT_MS = 7000;
 
-/** The table is too large to be sent whole: 503, never cached. */
+/** The table (`what`: its rows, or the cached value's bytes) is too large to be sent whole: 503. */
 export class TooLongError extends Error {
   readonly statusCode = 503;
   constructor(
-    readonly table: string,
-    readonly count: number,
+    readonly what: string,
+    readonly size: number,
   ) {
     super("Liste trop longue : utilisez /api/places.");
     this.name = "TooLongError";

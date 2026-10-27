@@ -112,18 +112,24 @@ test("delete() drops its keys alone, and a fill of them in flight", async () => 
 });
 
 test("past its TTL a value is served stale at once and refilled behind the reply", async () => {
-  const f = family({ ttlMs: 10 });
+  // A TTL with headroom: a loaded machine (the test files run in parallel)
+  // must not see the refilled value go stale before it is read.
+  const f = family({ ttlMs: 200 });
   let n = 0;
   const fn = async () => ++n;
   assert.equal((await f.get("swr", fn)).state, "miss");
-  await tick(25);
+  await tick(250);
   const stale = await f.get("swr", fn);
   assert.equal(stale.state, "stale");
   assert.equal(JSON.parse(stale.res.json.toString()), 1);
-  await tick(5);
-  const next = await f.get("swr", fn);
-  assert.equal(next.state, "hit");
+  // The refill lands behind the reply (its gzip runs on the threadpool).
+  let next = await f.get("swr", fn);
+  for (let i = 0; i < 100 && JSON.parse(next.res.json.toString()) < 2; i++) {
+    await tick(5);
+    next = await f.get("swr", fn);
+  }
   assert.equal(JSON.parse(next.res.json.toString()), 2);
+  assert.equal(next.state, "hit");
 });
 
 test("a failed refill keeps the last good value and backs off", async () => {
@@ -143,7 +149,7 @@ test("a failed refill keeps the last good value and backs off", async () => {
 });
 
 test("past the stale window, a transient error serves the value still held; any other fails", async () => {
-  const f = family({ ttlMs: 5, staleForMs: 5 });
+  const f = family({ ttlMs: 5, staleForMs: 5, holdForMs: 60_000 });
   class Timeout extends Error {}
   await f.get("held", async () => "last good");
   await tick(20);
@@ -177,6 +183,79 @@ test("past the stale window, a transient error serves the value still held; any 
     ),
     Timeout,
   );
+});
+
+test("a value held answers transient errors for one more window, then is dropped", async () => {
+  const f = family({ ttlMs: 5, staleForMs: 5, holdForMs: 300 });
+  class Timeout extends Error {}
+  const timeout = { transient: (e: unknown) => e instanceof Timeout };
+  const fail = async () => {
+    throw new Timeout("57014");
+  };
+  await f.get("old", async () => "hours ago");
+  assert.ok(f.stats().bytes > 0);
+  await tick(15);
+  assert.equal((await f.get("old", fail, timeout)).state, "stale", "within the hold window");
+  await tick(350);
+  await assert.rejects(f.get("old", fail, timeout), Timeout, "past it: the error");
+  assert.equal(f.stats().entries, 0, "dropped, its bytes given back");
+  assert.equal(f.stats().bytes, 0);
+});
+
+test("a refused batch that joined another's fill leaves no rejection behind", async () => {
+  const f = family();
+  const unhandled: unknown[] = [];
+  const onUnhandled = (e: unknown) => unhandled.push(e);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    let fail!: (e: Error) => void;
+    // A fills k1, slowly; B asks k1 (joined) and k2, and is refused (a 429).
+    const a = f.getMany(["k1"], () => new Promise<unknown[]>((_, reject) => (fail = reject)));
+    const b = f.getMany(["k1", "k2"], async (keys) => keys, {
+      beforeFill: () => {
+        throw new Error("429");
+      },
+    });
+    await assert.rejects(b, /429/);
+    fail(new Error("57014 timeout"));
+    await assert.rejects(a, /57014/);
+    await tick(20);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
+test("refuseOversize: a value too heavy is refused, and not read again until its TTL ends", async () => {
+  class TooLong extends Error {}
+  const f = family({
+    ttlMs: 300,
+    maxBytes: 40_000,
+    refuseOversize: (key, bytes) => new TooLong(`${key}: ${bytes}`),
+  });
+  let fills = 0;
+  let size = 100;
+  const fn = async () => {
+    fills++;
+    return blob(size);
+  };
+  await f.get("corpus", fn);
+  size = 12_000; // over the 10,000 an entry may weigh
+  await tick(320); // stale: the refill behind the reply finds it too heavy
+  assert.equal((await f.get("corpus", fn)).state, "stale");
+  for (let i = 0; i < 200 && f.stats().oversize === 0; i++) await tick(5);
+  assert.equal(fills, 2);
+  await assert.rejects(f.get("corpus", fn), TooLong, "the old value is not served past it");
+  await assert.rejects(f.get("corpus", fn), TooLong);
+  assert.equal(fills, 2, "the refusal is remembered");
+  assert.equal(f.stats().bytes, 0);
+  await tick(320);
+  await assert.rejects(f.get("corpus", fn), TooLong);
+  assert.equal(fills, 3, "read again once its TTL ended");
+  f.invalidate();
+  size = 100;
+  assert.equal((await f.get("corpus", fn)).state, "miss", "a write: read again");
+  assert.equal(fills, 4);
 });
 
 test("concurrent misses share one fill", async () => {
@@ -277,7 +356,7 @@ test("the ETag follows the bytes, not the fill", async () => {
 });
 
 test("ByteLru: bounded in bytes, least recently used out first", () => {
-  const lru = new ByteLru<string>("test", 100);
+  const lru = new ByteLru<string>("test", 100, "external");
   lru.set("a", "A", 40);
   lru.set("b", "B", 40);
   assert.equal(lru.get("a"), "A");
@@ -290,6 +369,7 @@ test("ByteLru: bounded in bytes, least recently used out first", () => {
   assert.equal(lru.bytes, 50);
   assert.deepEqual(lru.stats(), {
     name: "test",
+    resident: "external",
     entries: 2,
     bytes: 50,
     maxBytes: 100,
