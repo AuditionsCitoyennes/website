@@ -576,6 +576,7 @@ Here `textInAudition = fold(title location content).includes(needle)`. The theme
   - text only → `textInAudition || n_all > 0`;
   - verified or themes on → `textInAudition ? n_no_text > 0 : n_all > 0`.
 - Theme options are rebuilt from the counts with `buildTopicOptions`' sort (`filters.ts:155-165`). The place and date filters stay client-side.
+- A text the place reads refuse (over 200 characters once folded, or a NUL) is asked without `q`, and `n_all` is counted in the page over `/api/testimonies/admin/filterable`, as today (L's review). Q must keep it found when it removes that route.
 - The API passes `p_reachable_by = null` for a super admin, else the caller's id.
 - `/api/testimonies/admin/filterable` (`testimonies/service.ts:78-95`) stays until Q, and is removed only after the admin parity check passes.
 
@@ -1456,7 +1457,7 @@ Every placement stores `placed_location = location` and `placed_rules = RULES_HA
   - Backs off on `'retry'`.
   - On 10-minute passes it also retries `unplaced` rows with candidates (support only).
   - Calls `invalidatePublicCaches()` when it wrote anything.
-- **Cutover.** `POST /api/admin/places/sweep?dryRun=1` reports, then applies.
+- **Cutover.** `POST /api/admin/places/sweep?dryRun=1` reports, then applies. Then, before L's web reaches production, its API runs with `MAP_SOURCE=db` and `PLACEMENT_JOB=true`: the map reads stored places alone from L on, and only the job brings it the old app's writes and a `LOCATION_RULES` change (D14). Without it, a production API logs a warning at boot.
 
 ### D6. `/api/map` and the admin list from stored places (PR D, `MAP_SOURCE`)
 
@@ -1511,7 +1512,7 @@ Every placement stores `placed_location = location` and `placed_rules = RULES_HA
 - `/api/testimonies` (`testimonies/service.ts:52-71`): exact head count through **`adminClient`**, 503 above 25,000. A count as anon takes 32 s at 300k (§0.1). A count error or 57014 also gives 503 (not remembered).
 - `/api/auditions` and `/api/map`: head count of published auditions through `adminClient`, 503 above 5,000. Below that, their values live in the byte-bounded `legacy` family, not the unbounded store (`auditions/routes.ts:22-33`, `lib/cache.ts:71`).
 
-**Deploy check.** `deploy-staging.yml:135` stops curling `/api/auditions` (a whole-table pull) and curls `/api/places/facets` as the Worker instead, which also proves the service-role key.
+**Deploy check.** `deploy-staging.yml:135` stops curling `/api/auditions` (a whole-table pull) and curls `/api/places/facets` as the Worker instead, which also proves the service-role key. `deploy-staging-web.yml`'s check through the site's Worker does the same (L).
 
 ---
 
@@ -1590,9 +1591,9 @@ Requests go through `queryClient.fetchQuery` with keys `[...placesKeys.all, fkey
    - When complete, every unit's figures are already present.
    - On the lazy path, a deep jump shows the previous figures or nothing, per "Analyses en attente".
 6. **Invalidation.**
-   - The store subscribes to `queryClient.getQueryCache()`. An `invalidate` action on a `placesKeys.all` key (debounced 100 ms) drops every per-key store and reloads the current chain under the current key, swapping as in step 4.
-   - AppDialogs' `onAuditionCreated` invalidates `placesKeys.all` (L).
-7. **Home card.** `/api/places?unit=world&empty=1` reproduces `/api/map`'s groups, including zero-testimony auditions.
+   - AppDialogs' `onAuditionCreated` calls `reloadPlaces` (`geo-nav/keys.ts`, L): it invalidates `placesKeys.all` (the lists on screen refetch through their observers) and tells the store directly. Debounced 100 ms, the store drops every per-key store, takes their answers out of the query cache, and reloads the current chain under the current key, swapping as in step 4. The comparer forgets the result pages it read.
+   - Not the QueryCache's `invalidate` events, as first designed: TanStack sends none for a query already invalidated — one whose last read failed, or a reload still on its way — so a second creation would go unread (L's review).
+7. **Home card.** `/api/places?unit=world&empty=1` reproduces `/api/map`'s groups, including zero-testimony auditions. The boot prewarm fills it beside the root with facts and the facets (L).
 8. **Filter dialog place tree.**
    - Built from `empty=1` rows. A country level appears only with more than one country.
    - Arrondissements are flattened into their commune (`filters.ts:96-151`), per "Arbre des lieux".
