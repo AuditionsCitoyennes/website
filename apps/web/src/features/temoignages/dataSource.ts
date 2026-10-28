@@ -6,10 +6,11 @@
 // - "Données": "corpus" — today: every testimony downloaded, the tree, counts
 //   and figures made in the page; "serveur" — the tree, its counts, the
 //   analyses' figures, the filter dialog's facets and the result count from
-//   /api/places (the auditions' lists still from the corpus until PR K);
-//   "comparer" — the server's on screen, the corpus' made beside it, and
-//   every difference listed in window.__acCompare (compare.ts), a badge
-//   counting them. Read once per page load: switching reloads the page (a
+//   /api/places, the auditions' lists from its siblings (PR K): neither the
+//   corpus nor /api/map is asked for; "comparer" — the server's on screen,
+//   the corpus' made beside it, and every difference listed in
+//   window.__acCompare and __acCompareLists (compare.ts), a badge counting
+//   them. Read once per page load: switching reloads the page (a
 //   picked place is a name in one, an id in the other).
 // - "Arbre des lieux": the place picker's tree from the server, the
 //   arrondissements of Paris, Lyon and Marseille flattened into their commune
