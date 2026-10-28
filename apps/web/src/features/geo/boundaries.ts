@@ -1,22 +1,96 @@
-// Real boundary geometry laid over the data-derived hierarchy.
+// Real boundary geometry laid over the data-derived hierarchy. Every outline
+// source of phase 1 is French (the métropole contour, france-geojson's régions
+// and départements, the départements' own, the communes' contours): a unit
+// outside France has none, and is known to have none.
 
 import { boundsCenter, unionBounds } from "./bounds";
-import type { GeoUnit, LevelKey, UnitGeo } from "./types";
+import type { GeoUnit, UnitGeo } from "./types";
 
-/** A département's INSEE code ("94", "2B", "976"), read off its id; undefined
- *  for any other level. */
+/** The unit is French: France's outline sources may hold it. */
+export function isFrench(u: GeoUnit): boolean {
+  return u.geoRef?.country === "FR";
+}
+
+/** A French département's INSEE code ("94", "2B", "976"); undefined for any
+ *  other unit. */
 export function depCodeOf(u: GeoUnit): string | undefined {
-  if (u.levelKey !== "dep") return undefined;
-  const key = u.id.slice(u.id.lastIndexOf("/") + 1);
-  return key.startsWith("d:") ? key.slice(2) : undefined;
+  return u.levelKey === "dep" && isFrench(u) ? u.geoRef?.code : undefined;
+}
+
+/** The INSEE code a French ville's or arrondissement's contour is fetched by;
+ *  undefined for any other unit (or a ville whose lieux disagree on it). */
+export function communeCodeOf(u: GeoUnit): string | undefined {
+  return (u.levelKey === "city" || u.levelKey === "arr") && isFrench(u) ? u.insee : undefined;
+}
+
+/**
+ * Where a unit's outline comes from: the métropole contour (the country FR),
+ * france-geojson's régions or départements (by code when the unit has one,
+ * else by name), or its commune contour (by INSEE code). null: none — no
+ * outline will ever come for it (the world, a lieu, any unit outside France):
+ * its geometry is known absent.
+ */
+export type OutlineSource =
+  | { kind: "metropole" }
+  | { kind: "regions"; code?: string; nom?: string }
+  | { kind: "departements"; code?: string; nom?: string }
+  | { kind: "commune"; insee: string };
+
+export function outlineSourceOf(u: GeoUnit): OutlineSource | null {
+  const ref = u.geoRef;
+  if (ref?.country !== "FR") return null;
+  switch (u.levelKey) {
+    case "country":
+      return ref.code === "FR" ? { kind: "metropole" } : null;
+    case "region":
+      return { kind: "regions", code: ref.code, nom: ref.nom };
+    case "dep":
+      return { kind: "departements", code: ref.code, nom: ref.nom };
+    case "city":
+    case "arr":
+      return u.insee ? { kind: "commune", insee: u.insee } : null;
+    default:
+      return null;
+  }
+}
+
+/** One france-geojson level's centres and extents, by code and by name. */
+export interface LevelLookup {
+  byCode: Map<string, UnitGeo>;
+  byNom: Map<string, UnitGeo>;
+}
+
+/** A région's or a département's feature in a france-geojson collection: by
+ *  its code when it has one, else by name. */
+export function featureFor<F extends { properties: { code: string; nom: string } }>(
+  features: readonly F[] | undefined,
+  src: { code?: string; nom?: string },
+): F | undefined {
+  if (src.code !== undefined) return features?.find((f) => f.properties.code === src.code);
+  return src.nom !== undefined ? features?.find((f) => f.properties.nom === src.nom) : undefined;
+}
+
+/** A région's or a département's entry: by its code when it has one, else by name. */
+function lookUp(
+  lookup: LevelLookup | undefined,
+  src: { code?: string; nom?: string },
+): UnitGeo | undefined {
+  if (src.code !== undefined) return lookup?.byCode.get(src.code);
+  return src.nom !== undefined ? lookup?.byNom.get(src.nom) : undefined;
+}
+
+export interface BoundaryLookups {
+  regions?: LevelLookup;
+  departements?: LevelLookup;
+  /** Villes' and arrondissements' contours, by INSEE code. */
+  byInsee?: Map<string, UnitGeo>;
+  /** The départements' own outlines (depFine), by code: they win over france-geojson's. */
+  byDep?: Map<string, UnitGeo>;
 }
 
 /**
  * Override units' data-derived centre/extent with real boundary geometry where
- * available. Régions/départements match by display name (nom); villes/
- * arrondissements match by INSEE code (`byInsee`); a département's own outline
- * (`byDep`, by its code) wins over its france-geojson one. Mutates the units in
- * place.
+ * available — French units only (outlineSourceOf). Mutates the units in place.
  *
  * A unit left with no geometry (below the country) then spans what its
  * children do, once THEIRS are real: its box was built from its children's
@@ -25,22 +99,20 @@ export function depCodeOf(u: GeoUnit): string | undefined {
  * it spans 7 km — fitted to the commune, the région was too small a part of the
  * view to hold, and the scope stopped at France.
  */
-export function applyBoundaries(
-  index: Map<string, GeoUnit>,
-  byNom: Partial<Record<LevelKey, Map<string, UnitGeo>>>,
-  byInsee?: Map<string, UnitGeo>,
-  byDep?: Map<string, UnitGeo>,
-): void {
+export function applyBoundaries(index: Map<string, GeoUnit>, lookups: BoundaryLookups): void {
+  const { regions, departements, byInsee, byDep } = lookups;
   const placed = new Set<GeoUnit>();
   for (const u of index.values()) {
     // Places keep their exact point coords — only ville/arrondissement units take
     // boundary geometry (and they share their commune's INSEE with their places).
-    const byCode =
-      (u.levelKey === "city" || u.levelKey === "arr") && u.insee
-        ? byInsee?.get(u.insee)
-        : undefined;
-    const dep = u.levelKey === "dep" ? byDep?.get(depCodeOf(u) ?? "") : undefined;
-    const geo = dep ?? byNom[u.levelKey]?.get(u.label) ?? byCode;
+    // The country keeps its constant frame.
+    const src = outlineSourceOf(u);
+    let geo: UnitGeo | undefined;
+    if (src?.kind === "regions") geo = lookUp(regions, src);
+    else if (src?.kind === "departements") {
+      geo =
+        (src.code !== undefined ? byDep?.get(src.code) : undefined) ?? lookUp(departements, src);
+    } else if (src?.kind === "commune") geo = byInsee?.get(src.insee);
     if (geo) {
       u.center = geo.center;
       u.bounds = geo.bounds;

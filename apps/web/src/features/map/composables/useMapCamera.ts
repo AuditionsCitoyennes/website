@@ -291,7 +291,7 @@ export function useMapCamera({
       const pts = fitHullOf(g);
       if (pts.length) {
         const polys = polysOf(g);
-        const heightM = plateauHeightM(cmd.shape.id, features);
+        const heightM = plateauHeightM(cmd.shape.heightClass, features);
         const holds = (lng: number, lat: number) => pointInPolygon(lng, lat, polys);
         shape = {
           pts,

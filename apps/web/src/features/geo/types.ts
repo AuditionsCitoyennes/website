@@ -13,12 +13,41 @@ export interface Bounds {
   maxLng: number;
 }
 
+/** A unit's level in its country's gazetteer (the database's geo_units.level):
+ *  a French département is a county, a commune and an arrondissement localities. */
+export type GeoLevel = "country" | "dependency" | "region" | "county" | "localadmin" | "locality";
+
+/** Where a unit sits in its country's gazetteer: what its outline is found by. */
+export interface GeoRef {
+  /** ISO 3166-1 alpha-2: "FR". */
+  country: string;
+  level: GeoLevel;
+  /** The country's ISO code; in France the région's, département's, commune's
+   *  or arrondissement's INSEE code — when known (a région's is not, from the
+   *  map groups). */
+  code?: string;
+  /** Its name, as an outline without a code is matched by. */
+  nom?: string;
+}
+
+/** How high the unit's plateau rises: "half" for a département, a ville or an
+ *  arrondissement, whose fit views sit much closer to the ground (map/lib/polygon). */
+export type HeightClass = "full" | "half";
+
 export interface GeoUnit {
-  id: string; // path-encoded, e.g. "France/r:Bretagne/d:35"
+  /** Opaque: compared, never read. (The corpus builds it as a path —
+   *  "France/r:Bretagne/d:35" — that only the analyses' figures still rely on.) */
+  id: string;
   depth: number; // 0 world … 6 place
   levelKey: LevelKey;
   label: string;
   parentId: string | null;
+  /** The ids of the units it sits in, root first ("world", the country, …);
+   *  none for the root. */
+  ancestors: string[];
+  /** Where it sits in a gazetteer; none for the world and for a lieu. */
+  geoRef?: GeoRef;
+  heightClass: HeightClass;
   count: number;
   center: [number, number]; // [lat, lng]
   bounds: Bounds;

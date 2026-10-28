@@ -7,9 +7,29 @@
 // arrondissement → lieu), each unit carrying a count, a weighted centroid, and
 // a bounding box so the camera can frame it.
 
-export { LEVELS, type Bounds, type GeoUnit, type LevelKey, type UnitGeo } from "./types";
+export {
+  LEVELS,
+  type Bounds,
+  type GeoLevel,
+  type GeoRef,
+  type GeoUnit,
+  type HeightClass,
+  type LevelKey,
+  type UnitGeo,
+} from "./types";
 export { centerInBounds } from "./bounds";
 export { ancestorsOf, buildGeoHierarchy, unitChainOf, unitsByLevelKey } from "./hierarchy";
-export { applyBoundaries, depCodeOf, geometryContains } from "./boundaries";
+export {
+  applyBoundaries,
+  communeCodeOf,
+  depCodeOf,
+  featureFor,
+  geometryContains,
+  isFrench,
+  outlineSourceOf,
+  type BoundaryLookups,
+  type LevelLookup,
+  type OutlineSource,
+} from "./boundaries";
 export { scopeForView, SPAN_DESCEND } from "./scope";
 export { abbrevCount } from "./labels";

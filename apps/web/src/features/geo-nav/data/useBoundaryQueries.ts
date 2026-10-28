@@ -1,11 +1,12 @@
 // Boundary geometry: the régions' and départements' outlines (with real
 // centroids) and the metropolitan-France contour, each one vue-query query
-// kept for the session, plus the nom → centre/bounds lookups the hierarchy is
-// enriched with. Called synchronously in setup, like every vue-query call.
+// kept for the session, plus the code and nom → centre/bounds lookups the
+// hierarchy is enriched with. Called synchronously in setup, like every
+// vue-query call.
 import { computed } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { api } from "@/shared/api/client";
-import type { Bounds, UnitGeo } from "@/features/geo";
+import type { Bounds, LevelLookup } from "@/features/geo";
 
 export interface BoundaryFeature {
   type: "Feature";
@@ -41,17 +42,19 @@ export function useBoundaryQueries() {
     shallow: true,
   });
 
-  function lookupOf(fc?: BoundaryFC): Map<string, UnitGeo> {
-    const m = new Map<string, UnitGeo>();
+  function lookupOf(fc?: BoundaryFC): LevelLookup {
+    const lookup: LevelLookup = { byCode: new Map(), byNom: new Map() };
     for (const f of fc?.features ?? []) {
-      m.set(f.properties.nom, { center: f.properties.center, bounds: f.properties.bounds });
+      const geo = { center: f.properties.center, bounds: f.properties.bounds };
+      lookup.byCode.set(f.properties.code, geo);
+      lookup.byNom.set(f.properties.nom, geo);
     }
-    return m;
+    return lookup;
   }
-  const regionByNom = computed(() => lookupOf(regionsQuery.data.value));
-  const depByNom = computed(() => lookupOf(depsQuery.data.value));
+  const regionLookup = computed(() => lookupOf(regionsQuery.data.value));
+  const depLookup = computed(() => lookupOf(depsQuery.data.value));
 
-  return { regionsQuery, depsQuery, metroQuery, regionByNom, depByNom };
+  return { regionsQuery, depsQuery, metroQuery, regionLookup, depLookup };
 }
 
 export type BoundaryQueries = ReturnType<typeof useBoundaryQueries>;

@@ -119,6 +119,7 @@ export function useCamera(inputs: CameraInputs) {
       if (geometry) {
         shape = markRaw({
           id: unit.id,
+          heightClass: unit.heightClass,
           geometry,
           lands: (lng: number, lat: number) => centreLandsOn(unit, lat, lng),
         });
