@@ -12,10 +12,23 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** How long the server asked to wait before trying again (Retry-After),
+     *  in seconds; null when it did not say. */
+    public retryAfter: number | null = null,
   ) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/** A Retry-After header in seconds (delta-seconds or an HTTP date); null when
+ *  absent or unreadable. Cross-origin, the API exposes it (server.ts). */
+function retryAfterOf(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? null : Math.max(0, (at - Date.now()) / 1000);
 }
 
 export async function apiFetch<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -49,16 +62,17 @@ export async function apiFetch<T = unknown>(path: string, options: ApiOptions = 
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, retryAfterOf(res.headers.get("Retry-After")));
   }
 
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
-/** Convenience helpers. */
+/** Convenience helpers. A read may be abandoned through its `signal`. */
 export const api = {
-  get: <T>(path: string, auth = false) => apiFetch<T>(path, { method: "GET", auth }),
+  get: <T>(path: string, auth = false, signal?: AbortSignal) =>
+    apiFetch<T>(path, { method: "GET", auth, signal }),
   post: <T>(path: string, body?: unknown, auth = true) =>
     apiFetch<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined, auth }),
   patch: <T>(path: string, body?: unknown, auth = true) =>
