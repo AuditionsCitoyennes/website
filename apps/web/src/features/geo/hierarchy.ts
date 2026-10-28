@@ -6,17 +6,16 @@ import { FRANCE_CENTER, splitCityNamed, type LocationGroup } from "@ac/shared";
 import { boundsCenter, METRO_FRANCE, pointBounds, unionBounds } from "./bounds";
 import type { GeoLevel, GeoRef, GeoUnit, HeightClass, LevelKey } from "./types";
 
-// Drop the redundant ", <ville>" suffix from a lieu label (the ville is shown
-// above it in the tree / breadcrumb).
-function placeLabel(g: Pick<LocationGroup, "canonicalName" | "city">): string {
-  const canon = g.canonicalName;
-  if (g.city) {
-    const suffix = `, ${g.city}`;
-    if (canon.toLowerCase().endsWith(suffix.toLowerCase())) {
-      return canon.slice(0, canon.length - suffix.length);
+/** A lieu's label: its canonical name without the redundant ", <ville>"
+ *  suffix (the ville is shown above it in the tree / breadcrumb). */
+export function placeLabel(canonical: string, city: string | null | undefined): string {
+  if (city) {
+    const suffix = `, ${city}`;
+    if (canonical.toLowerCase().endsWith(suffix.toLowerCase())) {
+      return canonical.slice(0, canonical.length - suffix.length);
     }
   }
-  return canon;
+  return canonical;
 }
 
 interface Builder {
@@ -80,13 +79,13 @@ function chainSteps(g: ChainArea): ChainStep[] | null {
     push(`v:${g.city}`, "city", g.city, "locality");
     if (g.arrondissement) push(`a:${g.arrondissement}`, "arr", g.arrondissement, "locality");
   }
-  push(`p:${g.canonicalName}`, "place", placeLabel(g));
+  push(`p:${g.canonicalName}`, "place", placeLabel(g.canonicalName, g.city));
   return steps;
 }
 
 // A département, a ville and an arrondissement rise half as high (map/lib/polygon).
 const HALF_HEIGHT: ReadonlySet<LevelKey> = new Set(["dep", "city", "arr"]);
-function heightClassOf(levelKey: LevelKey): HeightClass {
+export function heightClassOf(levelKey: LevelKey): HeightClass {
   return HALF_HEIGHT.has(levelKey) ? "half" : "full";
 }
 
