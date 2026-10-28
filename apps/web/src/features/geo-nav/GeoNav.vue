@@ -573,6 +573,15 @@ if (unitTree) {
     },
     { immediate: true },
   );
+  // The results are framed on the tree's lieux (until PR K brings the
+  // server's frame), and the corpus' list, whose change schedules that fit,
+  // changes before the filters' answer is on screen: framed again once it is.
+  watch(
+    () => tree.shownKey(),
+    () => {
+      if (listMode.value) scheduleResultsFit();
+    },
+  );
   if (__TEST_TOOLS__) {
     const w = window as unknown as { __acUnitTree?: () => unknown };
     const probe = () => tree.stats();

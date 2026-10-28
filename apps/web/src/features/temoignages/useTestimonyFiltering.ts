@@ -199,10 +199,12 @@ export function useTestimonyFiltering(input: {
   );
 
   // ---- From the server ---------------------------------------------------------
+  // Not for the home card (no filters there), as the corpus is not.
   const facetsQuery = server
     ? useQuery({
         queryKey: placesKeys.facets(),
         queryFn: ({ signal }) => fetchFacets(signal),
+        enabled: computed(() => !preview()),
         shallow: true,
       })
     : null;
