@@ -212,8 +212,18 @@ const cam = useCamera({
   ensureDepFine,
   mapCmp,
   listMode,
+  // The server's tree: the results are framed once the filters' answer is on
+  // screen, and not on the lazy path's few loaded lieux.
+  resultsFrame: unitTree
+    ? () =>
+        unitTree.wantedKey() !== unitTree.shownKey()
+          ? "pending"
+          : unitTree.complete()
+            ? "ready"
+            : "partial"
+    : undefined,
 });
-const { camera, framedFit, flyToUnit, spotlightPlace, scheduleResultsFit } = cam;
+const { camera, framedFit, flyToUnit, spotlightPlace, scheduleResultsFit, resultsArrived } = cam;
 
 // ---- The panel's auditions (model/usePanelAuditions): a lieu's own, or the results ----
 const panel = usePanelAuditions({
@@ -531,7 +541,10 @@ watch(
 );
 
 // Nudge the camera onto France once the hierarchy has data (the map starts wide;
-// this puts the régions in the visible area beside the panel).
+// this puts the régions in the visible area beside the panel). The corpus' map
+// groups come in before the métropole's outline, as a rule, so France is
+// framed by its box; the server's tree comes after it, so it is framed by its
+// box on purpose — the same first view, whatever arrives first.
 let framed = false;
 watch(
   root,
@@ -539,16 +552,18 @@ watch(
     if (framed || !r.children.length) return;
     framed = true;
     const country = r.children.find((c) => c.levelKey === "country") ?? r.children[0];
-    flyToUnit(country, false);
+    flyToUnit(country, false, false, unitTree !== null);
   },
   { immediate: true },
 );
 
 // ---- The server's tree (map phase 1): what it is asked for --------------------
 // After every watcher above (their order is behaviour). The scope's chain is
-// what a filter change waits for before swapping trees; what is on view — the
-// scope, its parent and siblings, its children — is asked for whenever its
-// own children are not known yet, so that the next drill step finds them.
+// what a filter change waits for before swapping trees (the store asks for
+// the scope and its parent). On view (design E2): the scope's own answer when
+// its units' children are not known yet, so that the next drill step finds
+// them — one level ahead, no more — and the communes and arrondissements
+// shown whose lieux are not known yet.
 /** The scope's children are on their way: the panel shows them loading. */
 const scopeChildrenPending = computed(() => currentScope.value.childrenPending === true);
 /** The scope's answer (or the filter's) could not be had: the error line. */
@@ -563,24 +578,33 @@ if (unitTree) {
   watch(
     () => {
       const s = currentScope.value;
+      const deep = s.children.some((c) => c.levelKey !== "place" && c.childrenPending);
+      // The communes around: the scope's siblings (and at an arrondissement,
+      // the cities around its ville), as useMapFeed shows them.
       const parent = s.parentId ? index.value.get(s.parentId) : undefined;
-      const onView = [s, ...(parent ? [parent, ...parent.children] : []), ...panelUnits.value];
-      const ids = new Set(onView.filter((u) => u.childrenPending).map((u) => u.id));
-      return [...ids].sort().join("\n");
+      const around = [...(parent?.children ?? [])];
+      const grand = s.levelKey === "arr" && parent?.parentId;
+      if (grand) around.push(...(index.value.get(grand)?.children ?? []));
+      const communes = new Set(
+        [s, ...panelUnits.value, ...around]
+          .filter((u) => (u.levelKey === "city" || u.levelKey === "arr") && u.childrenPending)
+          .map((u) => u.id),
+      );
+      return `${deep ? s.id : ""}\n${[...communes].sort().join(",")}`;
     },
-    (ids) => {
-      if (ids) tree.ensure(ids.split("\n"));
+    (wanted) => {
+      const [deep, communes] = wanted.split("\n");
+      if (deep) tree.ensure([deep], true);
+      if (communes) tree.ensure(communes.split(","));
     },
     { immediate: true },
   );
   // The results are framed on the tree's lieux (until PR K brings the
-  // server's frame), and the corpus' list, whose change schedules that fit,
-  // changes before the filters' answer is on screen: framed again once it is.
+  // server's frame): a fit due while the filters' answer was on its way
+  // runs once it is on screen (useCamera's resultsFrame).
   watch(
     () => tree.shownKey(),
-    () => {
-      if (listMode.value) scheduleResultsFit();
-    },
+    () => resultsArrived(),
   );
   if (__TEST_TOOLS__) {
     const w = window as unknown as { __acUnitTree?: () => unknown };
