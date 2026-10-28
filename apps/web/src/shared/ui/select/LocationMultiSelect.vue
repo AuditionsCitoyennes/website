@@ -8,6 +8,9 @@ const props = defineProps<{
   tree: LocNode[];
   allLabel: string;
   placeholder?: string;
+  /** Asks for a lazy node's children, when it is opened (a tree read as it
+   *  is opened: see LocNode.lazy). */
+  loadChildren?: (node: LocNode) => void;
 }>();
 
 const emit = defineEmits<{
@@ -52,6 +55,14 @@ function filterTree(nodes: LocNode[], q: string): LocNode[] {
   }
   return out;
 }
+
+// Some node's children are not known yet: a search sees only what is.
+const incomplete = computed(() => {
+  const some = (nodes: LocNode[]): boolean =>
+    nodes.some((n) => n.lazy !== undefined || (n.children ? some(n.children) : false));
+  return some(props.tree);
+});
+const searchNote = computed(() => searching.value && incomplete.value);
 
 const visibleTree = computed(() =>
   searching.value ? filterTree(props.tree, search.value.trim().toLowerCase()) : props.tree,
@@ -137,8 +148,13 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
         class="ms-search"
         type="search"
         aria-label="Rechercher un lieu"
+        :aria-describedby="searchNote ? 'location-ms-note' : undefined"
         :placeholder="placeholder ?? 'Rechercher un lieu, un département, une région...'"
       />
+      <p v-if="searchNote" id="location-ms-note" class="ms-note">
+        La recherche ne voit que les zones déjà dépliées : dépliez-en une pour chercher parmi ses
+        lieux.
+      </p>
       <div class="ms-tree" role="tree" aria-label="Lieux">
         <LocationTreeNode
           v-for="n in visibleTree"
@@ -149,8 +165,11 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
           :searching="searching"
           :depth="0"
           :toggle="toggle"
+          :load-children="loadChildren"
         />
-        <p v-if="visibleTree.length === 0" class="ms-empty">Aucun résultat</p>
+        <p v-if="visibleTree.length === 0" class="ms-empty">
+          {{ searchNote ? "Aucun résultat dans les zones dépliées" : "Aucun résultat" }}
+        </p>
       </div>
       <button v-if="modelValue.length > 0" type="button" class="ms-clear" @click="clearAll">
         Tout effacer ({{ modelValue.length }})
@@ -219,6 +238,14 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
   background: transparent;
   color: hsl(var(--foreground));
   outline: none;
+}
+
+.ms-note {
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-caption);
 }
 
 .ms-tree {

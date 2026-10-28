@@ -50,6 +50,7 @@ const {
   groups,
   resultCount,
   locationTree,
+  loadLocationChildren,
   dateBounds,
   topicOptions,
   listFiltered,
@@ -177,6 +178,7 @@ watch(
       :open="filtersOpen"
       :chips="chips"
       :location-tree="locationTree"
+      :load-location-children="loadLocationChildren"
       :date-bounds="dateBounds"
       :topic-options="topicOptions"
       :result-count="resultCount"

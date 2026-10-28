@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
 import type { LocNode } from "@/shared/ui/select/treeNode";
 
 const props = defineProps<{
@@ -10,11 +11,16 @@ const props = defineProps<{
   searching: boolean;
   depth: number;
   toggle: (node: LocNode) => void;
+  /** Asks for a lazy node's children (see LocNode.lazy). */
+  loadChildren?: (node: LocNode) => void;
 }>();
 
 const open = ref(false);
 
 const hasChildren = computed(() => (props.node.children?.length ?? 0) > 0);
+// Its children are not known yet: opening it asks for them.
+const lazy = computed(() => props.node.lazy);
+const expandable = computed(() => hasChildren.value || lazy.value !== undefined);
 const selfSelected = computed(() => props.selected.has(props.node.token));
 const checked = computed(() => selfSelected.value || props.ancestorSelected);
 
@@ -28,8 +34,20 @@ const indeterminate = computed(
 );
 // Covered by a selected ancestor → can't be individually unchecked here.
 const disabled = computed(() => props.ancestorSelected && !selfSelected.value);
-// While searching, branches stay expanded so matches deep in the tree are visible.
-const effectiveOpen = computed(() => props.searching || open.value);
+// While searching, branches stay expanded so matches deep in the tree are
+// visible — not a lazy one: only opening it asks for its children.
+const effectiveOpen = computed(() => (props.searching && !lazy.value) || open.value);
+
+// Open and its children not known: asked for — at its opening, again when
+// opened after they failed, and anew when a reloaded tree forgot them.
+watch(
+  () => (open.value ? (lazy.value ?? "known") : "closed"),
+  (state, prev) => {
+    if (state === "idle" || (state === "failed" && prev === "closed")) {
+      props.loadChildren?.(props.node);
+    }
+  },
+);
 
 function onCheck() {
   if (!disabled.value) props.toggle(props.node);
@@ -41,11 +59,12 @@ function onCheck() {
     class="tn"
     role="treeitem"
     :aria-selected="checked"
-    :aria-expanded="hasChildren ? effectiveOpen : undefined"
+    :aria-expanded="expandable ? effectiveOpen : undefined"
+    :aria-busy="effectiveOpen && lazy === 'loading' ? 'true' : undefined"
   >
     <div class="tn-row" :style="{ paddingLeft: `${depth * 1.05}rem` }">
       <button
-        v-if="hasChildren"
+        v-if="expandable"
         type="button"
         class="tn-caret"
         :class="{ open: effectiveOpen }"
@@ -100,7 +119,18 @@ function onCheck() {
       </button>
     </div>
 
-    <div v-if="hasChildren && effectiveOpen" class="tn-children" role="group">
+    <div
+      v-if="lazy && effectiveOpen"
+      class="tn-pending"
+      :style="{ paddingLeft: `${(depth + 1) * 1.05}rem` }"
+    >
+      <p v-if="lazy === 'failed'" class="tn-note">
+        Impossible de charger ces lieux.
+        <button type="button" class="tn-retry" @click="loadChildren?.(node)">Réessayer</button>
+      </p>
+      <LoadingDots v-else class="tn-dots" label="Chargement des lieux…" />
+    </div>
+    <div v-else-if="hasChildren && effectiveOpen" class="tn-children" role="group">
       <LocationTreeNode
         v-for="c in node.children"
         :key="c.token"
@@ -110,6 +140,7 @@ function onCheck() {
         :searching="searching"
         :depth="depth + 1"
         :toggle="toggle"
+        :load-children="loadChildren"
       />
     </div>
   </div>
@@ -204,6 +235,29 @@ function onCheck() {
   font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
   font-variant-numeric: tabular-nums;
+}
+
+.tn-dots {
+  justify-content: flex-start;
+  padding: 0.45rem 0 0.45rem 1.95rem;
+}
+
+.tn-note {
+  margin: 0;
+  padding: 0.35rem 0.4rem 0.45rem 1.95rem;
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-caption);
+}
+
+.tn-retry {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: hsl(var(--primary));
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .tn-count {
