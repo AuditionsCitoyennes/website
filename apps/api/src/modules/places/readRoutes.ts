@@ -664,20 +664,29 @@ const ROOT_COUNTS: CountsArgs = {
   filters: {},
 };
 
+/** What the home page's card asks first: every audition on the map, those
+ *  without testimonies too (empty=1), no figures. */
+const CARD_COUNTS: CountsArgs = { ...ROOT_COUNTS, facts: false, empty: true };
+
 /**
  * The place reads every first visit to the map waits on, filled at boot
  * (prewarm.ts) under the very keys the routes read: the world with its
- * figures (/api/places?unit=world&depth=2&facts=1) and the facets. Charged
- * to no visitor. Resolves (or rejects) per read, in that order.
+ * figures (/api/places?unit=world&depth=2&facts=1), the facets, and the home
+ * card's world (/api/places?unit=world&depth=2&empty=1). Charged to no
+ * visitor. Resolves (or rejects) per read, in that order.
  */
 export function prewarmPlaceReads(): [string, Promise<unknown>][] {
-  const root = countsKey("world", ROOT_COUNTS, "");
   const opts = { transient: isTransientDbError };
+  const world = (args: CountsArgs): [string, Promise<unknown>] => {
+    const key = countsKey("world", args, "");
+    return [
+      key,
+      placesCache.get(key, async () => (await placeCountsMany(["world"], args))[0], opts),
+    ];
+  };
   return [
-    [
-      root,
-      placesCache.get(root, async () => (await placeCountsMany(["world"], ROOT_COUNTS))[0], opts),
-    ],
+    world(ROOT_COUNTS),
     [FACETS_KEY, placesCache.get(FACETS_KEY, () => placeFacets(), opts)],
+    world(CARD_COUNTS),
   ];
 }
