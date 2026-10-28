@@ -16,6 +16,7 @@ const props = defineProps<{
 }>();
 
 const open = ref(false);
+const caret = ref<HTMLButtonElement | null>(null);
 
 const hasChildren = computed(() => (props.node.children?.length ?? 0) > 0);
 // Its children are not known yet: opening it asks for them.
@@ -52,6 +53,14 @@ watch(
 function onCheck() {
   if (!disabled.value) props.toggle(props.node);
 }
+
+// The dots and the failure line share a live region (.tn-pending), so that a
+// failure is announced. Réessayer gives way to the dots: the focus goes back
+// to the row's caret first.
+function retry() {
+  caret.value?.focus();
+  props.loadChildren?.(props.node);
+}
 </script>
 
 <template>
@@ -65,6 +74,7 @@ function onCheck() {
     <div class="tn-row" :style="{ paddingLeft: `${depth * 1.05}rem` }">
       <button
         v-if="expandable"
+        ref="caret"
         type="button"
         class="tn-caret"
         :class="{ open: effectiveOpen }"
@@ -122,11 +132,12 @@ function onCheck() {
     <div
       v-if="lazy && effectiveOpen"
       class="tn-pending"
+      role="status"
       :style="{ paddingLeft: `${(depth + 1) * 1.05}rem` }"
     >
       <p v-if="lazy === 'failed'" class="tn-note">
         Impossible de charger ces lieux.
-        <button type="button" class="tn-retry" @click="loadChildren?.(node)">Réessayer</button>
+        <button type="button" class="tn-retry" @click="retry">Réessayer</button>
       </p>
       <LoadingDots v-else class="tn-dots" label="Chargement des lieux…" />
     </div>

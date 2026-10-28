@@ -62,6 +62,8 @@ const incomplete = computed(() => {
     nodes.some((n) => n.lazy !== undefined || (n.children ? some(n.children) : false));
   return some(props.tree);
 });
+// Shown while searching, in a live region there as long as the tree is
+// incomplete: announced as it appears, the search field already focused.
 const searchNote = computed(() => searching.value && incomplete.value);
 
 const visibleTree = computed(() =>
@@ -151,10 +153,12 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown))
         :aria-describedby="searchNote ? 'location-ms-note' : undefined"
         :placeholder="placeholder ?? 'Rechercher un lieu, un département, une région...'"
       />
-      <p v-if="searchNote" id="location-ms-note" class="ms-note">
-        La recherche ne voit que les zones déjà dépliées : dépliez-en une pour chercher parmi ses
-        lieux.
-      </p>
+      <div v-if="incomplete" role="status">
+        <p v-if="searchNote" id="location-ms-note" class="ms-note">
+          La recherche ne voit que les zones déjà dépliées : effacez-la et dépliez-en une pour
+          chercher parmi ses lieux.
+        </p>
+      </div>
       <div class="ms-tree" role="tree" aria-label="Lieux">
         <LocationTreeNode
           v-for="n in visibleTree"
