@@ -127,7 +127,7 @@ export function useTestimonyFiltering(input: {
     );
     // Closed: the places opened in the picker are not asked for again.
     watch(filtersOpen, (open) => {
-      if (open) tree.wantEmpty();
+      if (open) tree.openEmpty();
       else tree.idleEmpty();
     });
   }

@@ -690,6 +690,14 @@ export function useUnitTree(opts: UnitTreeOptions) {
     bumpFor(ks);
   }
 
+  /** The filter dialog opened: the places opened in the picker are wanted
+   *  again, so a read still on its way since it closed is retried after its
+   *  wait, not let go and asked again at once. */
+  function openEmpty() {
+    pickerIdle = false;
+    wantEmpty();
+  }
+
   /** The filter dialog closed: the place picker's reads of opened places
    *  waiting to be asked again are let go (asked again when opened again; a
    *  read on its way is not retried). */
@@ -786,6 +794,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
     emptyData,
     wantEmpty,
     loadEmpty,
+    openEmpty,
     idleEmpty,
     emptyStatus,
     stats,

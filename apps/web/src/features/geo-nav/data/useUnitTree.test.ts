@@ -711,3 +711,30 @@ test("the filter dialog closed: a place picker read refused is not retried, the 
   assert.equal(reads("fr:reg:84"), 4);
   assert.equal(picker(tree)[0].lazy, undefined, "its children in");
 });
+
+test("the filter dialog reopened while a place picker read is on its way: a refusal is retried after its wait", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  const times = (id: string) => fake.calls.filter((c) => c.units.includes(id)).length;
+  tree.openEmpty();
+  await wait(80);
+  assert.ok(tree.emptyData(), "the world in");
+
+  // Asked, the dialog closed and reopened before the (slow) refusal lands.
+  let refusals = 1;
+  fake.failWith((c) =>
+    c.units.includes("fr:reg:84") && refusals-- > 0 ? new ApiError("slow down", 429, 0.3) : null,
+  );
+  fake.slow(100);
+  tree.loadEmpty(["fr:reg:84"]);
+  tree.idleEmpty();
+  tree.openEmpty();
+  await wait(150);
+  assert.equal(times("fr:reg:84"), 1, "the refusal landed");
+  assert.equal(tree.emptyStatus("fr:reg:84"), "loading", "waiting to be asked again");
+  await wait(100);
+  assert.equal(times("fr:reg:84"), 1, "not asked again before Retry-After");
+  await wait(400);
+  assert.equal(times("fr:reg:84"), 2, "asked again after Retry-After");
+  assert.equal(picker(tree)[0].lazy, undefined, "its children in");
+});

@@ -139,7 +139,7 @@ function retry() {
         Impossible de charger ces lieux.
         <button type="button" class="tn-retry" @click="retry">Réessayer</button>
       </p>
-      <LoadingDots v-else class="tn-dots" label="Chargement des lieux…" />
+      <LoadingDots v-else class="tn-dots" label="Chargement des lieux…" :live="false" />
     </div>
     <div v-else-if="hasChildren && effectiveOpen" class="tn-children" role="group">
       <LocationTreeNode
