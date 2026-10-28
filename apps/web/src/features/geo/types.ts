@@ -43,8 +43,8 @@ export interface GeoUnit {
   label: string;
   parentId: string | null;
   /** The ids of the units it sits in, root first ("world", the country, …);
-   *  none for the root. */
-  ancestors: string[];
+   *  none for the root. One array shared by siblings: never mutated. */
+  ancestors: readonly string[];
   /** Where it sits in a gazetteer; none for the world and for a lieu. */
   geoRef?: GeoRef;
   heightClass: HeightClass;

@@ -113,6 +113,8 @@ test("every French unit carries its reference, height class and ancestors", () =
     const chain = ancestorsOf(index, u.id).map((a) => a.id);
     assert.deepEqual([...u.ancestors, u.id], chain, u.id);
     assert.equal(u.parentId, u.ancestors.at(-1) ?? null);
+    // One array per family: siblings share it.
+    for (const c of u.children) assert.equal(c.ancestors, u.children[0].ancestors, c.id);
   }
 });
 
