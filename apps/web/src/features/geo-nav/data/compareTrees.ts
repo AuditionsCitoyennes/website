@@ -29,6 +29,8 @@ export interface TreeDiff {
 }
 
 export interface TreeComparison {
+  /** The corpus' tree, whole (its lieux name the analyses' largest). */
+  corpusIndex: Map<string, GeoUnit>;
   /** The units matched (the world first). */
   pairs: { corpus: GeoUnit; server: GeoUnit }[];
   diffs: TreeDiff[];
@@ -79,9 +81,10 @@ export function compareTrees(
   data: UnitTreeData,
   fcs: { regions?: BoundaryFC; departements?: BoundaryFC } = {},
 ): TreeComparison {
-  const corpus = buildGeoHierarchy(groups).root;
+  const built = buildGeoHierarchy(groups);
+  const corpus = built.root;
   const server = buildTreeFromUnits(data).root;
-  const out: TreeComparison = { pairs: [], diffs: [], pending: 0 };
+  const out: TreeComparison = { corpusIndex: built.index, pairs: [], diffs: [], pending: 0 };
 
   const walk = (c: GeoUnit, s: GeoUnit) => {
     out.pairs.push({ corpus: c, server: s });

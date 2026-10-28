@@ -168,10 +168,10 @@ export function startCompare(inputs: {
     // Every unit's figures and analysis.
     const legacy = buildUnitStats(groups, groupOwnAuditions(filtering.filteredTestimonies.value));
     const facts = buildFactsIndex(tree.facts());
+    // As the corpus pipeline names a lieu: from all its lieux (placeByCanonical).
     const corpusLabels = new Map<string, string>();
-    for (const { corpus } of trees.pairs) {
-      if (corpus.levelKey === "place" && corpus.canonical)
-        corpusLabels.set(corpus.canonical, corpus.label);
+    for (const u of trees.corpusIndex.values()) {
+      if (u.levelKey === "place" && u.canonical) corpusLabels.set(u.canonical, u.label);
     }
     let figures = 0;
     for (const { corpus, server } of trees.pairs) {
