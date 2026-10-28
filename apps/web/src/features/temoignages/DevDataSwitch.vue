@@ -4,7 +4,8 @@
 // "Analyses en attente" and "Arbre des lieux"; in comparer mode a badge
 // counting the differences (compare.ts: window.__acCompare). The testing tools
 // only: the explorer loads it behind `__TEST_TOOLS__`. Folded by default, at
-// the map's bottom-left corner above mapbox's logo (a phone: above the sheet).
+// the map's bottom-left corner above mapbox's logo (a phone: bottom-right,
+// above the attribution button and the sheet).
 import { pendingAnalysesMode, setPendingAnalysesMode } from "@/features/analyses";
 import {
   dataSource,
@@ -109,9 +110,14 @@ function showReport() {
 }
 
 @media (max-width: 899px) {
-  /* Clear of the lowered sheet. */
+  /* Clear of the lowered sheet and of the map's controls above it (the zoom
+     buttons and the logo at the left, the attribution button at the right):
+     at the right, above all of them, so that opened — it grows upwards and
+     leftwards — it covers none on the narrowest phone either. */
   .dev-data-switch {
-    bottom: calc(6rem + env(safe-area-inset-bottom));
+    left: auto;
+    right: 12px;
+    bottom: calc(11.5rem + env(safe-area-inset-bottom));
   }
 }
 
@@ -182,5 +188,12 @@ function showReport() {
   background: hsl(var(--card));
   color: hsl(var(--primary));
   box-shadow: var(--shadow-sm);
+}
+
+@media (max-width: 899px) {
+  /* Narrow enough, opened, for the narrowest phone. */
+  .seg-label {
+    min-width: 7rem;
+  }
 }
 </style>
