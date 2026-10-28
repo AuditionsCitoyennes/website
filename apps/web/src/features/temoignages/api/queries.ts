@@ -3,9 +3,10 @@ import { useQuery } from "@tanstack/vue-query";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { api } from "@/shared/api/client";
 
-// vue-query keys of the public data the whole site shares: the explorer
-// queries them, and app/AppDialogs.vue invalidates them when an audition is
-// created from anywhere.
+// vue-query keys of the corpus' pipeline (the "Données" switch's corpus and
+// comparer, dataSource.ts): the explorer queries them there, and
+// app/AppDialogs.vue invalidates them when an audition is created from
+// anywhere, with the place reads' (placesKeys).
 export const testimoniesKeys = {
   list: ["testimonies"] as const,
   map: ["map"] as const,
@@ -26,24 +27,13 @@ export function useTestimoniesQuery(enabled: Ref<boolean>) {
   });
 }
 
-/** Map groups are server-side geocoded + cached; poll until the count
- *  stabilises (the warm pass resolves any not-yet-cached locations). */
+/** The map's groups (/api/map): the corpus' pipeline only (the "Données"
+ *  switch's corpus and comparer). Placed when written (map phase 1), so one
+ *  answer is the map: nothing to poll for. */
 export function useMapGroupsQuery() {
-  let mapStableTicks = 0;
-  let mapLastLen = -1;
-
   return useQuery({
     queryKey: testimoniesKeys.map,
     queryFn: () => api.get<LocationGroup[]>("/api/map"),
-    refetchInterval: (query) => {
-      const len = query.state.data?.length ?? -1;
-      if (len === mapLastLen) mapStableTicks += 1;
-      else {
-        mapStableTicks = 0;
-        mapLastLen = len;
-      }
-      return mapStableTicks >= 3 ? false : 2500;
-    },
     shallow: true,
   });
 }
