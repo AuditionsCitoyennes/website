@@ -56,17 +56,21 @@ export interface PanelAudition {
   date: string | null;
   /** The lieu it was held at. */
   canonical: string;
+  /** Its lieu's unit id; null when the lieu is not on the map. */
+  placeId: string | null;
   count: number;
   /** null: not in memory yet (the testimonies are still loading). */
   testimonies: PublicTestimony[] | null;
 }
 
 /** The panel's line for an audition of a group, with its testimonies (all
- *  loaded with the page) once they are here. */
+ *  loaded with the page) once they are here; `placeIds`: the lieux' unit ids
+ *  by canonical name. */
 export function toPanelAudition(
   g: LocationGroup,
   a: LocationGroup["auditions"][number],
   ownAuditions: Map<string, AuditionGroup>,
+  placeIds: Map<string, string>,
 ): PanelAudition {
   const mine = ownAuditions.get(a.id);
   return {
@@ -74,6 +78,7 @@ export function toPanelAudition(
     title: a.title,
     date: a.date,
     canonical: g.canonicalName,
+    placeId: placeIds.get(g.canonicalName) ?? null,
     count: mine ? mine.testimonies.length : a.testimony_count,
     testimonies: mine ? mine.testimonies : null,
   };
