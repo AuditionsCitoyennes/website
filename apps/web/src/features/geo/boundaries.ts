@@ -28,7 +28,8 @@ export function communeCodeOf(u: GeoUnit): string | undefined {
  * france-geojson's régions or départements (by code when the unit has one,
  * else by name), or its commune contour (by INSEE code). null: none — no
  * outline will ever come for it (the world, a lieu, any unit outside France):
- * its geometry is known absent.
+ * its geometry is known absent, as it is when its source answers without it
+ * (geo-nav's geometryKnownAbsent).
  */
 export type OutlineSource =
   | { kind: "metropole" }

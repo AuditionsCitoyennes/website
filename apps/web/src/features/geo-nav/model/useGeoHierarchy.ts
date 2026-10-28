@@ -30,7 +30,7 @@ export interface GeoHierarchyInputs {
 export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   const { groups, boundaries, communes, deps } = inputs;
   const { regionsQuery, depsQuery, metroQuery, regionLookup, depLookup } = boundaries;
-  const { communeGeo, inseeGeo } = communes;
+  const { communeGeo, failedInsee, inseeGeo } = communes;
   const { depFine, depGaveUp, depFineGeo } = deps;
 
   const hierarchy = computed(() => {
@@ -63,10 +63,22 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
     return toRaw(featureFor(fc?.features, src)?.geometry);
   }
 
-  /** No outline will ever come for the unit: none of France's sources holds
-   *  it (the world, a lieu, a unit outside France). Nothing to wait for. */
+  /** The unit has no outline and none is on its way, so nothing to wait for:
+   *  no source of France's holds it (the world, a lieu, a unit outside
+   *  France), or its source answered without it — a DROM région
+   *  (france-geojson's régions are the métropole's), a département with no
+   *  france-geojson outline whose own is not waited for, a commune whose
+   *  contour fetch gave nothing (failedInsee: a dead code, or a failed batch
+   *  until it is retried). Reactive: false again once an outline lands. A
+   *  failed collection fetch is no answer (scopePending releases on it). */
   function geometryKnownAbsent(u: GeoUnit): boolean {
-    return outlineSourceOf(u) === null;
+    if (raisedGeometryFor(u)) return false;
+    const src = outlineSourceOf(u);
+    if (!src) return true;
+    if (src.kind === "metropole") return !!metroQuery.data.value;
+    if (src.kind === "regions") return !!regionsQuery.data.value;
+    if (src.kind === "departements") return !!depsQuery.data.value && !raisedOutlineDue(u);
+    return failedInsee.value.has(src.insee);
   }
 
   /** The outline a unit is RAISED with — framed, holding the view's centre:
