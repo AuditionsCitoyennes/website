@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
+import type { FastifyBaseLogger } from "fastify";
 import { FakeDb, fakeEnv, fakeToken, installFakes } from "../../testing/fakes";
 
 // Without the service role, geo_units cannot be read (server only): the map
@@ -109,4 +110,14 @@ test("the place reads without the service role: 503, never anon", async () => {
   } finally {
     await app.close();
   }
+});
+
+test("the boot prewarm without the service role: nothing asked", async () => {
+  const { prewarmPublicCaches } = await import("../../prewarm");
+  db.requests = [];
+  const warnings: unknown[] = [];
+  const log = { warn: (...args: unknown[]) => warnings.push(args) } as unknown as FastifyBaseLogger;
+  await prewarmPublicCaches(log);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(db.requests, []);
 });
