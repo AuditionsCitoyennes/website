@@ -11,7 +11,8 @@
 // - the place picker's tree (its arrondissements flattened, as the corpus'
 //   is: "Arbre des lieux" = sans) — on the lazy path as far as it is loaded:
 //   a node whose children are not is compared, its children not (counted in
-//   `placeTreePending`; __acComparePickerLoad() loads the whole tree).
+//   `placeTreePending`; __acComparePickerLoad() loads the whole tree). A whole
+//   tree (production's) has no such node: one is a difference.
 // And the lists (PR K), in window.__acCompareLists once the tree's report is
 // made (__acCompareListsRun({ testimonies: true }) for every testimony too):
 // - the results, every page, in the panel's order (id, title, date, count,
@@ -150,13 +151,15 @@ function analysisJson(
 
 /** Two place picker trees, node by node (tokens differ: names and ids). A
  *  server node whose children are not loaded yet (lazy) is compared, its
- *  children are not: counted in `pending`. */
+ *  children are not: counted in `pending` — a difference when the server's
+ *  tree is `whole` (nothing is left to load). */
 function comparePlaceTrees(
   corpus: LocNode[],
   server: LocNode[],
   path: string,
   diffs: CompareDiff[],
   counts: { compared: number; pending: number },
+  whole: boolean,
 ) {
   const strip = (n: LocNode) => ({ label: n.label, hint: n.hint ?? null, count: n.count ?? null });
   if (
@@ -178,17 +181,16 @@ function comparePlaceTrees(
     const s = byLabel.get(c.label);
     if (!s) continue;
     counts.compared++;
+    const at = `${path}/${c.label}`;
     if (!same(strip(c), strip(s))) {
-      diffs.push({
-        area: "placeTree",
-        id: `${path}/${c.label}`,
-        field: "node",
-        corpus: strip(c),
-        server: strip(s),
-      });
+      diffs.push({ area: "placeTree", id: at, field: "node", corpus: strip(c), server: strip(s) });
     }
-    if (s.lazy) counts.pending++;
-    else comparePlaceTrees(c.children ?? [], s.children ?? [], `${path}/${c.label}`, diffs, counts);
+    if (!s.lazy) comparePlaceTrees(c.children ?? [], s.children ?? [], at, diffs, counts, whole);
+    else if (!whole) counts.pending++;
+    else {
+      const children = (c.children ?? []).map((n) => n.label);
+      diffs.push({ area: "placeTree", id: at, field: "lazy", corpus: children, server: s.lazy });
+    }
   }
 }
 
@@ -295,7 +297,8 @@ export function startCompare(inputs: {
     // The place picker's tree (as the corpus builds it: arrondissements flattened).
     let placeTree: number | null = null;
     let placeTreePending: number | null = null;
-    if (tree.emptyData() && placeTreeMode.value === "sans") {
+    const picker = tree.emptyData();
+    if (picker && placeTreeMode.value === "sans") {
       const counts = { compared: 0, pending: 0 };
       comparePlaceTrees(
         filtering.corpus.locationTree.value,
@@ -303,6 +306,7 @@ export function startCompare(inputs: {
         "",
         diffs,
         counts,
+        picker.complete === true,
       );
       placeTree = counts.compared;
       placeTreePending = counts.pending;
