@@ -19,7 +19,9 @@ import {
 import {
   contentAskOf,
   contentOn,
+  haysOf,
   passesContentMatches,
+  textCountsOf,
   themeCountsOf,
   type AuditionText,
   type ContentAsk,
@@ -196,17 +198,78 @@ test("the query is the API's: any text however short, folded; themes as indexes"
   assert.equal(contentOn(none), false);
 });
 
-test("a text the API would refuse is asked without, and found in no testimony", () => {
+// ---- A text longer than the API searches (pasted from a testimony, say) -----------
+
+/** An excerpt of 230 characters, accented: the API takes 200 at most. */
+const EXCERPT =
+  "Nous avons parlé de l'école du quartier, de la cantine trop chère, des " +
+  "transports qui ne passent plus après vingt heures et du marché qui ferme " +
+  "le dimanche ; les anciens comme les jeunes veulent qu'on les écoute enfin.";
+const LONG_TITLE = `Grand débat : ${"santé, ".repeat(30)}fin`;
+const longTestimonies: Testimony[] = [
+  ...testimonies,
+  t("a2", "Iris", null, `Avant. ${EXCERPT} Après.`, [T[0]], "verified"),
+  t("a3", "Jules", "voisin", EXCERPT.toUpperCase(), [T[14], T[1]], null),
+  t("a5", "Kim", null, JSON.stringify([{ q: EXCERPT, a: "Non" }]), [T[11]], "verified"),
+];
+const longAuditions: AuditionText[] = [
+  ...auditions,
+  { id: "a6", title: LONG_TITLE, location: "Halle", content: "" },
+];
+longTestimonies.push(t("a6", "Léa", null, "Rien", [T[3]], "verified"));
+const LONG_NEEDLES = [
+  EXCERPT, // in two testimonies (one in capitals), in an online question only
+  `  ${EXCERPT.slice(0, 205).trim()} `, // a prefix past the bound, spaces around
+  LONG_TITLE, // a title only
+  `${EXCERPT}!`, // nowhere
+  "a\u0000b", // a NUL: the API refuses it too
+];
+
+test("a text the API refuses is looked for in every testimony, as before", () => {
+  const hays = haysOf(longTestimonies);
+  let checked = 0;
+  for (const verified of [false, true]) {
+    for (const topics of THEME_SETS) {
+      for (const text of LONG_NEEDLES) {
+        const ask = contentAskOf({ verified, topics, text });
+        assert.equal(ask.textUnsent, true, JSON.stringify(text.slice(0, 20)));
+        const matches = serverMatches(ask, longTestimonies);
+        const counts = textCountsOf(hays, ask);
+        const f = { verified, topics, needle: fold(text.trim()) };
+        for (const a of longAuditions) {
+          assert.equal(
+            passesContentMatches(a, ask, matches, counts),
+            passesBefore(a, f, longTestimonies),
+            `${a.id} with ${JSON.stringify({ verified, topics, text: text.slice(0, 20) })}`,
+          );
+          checked++;
+        }
+      }
+    }
+  }
+  assert.equal(checked, 2 * THEME_SETS.length * LONG_NEEDLES.length * longAuditions.length);
+});
+
+test("a text the API would refuse is asked without, under a key of its own", () => {
   const long = "a".repeat(201);
   const ask = contentAskOf({ verified: false, topics: [], text: long });
   assert.equal(ask.textUnsent, true);
   assert.deepEqual(ask.params, {});
   assert.notEqual(ask.key, "");
+  assert.notEqual(
+    ask.key,
+    contentAskOf({ verified: false, topics: [], text: "b".repeat(201) }).key,
+  );
   const withNul = contentAskOf({ verified: true, topics: [], text: "a\u0000b" });
   assert.equal(withNul.textUnsent, true);
   assert.deepEqual(withNul.params, { v: "1" });
   const a = { id: "a9", title: long, location: "", content: "" };
-  // In the audition itself: found, as before.
+  // In the audition itself: found, as before; its testimonies not read yet:
+  // none taken to hold it.
   assert.equal(passesContentMatches(a, ask, { a9: [3, 3] }), true);
   assert.equal(passesContentMatches({ ...a, title: "" }, ask, { a9: [3, 3] }), false);
+  assert.equal(
+    passesContentMatches({ ...a, title: "" }, ask, { a9: [3, 3] }, new Map([["a9", 1]])),
+    true,
+  );
 });

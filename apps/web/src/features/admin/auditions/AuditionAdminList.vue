@@ -36,8 +36,8 @@ const {
   locationTree,
   topicOptions,
   dateBounds,
-  matchesQuery,
   matchesFailed,
+  retryMatches,
   refreshMatches,
   testimonyFilterOn,
   waitingForTestimonies,
@@ -135,11 +135,7 @@ defineExpose({
            cannot be judged: the lists below only reflect the rest. -->
       <p v-if="matchesFailed && testimonyFilterOn" class="filters-error">
         Les témoignages n'ont pas pu être chargés : les filtres qui portent sur eux sont incomplets.
-        <button
-          type="button"
-          class="ac-btn ac-btn--outline ac-btn--sm"
-          @click="matchesQuery.refetch()"
-        >
+        <button type="button" class="ac-btn ac-btn--outline ac-btn--sm" @click="retryMatches">
           Réessayer
         </button>
       </p>
