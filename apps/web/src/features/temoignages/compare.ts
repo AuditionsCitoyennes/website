@@ -9,7 +9,9 @@
 //   reliability, the concentration's lieu);
 // - the result count, the theme counts and the date bounds;
 // - the place picker's tree (its arrondissements flattened, as the corpus'
-//   is: "Arbre des lieux" = sans).
+//   is: "Arbre des lieux" = sans) — on the lazy path as far as it is loaded:
+//   a node whose children are not is compared, its children not (counted in
+//   `placeTreePending`; __acComparePickerLoad() loads the whole tree).
 // And the lists (PR K), in window.__acCompareLists once the tree's report is
 // made (__acCompareListsRun({ testimonies: true }) for every testimony too):
 // - the results, every page, in the panel's order (id, title, date, count,
@@ -88,6 +90,8 @@ export interface CompareReport {
   checked: { units: number; figures: number; placeTree: number | null };
   /** Units of the server's tree whose children are not known yet. */
   pending: number;
+  /** Place picker nodes whose children are not loaded yet (not compared). */
+  placeTreePending: number | null;
   /** Differences that are no deliberate change. */
   count: number;
   /** D1's. */
@@ -144,13 +148,16 @@ function analysisJson(
   return a && { ...a, scopeId: undefined };
 }
 
-/** Two place picker trees, node by node (tokens differ: names and ids). */
+/** Two place picker trees, node by node (tokens differ: names and ids). A
+ *  server node whose children are not loaded yet (lazy) is compared, its
+ *  children are not: counted in `pending`. */
 function comparePlaceTrees(
   corpus: LocNode[],
   server: LocNode[],
   path: string,
   diffs: CompareDiff[],
-): number {
+  counts: { compared: number; pending: number },
+) {
   const strip = (n: LocNode) => ({ label: n.label, hint: n.hint ?? null, count: n.count ?? null });
   if (
     !same(
@@ -166,12 +173,11 @@ function comparePlaceTrees(
       server: server.map((n) => n.label),
     });
   }
-  let n = 0;
   const byLabel = new Map(server.map((s) => [s.label, s]));
   for (const c of corpus) {
     const s = byLabel.get(c.label);
     if (!s) continue;
-    n++;
+    counts.compared++;
     if (!same(strip(c), strip(s))) {
       diffs.push({
         area: "placeTree",
@@ -181,9 +187,9 @@ function comparePlaceTrees(
         server: strip(s),
       });
     }
-    n += comparePlaceTrees(c.children ?? [], s.children ?? [], `${path}/${c.label}`, diffs);
+    if (s.lazy) counts.pending++;
+    else comparePlaceTrees(c.children ?? [], s.children ?? [], `${path}/${c.label}`, diffs, counts);
   }
-  return n;
 }
 
 export function startCompare(inputs: {
@@ -288,13 +294,18 @@ export function startCompare(inputs: {
 
     // The place picker's tree (as the corpus builds it: arrondissements flattened).
     let placeTree: number | null = null;
+    let placeTreePending: number | null = null;
     if (tree.emptyData() && placeTreeMode.value === "sans") {
-      placeTree = comparePlaceTrees(
+      const counts = { compared: 0, pending: 0 };
+      comparePlaceTrees(
         filtering.corpus.locationTree.value,
         filtering.locationTree.value,
         "",
         diffs,
+        counts,
       );
+      placeTree = counts.compared;
+      placeTreePending = counts.pending;
     }
 
     const d1 = diffs.filter((d) => d.d === "D1").length;
@@ -303,6 +314,7 @@ export function startCompare(inputs: {
       at: new Date().toISOString(),
       checked: { units: trees.pairs.length, figures, placeTree },
       pending: trees.pending,
+      placeTreePending,
       count: diffs.length - d1,
       d1,
       diffs,
@@ -617,9 +629,43 @@ export function startCompare(inputs: {
     };
   }
 
+  // ---- The place picker's whole tree (the lazy path) ----
+
+  /** The picker's nodes whose children are not loaded. */
+  function lazyNodes(): LocNode[] {
+    const out: LocNode[] = [];
+    const walk = (nodes: LocNode[]) => {
+      for (const n of nodes) {
+        if (n.lazy) out.push(n);
+        else if (n.children) walk(n.children);
+      }
+    };
+    walk(filtering.locationTree.value);
+    return out;
+  }
+
+  /** Resolves once `done` holds (checked every 100 ms), or after a minute. */
+  async function until(done: () => boolean) {
+    for (let t = 0; t < 600 && !done(); t++) await new Promise((r) => setTimeout(r, 100));
+  }
+
+  /** Loads the whole place picker's tree, a level at a time, as opening every
+   *  node would (local data: a few levels): the nodes left lazy (failed). */
+  async function loadPicker(): Promise<number> {
+    tree.wantEmpty();
+    for (let level = 0; level < 20; level++) {
+      await until(() => !!tree.emptyData() && !lazyNodes().some((n) => n.lazy === "loading"));
+      const idle = lazyNodes().filter((n) => n.lazy === "idle");
+      if (!idle.length) break;
+      tree.loadEmpty(idle.map((n) => n.token));
+    }
+    return lazyNodes().length;
+  }
+
   const w = window as unknown as {
     __acCompare?: CompareReport | null;
     __acCompareRun?: () => CompareReport | null;
+    __acComparePickerLoad?: () => Promise<number>;
     __acCompareLists?: ListsReport | null;
     __acCompareListsRun?: (opts?: { testimonies?: boolean }) => Promise<ListsReport | null>;
   };
@@ -639,6 +685,7 @@ export function startCompare(inputs: {
     return report;
   }
   w.__acCompareRun = publish;
+  w.__acComparePickerLoad = loadPicker;
 
   async function publishLists(opts: { testimonies?: boolean } = {}) {
     const report = await runLists(opts);
