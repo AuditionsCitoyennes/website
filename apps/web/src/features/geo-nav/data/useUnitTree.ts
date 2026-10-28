@@ -66,7 +66,9 @@ class KeyStore implements UnitTreeData {
   root: PlaceCounts | null = null;
   /** Bumped at each merge. */
   version = 0;
-  readonly inflight = new Set<string>();
+  /** Units on their way, each with its request's token: an abandoned
+   *  request's late end leaves a newer one's mark alone. */
+  readonly inflight = new Map<string, number>();
   /** Waiting to be asked again. */
   readonly waiting = new Set<string>();
   readonly attempts = new Map<string, number>();
@@ -117,6 +119,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
   const sideVersion = ref(0);
 
   const stores = new Map<string, KeyStore>();
+  /** Request tokens (KeyStore.inflight). */
+  let asks = 0;
   /** The store on screen; null until the first one holds the world. */
   let shown: KeyStore | null = null;
   /** The key asked for, while its store is not on screen yet. */
@@ -218,7 +222,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
         cached.push(state.data);
         continue;
       }
-      ks.inflight.add(id);
+      const token = ++asks;
+      ks.inflight.set(id, token);
       ks.asked++;
       queryClient
         .fetchQuery({
@@ -229,12 +234,13 @@ export function useUnitTree(opts: UnitTreeOptions) {
         })
         .then(
           (answer) => {
-            ks.inflight.delete(id);
+            if (ks.inflight.get(id) === token) ks.inflight.delete(id);
             // Merged as it came (the batcher's onAnswers), unless another
             // reader's request brought it.
             if (!ks.units.get(id)?.loaded && stores.get(ks.req.key) === ks) merge(ks, [answer]);
           },
           (err) => {
+            if (ks.inflight.get(id) !== token) return; // abandoned, asked again since
             ks.inflight.delete(id);
             if (!isCancelledError(err)) failedOnce(ks, id, err);
           },
@@ -264,14 +270,20 @@ export function useUnitTree(opts: UnitTreeOptions) {
     ks.timers.add(timer);
   }
 
+  /** Abandons a store's requests on their way (it may ask again at once). */
+  function abandon(ks: KeyStore) {
+    if (!ks.inflight.size) return;
+    ks.inflight.clear();
+    void queryClient.cancelQueries({ queryKey: [...placesKeys.all, ks.req.key] });
+  }
+
   /** Forgets a store: its requests abandoned, its retries dropped. */
   function drop(ks: KeyStore) {
     stores.delete(ks.req.key);
     for (const t of ks.timers) window.clearTimeout(t);
     ks.timers.clear();
-    if (ks.inflight.size) {
-      void queryClient.cancelQueries({ queryKey: [...placesKeys.all, ks.req.key] });
-    }
+    ks.waiting.clear();
+    abandon(ks);
   }
 
   /** Keeps the latest filter keys, the one on screen and the next among them
@@ -308,11 +320,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
     const ks = storeOf(req);
     if (next && next !== ks) {
       // Not wanted any more: its pending answers are abandoned.
-      const old = next;
+      abandon(next);
       next = null;
-      if (old.inflight.size) {
-        void queryClient.cancelQueries({ queryKey: [...placesKeys.all, old.req.key] });
-      }
     }
     status.value++;
     if (ks === shown) return;
