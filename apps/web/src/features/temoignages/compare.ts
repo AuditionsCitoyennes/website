@@ -12,12 +12,16 @@
 //   is: "Arbre des lieux" = sans).
 // Deliberate differences are tagged with their number in the design (A21):
 // D1, the testimonies of drafts (and of no audition) leaving the result count
-// and the theme counts. The testing tools only: imported by the explorer in
-// comparer mode, never in a production build.
+// and the theme counts — checked, not assumed: the corpus' figures without
+// them (the published auditions read from /api/auditions) must equal the
+// server's, or the difference counts. The testing tools only: imported by the
+// explorer in comparer mode, never in a production build.
 
 import { reactive, watch } from "vue";
 import type { QueryClient } from "@tanstack/vue-query";
 import type { PublicTestimony } from "@ac/shared";
+import { buildTopicOptions } from "@/features/filters";
+import { api } from "@/shared/api/client";
 import {
   analyseScope,
   buildFactsIndex,
@@ -147,6 +151,23 @@ export function startCompare(inputs: {
   const { queryClient, tree, filtering, preview } = inputs;
   const sf = filtering.serverFilters!;
 
+  // The published auditions (D1: the others' testimonies leave the counts);
+  // null until read, or when they cannot be (past the API's guard).
+  let published: Set<string> | null = null;
+  void queryClient
+    .fetchQuery({
+      queryKey: ["compare", "published"],
+      queryFn: () => api.get<{ id: string }[]>("/api/auditions"),
+    })
+    .then(
+      (rows) => {
+        published = new Set(rows.map((a) => a.id));
+        publish();
+      },
+      (err) =>
+        console.warn("[comparer] the published auditions could not be read: D1 unchecked", err),
+    );
+
   function run(): CompareReport | null {
     const key = sf.key.value;
     const data = tree.data();
@@ -188,12 +209,33 @@ export function startCompare(inputs: {
         diffs.push({ area: "analysis", id: corpus.id, field: "analysis", corpus: ca, server: sa });
     }
 
-    // The result count, the theme counts and the date bounds.
-    const facet = (field: string, c: unknown, s: unknown, d?: "D1") => {
-      if (!same(c, s)) diffs.push({ area: "facets", id: field, field, corpus: c, server: s, d });
+    // The result count, the theme counts and the date bounds. D1's two: the
+    // corpus' without D1's testimonies must be the server's (else a bug); the
+    // corpus' as it is then differs by D1 alone. Unchecked: counted.
+    const facet = (field: string, c: unknown, s: unknown) => {
+      if (!same(c, s)) diffs.push({ area: "facets", id: field, field, corpus: c, server: s });
     };
-    facet("resultCount", filtering.corpus.resultCount.value, filtering.resultCount.value, "D1");
-    facet("topicOptions", filtering.corpus.topicOptions.value, filtering.topicOptions.value, "D1");
+    const facetD1 = (field: string, c: unknown, withoutD1: unknown, s: unknown) => {
+      if (withoutD1 === null || !same(withoutD1, s)) {
+        facet(field, withoutD1 ?? c, s);
+      } else if (!same(c, s)) {
+        diffs.push({ area: "facets", id: field, field, corpus: c, server: s, d: "D1" });
+      }
+    };
+    const pub = published;
+    const kept = (t: PublicTestimony) => !!t.audition && !!pub?.has(t.audition.id);
+    facetD1(
+      "resultCount",
+      filtering.corpus.resultCount.value,
+      pub ? filtering.filteredTestimonies.value.filter(kept).length : null,
+      filtering.resultCount.value,
+    );
+    facetD1(
+      "topicOptions",
+      filtering.corpus.topicOptions.value,
+      pub ? buildTopicOptions(testimonies.filter(kept).map((t) => t.topics)) : null,
+      filtering.topicOptions.value,
+    );
     facet("dateBounds", filtering.corpus.dateBounds.value, filtering.dateBounds.value);
 
     // The place picker's tree (as the corpus builds it: arrondissements flattened).
