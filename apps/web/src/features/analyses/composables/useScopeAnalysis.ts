@@ -18,6 +18,7 @@ import type { GeoUnit } from "@/features/geo";
 import type { SlabSpec } from "@/features/map/types";
 import {
   analyseScope,
+  analysisOn,
   buildUnitStats,
   type OwnAudition,
   type ScopeAnalysis,
@@ -113,26 +114,37 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
   let analysisMemoOf: UnitStatsIndex | null = null;
   // The server's tree: each answer merged is a new index, its units' figures
   // mostly unchanged — remembered by unit and figures, so a merge re-renders
-  // no plate. The last analysis shown stands in while a unit's figures are on
-  // their way, unless "Analyses en attente" says otherwise (DEV).
-  let lastServerAnalysis: ScopeAnalysis | null = null;
+  // no plate. While a unit's figures are on their way, the last analysis made
+  // stands on it (its figures, the unit's name and plateau), unless "Analyses
+  // en attente" says otherwise (DEV).
+  let lastServer: { key: string; analysis: ScopeAnalysis | null } | null = null;
   function serverAnalysis(stats: UnitStatsIndex, unit: GeoUnit): ScopeAnalysis | null {
-    const figures = stats.figuresOf(unit.id);
-    if (!figures) return pendingAnalysesMode.value === "garder" ? lastServerAnalysis : null;
-    const key = `${unit.id}#${figuresHash(figures)}`;
     if (analysisMemo.size > 200) analysisMemo.clear();
+    const figures = stats.figuresOf(unit.id);
+    if (!figures) {
+      const last = lastServer;
+      if (pendingAnalysesMode.value !== "garder" || !last?.analysis) return null;
+      const key = `${unit.id}<${last.key}`;
+      let kept = analysisMemo.get(key);
+      if (kept === undefined) {
+        kept = analysisOn(last.analysis, unit);
+        analysisMemo.set(key, kept);
+      }
+      return kept;
+    }
+    const key = `${unit.id}#${figuresHash(figures)}`;
     let analysis = analysisMemo.get(key);
     if (analysis === undefined) {
       analysis = analyseScope(unit, stats, { placeLabel: server!.placeLabel });
       analysisMemo.set(key, analysis);
     }
-    lastServerAnalysis = analysis;
+    lastServer = { key, analysis };
     return analysis;
   }
   const scopeAnalysis = computed<ScopeAnalysis | null>(() => {
     const stats = unitStats.value;
     const unit = currentScope.value;
-    if (!stats) lastServerAnalysis = null;
+    if (!stats) lastServer = null;
     if (!stats || unit.levelKey === "world") return null;
     if (server) return serverAnalysis(stats, unit);
     if (stats !== analysisMemoOf || analysisMemo.size > 200) {

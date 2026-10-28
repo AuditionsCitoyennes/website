@@ -360,6 +360,13 @@ function coreOf(index: IndexImpl, id: string, s: UnitFigures): ScopeCore {
 
 // ---- One scope ---------------------------------------------------------------
 
+/** An analysis shown on another unit: its figures, that unit's name and
+ *  plateau (the server's tree, while the unit's own figures are on their way:
+ *  "Analyses en attente" = garder). */
+export function analysisOn(a: ScopeAnalysis, unit: GeoUnit): ScopeAnalysis {
+  return { ...a, scopeId: unit.id, label: unit.label, levelLabel: LEVEL_NAME[unit.levelKey] };
+}
+
 /** The analysis of one unit, from the index built for the data on screen
  *  (`placeLabel`: the largest audition's lieu, as the map names it). A unit
  *  the index has no figures for has heard nothing. */
