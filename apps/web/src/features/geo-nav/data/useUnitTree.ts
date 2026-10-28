@@ -24,7 +24,9 @@
 //   error line) until the scope changes or the key is asked for again.
 // - A lieu a list knows before the tree does (a result opened on the lazy
 //   path) is held as a stub under its unit, its path asked for meanwhile
-//   (PR K): selected, flown to and labelled at once, its own row replacing it.
+//   (PR K): selected, flown to and labelled at once, its own row replacing it
+//   — or, its unit loaded without it, gone (it does not match there). The
+//   open lieu goes along, as a stub, into a key's store swapped in without it.
 
 import { ref } from "vue";
 import { isCancelledError, type QueryClient } from "@tanstack/vue-query";
@@ -204,9 +206,11 @@ export function useUnitTree(opts: UnitTreeOptions) {
     if (!ks) return;
     if (chainKnown(ks)) {
       // The tree left: what it still asked for is let go.
-      if (shown && shown !== ks && shown.req.key !== EMPTY_KEY) abandon(shown);
+      const from = shown;
+      if (from && from !== ks && from.req.key !== EMPTY_KEY) abandon(from);
       shown = ks;
       next = null;
+      if (from && from !== ks) carryInto(ks, from);
       version.value++;
       status.value++;
       trim();
@@ -395,18 +399,60 @@ export function useUnitTree(opts: UnitTreeOptions) {
     if (shown) ensureIn(shown, ids, false, deep);
   }
 
+  /** A stub can stand in a store for this lieu: the store is not whole (it
+   *  would hold it) and does not know its unit's lieux without it. */
+  function stubFits(ks: KeyStore, lieu: LieuStub): boolean {
+    if (ks.complete || ks.lieux.has(lieu.id) || ks.stubs.has(lieu.id)) return false;
+    const unit = ks.units.get(lieu.unit);
+    return !unit?.loaded || !!unit.lieuIds?.includes(lieu.id);
+  }
+
   /**
    * A lieu a list holds (a result's row), into the tree on screen until its
    * own row comes: it can be selected, flown to and labelled at once. Its
-   * path is asked for meanwhile. The caller has checked the tree lacks it.
+   * path is asked for meanwhile. Whether it went in (not into a whole tree:
+   * a lieu it lacks does not match).
    */
-  function addStub(lieu: LieuStub) {
+  function addStub(lieu: LieuStub): boolean {
     const ks = shown;
-    if (!ks || ks.stubs.has(lieu.id)) return;
+    if (!ks || !stubFits(ks, lieu)) return false;
     ks.stubs.set(lieu.id, lieu);
     ks.version++;
     version.value++;
     ensureIn(ks, lieu.path);
+    return true;
+  }
+
+  /** The lieu that goes along when the tree on screen changes (the open one). */
+  let carry: (() => string | null) | null = null;
+  function setCarry(fn: (() => string | null) | null) {
+    carry = fn;
+  }
+
+  /** The open lieu, into a store swapped in without it (its stub, or one made
+   *  from its row), its path asked for: it stays selected until the store
+   *  knows its unit — and then whether it matches. */
+  function carryInto(ks: KeyStore, from: KeyStore) {
+    const id = carry?.();
+    if (!id || ks.req.key === EMPTY_KEY) return;
+    const stub = from.stubs.get(id) ?? stubOfRow(from, id);
+    if (!stub || !stubFits(ks, stub)) return;
+    ks.stubs.set(id, stub);
+    ks.version++;
+    ensureIn(ks, stub.path);
+  }
+
+  /** A stub of a store's lieu row: its path walked up its units. */
+  function stubOfRow(ks: KeyStore, id: string): LieuStub | null {
+    const row = ks.lieux.get(id);
+    if (!row) return null;
+    const path: string[] = [];
+    for (let u: string | null = row.unit; u && u !== WORLD;) {
+      path.unshift(u);
+      u = ks.units.get(u)?.row?.parent ?? null;
+    }
+    const { key, unit, lat, lng, city, n } = row;
+    return { id, key, unit, path, lat, lng, city, n };
   }
 
   // ---- What is read (after `version`) ----
@@ -427,13 +473,6 @@ export function useUnitTree(opts: UnitTreeOptions) {
   function wantedKey(): string | null {
     void status.value;
     return (next ?? shown)?.req.key ?? null;
-  }
-
-  /** The key asked for last and its parameters (the lists ask with them). */
-  function wantedRequest(): TreeRequest | null {
-    void status.value;
-    const ks = next ?? shown;
-    return ks ? { key: ks.req.key, params: ks.req.params } : null;
   }
 
   /** A kept key's parameters (null once its store is dropped). */
@@ -527,10 +566,10 @@ export function useUnitTree(opts: UnitTreeOptions) {
     setScope,
     ensure,
     addStub,
+    setCarry,
     data,
     shownKey,
     wantedKey,
-    wantedRequest,
     paramsOf,
     root,
     complete,

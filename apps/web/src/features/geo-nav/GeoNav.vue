@@ -259,6 +259,7 @@ const {
   showMoreResults,
   showMoreTestimonies,
   placeLoading,
+  placeFailed,
   panelAuditions,
   auditionMeta,
   audSwapping,
@@ -745,6 +746,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
           :highlight="highlight"
           :more="moreResults"
           :loading="placeLoading"
+          :failed="placeFailed"
           @toggle="toggleAud"
           @more="showMoreResults"
           @more-testimonies="showMoreTestimonies"

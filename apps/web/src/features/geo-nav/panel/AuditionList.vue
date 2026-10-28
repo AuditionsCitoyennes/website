@@ -32,6 +32,8 @@ defineProps<{
   more: boolean;
   /** The open lieu's auditions are on their way (the server's lazy path). */
   loading?: boolean;
+  /** The open lieu's auditions could not be had (the same). */
+  failed?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -67,6 +69,7 @@ defineExpose({ moreEl, moreTestimoniesEl });
       <p class="place-meta">{{ place.count }} témoignage{{ place.count > 1 ? "s" : "" }}</p>
     </template>
     <LoadingDots v-if="loading" label="Chargement des auditions…" />
+    <p v-else-if="failed" class="aud-empty">Impossible de charger les témoignages.</p>
 
     <div v-for="g in auditions" :key="g.id" class="aud-group">
       <button

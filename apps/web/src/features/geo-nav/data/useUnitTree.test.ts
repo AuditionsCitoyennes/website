@@ -38,6 +38,7 @@ g.window = globalThis;
 g.__TEST_TOOLS__ = false;
 
 const { useUnitTree } = await import("./useUnitTree");
+const { buildTreeFromUnits } = await import("@/features/geo");
 const { ApiError } = (await import("@/shared/api/client")) as unknown as {
   ApiError: new (m: string, status: number, retryAfter?: number | null) => Error;
 };
@@ -69,6 +70,7 @@ const KEYS: Record<string, { lieux: string[]; complete: boolean }> = {
   "": { lieux: Object.keys(LIEUX), complete: false },
   empty: { lieux: Object.keys(LIEUX), complete: false },
   ll: { lieux: ["l:0000000000000002"], complete: true },
+  qmace: { lieux: ["l:0000000000000001"], complete: false },
 };
 const keyOf = (k: string) => KEYS[k] ?? { lieux: Object.keys(LIEUX), complete: false };
 
@@ -298,4 +300,75 @@ test("the scope's own answer, refused once, is asked for again (its units' child
     tree.stats().units - 1,
     "its régions loaded (only Lyon 7e not)",
   );
+});
+
+// ---- Lieux known from a list (PR K) ---------------------------------------------
+
+const GRATTE_CIEL = {
+  id: "l:0000000000000002",
+  key: "Marché des Gratte-Ciel",
+  unit: "fr:com:69266",
+  path: ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69266"],
+  lat: 45.77,
+  lng: 4.88,
+  city: "Villeurbanne",
+  n: 1,
+};
+const listed = (tree: ReturnType<typeof useUnitTree>, id: string) =>
+  buildTreeFromUnits(tree.data()!).index.get(id);
+
+test("a lieu a list holds goes into a lazy tree as a stub, never into a whole one", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  tree.setScope(FR);
+  tree.request({ key: "qa", params: { q: "a" } });
+  await wait(80);
+  assert.equal(tree.shownKey(), "qa");
+  assert.equal(listed(tree, GRATTE_CIEL.id), undefined, "Villeurbanne's lieux not known yet");
+  assert.equal(tree.addStub(GRATTE_CIEL), true);
+  assert.equal(listed(tree, GRATTE_CIEL.id)?.parentId, "fr:dep:69", "under the deepest unit held");
+  await wait(80);
+  assert.equal(
+    listed(tree, GRATTE_CIEL.id)?.parentId,
+    "fr:com:69266",
+    "its path asked: its own row",
+  );
+
+  tree.request({ key: "ll", params: { l: GRATTE_CIEL.id } });
+  await wait(80);
+  assert.equal(tree.shownKey(), "ll");
+  assert.equal(tree.complete(), true);
+  assert.equal(tree.addStub({ ...GRATTE_CIEL, id: "l:00000000000000ff" }), false, "whole: no stub");
+});
+
+test("the open lieu goes along into a key swapped in without it, until that key knows its unit", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  tree.setScope(FR);
+  tree.request({ key: "qa", params: { q: "a" } });
+  await wait(80);
+  tree.addStub(GRATTE_CIEL);
+  tree.setCarry(() => GRATTE_CIEL.id);
+
+  // A key that holds it: there at once (a stub), then as its own row.
+  tree.request({ key: "", params: {} });
+  for (let i = 0; i < 40 && tree.shownKey() !== ""; i++) await wait(2);
+  assert.equal(tree.shownKey(), "");
+  assert.ok(listed(tree, GRATTE_CIEL.id), "selected still: in the tree from the swap on");
+  await wait(80);
+  assert.equal(listed(tree, GRATTE_CIEL.id)?.parentId, "fr:com:69266");
+
+  // A key it does not match: there until that key knows Villeurbanne's lieux.
+  tree.request({ key: "qmace", params: { q: "mace" } });
+  for (let i = 0; i < 40 && tree.shownKey() !== "qmace"; i++) await wait(2);
+  assert.equal(tree.shownKey(), "qmace");
+  assert.ok(listed(tree, GRATTE_CIEL.id), "carried over");
+  await wait(80);
+  assert.equal(listed(tree, GRATTE_CIEL.id), undefined, "its unit known without it: gone");
+
+  // Nothing carried once let go.
+  tree.setCarry(null);
+  tree.request({ key: "qb", params: { q: "b" } });
+  for (let i = 0; i < 40 && tree.shownKey() !== "qb"; i++) await wait(2);
+  assert.equal(tree.data()!.stubs?.size ?? 0, 0);
 });

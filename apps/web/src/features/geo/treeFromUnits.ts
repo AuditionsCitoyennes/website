@@ -34,7 +34,8 @@ export interface UnitTreeEntry {
 /**
  * A lieu known from a list (a result's row) before the tree holds it (the
  * lazy path): placed under its unit — or the deepest unit of its path the
- * tree holds — until its own row comes (map phase 1, design E1, K).
+ * tree holds — until its own row comes, or its unit is known without it
+ * (map phase 1, design E1, K).
  */
 export interface LieuStub extends PlaceResultLieu {
   /** Its matching testimonies, as far as the list knows them. */
@@ -224,9 +225,12 @@ export function buildTreeFromUnits(data: UnitTreeData): {
   }
   // Lieux known from a list only, after the counts (a unit's count already
   // holds its lieux'): last among the children of their unit, or of the
-  // deepest unit of their path the tree holds.
+  // deepest unit of their path the tree holds — until the tree knows their
+  // unit's lieux: then the lieu is there, or it does not match.
   for (const stub of data.stubs?.values() ?? []) {
     if (index.has(stub.id)) continue;
+    const own = data.units.get(stub.unit);
+    if (own?.loaded && !own.lieuIds?.includes(stub.id)) continue;
     let parent = root;
     for (let i = stub.path.length - 1; i >= 0; i--) {
       const u = index.get(stub.path[i]);

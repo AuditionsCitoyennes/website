@@ -8,8 +8,9 @@
 import {
   contentFiltersOf,
   placeFilterKey,
-  placeFilterQuerySchema,
+  placeFilterQueryOf,
   placeFiltersOf,
+  themeListOf,
   type PlaceLieuAuditions,
   type PlaceResultsCursor,
   type PlaceResultsPage,
@@ -17,8 +18,11 @@ import {
   type TestimonyPage,
   type TestimonyPageCursor,
 } from "@ac/shared";
-import { api, ApiError } from "@/shared/api/client";
+import { api } from "@/shared/api/client";
 import { RESULTS_PAGE } from "../model/auditions";
+import { retryable, retryWait, RETRIES } from "./placesApi";
+
+export type { ResultsPage } from "./resultsPages";
 
 /** `?resultsPage=` of the page, 1 to 100: the testing tools page a small
  *  dataset finely with it. */
@@ -32,12 +36,6 @@ export const RESULTS_LIMIT: number = (__TEST_TOOLS__ && pageAsked()) || RESULTS_
 
 /** Testimonies a page (design D10). */
 export const TESTIMONIES_LIMIT = 50;
-
-/** A results page, with what it was asked under. */
-export interface ResultsPage extends PlaceResultsPage {
-  key: string;
-  sort: PlaceSort;
-}
 
 /** A testimony page, with what it was asked under. */
 export interface TestimoniesPage extends TestimonyPage {
@@ -59,9 +57,12 @@ export function contentOf(params: Readonly<Record<string, string>>): {
 } {
   const out: Record<string, string> = {};
   for (const k of ["v", "t", "q"] as const) if (params[k] !== undefined) out[k] = params[k];
-  const q = placeFilterQuerySchema.safeParse(out);
-  const key = q.success ? placeFilterKey(contentFiltersOf(placeFiltersOf(q.data))) : "";
-  return { key, params: out };
+  const q = placeFilterQueryOf({
+    verified: out.v === "1",
+    themes: out.t ? themeListOf(out.t) : [],
+    text: out.q,
+  });
+  return { key: placeFilterKey(contentFiltersOf(placeFiltersOf(q))), params: out };
 }
 
 export function fetchResults(
@@ -104,20 +105,14 @@ export function fetchTestimonyPage(
   );
 }
 
-/** Waits before each retry of a refused read (unless Retry-After says). */
-const RETRY_MS = [1000, 2000, 4000];
-
 /** A read refused for now (429, 503, a gateway, no answer at all): tried
- *  again, three times (vue-query's `retry`; `failures` counts from 0). */
+ *  again RETRIES times, as the tree's are (vue-query's `retry`; `failures`
+ *  counts from 0). */
 export function retryRefused(failures: number, err: unknown): boolean {
-  if (failures >= RETRY_MS.length) return false;
-  if (err instanceof ApiError) return err.status === 429 || err.status >= 502;
-  return err instanceof TypeError;
+  return failures < RETRIES && retryable(err);
 }
 
 /** After Retry-After when the API says, else 1, 2 and 4 s (`retryDelay`). */
 export function retryDelay(failures: number, err: unknown): number {
-  const after = err instanceof ApiError ? err.retryAfter : null;
-  if (after !== null) return Math.max(250, after * 1000);
-  return RETRY_MS[Math.min(failures, RETRY_MS.length - 1)];
+  return retryWait(failures + 1, err);
 }

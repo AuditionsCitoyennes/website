@@ -173,8 +173,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   function lieuUnitOf(a: PanelAudition): GeoUnit | undefined {
     const known = a.placeId ? index.value.get(a.placeId) : undefined;
     if (known || !server || !a.lieu) return known;
-    server.addStub(a.lieu);
-    return index.value.get(a.lieu.id);
+    return server.addStub(a.lieu) ? index.value.get(a.lieu.id) : undefined;
   }
 
   /** Date, and in the results the lieu too (a lieu's own detail has it as title). */
@@ -211,30 +210,26 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
       selectedPlaceId.value = null;
     }
   });
-  watch(resultsSig, async () => {
+  watch(resultsSig, () => {
     if (!listMode.value) return;
     const open = [...openAuditions.value][0];
-    let at = open ? resultAuditions.value.findIndex((a) => a.id === open) : -1;
-    if (server && open) {
-      // The server's pages loaded hold the first rows only: whether the
-      // audition being read is further down is asked (results?through=).
-      if (at === -1 && server.moreResults.value) {
-        await server.loadThrough(open);
-        if (!listMode.value || [...openAuditions.value][0] !== open) return;
-        at = resultAuditions.value.findIndex((a) => a.id === open);
-      }
-      // Still read, its lieu stays the open one (the lazy path's new tree
-      // may not hold it yet).
-      const unit = at === -1 ? undefined : lieuUnitOf(resultAuditions.value[at]);
+    const at = open ? resultAuditions.value.findIndex((a) => a.id === open) : -1;
+    if (server && open && at !== -1) {
+      // Still read (the server's answer was read as far as it before it came
+      // on screen), its lieu stays the open one: the lazy path's new tree may
+      // not hold it yet.
+      const unit = lieuUnitOf(resultAuditions.value[at]);
       if (unit && selectedPlaceId.value !== unit.id) selectedPlaceId.value = unit.id;
     }
-    if (open && at === -1) {
-      // The audition being read no longer matches the filters.
+    // The audition being read no longer matches the filters — unless the
+    // server could not say (its read failed): it stays open, rather than
+    // closed on a guess.
+    if (open && at === -1 && server?.unknownOpen() !== open) {
       openAuditions.value.clear();
       selectedPlaceId.value = null;
     }
     // Back to the first page — or as far as the audition being read (the
-    // server's: the pages that hold it).
+    // server's: its answer was read so far).
     if (!server) shownCount.value = Math.max(RESULTS_PAGE, at + 1);
     // A new list is read from its top; the audition being read stays in sight
     // wherever the new order has put it.
@@ -398,16 +393,22 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   const placeLoading = computed(
     () => !!server && !listMode.value && server.placeList.value.loading,
   );
+  /** The open lieu's auditions could not be had (the same). */
+  const placeFailed = computed(() => !!server && !listMode.value && server.placeList.value.failed);
 
   /**
    * Where a lieu's first audition sits in the results, asked of the server
    * when the pages loaded do not hold it (its first, by /api/places/lieu, then
-   * the results as far as it, results?through=); -1: not there.
+   * the results as far as it, results?through=); -1: not there, the server
+   * could not say, or the results changed meanwhile.
    */
   async function findResultFurther(unit: GeoUnit): Promise<number> {
     if (!server) return -1;
+    const sig = server.resultsSig.value;
     const first = await server.firstAuditionAt(unit.id);
-    if (!first || !listMode.value || !(await server.loadThrough(first))) return -1;
+    if (!first || !listMode.value || server.resultsSig.value !== sig) return -1;
+    const found = await server.loadThrough(first);
+    if (found !== "found" || !listMode.value || server.resultsSig.value !== sig) return -1;
     return resultAuditions.value.findIndex((a) => a.id === first);
   }
 
@@ -419,6 +420,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     showMoreResults,
     showMoreTestimonies,
     placeLoading,
+    placeFailed,
     findResultFurther: server ? findResultFurther : null,
     panelAuditions,
     auditionMeta,

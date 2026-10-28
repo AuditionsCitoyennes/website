@@ -11,9 +11,10 @@ export const EMPTY_KEY = "empty";
  * vue-query keys. `all` prefixes every place read (app/ invalidates it when
  * an audition is created); a unit's counts are kept per filter key, unit,
  * depth and facts; the lists (PR K) under a word no filter key can be: the
- * results per filter key, sort and page size, a lieu's auditions per filter
- * key, an audition's testimonies per content filter key (verified, themes,
- * text: the only filters judged on a testimony).
+ * results per filter key, sort and page size (and a read of them as far as
+ * an audition), a lieu's auditions per filter key, an audition's testimonies
+ * per content filter key (verified, themes, text: the only filters judged on
+ * a testimony).
  */
 export const placesKeys = {
   all: ["places"] as const,
@@ -22,6 +23,8 @@ export const placesKeys = {
   facets: () => [...placesKeys.all, "facets"] as const,
   results: (fkey: string, sort: string, limit: number) =>
     [...placesKeys.all, "results", fkey, sort, limit] as const,
+  through: (fkey: string, sort: string, audition: string, limit: number) =>
+    [...placesKeys.all, "through", fkey, sort, audition, limit] as const,
   lieu: (id: string, fkey: string) => [...placesKeys.all, "lieu", id, fkey] as const,
   testimonies: (audition: string, contentKey: string) =>
     [...placesKeys.all, "testimonies", audition, contentKey] as const,

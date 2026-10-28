@@ -290,8 +290,9 @@ test("a lieu known from a list only: under its unit, or the deepest unit the tre
     city: "Lyon",
     n: 3,
   };
-  // Its unit is in the tree: last among its children, labelled and placed.
-  const whole = serverData(groups);
+  // Its unit is in the tree, its lieux not known yet: last among its
+  // children, labelled and placed.
+  const whole = serverData(groups, (id) => id !== "fr:com:69387");
   const { index } = buildTreeFromUnits({ ...whole, stubs: new Map([[stub.id, stub]]) });
   const u = index.get(stub.id)!;
   assert.equal(u.levelKey, "place");
@@ -308,7 +309,7 @@ test("a lieu known from a list only: under its unit, or the deepest unit the tre
   assert.equal(parent.count, buildTreeFromUnits(whole).index.get("fr:com:69387")!.count);
 
   // The Rhône's children not known yet: under the Rhône, the deepest held.
-  const lazy = serverData(groups, (id) => id !== "fr:dep:69");
+  const lazy = serverData(groups, (id) => id !== "fr:dep:69" && id !== "fr:com:69387");
   const pending = buildTreeFromUnits({ ...lazy, stubs: new Map([[stub.id, stub]]) }).index;
   assert.equal(pending.get(stub.id)!.parentId, "fr:dep:69");
   assert.equal(pending.get(stub.id)!.insee, undefined);
@@ -341,4 +342,23 @@ test("a stub gives way to the lieu's own row", () => {
   const plain = buildTreeFromUnits(data);
   assert.deepEqual(shape(withStub.root), shape(plain.root));
   assert.equal(withStub.index.get(real.id)!.canonical, real.key);
+});
+
+test("a stub whose unit's lieux are known without it is gone: it does not match", () => {
+  const groups = mapOrder(GROUPS);
+  const lyon7 = ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69387"];
+  const stub = {
+    id: "l:0123456789abcdef",
+    key: "Square Delfosse, Lyon",
+    unit: "fr:com:69387",
+    path: lyon7,
+    lat: 45.74,
+    lng: 4.84,
+    city: "Lyon",
+    n: 3,
+  };
+  const data = serverData(groups);
+  const withStub = buildTreeFromUnits({ ...data, stubs: new Map([[stub.id, stub]]) });
+  assert.equal(withStub.index.has(stub.id), false);
+  assert.deepEqual(shape(withStub.root), shape(buildTreeFromUnits(data).root));
 });

@@ -24,7 +24,7 @@
     "db:check:seeded": "tsx scripts/db-checks/migrate-seeded.ts",
     "db:parity": "tsx scripts/parity/explore-parity.ts",
     "db:sql-gen": "tsx scripts/sql-gen/derived.ts",
-    "test:scripts": "node --import tsx --test scripts/db-checks/seedGate.test.ts apps/web/src/features/geo/boundaries.test.ts apps/web/src/features/geo/treeFromUnits.test.ts apps/web/src/features/filters/serverFilters.test.ts apps/web/src/features/geo-nav/data/useUnitTree.test.ts apps/web/src/features/geo-nav/model/auditions.test.ts",
+    "test:scripts": "node --import tsx --test scripts/db-checks/seedGate.test.ts apps/web/src/features/geo/boundaries.test.ts apps/web/src/features/geo/treeFromUnits.test.ts apps/web/src/features/filters/serverFilters.test.ts apps/web/src/features/geo-nav/data/useUnitTree.test.ts apps/web/src/features/geo-nav/model/auditions.test.ts apps/web/src/features/geo-nav/data/resultsPages.test.ts",
     "place-backfill": "tsx scripts/place-backfill/generate.ts",
     "build": "npm run build --workspace=@ac/web && npm run build --workspace=@ac/api",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p scripts",
