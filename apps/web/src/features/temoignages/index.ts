@@ -1,5 +1,7 @@
 // The explorer the stage shows: the public corpus and the map's groups,
 // filtered once for both the pins and the panel. MapStage mounts it (lazily,
-// through the loader); app/AppDialogs.vue invalidates its queries.
+// through the loader); app/AppDialogs.vue invalidates its queries — and the
+// place reads' (placesKeys, map phase 1).
 export const loadTemoignagesExplorer = () => import("./TemoignagesExplorer.vue");
 export { testimoniesKeys } from "./api/queries";
+export { placesKeys } from "@/features/geo-nav";
