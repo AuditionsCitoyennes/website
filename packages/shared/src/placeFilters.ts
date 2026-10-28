@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { fold } from "./filters";
 import { AUDITION_THEMES } from "./themes";
 
@@ -6,7 +5,8 @@ import { AUDITION_THEMES } from "./themes";
 // siblings, map phase 1): one query-string form, parsed and validated here
 // for the API and built here by the web, so that both derive the same
 // canonical key: the API's cache key and the web's query key (and its list
-// mode) are one string.
+// mode) are one string. No zod here: the web reaches this module, and the
+// API's schema (placeFilterSchema.ts) applies the same rules.
 //
 //   v=1            verified testimonies only
 //   t=0,11         themes, as AUDITION_THEMES indexes (any of them)
@@ -49,48 +49,37 @@ const list = (s: string) =>
 const canonical = <T extends string | number>(xs: T[]): T[] =>
   [...new Set(xs)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
-/** zod's error for a parameter that must come once, as a string (a repeated one comes as a list). */
-export const oneParam = (what: string) => ({
-  error: `Paramètre ${what} invalide (un seul attendu).`,
-});
-const one = oneParam;
+/** A theme as the query gives it: an AUDITION_THEMES index, 0 to 15. */
+export const THEME_TOKEN = /^(\d|1[0-5])$/;
 
-const idList = (re: RegExp, param: string, plural: string, invalid: string) =>
-  z
-    .string(one(param))
-    .refine((s) => list(s).length <= PLACE_IDS_MAX, {
-      error: `${PLACE_IDS_MAX} ${plural} au plus.`,
-    })
-    .refine((s) => list(s).every((id) => re.test(id)), { error: invalid })
-    .transform((s) => canonical(list(s)));
+/** A free text the place reads take: at most SEARCH_TEXT_MAX characters,
+ *  typed and folded (some fold longer), and no NUL (Postgres text cannot
+ *  hold one, 22P05). */
+export function searchTextOk(s: string): boolean {
+  return (
+    s.length <= SEARCH_TEXT_MAX && !s.includes("\u0000") && fold(s.trim()).length <= SEARCH_TEXT_MAX
+  );
+}
 
-const day = (param: string, what: string) =>
-  z.string(one(param)).refine(isDay, { error: `Date ${what} invalide (AAAA-MM-JJ).` });
+/** A comma-separated list's items, trimmed, the empty ones left out. */
+export const listItems = (s: string): string[] => list(s);
 
-/** The filter parameters of a place read, validated (a querystring's values: strings). */
-export const placeFilterQuerySchema = z.object({
-  v: z.enum(["0", "1"], { error: "Paramètre v invalide (0 ou 1)." }).optional(),
-  t: z
-    .string(one("t"))
-    .refine((s) => list(s).every((x) => /^(\d|1[0-5])$/.test(x)), { error: "Thème inconnu." })
-    .transform((s) => canonical(list(s).map(Number)))
-    .optional(),
-  q: z
-    .string(one("q"))
-    .max(SEARCH_TEXT_MAX, `Texte trop long (${SEARCH_TEXT_MAX} caractères au plus).`)
-    // Postgres text cannot hold a NUL (22P05).
-    .refine((s) => !s.includes("\u0000"), { error: "Texte invalide." })
-    .refine((s) => fold(s.trim()).length <= SEARCH_TEXT_MAX, {
-      error: `Texte trop long (${SEARCH_TEXT_MAX} caractères au plus).`,
-    })
-    .optional(),
-  from: day("from", "de début").optional(),
-  to: day("to", "de fin").optional(),
-  u: idList(UNIT_ID, "u", "unités", "Identifiant d'unité invalide.").optional(),
-  l: idList(LIEU_ID, "l", "lieux", "Identifiant de lieu invalide.").optional(),
-});
+/** A comma-separated id list, sorted and without duplicates. */
+export const idListOf = (s: string): string[] => canonical(list(s));
 
-export type PlaceFilterQuery = z.infer<typeof placeFilterQuerySchema>;
+/** A comma-separated theme list, as sorted indexes without duplicates. */
+export const themeListOf = (s: string): number[] => canonical(list(s).map(Number));
+
+/** The filter parameters of a place read, validated (placeFilterQuerySchema's output). */
+export interface PlaceFilterQuery {
+  v?: "0" | "1";
+  t?: number[];
+  q?: string;
+  from?: string;
+  to?: string;
+  u?: string[];
+  l?: string[];
+}
 
 /** The filters of a place read, normalised. */
 export interface PlaceFilters {
@@ -236,4 +225,48 @@ export function placeFilterParams(input: PlaceFilterInput): Record<string, strin
   if (input.units?.length) out.u = canonical([...input.units]).join(",");
   if (input.lieux?.length) out.l = canonical([...input.lieux]).join(",");
   return out;
+}
+
+/** Ids of the form, the first `max` of them as given, sorted without duplicates. */
+function firstIds(ids: readonly string[] | undefined, re: RegExp): string[] {
+  const valid = [...new Set(ids ?? [])].filter((id) => re.test(id));
+  return canonical(valid.slice(0, PLACE_IDS_MAX));
+}
+
+/**
+ * The query the API parses from placeFilterParams(input), without zod — when
+ * every part is valid. Where the API would refuse the whole query, this keeps
+ * what it can: an invalid text or date is left out, ids not of their form are
+ * dropped, and of more than PLACE_IDS_MAX units (or lieux) the first given are
+ * kept. Its parameters (placeFilterParams of it) parse back to it.
+ */
+export function placeFilterQueryOf(input: PlaceFilterInput): PlaceFilterQuery {
+  const out: PlaceFilterQuery = {};
+  if (input.verified) out.v = "1";
+  const themes = canonical(
+    (input.themes ?? []).filter((i) => Number.isInteger(i) && THEME_TOKEN.test(String(i))),
+  );
+  if (themes.length) out.t = themes;
+  const text = input.text?.trim();
+  if (text && searchTextOk(text)) out.q = text;
+  if (input.from && isDay(input.from)) out.from = input.from;
+  if (input.to && isDay(input.to)) out.to = input.to;
+  const units = firstIds(input.units, UNIT_ID);
+  if (units.length) out.u = units;
+  const lieux = firstIds(input.lieux, LIEU_ID);
+  if (lieux.length) out.l = lieux;
+  return out;
+}
+
+/** placeFilterParams of a parsed query: what the API is sent for it. */
+export function placeFilterQueryParams(q: PlaceFilterQuery): Record<string, string> {
+  return placeFilterParams({
+    verified: q.v === "1",
+    themes: q.t,
+    text: q.q,
+    from: q.from,
+    to: q.to,
+    units: q.u,
+    lieux: q.l,
+  });
 }

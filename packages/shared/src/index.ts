@@ -7,6 +7,7 @@ export * from "./filters";
 export * from "./frSplitCities";
 export * from "./locations";
 export * from "./placeFilters";
+export * from "./placeFilterSchema";
 export * from "./places";
 export * from "./sanitize";
 export * from "./schemas";
