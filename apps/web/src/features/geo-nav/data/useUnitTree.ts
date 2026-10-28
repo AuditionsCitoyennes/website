@@ -613,14 +613,50 @@ export function useUnitTree(opts: UnitTreeOptions) {
     return ks?.units.get(WORLD)?.loaded ? ks : staleEmpty;
   }
   function wantEmpty() {
-    const known = stores.get(EMPTY_KEY);
-    const ks = known && !known.stale ? known : storeOf({ key: EMPTY_KEY, params: {} });
+    const ks = emptyStore();
     // Wanted again: a failed answer is asked for again.
-    if (forgetFailures(ks)) {
-      if (ks === shown || ks === next) status.value++;
-      else sideVersion.value++;
-    }
+    if (forgetFailures(ks)) bumpFor(ks);
     ensureIn(ks, [WORLD], true);
+  }
+
+  /** The place picker's store asked for now (a reloaded one's reload). */
+  function emptyStore(): KeyStore {
+    const known = stores.get(EMPTY_KEY);
+    return known && !known.stale ? known : storeOf({ key: EMPTY_KEY, params: {} });
+  }
+
+  /** What a change of a store's loading or failures bumps. */
+  function bumpFor(ks: KeyStore) {
+    if (ks === shown || ks === next) status.value++;
+    else sideVersion.value++;
+  }
+
+  /**
+   * The place picker's tree on the lazy path: these units' children asked
+   * for (a node opened), their own answers, batched and retried as the map's
+   * are; what failed under them is asked for again. A unit already known
+   * (always, when the world's answer was the whole tree) asks for nothing.
+   */
+  function loadEmpty(ids: readonly string[]) {
+    const ks = emptyStore();
+    for (const id of ids) {
+      ks.failed.delete(id);
+      ks.attempts.delete(id);
+    }
+    ensureIn(ks, ids, false, true);
+    bumpFor(ks);
+  }
+
+  /** Where a unit of the place picker's tree stands: its answer on its way
+   *  (or waiting to be asked again), failed, or neither. */
+  function emptyStatus(id: string): "loading" | "failed" | null {
+    void version.value;
+    void sideVersion.value;
+    void status.value;
+    const ks = stores.get(EMPTY_KEY);
+    if (!ks) return null;
+    if (ks.inflight.has(id) || ks.waiting.has(id)) return "loading";
+    return ks.failed.has(id) ? "failed" : null;
   }
 
   /** For the testing tools' probe. */
@@ -643,6 +679,22 @@ export function useUnitTree(opts: UnitTreeOptions) {
       waiting: [...stores.values()].reduce((s, ks) => s + ks.waiting.size, 0),
       failed: shown ? [...shown.failed] : [],
       failedNext: next ? [...next.failed] : [],
+      picker: pickerStats(),
+    };
+  }
+
+  function pickerStats() {
+    const ks = stores.get(EMPTY_KEY);
+    if (!ks) return null;
+    return {
+      units: ks.units.size,
+      loaded: [...ks.units.values()].filter((e) => e.loaded).length,
+      lieux: ks.lieux.size,
+      complete: ks.complete,
+      asked: ks.asked,
+      inflight: [...ks.inflight.keys()],
+      waiting: [...ks.waiting],
+      failed: [...ks.failed],
     };
   }
 
@@ -666,6 +718,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
     facts,
     emptyData,
     wantEmpty,
+    loadEmpty,
+    emptyStatus,
     stats,
   };
 }
