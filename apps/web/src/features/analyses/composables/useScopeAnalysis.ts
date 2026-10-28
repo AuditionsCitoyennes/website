@@ -23,9 +23,17 @@ import {
   type ScopeAnalysis,
   type UnitStatsIndex,
 } from "../stats/scopeStats";
+import { figuresHash } from "../stats/factsStats";
 import { slabSizes, type SlabSizes } from "../content/slabSizes";
 import { plateRoom, slabGap, type PlateRoom, type ScreenOpts } from "../content/plateRoom";
-import { RING_BANDS, ringBandMode, slabLidMode, slabTextMode, slabTextScale } from "../devSwitch";
+import {
+  pendingAnalysesMode,
+  RING_BANDS,
+  ringBandMode,
+  slabLidMode,
+  slabTextMode,
+  slabTextScale,
+} from "../devSwitch";
 
 export interface ScopeAnalysisInputs {
   /** The analyses are on (the page's toggle). */
@@ -57,6 +65,16 @@ export interface ScopeAnalysisInputs {
   /** The last command that framed a unit: its slabs are sized for the camera
    *  it lands on. */
   framedFit: ShallowRef<{ key: number; unitId: string } | null>;
+  /**
+   * The server's tree is on screen (map phase 1): every unit's figures come
+   * from the database (stats/factsStats), not from `groups` and
+   * `ownAuditions` — the index for the key and store version on screen, and
+   * how its lieux are named. Absent: the corpus' (buildUnitStats).
+   */
+  server?: {
+    stats: () => UnitStatsIndex;
+    placeLabel: (lieu: { key: string; city: string | null }) => string;
+  };
 }
 
 export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
@@ -76,25 +94,47 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
     listMode,
     themeFilter,
     framedFit,
+    server,
   } = inputs;
 
   // Every unit's figures, gathered once per data load. Keyed on the data itself,
   // not on the hierarchy, which is rebuilt each time commune contours arrive.
-  const unitStats = computed<UnitStatsIndex | null>(() =>
-    analyses.value && !preview.value
-      ? markRaw(buildUnitStats(groups.value, ownAuditions.value))
-      : null,
-  );
+  // The server's: the index the caller builds once per key and store version.
+  const unitStats = computed<UnitStatsIndex | null>(() => {
+    if (!analyses.value || preview.value) return null;
+    if (server) return server.stats();
+    return markRaw(buildUnitStats(groups.value, ownAuditions.value));
+  });
 
   // The scope is re-derived as the map moves and its unit object replaced at each
   // rebuild of the hierarchy: an analysis already made for the same territory is
   // handed back as it was, so the plates do not re-render.
   const analysisMemo = new Map<string, ScopeAnalysis | null>();
   let analysisMemoOf: UnitStatsIndex | null = null;
+  // The server's tree: each answer merged is a new index, its units' figures
+  // mostly unchanged — remembered by unit and figures, so a merge re-renders
+  // no plate. The last analysis shown stands in while a unit's figures are on
+  // their way, unless "Analyses en attente" says otherwise (DEV).
+  let lastServerAnalysis: ScopeAnalysis | null = null;
+  function serverAnalysis(stats: UnitStatsIndex, unit: GeoUnit): ScopeAnalysis | null {
+    const figures = stats.figuresOf(unit.id);
+    if (!figures) return pendingAnalysesMode.value === "garder" ? lastServerAnalysis : null;
+    const key = `${unit.id}#${figuresHash(figures)}`;
+    if (analysisMemo.size > 200) analysisMemo.clear();
+    let analysis = analysisMemo.get(key);
+    if (analysis === undefined) {
+      analysis = analyseScope(unit, stats, { placeLabel: server!.placeLabel });
+      analysisMemo.set(key, analysis);
+    }
+    lastServerAnalysis = analysis;
+    return analysis;
+  }
   const scopeAnalysis = computed<ScopeAnalysis | null>(() => {
     const stats = unitStats.value;
     const unit = currentScope.value;
+    if (!stats) lastServerAnalysis = null;
     if (!stats || unit.levelKey === "world") return null;
+    if (server) return serverAnalysis(stats, unit);
     if (stats !== analysisMemoOf || analysisMemo.size > 200) {
       analysisMemo.clear();
       analysisMemoOf = stats;
@@ -102,7 +142,7 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
     if (analysisMemo.has(unit.id)) return analysisMemo.get(unit.id) ?? null;
     const labels = placeByCanonical.value;
     const analysis = analyseScope(unit, stats, {
-      placeLabel: (canonical) => labels.get(canonical)?.label ?? canonical,
+      placeLabel: (lieu) => labels.get(lieu.key)?.label ?? lieu.key,
     });
     analysisMemo.set(unit.id, analysis);
     return analysis;

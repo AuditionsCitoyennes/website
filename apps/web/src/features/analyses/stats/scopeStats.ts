@@ -39,9 +39,35 @@ export interface ScopeAnalysis {
   reliabilityReason: string | null; // short French reason when not "solide"
 }
 
-/** Opaque to callers: built once per data load by buildUnitStats. */
+/** A unit's figures — what its analysis is made of: summed by buildUnitStats
+ *  from the corpus, or read from the database's facts (factsStats). */
+export interface UnitFigures {
+  testimonies: number;
+  auditions: number;
+  lieux: number;
+  communes: number;
+  cohorts: { terrain: number; cahier2019: number; archive: number };
+  /** Per AUDITION_THEMES index: testimonies citing it. */
+  themes: ArrayLike<number>;
+  /** Per AUDITION_THEMES index: auditions with a testimony citing it. */
+  themeAuditions: ArrayLike<number>;
+  themeBase: number;
+  untagged: number;
+  approx: number;
+  /** Its real audition dates' span (the reliability's "2025-26"). */
+  first: string | null;
+  last: string | null;
+  /** The audition with the most testimonies: how many, and its lieu (canonical
+   *  name and ville, as the lieu is labelled). */
+  largest: { n: number; key: string; city: string | null } | null;
+}
+
+/** Opaque to callers: built once per data load (buildUnitStats, or
+ *  buildFactsIndex from the server's facts). */
 export interface UnitStatsIndex {
   readonly kind: "unit-stats";
+  /** A unit's figures; undefined: none known (yet). */
+  figuresOf(id: string): UnitFigures | undefined;
 }
 
 /** One of the association's own auditions, with its (filtered) testimonies
@@ -59,6 +85,8 @@ const THEME_INDEX = new Map<AuditionTheme, number>(AUDITION_THEMES.map((t, i) =>
 /** An own audition, read once: what every unit it sits in adds up. */
 interface AuditionFacts {
   canonical: string;
+  /** Its group's ville (the lieu's label drops it). */
+  city: string | null;
   /** Its date when real; null for a placeholder (or none). */
   realDate: string | null;
   cohort: AuditionCohort;
@@ -95,8 +123,30 @@ interface ScopeCore {
 }
 
 interface IndexImpl extends UnitStatsIndex {
-  units: Map<string, UnitStats>;
   cores: Map<string, ScopeCore>;
+}
+
+/** A unit with no own audition: nothing heard there. */
+export const NO_FIGURES: UnitFigures = Object.freeze({
+  testimonies: 0,
+  auditions: 0,
+  lieux: 0,
+  communes: 0,
+  cohorts: Object.freeze({ terrain: 0, cahier2019: 0, archive: 0 }),
+  themes: new Int32Array(THEME_COUNT),
+  themeAuditions: new Int32Array(THEME_COUNT),
+  themeBase: 0,
+  untagged: 0,
+  approx: 0,
+  first: null,
+  last: null,
+  largest: null,
+});
+
+/** An index over figures already gathered (`figuresOf`). */
+export function statsIndex(figuresOf: (id: string) => UnitFigures | undefined): UnitStatsIndex {
+  const index: IndexImpl = { kind: "unit-stats", figuresOf, cores: new Map() };
+  return index;
 }
 
 function emptyStats(): UnitStats {
@@ -117,7 +167,7 @@ function emptyStats(): UnitStats {
   };
 }
 
-function readAudition(a: OwnAudition, canonical: string): AuditionFacts {
+function readAudition(a: OwnAudition, canonical: string, city: string | null): AuditionFacts {
   const themes = new Int32Array(THEME_COUNT);
   let base = 0;
   let untagged = 0;
@@ -132,6 +182,7 @@ function readAudition(a: OwnAudition, canonical: string): AuditionFacts {
   }
   return {
     canonical,
+    city,
     realDate: isPlaceholderAuditionDate(a) ? null : a.date,
     cohort: auditionCohort(a),
     testimonies: a.testimonies,
@@ -209,16 +260,41 @@ export function buildUnitStats(
         at = chain.map(statsOf);
         commune = communeOf(chain);
       }
-      const facts = readAudition(own, g.canonicalName);
+      const facts = readAudition(own, g.canonicalName, g.city ?? null);
       for (const s of at) addAudition(s, facts, commune);
     }
   }
-  const index: IndexImpl = {
-    kind: "unit-stats",
-    units,
-    cores: new Map(),
+  const figures = new Map<string, UnitFigures>();
+  return statsIndex((id) => {
+    let f = figures.get(id);
+    if (!f) {
+      const s = units.get(id);
+      f = s ? figuresOfStats(s) : NO_FIGURES;
+      figures.set(id, f);
+    }
+    return f;
+  });
+}
+
+/** The corpus' sums as figures. */
+function figuresOfStats(s: UnitStats): UnitFigures {
+  return {
+    testimonies: s.own,
+    auditions: s.members.length,
+    lieux: s.lieux.size,
+    communes: s.communes.size,
+    cohorts: s.cohorts,
+    themes: s.themes,
+    themeAuditions: s.themeAuditions,
+    themeBase: s.themeBase,
+    untagged: s.untagged,
+    approx: s.approx,
+    first: s.first,
+    last: s.last,
+    largest: s.largest
+      ? { n: s.largest.testimonies.length, key: s.largest.canonical, city: s.largest.city }
+      : null,
   };
-  return index;
 }
 
 const LEVEL_NAME: Record<LevelKey, string> = {
@@ -244,14 +320,14 @@ function yearsOf(first: string | null, last: string | null): string {
  * under 5 nothing is shown, under 10 rough shares only. "solide" asks for 30 of them
  * from at least 3 auditions, none holding more than half, all of one period.
  */
-function reliabilityOf(s: UnitStats | undefined): { level: Reliability; reason: string | null } {
-  const n = s?.themeBase ?? 0;
-  if (!s || n < 5) return { level: "trop-peu", reason: "moins de 5 témoignages analysés" };
+function reliabilityOf(s: UnitFigures): { level: Reliability; reason: string | null } {
+  const n = s.themeBase;
+  if (n < 5) return { level: "trop-peu", reason: "moins de 5 témoignages analysés" };
   if (n < 10) return { level: "chips", reason: "moins de 10 témoignages analysés" };
-  const count = s.members.length;
-  const maxShare = s.own ? (s.largest?.testimonies.length ?? 0) / s.own : 0;
+  const count = s.auditions;
+  const maxShare = s.testimonies ? (s.largest?.n ?? 0) / s.testimonies : 0;
   const top = Math.max(s.cohorts.terrain, s.cohorts.cahier2019, s.cohorts.archive);
-  const mono = top >= 0.9 * s.own;
+  const mono = top >= 0.9 * s.testimonies;
   if (n >= 30 && count >= 3 && maxShare <= 0.5 && mono) return { level: "solide", reason: null };
   let reason: string;
   if (n < 30) reason = "moins de 30 témoignages analysés";
@@ -263,7 +339,7 @@ function reliabilityOf(s: UnitStats | undefined): { level: Reliability; reason: 
   return { level: "indicatif", reason };
 }
 
-function coreOf(index: IndexImpl, id: string, s: UnitStats): ScopeCore {
+function coreOf(index: IndexImpl, id: string, s: UnitFigures): ScopeCore {
   let core = index.cores.get(id);
   if (core) return core;
   const themes = AUDITION_THEMES.map((theme, i) => ({
@@ -276,7 +352,7 @@ function coreOf(index: IndexImpl, id: string, s: UnitStats): ScopeCore {
     themes,
     reliability: level,
     reason,
-    share: s.own ? (s.largest?.testimonies.length ?? 0) / s.own : 0,
+    share: s.testimonies ? (s.largest?.n ?? 0) / s.testimonies : 0,
   };
   index.cores.set(id, core);
   return core;
@@ -285,31 +361,32 @@ function coreOf(index: IndexImpl, id: string, s: UnitStats): ScopeCore {
 // ---- One scope ---------------------------------------------------------------
 
 /** The analysis of one unit, from the index built for the data on screen
- *  (`placeLabel`: a lieu's name, as the map shows it). */
+ *  (`placeLabel`: the largest audition's lieu, as the map names it). A unit
+ *  the index has no figures for has heard nothing. */
 export function analyseScope(
   unit: GeoUnit,
   index: UnitStatsIndex,
-  opts: { placeLabel: (canonical: string) => string },
+  opts: { placeLabel: (lieu: { key: string; city: string | null }) => string },
 ): ScopeAnalysis | null {
   if (unit.levelKey === "world") return null;
   const idx = index as IndexImpl;
-  const s = idx.units.get(unit.id) ?? emptyStats();
+  const s = idx.figuresOf(unit.id) ?? NO_FIGURES;
   const core = coreOf(idx, unit.id, s);
   const largest = s.largest;
   return {
     scopeId: unit.id,
     label: unit.label,
     levelLabel: LEVEL_NAME[unit.levelKey],
-    testimonies: s.own,
-    auditions: s.members.length,
-    lieux: s.lieux.size,
-    communes: s.communes.size,
+    testimonies: s.testimonies,
+    auditions: s.auditions,
+    lieux: s.lieux,
+    communes: s.communes,
     // Among several auditions only: one alone holds everything by definition.
     concentration:
-      largest && s.members.length > 1 && core.share > 0.25
+      largest && s.auditions > 1 && core.share > 0.25
         ? {
-            lieu: opts.placeLabel(largest.canonical),
-            count: largest.testimonies.length,
+            lieu: opts.placeLabel(largest),
+            count: largest.n,
             share: core.share,
           }
         : null,
