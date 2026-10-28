@@ -259,6 +259,7 @@ test("a text below SEARCH_MIN_CHARS: not applied, said so, the unfiltered entry 
   assert.equal(short.headers["x-cache"], "hit");
   const body = short.json();
   assert.equal(body.textIgnored, true);
+  assert.equal(body.minChars, 3, "the minimum, for the web's hint");
   assert.deepEqual(body.echo.filters, {});
   assert.equal(calls.place_counts_many.length, 1);
   const plain = await get("/api/places?unit=world");
@@ -267,10 +268,19 @@ test("a text below SEARCH_MIN_CHARS: not applied, said so, the unfiltered entry 
 
   const batch = await get("/api/places?units=world,FR&q=ab");
   assert.equal(batch.json().textIgnored, true);
+  assert.equal(batch.json().minChars, 3);
   assert.equal(batch.json().results.length, 2);
 
   const results = await get("/api/places/results?q=ab");
   assert.equal(results.json().textIgnored, true);
+  assert.equal(results.json().minChars, 3);
+  // A later page, built for its reply alone, says so too.
+  const later = await get(
+    `/api/places/results?q=ab&after=2025-01-01,2025-01-01,${TIE},${AUDITION}`,
+  );
+  assert.equal(later.statusCode, 200, later.body);
+  assert.equal(later.json().textIgnored, true);
+  assert.equal(later.json().minChars, 3);
   const applied = await get("/api/places/results?q=abc");
   assert.equal(applied.json().textIgnored, undefined);
   assert.equal(applied.json().echo.p_filters.like, "%abc%");

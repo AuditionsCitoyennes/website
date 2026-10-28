@@ -356,6 +356,10 @@ async function sendDerived(
   return sendCached(req, reply, hit.res, "no-cache");
 }
 
+/** What an answer whose text was ignored starts with: said so, and the
+ *  shortest text searched (the web's hint, learnt in one answer). */
+const ignoredHead = () => `"textIgnored":true,"minChars":${config.SEARCH_MIN_CHARS}`;
+
 /** One cached answer, as is (or with `"textIgnored": true` first, kept as its own response). */
 function sendOne(
   req: FastifyRequest,
@@ -365,7 +369,7 @@ function sendOne(
   timing: DbTiming,
 ): Promise<FastifyReply> | FastifyReply {
   if (!f.textIgnored) return sendCached(req, reply, res, "no-cache");
-  const head = Buffer.from(res.json.length > 2 ? '{"textIgnored":true,' : '{"textIgnored":true');
+  const head = Buffer.from(res.json.length > 2 ? `{${ignoredHead()},` : `{${ignoredHead()}`);
   return sendDerived(
     req,
     reply,
@@ -435,7 +439,9 @@ async function serveRead(
     const value = await read.fetch(timing);
     // Built for this reply alone (a later page), its textIgnored with it.
     const res = await buildResponse(
-      f.textIgnored && isRecord(value) ? { textIgnored: true, ...value } : value,
+      f.textIgnored && isRecord(value)
+        ? { textIgnored: true, minChars: config.SEARCH_MIN_CHARS, ...value }
+        : value,
     );
     timed(reply, "miss", timing, performance.now() - started);
     return sendCached(req, reply, res, "no-cache");
@@ -521,7 +527,7 @@ export default async function placeReadRoutes(app: FastifyInstance) {
       ]);
       const build = () =>
         Buffer.concat([
-          Buffer.from(f.textIgnored ? '{"textIgnored":true,"results":[' : '{"results":['),
+          Buffer.from(f.textIgnored ? `{${ignoredHead()},"results":[` : '{"results":['),
           ...parts.flatMap((p, i) => (i === 0 ? [p.json] : [COMMA, p.json])),
           Buffer.from("]}"),
         ]);
