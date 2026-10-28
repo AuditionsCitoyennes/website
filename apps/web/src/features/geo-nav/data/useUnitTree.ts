@@ -22,11 +22,14 @@
 // - 429 and 503 (and a network failure) are retried after Retry-After, or 1,
 //   2 and 4 s, while the key is wanted; then the unit is `failed` (the panel's
 //   error line) until the scope changes or the key is asked for again.
+// - A lieu a list knows before the tree does (a result opened on the lazy
+//   path) is held as a stub under its unit, its path asked for meanwhile
+//   (PR K): selected, flown to and labelled at once, its own row replacing it.
 
 import { ref } from "vue";
 import { isCancelledError, type QueryClient } from "@tanstack/vue-query";
 import type { PlaceCounts, PlaceFacts, PlaceLieuRow, PlaceUnitRow } from "@ac/shared";
-import { WORLD, type UnitTreeData, type UnitTreeEntry } from "@/features/geo";
+import { WORLD, type LieuStub, type UnitTreeData, type UnitTreeEntry } from "@/features/geo";
 import {
   createCountsBatcher,
   EMPTY_KEY,
@@ -65,6 +68,8 @@ interface Entry extends UnitTreeEntry {
 class KeyStore implements UnitTreeData {
   readonly units = new Map<string, Entry>();
   readonly lieux = new Map<string, PlaceLieuRow>();
+  /** Lieux opened from a list before the tree held them. */
+  readonly stubs = new Map<string, LieuStub>();
   /** The world's answer (its self and unplaced counts). */
   root: PlaceCounts | null = null;
   /** Bumped at each merge. */
@@ -390,6 +395,20 @@ export function useUnitTree(opts: UnitTreeOptions) {
     if (shown) ensureIn(shown, ids, false, deep);
   }
 
+  /**
+   * A lieu a list holds (a result's row), into the tree on screen until its
+   * own row comes: it can be selected, flown to and labelled at once. Its
+   * path is asked for meanwhile. The caller has checked the tree lacks it.
+   */
+  function addStub(lieu: LieuStub) {
+    const ks = shown;
+    if (!ks || ks.stubs.has(lieu.id)) return;
+    ks.stubs.set(lieu.id, lieu);
+    ks.version++;
+    version.value++;
+    ensureIn(ks, lieu.path);
+  }
+
   // ---- What is read (after `version`) ----
 
   /** The data on screen, or null before the first answer. */
@@ -408,6 +427,18 @@ export function useUnitTree(opts: UnitTreeOptions) {
   function wantedKey(): string | null {
     void status.value;
     return (next ?? shown)?.req.key ?? null;
+  }
+
+  /** The key asked for last and its parameters (the lists ask with them). */
+  function wantedRequest(): TreeRequest | null {
+    void status.value;
+    const ks = next ?? shown;
+    return ks ? { key: ks.req.key, params: ks.req.params } : null;
+  }
+
+  /** A kept key's parameters (null once its store is dropped). */
+  function paramsOf(key: string): Readonly<Record<string, string>> | null {
+    return stores.get(key)?.req.params ?? null;
   }
 
   /** The world's answer on screen: N résultats = self.n + unplaced.n. */
@@ -477,6 +508,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
       units: shown?.units.size ?? 0,
       loaded: shown ? [...shown.units.values()].filter((e) => e.loaded).length : 0,
       lieux: shown?.lieux.size ?? 0,
+      stubs: shown ? [...shown.stubs.keys()] : [],
       complete: shown?.complete ?? null,
       unitsAsked: [...stores.values()].reduce((s, ks) => s + ks.asked, 0),
       requests: batcher.sent(),
@@ -494,9 +526,12 @@ export function useUnitTree(opts: UnitTreeOptions) {
     request,
     setScope,
     ensure,
+    addStub,
     data,
     shownKey,
     wantedKey,
+    wantedRequest,
+    paramsOf,
     root,
     complete,
     loading,

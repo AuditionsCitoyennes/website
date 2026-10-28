@@ -5,7 +5,12 @@
 // so that everything downstream reads it unchanged. Ids are the database's:
 // "world", ISO countries, fr:reg|dep|com:<INSEE>, l:<hash> for a lieu. Pure.
 
-import { FRANCE_CENTER, type PlaceLieuRow, type PlaceUnitRow } from "@ac/shared";
+import {
+  FRANCE_CENTER,
+  type PlaceLieuRow,
+  type PlaceResultLieu,
+  type PlaceUnitRow,
+} from "@ac/shared";
 import { boundsCenter, METRO_FRANCE, pointBounds, unionBounds } from "./bounds";
 import { heightClassOf, placeLabel } from "./hierarchy";
 import type { Bounds, GeoLevel, GeoRef, GeoUnit, LevelKey } from "./types";
@@ -26,10 +31,22 @@ export interface UnitTreeEntry {
   loaded: boolean;
 }
 
+/**
+ * A lieu known from a list (a result's row) before the tree holds it (the
+ * lazy path): placed under its unit — or the deepest unit of its path the
+ * tree holds — until its own row comes (map phase 1, design E1, K).
+ */
+export interface LieuStub extends PlaceResultLieu {
+  /** Its matching testimonies, as far as the list knows them. */
+  n: number;
+}
+
 /** What one filter key's store holds. */
 export interface UnitTreeData {
   units: ReadonlyMap<string, UnitTreeEntry>;
   lieux: ReadonlyMap<string, PlaceLieuRow>;
+  /** Lieux known from a list only, by id (none: the tree holds every lieu listed). */
+  stubs?: ReadonlyMap<string, LieuStub>;
 }
 
 /** Something the server orders: units and lieux alike. */
@@ -109,7 +126,10 @@ export function buildTreeFromUnits(data: UnitTreeData): {
 } {
   const index = new Map<string, GeoUnit>();
 
-  const lieuUnit = (l: PlaceLieuRow, parent: GeoUnit): GeoUnit => {
+  const lieuUnit = (
+    l: Pick<PlaceLieuRow, "id" | "key" | "city" | "lat" | "lng" | "n">,
+    parent: GeoUnit,
+  ): GeoUnit => {
     const center: [number, number] = [l.lat, l.lng];
     const u: GeoUnit = {
       id: l.id,
@@ -201,6 +221,21 @@ export function buildTreeFromUnits(data: UnitTreeData): {
   if (root.children.length) {
     root.bounds = unionBounds(root.children.map((c) => c.bounds));
     root.center = boundsCenter(root.bounds);
+  }
+  // Lieux known from a list only, after the counts (a unit's count already
+  // holds its lieux'): last among the children of their unit, or of the
+  // deepest unit of their path the tree holds.
+  for (const stub of data.stubs?.values() ?? []) {
+    if (index.has(stub.id)) continue;
+    let parent = root;
+    for (let i = stub.path.length - 1; i >= 0; i--) {
+      const u = index.get(stub.path[i]);
+      if (u && u.levelKey !== "place") {
+        parent = u;
+        break;
+      }
+    }
+    parent.children.push(lieuUnit(stub, parent));
   }
   return { root, index };
 }

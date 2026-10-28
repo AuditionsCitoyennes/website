@@ -83,7 +83,9 @@ export function compareTrees(
 ): TreeComparison {
   const built = buildGeoHierarchy(groups);
   const corpus = built.root;
-  const server = buildTreeFromUnits(data).root;
+  // Its rows only: a lieu opened from a list before its row came (a stub) is
+  // not the server's answer.
+  const server = buildTreeFromUnits({ units: data.units, lieux: data.lieux }).root;
   const out: TreeComparison = { corpusIndex: built.index, pairs: [], diffs: [], pending: 0 };
 
   const walk = (c: GeoUnit, s: GeoUnit) => {
