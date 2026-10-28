@@ -1597,7 +1597,9 @@ Requests go through `queryClient.fetchQuery` with keys `[...placesKeys.all, fkey
 8. **Filter dialog place tree.**
    - Built from `empty=1` rows. A country level appears only with more than one country.
    - Arrondissements are flattened into their commune (`filters.ts:96-151`), per "Arbre des lieux".
-   - Lazy children at scale: `LocationMultiSelect` gains `loadChildren`.
+   - Lazy children at scale: `LocationMultiSelect` gains `loadChildren` (L2). A unit whose children are not all known (not loaded, or, flattened, an arrondissement not loaded) is a `lazy` node with no children. Opening it asks the store for its own answer (`loadEmpty`: `units=` batched, `empty=1`, retried as the map's reads); LoadingDots and `aria-busy` meanwhile, a failure line with "Réessayer" after the retries. A whole tree (production's) has no lazy node and asks for nothing.
+   - Search on an incomplete tree matches what is loaded, and says so ("La recherche ne voit que les zones déjà dépliées…"). It loads nothing: there is no unit-name search, and asking for every unopened région would read all their communes at each search (megabytes at scale, and a slice of the visitor's miss limit) while still missing the lieux below the communes.
+   - The comparer compares the loaded part: a lazy node itself, not its children (`placeTreePending`). `__acComparePickerLoad()` loads the whole picker tree (local data).
 
 ### E3. Units without geometry in phase 1
 
