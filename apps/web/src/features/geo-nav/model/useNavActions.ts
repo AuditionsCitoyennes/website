@@ -21,6 +21,9 @@ export interface NavActionsInputs {
     toggleAud: (id: string) => Promise<void>;
     audToTop: (id: string, ifHidden?: boolean) => number | null;
     keepAtTop: (audition: PanelAudition) => void;
+    /** The server's lists: where a lieu's first result sits when the pages
+     *  loaded do not hold it (-1: not there); null with the corpus'. */
+    findResultFurther: ((unit: GeoUnit) => Promise<number>) | null;
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
@@ -31,7 +34,7 @@ export function useNavActions(inputs: NavActionsInputs) {
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, openAuditions, hoveredPanelId } =
     nav;
   const { flyToUnit, spotlightPlace } = camera;
-  const { resultAuditions, shownCount, toggleAud, audToTop, keepAtTop } = panel;
+  const { resultAuditions, shownCount, toggleAud, audToTop, keepAtTop, findResultFurther } = panel;
 
   /** The perf probes (shared/perf): a unit selected — its plateau and its
    *  boundaries are timed from here. */
@@ -99,8 +102,13 @@ export function useNavActions(inputs: NavActionsInputs) {
       spotlightPlace(unit);
       return;
     }
-    const at = resultAuditions.value.findIndex((a) => a.canonical === unit.canonical);
-    if (at === -1) return;
+    // The corpus' results are all in memory (by the lieu's name); the server's
+    // pages loaded may not reach the lieu's (by its id): the server says where.
+    let at = findResultFurther
+      ? resultAuditions.value.findIndex((a) => a.placeId === unit.id)
+      : resultAuditions.value.findIndex((a) => a.canonical === unit.canonical);
+    if (at === -1 && findResultFurther) at = await findResultFurther(unit);
+    if (at === -1 || !listMode.value) return;
     const audition = resultAuditions.value[at];
     if (at >= shownCount.value) shownCount.value = at + 1; // its line may not be listed yet
     sheetOpen.value = true;

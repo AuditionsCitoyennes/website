@@ -30,17 +30,26 @@ defineProps<{
   /** More results than are listed: the next page comes as the sentinel nears
    *  the bottom of the panel (or on a press). */
   more: boolean;
+  /** The open lieu's auditions are on their way (the server's lazy path). */
+  loading?: boolean;
 }>();
 
 const emit = defineEmits<{
   toggle: [id: string];
   /** The next page of results. */
   more: [];
+  /** The open audition's next testimonies (the server's lists). */
+  moreTestimonies: [];
 }>();
 
 /** The "more results" sentinel (usePanelAuditions observes it). */
 const moreEl = ref<HTMLElement | null>(null);
-defineExpose({ moreEl });
+/** The open audition's "more testimonies" sentinel (the same). */
+const moreTestimoniesEl = ref<HTMLElement | null>(null);
+function setMoreTestimoniesEl(el: unknown) {
+  moreTestimoniesEl.value = el instanceof HTMLElement ? el : null;
+}
+defineExpose({ moreEl, moreTestimoniesEl });
 </script>
 
 <template>
@@ -57,6 +66,7 @@ defineExpose({ moreEl });
       <h2 class="place-title">{{ place.label }}</h2>
       <p class="place-meta">{{ place.count }} témoignage{{ place.count > 1 ? "s" : "" }}</p>
     </template>
+    <LoadingDots v-if="loading" label="Chargement des auditions…" />
 
     <div v-for="g in auditions" :key="g.id" class="aud-group">
       <button
@@ -98,7 +108,10 @@ defineExpose({ moreEl });
       />
       <ExpandTransition :instant-leave="swapping">
         <div v-if="open.has(g.id) && testimoniesOf(g) !== null" class="aud-body">
-          <p v-if="!testimoniesOf(g)?.length" class="aud-empty">Aucun témoignage à afficher.</p>
+          <p v-if="g.failed" class="aud-empty">Impossible de charger les témoignages.</p>
+          <p v-else-if="!testimoniesOf(g)?.length" class="aud-empty">
+            Aucun témoignage à afficher.
+          </p>
           <TestimonyCard
             v-for="t in testimoniesOf(g) ?? []"
             :key="t.id"
@@ -106,6 +119,17 @@ defineExpose({ moreEl });
             :highlight="highlight"
             hide-audition
           />
+          <!-- More testimonies than are listed (the server's pages): the next
+               come as this nears the bottom of the panel (or on a press). -->
+          <button
+            v-if="g.more"
+            :ref="setMoreTestimoniesEl"
+            type="button"
+            class="ac-btn ac-btn--ghost ac-btn--sm more-results"
+            @click="emit('moreTestimonies')"
+          >
+            Afficher plus de témoignages
+          </button>
         </div>
       </ExpandTransition>
     </div>
