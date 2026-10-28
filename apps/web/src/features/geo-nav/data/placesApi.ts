@@ -1,0 +1,190 @@
+// The place reads of the Témoignages map (map phase 1, design D1, E2): a
+// unit's subtree of counts (/api/places), the filter dialog's facets, and the
+// vue-query keys they are cached under. The units the store asks for within
+// 50 ms go out as ONE units= request (≤ 50): a drill step ensures a dozen
+// units at once, and each request costs the visitor a slice of the API's
+// miss limit.
+
+import type { PlaceCounts, PlaceCountsBatch, PlaceFacets } from "@ac/shared";
+import { PLACE_IDS_MAX } from "@ac/shared";
+import { api } from "@/shared/api/client";
+
+/** The subtree's depth asked for: a unit's children and grandchildren. */
+export const PLACES_DEPTH = 2;
+
+/** The key of every audition on the map, testimonies or not (empty=1, no
+ *  filters): the home card and the place picker. Never a filter key. */
+export const EMPTY_KEY = "empty";
+
+/**
+ * vue-query keys. `all` prefixes every place read (app/ invalidates it when
+ * an audition is created); a unit's counts are kept per filter key, unit,
+ * depth and facts.
+ */
+export const placesKeys = {
+  all: ["places"] as const,
+  counts: (fkey: string, unit: string, depth: number, facts: boolean) =>
+    [...placesKeys.all, fkey, unit, depth, facts] as const,
+  facets: () => [...placesKeys.all, "facets"] as const,
+};
+
+/** What a counts request is asked under: one filter key's. */
+export interface CountsRequest {
+  /** The canonical filter key, or EMPTY_KEY. */
+  key: string;
+  /** The filters' query parameters (none for EMPTY_KEY). */
+  params: Readonly<Record<string, string>>;
+  /** Analyses figures with every unit (the store always asks; not the card). */
+  facts: boolean;
+}
+
+/**
+ * `?budget=` of the page, passed on (testing tools only; the API honours it
+ * only with TEST_TOOLS): budget=0 forces the lazy path at any size.
+ */
+const BUDGET: string | null = __TEST_TOOLS__
+  ? new URLSearchParams(window.location.search).get("budget")
+  : null;
+
+/** The answers to one counts request, in the order asked. */
+export async function fetchCounts(
+  units: readonly string[],
+  req: CountsRequest,
+  signal?: AbortSignal,
+): Promise<{ answers: PlaceCounts[]; textIgnored: boolean }> {
+  const q = new URLSearchParams();
+  if (units.length === 1) q.set("unit", units[0]);
+  else q.set("units", units.join(","));
+  q.set("depth", String(PLACES_DEPTH));
+  if (req.facts) q.set("facts", "1");
+  if (req.key === EMPTY_KEY) q.set("empty", "1");
+  for (const [k, v] of Object.entries(req.params)) q.set(k, v);
+  if (BUDGET !== null) q.set("budget", BUDGET);
+  const body = await api.get<PlaceCounts | PlaceCountsBatch>(`/api/places?${q}`, false, signal);
+  const answers = "results" in body ? body.results : [body];
+  return { answers, textIgnored: body.textIgnored === true };
+}
+
+/** The filter dialog's theme counts and date bounds. */
+export function fetchFacets(signal?: AbortSignal): Promise<PlaceFacets> {
+  return api.get<PlaceFacets>("/api/places/facets", false, signal);
+}
+
+function abortError(): DOMException {
+  return new DOMException("The place read was abandoned.", "AbortError");
+}
+
+interface Waiting {
+  unit: string;
+  resolve: (answer: PlaceCounts) => void;
+  reject: (err: unknown) => void;
+  abandoned: boolean;
+  /** The request it went out in, once sent. */
+  sent?: Sent;
+}
+
+interface Sent {
+  ctl: AbortController;
+  items: Waiting[];
+}
+
+/**
+ * Coalesces counts requests: units asked for under one filter key within
+ * `windowMs` (or within the same tick, `now`) go out together, `PLACE_IDS_MAX`
+ * a request. Each answer is handed to `onAnswers` (all of a request's at
+ * once) before the units' own promises settle. A unit abandoned through its
+ * signal is dropped; a request whose units are all abandoned is aborted.
+ */
+export function createCountsBatcher(opts: {
+  windowMs: number;
+  onAnswers: (req: CountsRequest, answers: PlaceCounts[], textIgnored: boolean) => void;
+  fetch?: typeof fetchCounts;
+}) {
+  const send = opts.fetch ?? fetchCounts;
+  const queues = new Map<string, { req: CountsRequest; items: Waiting[] }>();
+  let timer = 0;
+  let soon = false;
+
+  function flush() {
+    window.clearTimeout(timer);
+    timer = 0;
+    soon = false;
+    const all = [...queues.values()];
+    queues.clear();
+    for (const { req, items } of all) {
+      const live = items.filter((w) => !w.abandoned);
+      // One unit once per request, whoever asked.
+      const units = [...new Set(live.map((w) => w.unit))];
+      for (let i = 0; i < units.length; i += PLACE_IDS_MAX) {
+        const slice = new Set(units.slice(i, i + PLACE_IDS_MAX));
+        void go(
+          req,
+          [...slice],
+          live.filter((w) => slice.has(w.unit)),
+        );
+      }
+    }
+  }
+
+  async function go(req: CountsRequest, units: string[], items: Waiting[]) {
+    const sent: Sent = { ctl: new AbortController(), items };
+    for (const w of items) w.sent = sent;
+    try {
+      const { answers, textIgnored } = await send(units, req, sent.ctl.signal);
+      opts.onAnswers(req, answers, textIgnored);
+      const byUnit = new Map(answers.map((a) => [a.unit, a]));
+      for (const w of items) {
+        if (w.abandoned) continue;
+        const answer = byUnit.get(w.unit);
+        if (answer) w.resolve(answer);
+        else w.reject(new Error(`no answer for ${w.unit}`));
+      }
+    } catch (err) {
+      for (const w of items) if (!w.abandoned) w.reject(err);
+    }
+  }
+
+  /** A unit's answer under `req`; `now`: sent at the end of this tick rather
+   *  than after the window (a filter change's first request). */
+  function load(
+    req: CountsRequest,
+    unit: string,
+    signal?: AbortSignal,
+    now = false,
+  ): Promise<PlaceCounts> {
+    return new Promise<PlaceCounts>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(abortError());
+        return;
+      }
+      const w: Waiting = { unit, resolve, reject, abandoned: false };
+      signal?.addEventListener(
+        "abort",
+        () => {
+          w.abandoned = true;
+          reject(abortError());
+          if (w.sent && w.sent.items.every((x) => x.abandoned)) w.sent.ctl.abort();
+        },
+        { once: true },
+      );
+      let q = queues.get(req.key);
+      if (!q) {
+        q = { req, items: [] };
+        queues.set(req.key, q);
+      }
+      q.items.push(w);
+      if (now) {
+        if (!soon) {
+          soon = true;
+          queueMicrotask(flush);
+        }
+      } else if (!timer && !soon) {
+        timer = window.setTimeout(flush, opts.windowMs);
+      }
+    });
+  }
+
+  return { load };
+}
+
+export type CountsBatcher = ReturnType<typeof createCountsBatcher>;

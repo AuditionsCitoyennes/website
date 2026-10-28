@@ -34,7 +34,16 @@ export interface MapFeedInputs {
 export function useMapFeed(inputs: MapFeedInputs) {
   const { nav, geo, boundaries, communes, deps, panelUnits, selectedPlace } = inputs;
   const { currentScope, selectedPlaceId, inMicroZone, mapView } = nav;
-  const { root, index, geometryFor, raisedGeometryFor, raisedOutlineDue, allPlaceUnits } = geo;
+  const {
+    root,
+    index,
+    geometryFor,
+    geometryKnownAbsent,
+    raisedGeometryFor,
+    raisedOutlineDue,
+    allPlaceUnits,
+    serverTree,
+  } = geo;
   const { regionsQuery, depsQuery, metroQuery } = boundaries;
   const { communeGeo, failedInsee, ensureGeo } = communes;
   const { depFine, depGaveUp, fetchDepFine, addDepFine, ensureDepFine } = deps;
@@ -107,6 +116,9 @@ export function useMapFeed(inputs: MapFeedInputs) {
     if (s.levelKey === "world") return false; // only the world level has no plateau
     if (raisedOutlineDue(s)) return true; // a département's own outline (depFine)
     if (raisedGeometryFor(s)) return false;
+    // The server's tree: an outline known never to come holds nothing (D7) —
+    // the corpus' keeps today's holds.
+    if (serverTree && geometryKnownAbsent(s)) return false;
     // Geometry absent: hold only while it can still ARRIVE — a terminal fetch
     // failure must release the hold (teardown beats a stale wrong plateau), and
     // a unit no source holds (outside France) has nothing to wait for.
