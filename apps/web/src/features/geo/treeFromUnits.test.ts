@@ -13,7 +13,10 @@ import { buildTreeFromUnits, byServerOrder, WORLD, type UnitTreeData } from "./t
 import type { GeoUnit } from "./types";
 
 /** geo_units as the fixtures need them. */
-const UNITS: Record<string, { parent: string | null; level: string; name: string; code: string | null }> = {
+const UNITS: Record<
+  string,
+  { parent: string | null; level: string; name: string; code: string | null }
+> = {
   FR: { parent: null, level: "country", name: "France", code: null },
   "fr:reg:84": { parent: "FR", level: "region", name: "Auvergne-Rhône-Alpes", code: "84" },
   "fr:reg:03": { parent: "FR", level: "region", name: "Guyane", code: "03" },
@@ -66,14 +69,52 @@ function group(
 }
 
 const GROUPS: LocationGroup[] = [
-  group("Place Jean Macé, Lyon", ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69387"], [45.745, 4.842], [["2026-09-01", 3], ["2026-05-02", 1]]),
-  group("Marché Jean Macé, Lyon 7", ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69387"], [45.7463, 4.8422], [["2026-08-01", 4]]),
-  group("Place des Terreaux, Lyon", ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69381"], [45.7674, 4.8336], [["2026-08-01", 4]]),
-  group("Place Grandclément, Villeurbanne", ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69266"], [45.7579, 4.8874], [["2026-10-01", 8]]),
-  group("Marché des Gratte-Ciel, Villeurbanne", ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69266"], [45.7676, 4.8799], [["2026-10-01", 8]]),
-  group("Place Grenette, Grenoble", ["FR", "fr:reg:84", "fr:dep:38", "fr:com:38185"], [45.191, 5.7276], [["2026-06-25", 5]]),
+  group(
+    "Place Jean Macé, Lyon",
+    ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69387"],
+    [45.745, 4.842],
+    [
+      ["2026-09-01", 3],
+      ["2026-05-02", 1],
+    ],
+  ),
+  group(
+    "Marché Jean Macé, Lyon 7",
+    ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69387"],
+    [45.7463, 4.8422],
+    [["2026-08-01", 4]],
+  ),
+  group(
+    "Place des Terreaux, Lyon",
+    ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69381"],
+    [45.7674, 4.8336],
+    [["2026-08-01", 4]],
+  ),
+  group(
+    "Place Grandclément, Villeurbanne",
+    ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69266"],
+    [45.7579, 4.8874],
+    [["2026-10-01", 8]],
+  ),
+  group(
+    "Marché des Gratte-Ciel, Villeurbanne",
+    ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69266"],
+    [45.7676, 4.8799],
+    [["2026-10-01", 8]],
+  ),
+  group(
+    "Place Grenette, Grenoble",
+    ["FR", "fr:reg:84", "fr:dep:38", "fr:com:38185"],
+    [45.191, 5.7276],
+    [["2026-06-25", 5]],
+  ),
   group("Isère", ["FR", "fr:reg:84", "fr:dep:38"], [45.3, 5.5], [["2026-01-01", 2]]),
-  group("Cayenne", ["FR", "fr:reg:03", "fr:dep:973", "fr:com:97302"], [4.9252, -52.3116], [["2025-09-08", 4]]),
+  group(
+    "Cayenne",
+    ["FR", "fr:reg:03", "fr:dep:973", "fr:com:97302"],
+    [4.9252, -52.3116],
+    [["2025-09-08", 4]],
+  ),
 ];
 
 /** /api/map's order: by each lieu's newest audition (date desc, id). */
@@ -87,7 +128,10 @@ function mapOrder(groups: LocationGroup[]): LocationGroup[] {
 }
 
 /** The groups summed as place_counts sums them: every unit and lieu, whole. */
-function serverData(groups: LocationGroup[], loaded: (id: string) => boolean = () => true): UnitTreeData {
+function serverData(
+  groups: LocationGroup[],
+  loaded: (id: string) => boolean = () => true,
+): UnitTreeData {
   const lieux = new Map<string, PlaceLieuRow>();
   for (const g of groups) {
     const newest = g.auditions[0];
@@ -130,7 +174,10 @@ function serverData(groups: LocationGroup[], loaded: (id: string) => boolean = (
       wrap: false,
     });
   }
-  const units = new Map<string, UnitTreeData["units"] extends ReadonlyMap<string, infer E> ? E : never>();
+  const units = new Map<
+    string,
+    UnitTreeData["units"] extends ReadonlyMap<string, infer E> ? E : never
+  >();
   for (const id of [WORLD, ...rows.keys()]) {
     const childIds = [...rows.values()].filter((r) => (r.parent ?? WORLD) === id).map((r) => r.id);
     const lieuIds = [...lieux.values()].filter((l) => l.unit === id).map((l) => l.id);
@@ -203,7 +250,10 @@ test("ties: testimonies, then the newest audition's date, then its id", () => {
   const order = villeurbanne.children.map((c) => c.label);
   const corpus = buildGeoHierarchy(mapOrder(GROUPS)).index;
   const corpusVilleurbanne = [...corpus.values()].find((u) => u.label === "Villeurbanne")!;
-  assert.deepEqual(order, corpusVilleurbanne.children.map((c) => c.label));
+  assert.deepEqual(
+    order,
+    corpusVilleurbanne.children.map((c) => c.label),
+  );
   assert.equal(order.length, 2);
 });
 

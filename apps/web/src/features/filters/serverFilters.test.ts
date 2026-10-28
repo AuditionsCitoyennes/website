@@ -126,7 +126,19 @@ const row = (
   wrap: false,
 });
 const lieu = (id: string, unit: string, key: string, n: number, rank: string, tie: string) =>
-  ({ id, unit, key, city: null, lat: 0, lng: 0, precision: "address", n, auditions: 1, rank, tie }) as PlaceLieuRow;
+  ({
+    id,
+    unit,
+    key,
+    city: null,
+    lat: 0,
+    lng: 0,
+    precision: "address",
+    n,
+    auditions: 1,
+    rank,
+    tie,
+  }) as PlaceLieuRow;
 
 function data(): PlaceTreeData {
   const rows = [
@@ -143,7 +155,10 @@ function data(): PlaceTreeData {
     lieu("l:c", "fr:com:69381", "Place des Terreaux, Lyon", 3, "2026-08-01", "c"),
     lieu("l:d", "fr:com:69266", "Place Grandclément, Villeurbanne", 5, "2026-07-01", "d"),
   ];
-  const units = new Map<string, { row: PlaceUnitRow | null; childIds: string[]; lieuIds: string[] }>();
+  const units = new Map<
+    string,
+    { row: PlaceUnitRow | null; childIds: string[]; lieuIds: string[] }
+  >();
   units.set("world", { row: null, childIds: ["FR"], lieuIds: [] });
   for (const r of rows) {
     units.set(r.id, {
@@ -157,7 +172,13 @@ function data(): PlaceTreeData {
 
 test("the place picker's tree: one country, its régions first; arrondissements flattened", () => {
   const tree = buildPlaceTree(data());
-  const strip = (n: { label: string; hint?: string; count?: number; token: string; children?: unknown[] }): unknown => ({
+  const strip = (n: {
+    label: string;
+    hint?: string;
+    count?: number;
+    token: string;
+    children?: unknown[];
+  }): unknown => ({
     token: n.token,
     label: n.label,
     hint: n.hint ?? null,
@@ -183,8 +204,20 @@ test("the place picker's tree: one country, its régions first; arrondissements 
               hint: null,
               count: 7,
               children: [
-                { token: "l:a", label: "Place Jean Macé, Lyon", hint: null, count: 4, children: null },
-                { token: "l:c", label: "Place des Terreaux, Lyon", hint: null, count: 3, children: null },
+                {
+                  token: "l:a",
+                  label: "Place Jean Macé, Lyon",
+                  hint: null,
+                  count: 4,
+                  children: null,
+                },
+                {
+                  token: "l:c",
+                  label: "Place des Terreaux, Lyon",
+                  hint: null,
+                  count: 3,
+                  children: null,
+                },
               ],
             },
             {
@@ -193,7 +226,13 @@ test("the place picker's tree: one country, its régions first; arrondissements 
               hint: null,
               count: 5,
               children: [
-                { token: "l:d", label: "Place Grandclément, Villeurbanne", hint: null, count: 5, children: null },
+                {
+                  token: "l:d",
+                  label: "Place Grandclément, Villeurbanne",
+                  hint: null,
+                  count: 5,
+                  children: null,
+                },
               ],
             },
           ],
@@ -212,12 +251,44 @@ test("the place picker's tree: one country, its régions first; arrondissements 
 
 test("the place picker's tree matches the corpus' (labels, hints, counts, order)", () => {
   const groups: LocationGroup[] = [
-    { canonicalName: "Place Jean Macé, Lyon", coordinates: [0, 0], auditions: [], totalTestimonies: 4, city: "Lyon", departementCode: "69", departementName: "Rhône", region: "Auvergne-Rhône-Alpes" },
-    { canonicalName: "Place des Terreaux, Lyon", coordinates: [0, 0], auditions: [], totalTestimonies: 3, city: "Lyon", departementCode: "69", departementName: "Rhône", region: "Auvergne-Rhône-Alpes" },
-    { canonicalName: "Place Grandclément, Villeurbanne", coordinates: [0, 0], auditions: [], totalTestimonies: 5, city: "Villeurbanne", departementCode: "69", departementName: "Rhône", region: "Auvergne-Rhône-Alpes" },
+    {
+      canonicalName: "Place Jean Macé, Lyon",
+      coordinates: [0, 0],
+      auditions: [],
+      totalTestimonies: 4,
+      city: "Lyon",
+      departementCode: "69",
+      departementName: "Rhône",
+      region: "Auvergne-Rhône-Alpes",
+    },
+    {
+      canonicalName: "Place des Terreaux, Lyon",
+      coordinates: [0, 0],
+      auditions: [],
+      totalTestimonies: 3,
+      city: "Lyon",
+      departementCode: "69",
+      departementName: "Rhône",
+      region: "Auvergne-Rhône-Alpes",
+    },
+    {
+      canonicalName: "Place Grandclément, Villeurbanne",
+      coordinates: [0, 0],
+      auditions: [],
+      totalTestimonies: 5,
+      city: "Villeurbanne",
+      departementCode: "69",
+      departementName: "Rhône",
+      region: "Auvergne-Rhône-Alpes",
+    },
   ];
   const corpus = buildLocationTree(groups.map((g) => ({ area: g, weight: g.totalTestimonies })));
-  const strip = (n: { label: string; hint?: string; count?: number; children?: unknown[] }): unknown => ({
+  const strip = (n: {
+    label: string;
+    hint?: string;
+    count?: number;
+    children?: unknown[];
+  }): unknown => ({
     label: n.label,
     hint: n.hint ?? null,
     count: n.count,
