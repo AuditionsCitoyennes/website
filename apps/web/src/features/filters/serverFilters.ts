@@ -1,16 +1,18 @@
 // The filters as the place reads take them (map phase 1, design D2, E1): the
-// page's filter state turned into @ac/shared's query parameters, parsed and
-// keyed by the very functions the API uses, so that the web's query keys and
-// its list mode follow the API's cache key. The free text counts 300 ms after
-// the last keystroke: each key is a round trip (D6). Places are picked by unit
-// and lieu ids (D2).
+// page's filter state turned into @ac/shared's query, keyed by the very
+// functions the API uses, so that the web's query keys and its list mode
+// follow the API's cache key. The free text counts 300 ms after the last
+// keystroke, and while it waits the other filters wait with it: each key is a
+// round trip (D6), and a key must not pass through a state the reader never
+// asked for (a theme taken off as a text is typed: list mode would go off and
+// on). Places are picked by unit and lieu ids (D2).
 
-import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from "vue";
+import { computed, onScopeDispose, ref, shallowRef, watch, type ComputedRef, type Ref } from "vue";
 import {
   LIEU_ID,
   placeFilterKey,
-  placeFilterParams,
-  placeFilterQuerySchema,
+  placeFilterQueryOf,
+  placeFilterQueryParams,
   placeFiltersOf,
   SEARCH_MIN_CHARS_DEFAULT,
   SEARCH_TEXT_MAX,
@@ -33,21 +35,22 @@ export interface FilterState {
 }
 
 export interface ServerFilters {
-  /** The filters in force (the text as debounced, below the minimum dropped). */
+  /** The filters in force (as debounced, below the minimum the text dropped). */
   filters: ComputedRef<PlaceFilters>;
   /** Their canonical key: "" when nothing filters (placeFilterKey). */
   key: ComputedRef<string>;
   /** Their query parameters (the ignored text left out). */
   params: ComputedRef<Readonly<Record<string, string>>>;
   /** The text as debounced, raw: what the results were looked up with. */
-  text: Ref<string>;
+  text: ComputedRef<string>;
   /** Text was typed but is shorter than the search accepts: not applied. */
   textTooShort: ComputedRef<boolean>;
   /** The shortest text applied. */
   minChars: Ref<number>;
   /** An answer said its text was ignored (the API's SEARCH_MIN_CHARS is above
-   *  it): the minimum is learnt, and the key dropped to the unfiltered one. */
-  noteTextIgnored: (needle: string) => void;
+   *  ours): its minimum taken (`minChars`, when the answer gives it; else one
+   *  more than the text's), and the key dropped to the one without the text. */
+  noteTextIgnored: (needle: string, minChars?: number) => void;
 }
 
 /** Picked places split into unit and lieu ids (anything else is not an id). */
@@ -81,57 +84,61 @@ export function useServerFilters(
   const debounceMs = opts.debounceMs ?? TEXT_DEBOUNCE_MS;
   const minChars = ref(opts.minChars ?? SEARCH_MIN_CHARS_DEFAULT);
 
-  // The text, once typing has paused; emptied at once (a chip taken off).
-  const text = ref(state.text.value);
+  // The state applied: at once, unless a text is waiting for typing to pause
+  // — then all of it once it has (a text emptied applies at once).
+  const read = () => ({
+    verified: state.verified.value,
+    topics: [...state.topics.value],
+    locations: [...state.locations.value],
+    dateFrom: state.dateFrom.value,
+    dateTo: state.dateTo.value,
+    text: state.text.value,
+  });
+  const applied = shallowRef(read());
   let timer: ReturnType<typeof setTimeout> | undefined;
-  watch(state.text, (next) => {
-    clearTimeout(timer);
-    if (!next.trim()) {
-      text.value = next;
+  watch(read, (next, prev) => {
+    const textWaits = next.text !== applied.value.text && next.text.trim() !== "";
+    if (!textWaits) {
+      clearTimeout(timer);
+      timer = undefined;
+      applied.value = next;
       return;
     }
-    timer = setTimeout(() => (text.value = next), debounceMs);
+    if (timer !== undefined && next.text === prev.text) return; // the text's pause still runs
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      applied.value = read();
+    }, debounceMs);
   });
   onScopeDispose(() => clearTimeout(timer));
 
-  const parsed = computed(() => {
-    const { units, lieux } = placeIdsOf(state.locations.value);
-    const input = {
-      verified: state.verified.value,
-      themes: themeIndexesOf(state.topics.value),
-      text: text.value.slice(0, SEARCH_TEXT_MAX),
-      from: state.dateFrom.value,
-      to: state.dateTo.value,
+  const query = computed(() => {
+    const a = applied.value;
+    const { units, lieux } = placeIdsOf(a.locations);
+    return placeFilterQueryOf({
+      verified: a.verified,
+      themes: themeIndexesOf(a.topics),
+      text: a.text.slice(0, SEARCH_TEXT_MAX),
+      from: a.dateFrom,
+      to: a.dateTo,
       units,
       lieux,
-    };
-    let q = placeFilterQuerySchema.safeParse(placeFilterParams(input));
-    // A text the API would refuse (too long once folded, a NUL): searched
-    // without it rather than not at all.
-    if (!q.success) q = placeFilterQuerySchema.safeParse(placeFilterParams({ ...input, text: "" }));
-    return q.success ? placeFiltersOf(q.data, minChars.value) : placeFiltersOf({}, minChars.value);
-  });
-
-  const filters = computed(() => parsed.value);
-  const key = computed(() => placeFilterKey(parsed.value));
-  const params = computed(() => {
-    const f = parsed.value;
-    return placeFilterParams({
-      verified: f.verified,
-      themes: f.themes,
-      // The needle stands for the text: the API folds it again, to itself.
-      text: f.needle ? text.value.slice(0, SEARCH_TEXT_MAX) : "",
-      from: f.from,
-      to: f.to,
-      units: f.units,
-      lieux: f.lieux,
     });
   });
-  const textTooShort = computed(() => parsed.value.textIgnored);
+  const filters = computed(() => placeFiltersOf(query.value, minChars.value));
+  const key = computed(() => placeFilterKey(filters.value));
+  // The text left out when it is not applied (the API would ignore it).
+  const params = computed(() =>
+    placeFilterQueryParams(filters.value.needle ? query.value : { ...query.value, q: undefined }),
+  );
+  const text = computed(() => applied.value.text);
+  const textTooShort = computed(() => filters.value.textIgnored);
 
-  function noteTextIgnored(needle: string) {
+  function noteTextIgnored(needle: string, apiMin?: number) {
     const length = [...needle].length;
-    if (length >= minChars.value) minChars.value = length + 1;
+    if (apiMin !== undefined && apiMin > length) minChars.value = Math.max(minChars.value, apiMin);
+    else if (length >= minChars.value) minChars.value = length + 1;
   }
 
   return { filters, key, params, text, textTooShort, minChars, noteTextIgnored };

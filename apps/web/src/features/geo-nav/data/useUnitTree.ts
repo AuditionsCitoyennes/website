@@ -12,26 +12,29 @@
 // - A unit is `loaded` once its children and lieux are known: its own answer,
 //   its parent's (depth 2 brings the children's), or a complete answer above
 //   it (at most 600 units plus lieux: the whole subtree, production's case —
-//   one answer and nothing is ever asked again).
+//   one answer and nothing is ever asked again). It is `own` once its
+//   children are loaded too: its own answer, or a complete one.
 // - A filter change keeps the tree on screen until the new key's answer has
 //   the scope and the units above it (D6): the scope's chain is asked for in
 //   one request (only the world when the previous world answer was complete),
 //   and the store is swapped in once it holds them — the plateau neither
 //   sinks nor rises.
 // - 429 and 503 (and a network failure) are retried after Retry-After, or 1,
-//   2 and 4 s; then the unit is `failed` (the panel's error line) until the
-//   scope changes.
+//   2 and 4 s, while the key is wanted; then the unit is `failed` (the panel's
+//   error line) until the scope changes or the key is asked for again.
 
 import { ref } from "vue";
 import { isCancelledError, type QueryClient } from "@tanstack/vue-query";
 import type { PlaceCounts, PlaceFacts, PlaceLieuRow, PlaceUnitRow } from "@ac/shared";
 import { WORLD, type UnitTreeData, type UnitTreeEntry } from "@/features/geo";
-import { ApiError } from "@/shared/api/client";
 import {
   createCountsBatcher,
   EMPTY_KEY,
   PLACES_DEPTH,
   placesKeys,
+  retryable,
+  retryWait,
+  RETRIES,
   type CountsRequest,
 } from "./placesApi";
 
@@ -47,13 +50,13 @@ const KEYS_KEPT = 4;
 const WINDOW_MS = 50;
 /** A unit's answer is fresh this long (the app's default). */
 const STALE_MS = 5 * 60 * 1000;
-/** Waits before each retry of a refused answer (unless Retry-After says). */
-const RETRY_MS = [1000, 2000, 4000];
 
 interface Entry extends UnitTreeEntry {
   row: PlaceUnitRow | null;
   childIds?: string[];
   lieuIds?: string[];
+  /** Its children are loaded too: its own answer, or a complete one, is in. */
+  own?: boolean;
   /** Its figures from its own answer (`self.facts`). */
   facts?: PlaceFacts;
 }
@@ -93,16 +96,13 @@ class KeyStore implements UnitTreeData {
   }
 }
 
-function retryable(err: unknown): boolean {
-  if (err instanceof ApiError) return err.status === 429 || err.status >= 502;
-  // A request that never got an answer (offline, the API down).
-  return err instanceof TypeError;
-}
-
 export interface UnitTreeOptions {
   queryClient: QueryClient;
-  /** An answer said its text was ignored (shorter than the API searches). */
-  onTextIgnored?: (req: CountsRequest) => void;
+  /** An answer said its text was ignored (shorter than the API searches,
+   *  `minChars` when it says how short). */
+  onTextIgnored?: (req: CountsRequest, minChars: number | undefined) => void;
+  /** The place reads (placesApi's fetchCounts; a fake in the tests). */
+  fetch?: Parameters<typeof createCountsBatcher>[0]["fetch"];
 }
 
 export function useUnitTree(opts: UnitTreeOptions) {
@@ -130,8 +130,9 @@ export function useUnitTree(opts: UnitTreeOptions) {
 
   const batcher = createCountsBatcher({
     windowMs: WINDOW_MS,
-    onAnswers(req, answers, textIgnored) {
-      if (textIgnored) opts.onTextIgnored?.(req);
+    fetch: opts.fetch,
+    onAnswers(req, answers, ignored) {
+      if (ignored) opts.onTextIgnored?.(req, ignored.minChars);
       const ks = stores.get(req.key);
       if (ks?.req === req) merge(ks, answers);
     },
@@ -141,6 +142,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
   function merge(ks: KeyStore, answers: PlaceCounts[]) {
     for (const a of answers) {
       const self = ks.entry(a.unit);
+      self.own = true;
       if (a.unit === WORLD) ks.root = a;
       else if (a.self.facts) self.facts = a.self.facts;
       const loaded = new Set<string>([a.unit]);
@@ -149,6 +151,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
         const e = ks.entry(r.id);
         // A child's facts come with its parent's answer; a deeper one's not.
         e.row = r.facts || !e.row?.facts ? r : { ...r, facts: e.row.facts };
+        if (a.complete) e.own = true;
         if (a.complete || r.d <= PLACES_DEPTH - 1) loaded.add(r.id);
         const parent = r.parent ?? WORLD;
         const kids = childrenOf.get(parent);
@@ -195,6 +198,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
     const ks = next;
     if (!ks) return;
     if (chainKnown(ks)) {
+      // The tree left: what it still asked for is let go.
+      if (shown && shown !== ks && shown.req.key !== EMPTY_KEY) abandon(shown);
       shown = ks;
       next = null;
       version.value++;
@@ -205,12 +210,14 @@ export function useUnitTree(opts: UnitTreeOptions) {
     ensureIn(ks, chain, true);
   }
 
-  /** Asks a store for these units' subtrees, unless known, on their way, or
-   *  failed. Fresh answers in the cache are merged at once (one bump). */
-  function ensureIn(ks: KeyStore, ids: readonly string[], now = false) {
+  /** Asks a store for these units' subtrees, unless known (`deep`: their
+   *  children's too), on their way, or failed. Fresh answers in the cache are
+   *  merged at once (one bump). */
+  function ensureIn(ks: KeyStore, ids: readonly string[], now = false, deep = false) {
     const cached: PlaceCounts[] = [];
     for (const id of ids) {
-      if (ks.units.get(id)?.loaded) continue;
+      const known = ks.units.get(id);
+      if (deep ? known?.own : known?.loaded) continue;
       if (ks.inflight.has(id) || ks.waiting.has(id) || ks.failed.has(id)) continue;
       const key = placesKeys.counts(ks.req.key, id, PLACES_DEPTH, ks.req.facts);
       const state = queryClient.getQueryState<PlaceCounts>(key);
@@ -237,53 +244,73 @@ export function useUnitTree(opts: UnitTreeOptions) {
             if (ks.inflight.get(id) === token) ks.inflight.delete(id);
             // Merged as it came (the batcher's onAnswers), unless another
             // reader's request brought it.
-            if (!ks.units.get(id)?.loaded && stores.get(ks.req.key) === ks) merge(ks, [answer]);
+            if (!ks.units.get(id)?.own && stores.get(ks.req.key) === ks) merge(ks, [answer]);
           },
           (err) => {
             if (ks.inflight.get(id) !== token) return; // abandoned, asked again since
             ks.inflight.delete(id);
-            if (!isCancelledError(err)) failedOnce(ks, id, err);
+            if (!isCancelledError(err)) failedOnce(ks, id, err, deep);
           },
         );
     }
     if (cached.length) merge(ks, cached);
   }
 
-  function failedOnce(ks: KeyStore, id: string, err: unknown) {
-    if (stores.get(ks.req.key) !== ks) return;
+  /** The store is wanted: on screen, asked for, or the place picker's. */
+  function wanted(ks: KeyStore): boolean {
+    return ks === shown || ks === next || ks.req.key === EMPTY_KEY;
+  }
+
+  /** A unit's read failed: asked again (as it was: `deep`) while the store is
+   *  wanted, or marked failed. */
+  function failedOnce(ks: KeyStore, id: string, err: unknown, deep: boolean) {
+    if (stores.get(ks.req.key) !== ks || !wanted(ks)) return;
     const n = (ks.attempts.get(id) ?? 0) + 1;
     ks.attempts.set(id, n);
-    if (!retryable(err) || n > RETRY_MS.length) {
+    if (!retryable(err) || n > RETRIES) {
       ks.failed.add(id);
       if (ks === shown || ks === next) status.value++;
       else sideVersion.value++;
       return;
     }
-    const after = err instanceof ApiError ? err.retryAfter : null;
-    const wait = after !== null ? Math.max(250, after * 1000) : RETRY_MS[n - 1];
     ks.waiting.add(id);
-    const timer = window.setTimeout(() => {
-      ks.timers.delete(timer);
-      ks.waiting.delete(id);
-      if (stores.get(ks.req.key) === ks) ensureIn(ks, [id]);
-    }, wait);
+    const timer = window.setTimeout(
+      () => {
+        ks.timers.delete(timer);
+        ks.waiting.delete(id);
+        if (stores.get(ks.req.key) === ks && wanted(ks)) ensureIn(ks, [id], false, deep);
+      },
+      retryWait(n, err),
+    );
     ks.timers.add(timer);
   }
 
-  /** Abandons a store's requests on their way (it may ask again at once). */
+  /** Whatever failed under a store is tried again when next wanted. */
+  function forgetFailures(ks: KeyStore): boolean {
+    if (!ks.failed.size && !ks.attempts.size) return false;
+    ks.failed.clear();
+    ks.attempts.clear();
+    return true;
+  }
+
+  /** Abandons a store's requests on their way and its retries (it may ask
+   *  again at once, from scratch). */
   function abandon(ks: KeyStore) {
+    for (const t of ks.timers) window.clearTimeout(t);
+    ks.timers.clear();
+    ks.waiting.clear();
+    ks.attempts.clear();
     if (!ks.inflight.size) return;
     ks.inflight.clear();
     void queryClient.cancelQueries({ queryKey: [...placesKeys.all, ks.req.key] });
   }
 
-  /** Forgets a store: its requests abandoned, its retries dropped. */
+  /** Forgets a store: its requests abandoned, its retries dropped, its
+   *  answers out of the query cache (the LRU is the memory bound). */
   function drop(ks: KeyStore) {
     stores.delete(ks.req.key);
-    for (const t of ks.timers) window.clearTimeout(t);
-    ks.timers.clear();
-    ks.waiting.clear();
     abandon(ks);
+    queryClient.removeQueries({ queryKey: [...placesKeys.all, ks.req.key] });
   }
 
   /** Keeps the latest filter keys, the one on screen and the next among them
@@ -325,6 +352,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
     }
     status.value++;
     if (ks === shown) return;
+    // Asked for again: what failed under it is tried again.
+    forgetFailures(ks);
     next = ks;
     trim();
     if (chainKnown(ks)) settleNext();
@@ -333,9 +362,11 @@ export function useUnitTree(opts: UnitTreeOptions) {
 
   /** What a next key's store asks for first: the world alone when the
    *  previous world answer was the whole tree (so will this one be, most
-   *  likely), else the scope's chain, in one request. */
+   *  likely) and this store does not hold its world yet, else the scope's
+   *  chain, in one request. */
   function askChain(ks: KeyStore) {
-    ensureIn(ks, shown?.complete ? [WORLD] : chain, true);
+    const worldFirst = shown?.complete === true && !ks.units.get(WORLD)?.loaded;
+    ensureIn(ks, worldFirst ? [WORLD] : chain, true);
   }
 
   /** The scope on screen changed: its chain is what a key change waits for;
@@ -343,12 +374,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
   function setScope(scope: { id: string; ancestors: readonly string[] }) {
     chain = [...scope.ancestors, scope.id];
     let retried = false;
-    for (const ks of [shown, next]) {
-      if (!ks?.failed.size) continue;
-      ks.failed.clear();
-      ks.attempts.clear();
-      retried = true;
-    }
+    for (const ks of [shown, next]) if (ks && forgetFailures(ks)) retried = true;
     if (retried) status.value++;
     if (shown) ensureIn(shown, chain.slice(-2));
     if (next) {
@@ -357,9 +383,11 @@ export function useUnitTree(opts: UnitTreeOptions) {
     }
   }
 
-  /** Asks the store on screen for these units' subtrees (those on view). */
-  function ensure(ids: readonly string[]) {
-    if (shown) ensureIn(shown, ids);
+  /** Asks the store on screen for these units' subtrees (those on view);
+   *  `deep`: their children's too (the scope, so that the next drill step
+   *  finds its units loaded). */
+  function ensure(ids: readonly string[], deep = false) {
+    if (shown) ensureIn(shown, ids, false, deep);
   }
 
   // ---- What is read (after `version`) ----
@@ -386,6 +414,12 @@ export function useUnitTree(opts: UnitTreeOptions) {
   function root(): PlaceCounts | null {
     void version.value;
     return shown?.root ?? null;
+  }
+
+  /** The tree on screen is whole (its world answer was complete). */
+  function complete(): boolean {
+    void version.value;
+    return shown?.complete ?? false;
   }
 
   /** Nothing on screen yet, and not failed. */
@@ -425,6 +459,11 @@ export function useUnitTree(opts: UnitTreeOptions) {
   }
   function wantEmpty() {
     const ks = stores.get(EMPTY_KEY) ?? storeOf({ key: EMPTY_KEY, params: {} });
+    // Wanted again: a failed answer is asked for again.
+    if (forgetFailures(ks)) {
+      if (ks === shown || ks === next) status.value++;
+      else sideVersion.value++;
+    }
     ensureIn(ks, [WORLD], true);
   }
 
@@ -442,7 +481,9 @@ export function useUnitTree(opts: UnitTreeOptions) {
       unitsAsked: [...stores.values()].reduce((s, ks) => s + ks.asked, 0),
       requests: batcher.sent(),
       inflight: [...stores.values()].reduce((s, ks) => s + ks.inflight.size, 0),
+      waiting: [...stores.values()].reduce((s, ks) => s + ks.waiting.size, 0),
       failed: shown ? [...shown.failed] : [],
+      failedNext: next ? [...next.failed] : [],
     };
   }
 
@@ -457,6 +498,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
     shownKey,
     wantedKey,
     root,
+    complete,
     loading,
     failed,
     facts,

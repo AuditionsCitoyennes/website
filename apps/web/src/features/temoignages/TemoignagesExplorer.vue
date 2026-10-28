@@ -55,9 +55,19 @@ const {
   serverFilters,
 } = filtering;
 
-// The panel waits for the corpus — or for the server's world answer.
-const loading = computed(() => (unitTree ? unitTree.loading() : testimoniesQuery.isLoading.value));
-const isError = computed(() => (unitTree ? unitTree.failed() : testimoniesQuery.isError.value));
+// The panel waits for the corpus — or for the server's world answer, and for
+// the corpus too while filters are on: the results' list is still the
+// corpus' (until PR K), unfiltered until it is in.
+const loading = computed(() =>
+  unitTree
+    ? unitTree.loading() || (listFiltered.value && testimoniesQuery.isLoading.value)
+    : testimoniesQuery.isLoading.value,
+);
+const isError = computed(() =>
+  unitTree
+    ? unitTree.failed() || (listFiltered.value && testimoniesQuery.isError.value)
+    : testimoniesQuery.isError.value,
+);
 // What the results were looked up with: the text as debounced, from the server.
 const highlight = computed(() => (serverFilters ? serverFilters.text.value : text.value));
 

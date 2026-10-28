@@ -86,6 +86,78 @@ test("a text shorter than the search's minimum: not applied, and said", async ()
   scope.stop();
 });
 
+test("the API's minimum, when its answer gives it, is taken in one step", async () => {
+  const s = state();
+  const scope = effectScope();
+  const sf = scope.run(() => useServerFilters(s, { debounceMs: 0 }))!;
+  s.text.value = "é";
+  await wait(5);
+  assert.equal(sf.key.value, "qe");
+  sf.noteTextIgnored("e", 3);
+  await nextTick();
+  assert.equal(sf.minChars.value, 3);
+  assert.equal(sf.key.value, "");
+  s.text.value = "éc";
+  await wait(5);
+  assert.equal(sf.key.value, "", "no request for a text known to be too short");
+  s.text.value = "éco";
+  await wait(5);
+  assert.equal(sf.key.value, "qeco");
+  scope.stop();
+});
+
+test("while a text waits for typing to pause, the other filters wait with it", async () => {
+  const s = state();
+  const scope = effectScope();
+  const sf = scope.run(() => useServerFilters(s, { debounceMs: 30 }))!;
+  s.topics.value = ["Services publics"];
+  await nextTick();
+  const themed = sf.key.value;
+  assert.notEqual(themed, "");
+  // In one change: a text typed, the theme taken off. The key never empties
+  // on the way (list mode would go off and on).
+  s.text.value = "école";
+  s.topics.value = [];
+  await nextTick();
+  assert.equal(sf.key.value, themed, "held");
+  await wait(10);
+  s.verified.value = true; // another change while the text waits
+  await nextTick();
+  assert.equal(sf.key.value, themed, "still held");
+  await wait(40);
+  assert.equal(sf.key.value, "v1|qecole", "all of it at once");
+  // No text waiting: at once.
+  s.verified.value = false;
+  await nextTick();
+  assert.equal(sf.key.value, "qecole");
+  scope.stop();
+});
+
+test("more than 50 places: the first 50 picked, every other filter kept", async () => {
+  const s = state();
+  const scope = effectScope();
+  const sf = scope.run(() => useServerFilters(s, { debounceMs: 0 }))!;
+  const lieux = Array.from(
+    { length: 51 },
+    (_, i) => `l:${(0xabc0000000000000n + BigInt(i)).toString(16)}`,
+  );
+  s.verified.value = true;
+  s.dateFrom.value = "2026-01-01";
+  s.locations.value = lieux;
+  await nextTick();
+  assert.deepEqual(sf.filters.value.lieux, lieux.slice(0, 50));
+  assert.equal(sf.filters.value.verified, true);
+  assert.equal(sf.filters.value.from, "2026-01-01");
+  assert.ok(sf.key.value.startsWith("v1|f2026-01-01|ll:"));
+  assert.equal(sf.params.value.l.split(",").length, 50);
+  // A text the API would refuse (a NUL): left out, the rest kept.
+  s.text.value = "a\u0000b";
+  await wait(5);
+  assert.ok(sf.key.value.startsWith("v1|f2026-01-01|ll:"));
+  assert.equal(sf.params.value.q, undefined);
+  scope.stop();
+});
+
 test("places: ids split, an audition's path or lieu matches", () => {
   assert.deepEqual(placeIdsOf(["fr:com:69123", "l:0123456789abcdef", "v:Lyon"]), {
     units: ["fr:com:69123"],

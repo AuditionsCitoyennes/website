@@ -5,7 +5,7 @@
 export { default as GeoNav } from "./GeoNav.vue";
 export { useUnitTree, type TreeRequest, type UnitTree } from "./data/useUnitTree";
 export { EMPTY_KEY, placesKeys } from "./keys";
-export { fetchFacets, type CountsRequest } from "./data/placesApi";
+export { fetchFacets, retryable, retryWait, RETRIES, type CountsRequest } from "./data/placesApi";
 export { groupOwnAuditions } from "./model/auditions";
 export { compareTrees, type TreeComparison, type TreeDiff } from "./data/compareTrees";
 export type { BoundaryFC } from "./data/useBoundaryQueries";

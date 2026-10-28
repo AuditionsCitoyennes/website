@@ -20,7 +20,16 @@ import {
   useFilters,
   useServerFilters,
 } from "@/features/filters";
-import { EMPTY_KEY, fetchFacets, placesKeys, useUnitTree, type UnitTree } from "@/features/geo-nav";
+import {
+  EMPTY_KEY,
+  fetchFacets,
+  placesKeys,
+  retryable,
+  retryWait,
+  RETRIES,
+  useUnitTree,
+  type UnitTree,
+} from "@/features/geo-nav";
 import type { PlaceTreeMode } from "./dataSource";
 
 // ---- Filter state (the page owns it: one filtered set drives BOTH the map
@@ -80,7 +89,8 @@ export function useTestimonyFiltering(input: {
     unitTree = markRaw(
       useUnitTree({
         queryClient: server.queryClient,
-        onTextIgnored: (req) => sf.noteTextIgnored(fold((req.params.q ?? "").trim())),
+        onTextIgnored: (req, minChars) =>
+          sf.noteTextIgnored(fold((req.params.q ?? "").trim()), minChars),
       }),
     );
     const tree = unitTree;
@@ -91,13 +101,20 @@ export function useTestimonyFiltering(input: {
       (key) => tree.request({ key, params: key === EMPTY_KEY ? {} : sf.params.value }),
       { immediate: true },
     );
+    // The place picker's tree: asked for once the page's own tree is on
+    // screen (the card's is that tree), so that the dialog opens on it, and
+    // again at each opening, should it have failed.
     watch(
-      () => server.comparing || filtersOpen.value || locations.value.length > 0,
+      () =>
+        server.comparing || (!preview() && tree.shownKey() !== null) || locations.value.length > 0,
       (want) => {
         if (want) tree.wantEmpty();
       },
       { immediate: true },
     );
+    watch(filtersOpen, (open) => {
+      if (open) tree.wantEmpty();
+    });
   }
 
   // What the corpus is filtered with: the page's filters — or, from the server,
@@ -200,14 +217,23 @@ export function useTestimonyFiltering(input: {
 
   // ---- From the server ---------------------------------------------------------
   // Not for the home card (no filters there), as the corpus is not.
+  // Retried as the tree's reads are (after Retry-After, or 1, 2, 4 s), and
+  // again at the dialog's opening should it have failed.
   const facetsQuery = server
     ? useQuery({
         queryKey: placesKeys.facets(),
         queryFn: ({ signal }) => fetchFacets(signal),
         enabled: computed(() => !preview()),
+        retry: (failures, err) => retryable(err) && failures < RETRIES,
+        retryDelay: (failures, err) => retryWait(failures + 1, err),
         shallow: true,
       })
     : null;
+  if (facetsQuery) {
+    watch(filtersOpen, (open) => {
+      if (open && facetsQuery.isError.value) void facetsQuery.refetch();
+    });
+  }
   const facets = computed<PlaceFacets | null>(() => facetsQuery?.data.value ?? null);
 
   /** N résultats: the matching testimonies on the map and on no point. */
