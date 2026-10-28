@@ -14,6 +14,9 @@
 // made (__acCompareListsRun({ testimonies: true }) for every testimony too):
 // - the results, every page, in the panel's order (id, title, date, count,
 //   the lieu's label), their totals and the map's frame of them;
+// - what the panel lists of them (window.__acLists): the corpus' list as far
+//   as it reveals it — a page, or as far as the audition being read —, its
+//   heading, nothing of a previous key;
 // - every lieu's auditions (its embedded list, or its read when held);
 // - each result's testimonies, every page, in order (asked for: all of them).
 // Deliberate differences are tagged with their number in the design (A21):
@@ -64,6 +67,7 @@ export interface CompareDiff {
     | "facets"
     | "placeTree"
     | "results"
+    | "panel"
     | "frame"
     | "lieu"
     | "testimonies";
@@ -95,8 +99,8 @@ export interface ListsReport {
   key: string;
   sort: "recent" | "ancien";
   at: string;
-  /** Results rows, lieux' lists and testimony lists compared. */
-  checked: { results: number; lieux: number; testimonies: number };
+  /** Results rows, the panel's rows, lieux' lists and testimony lists compared. */
+  checked: { results: number; panel: number; lieux: number; testimonies: number };
   /** Lieux whose list the server has not embedded nor been asked for. */
   lieuxUnchecked: number;
   count: number;
@@ -372,6 +376,33 @@ export function startCompare(inputs: {
     created_at: t.created_at,
   });
 
+  /** The panel's results (GeoNav's probe), once on screen for this key and
+   *  sort — or failed, or still another's after a while. */
+  interface PanelResults {
+    results: {
+      key: string;
+      sort: string;
+      current: boolean;
+      ids: string[];
+      total: { auditions: number } | null;
+    } | null;
+    failed: boolean;
+    settling: unknown;
+    limit: number;
+    open: string | null;
+  }
+  async function panelResults(key: string, sort: string): Promise<PanelResults | null> {
+    const probe = () =>
+      (window as unknown as { __acLists?: () => PanelResults | null }).__acLists?.();
+    for (let waited = 0; ; waited += 100) {
+      const p = probe() ?? null;
+      const r = p?.results;
+      if (!p || p.failed || waited >= 8000) return p;
+      if (r && r.key === key && r.sort === sort && r.current && !p.settling) return p;
+      await new Promise((ok) => window.setTimeout(ok, 100));
+    }
+  }
+
   async function runLists(opts: { testimonies?: boolean } = {}): Promise<ListsReport | null> {
     const key = sf.key.value;
     const sort = filtering.sort.value === "ancien" ? "ancien" : "recent";
@@ -469,6 +500,56 @@ export function startCompare(inputs: {
       });
     }
 
+    // What the panel lists: the corpus' list as far as it reveals it (its
+    // first page, or as far as the audition being read; a page more at each
+    // end reached), its heading — never a previous key's, nor a failure.
+    let panelRows = 0;
+    const panel = key !== "" ? await panelResults(key, sort) : null;
+    if (panel) {
+      const r = panel.results;
+      if (panel.failed || !r || r.key !== key || r.sort !== sort) {
+        diffs.push({
+          area: "panel",
+          id: key,
+          field: panel.failed ? "failed" : "stale",
+          corpus: { key, sort },
+          server: r ? { key: r.key, sort: r.sort } : null,
+        });
+      } else {
+        panelRows = r.ids.length;
+        const corpusIds = corpusRows.map((c) => c.id);
+        if (!same(r.ids, corpusIds.slice(0, r.ids.length))) {
+          diffs.push({
+            area: "panel",
+            id: key,
+            field: "rows",
+            corpus: corpusIds.slice(0, r.ids.length),
+            server: r.ids,
+          });
+        }
+        const at = panel.open ? corpusIds.indexOf(panel.open) : -1;
+        const least = Math.min(corpusIds.length, Math.max(panel.limit, at + 1));
+        if (r.ids.length < least) {
+          diffs.push({
+            area: "panel",
+            id: key,
+            field: "reveal",
+            corpus: least,
+            server: r.ids.length,
+          });
+        }
+        if (r.total?.auditions !== corpusIds.length) {
+          diffs.push({
+            area: "panel",
+            id: key,
+            field: "heading",
+            corpus: corpusIds.length,
+            server: r.total?.auditions ?? null,
+          });
+        }
+      }
+    }
+
     // Every lieu's auditions: its embedded list, or its read when held.
     let lieux = 0;
     let lieuxUnchecked = 0;
@@ -524,7 +605,7 @@ export function startCompare(inputs: {
       key,
       sort,
       at: new Date().toISOString(),
-      checked: { results: serverRows.length, lieux, testimonies: tested },
+      checked: { results: serverRows.length, panel: panelRows, lieux, testimonies: tested },
       lieuxUnchecked,
       count: diffs.length,
       diffs,
