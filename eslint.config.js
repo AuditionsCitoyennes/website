@@ -7,6 +7,7 @@ import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 // into its chunk. Everything else of a feature is reached through its barrel.
 const SECONDARY_ENTRIES = {
   map: ["lib", "types", "events"],
+  "geo-nav": ["keys"],
   auth: ["account"],
 };
 

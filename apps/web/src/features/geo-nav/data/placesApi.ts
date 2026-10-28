@@ -8,25 +8,12 @@
 import type { PlaceCounts, PlaceCountsBatch, PlaceFacets } from "@ac/shared";
 import { PLACE_IDS_MAX } from "@ac/shared";
 import { api } from "@/shared/api/client";
+import { EMPTY_KEY, placesKeys } from "../keys";
 
 /** The subtree's depth asked for: a unit's children and grandchildren. */
 export const PLACES_DEPTH = 2;
 
-/** The key of every audition on the map, testimonies or not (empty=1, no
- *  filters): the home card and the place picker. Never a filter key. */
-export const EMPTY_KEY = "empty";
-
-/**
- * vue-query keys. `all` prefixes every place read (app/ invalidates it when
- * an audition is created); a unit's counts are kept per filter key, unit,
- * depth and facts.
- */
-export const placesKeys = {
-  all: ["places"] as const,
-  counts: (fkey: string, unit: string, depth: number, facts: boolean) =>
-    [...placesKeys.all, fkey, unit, depth, facts] as const,
-  facets: () => [...placesKeys.all, "facets"] as const,
-};
+export { EMPTY_KEY, placesKeys };
 
 /** What a counts request is asked under: one filter key's. */
 export interface CountsRequest {
@@ -104,6 +91,8 @@ export function createCountsBatcher(opts: {
   const queues = new Map<string, { req: CountsRequest; items: Waiting[] }>();
   let timer = 0;
   let soon = false;
+  /** Requests sent (the testing tools' probe). */
+  let sent = 0;
 
   function flush() {
     window.clearTimeout(timer);
@@ -127,10 +116,11 @@ export function createCountsBatcher(opts: {
   }
 
   async function go(req: CountsRequest, units: string[], items: Waiting[]) {
-    const sent: Sent = { ctl: new AbortController(), items };
-    for (const w of items) w.sent = sent;
+    const out: Sent = { ctl: new AbortController(), items };
+    for (const w of items) w.sent = out;
+    sent++;
     try {
-      const { answers, textIgnored } = await send(units, req, sent.ctl.signal);
+      const { answers, textIgnored } = await send(units, req, out.ctl.signal);
       opts.onAnswers(req, answers, textIgnored);
       const byUnit = new Map(answers.map((a) => [a.unit, a]));
       for (const w of items) {
@@ -184,7 +174,7 @@ export function createCountsBatcher(opts: {
     });
   }
 
-  return { load };
+  return { load, sent: () => sent };
 }
 
 export type CountsBatcher = ReturnType<typeof createCountsBatcher>;

@@ -72,8 +72,8 @@ class KeyStore implements UnitTreeData {
   readonly attempts = new Map<string, number>();
   readonly failed = new Set<string>();
   readonly timers = new Set<number>();
-  /** Requests sent (the probe's count). */
-  requests = 0;
+  /** Units asked for (the probe's count). */
+  asked = 0;
   constructor(readonly req: CountsRequest) {}
 
   entry(id: string): Entry {
@@ -219,7 +219,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
         continue;
       }
       ks.inflight.add(id);
-      ks.requests++;
+      ks.asked++;
       queryClient
         .fetchQuery({
           queryKey: key,
@@ -430,7 +430,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
       loaded: shown ? [...shown.units.values()].filter((e) => e.loaded).length : 0,
       lieux: shown?.lieux.size ?? 0,
       complete: shown?.complete ?? null,
-      requests: [...stores.values()].reduce((s, ks) => s + ks.requests, 0),
+      unitsAsked: [...stores.values()].reduce((s, ks) => s + ks.asked, 0),
+      requests: batcher.sent(),
       inflight: [...stores.values()].reduce((s, ks) => s + ks.inflight.size, 0),
       failed: shown ? [...shown.failed] : [],
     };

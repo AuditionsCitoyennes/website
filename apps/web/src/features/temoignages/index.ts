@@ -4,4 +4,5 @@
 // place reads' (placesKeys, map phase 1).
 export const loadTemoignagesExplorer = () => import("./TemoignagesExplorer.vue");
 export { testimoniesKeys } from "./api/queries";
-export { placesKeys } from "@/features/geo-nav";
+// A secondary entry: the barrel would bring the map into app/'s chunk.
+export { placesKeys } from "@/features/geo-nav/keys";

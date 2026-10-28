@@ -4,7 +4,8 @@
 // reads, and the comparer's tree matching (testing tools).
 export { default as GeoNav } from "./GeoNav.vue";
 export { useUnitTree, type TreeRequest, type UnitTree } from "./data/useUnitTree";
-export { EMPTY_KEY, fetchFacets, placesKeys, type CountsRequest } from "./data/placesApi";
+export { EMPTY_KEY, placesKeys } from "./keys";
+export { fetchFacets, type CountsRequest } from "./data/placesApi";
 export { groupOwnAuditions } from "./model/auditions";
 export { compareTrees, type TreeComparison, type TreeDiff } from "./data/compareTrees";
 export type { BoundaryFC } from "./data/useBoundaryQueries";
