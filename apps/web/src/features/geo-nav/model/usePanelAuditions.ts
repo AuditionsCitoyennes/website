@@ -139,6 +139,20 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     moreObserver.observe(el);
   });
   onBeforeUnmount(() => moreObserver?.disconnect());
+  /** Looked at again once a page is in: still in sight (a tall panel, a short
+   *  page), the sentinel asks for the next — an observer says nothing while
+   *  what it watches stays in sight (the server's pages: they come later). */
+  function lookAgain(observer: IntersectionObserver | null, el: HTMLElement | null) {
+    if (!observer || !el) return;
+    observer.unobserve(el);
+    observer.observe(el);
+  }
+  if (server) {
+    watch(
+      () => server.resultRows.value.length,
+      () => void nextTick(() => lookAgain(moreObserver, moreEl.value)),
+    );
+  }
 
   /** The auditions the panel shows: the results, or the open lieu's own. */
   const panelAuditions = computed<PanelAudition[]>(() =>
@@ -370,6 +384,10 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
       );
       observer.observe(el);
     });
+    watch(
+      () => server.openTestimonies.value,
+      () => void nextTick(() => lookAgain(observer, moreTestimoniesEl.value)),
+    );
     onBeforeUnmount(() => observer?.disconnect());
   }
   function showMoreTestimonies() {

@@ -440,6 +440,12 @@ export function useServerLists(inputs: ServerListsInputs) {
     return testimoniesQuery.isError.value ? { list: [], more: false, failed: true } : NOT_HERE;
   }
 
+  /** How many of the open audition's testimonies are in (a page came). */
+  const openTestimonies = computed(() => {
+    const pages = testimoniesQuery.data.value?.pages;
+    return pages ? pages.reduce((n, p) => n + p.testimonies.length, 0) : 0;
+  });
+
   function loadMoreTestimonies() {
     if (!testimoniesQuery.hasNextPage.value || testimoniesQuery.isFetchingNextPage.value) return;
     if (testimoniesQuery.isPlaceholderData.value) return;
@@ -523,6 +529,7 @@ export function useServerLists(inputs: ServerListsInputs) {
     firstAuditionAt,
     placeList,
     testimoniesFor,
+    openTestimonies,
     loadMoreTestimonies,
     addStub,
     stats,
