@@ -11,15 +11,15 @@ import type { AdminAudition } from "./useAdminAuditions";
  * and what its buttons do — delete it, or hear that its testimonies changed.
  *
  * `reachableAuditions`: what may be opened. `fetchAuditions` and
- * `refreshFilterable` are the list's own refreshes, called when something done
+ * `refreshMatches` are the list's own refreshes, called when something done
  * in the popup changes what the list shows.
  */
 export function useAuditionPopup(
   reachableAuditions: Ref<AdminAudition[]>,
   {
     fetchAuditions,
-    refreshFilterable,
-  }: { fetchAuditions: () => Promise<void>; refreshFilterable: () => void },
+    refreshMatches,
+  }: { fetchAuditions: () => Promise<void>; refreshMatches: () => void },
 ) {
   const { toast } = useToast();
 
@@ -39,7 +39,7 @@ export function useAuditionPopup(
 
   /** The popup changed this audition's testimonies (added, edited, removed…). */
   async function onTestimoniesChanged(auditionId: string) {
-    refreshFilterable();
+    refreshMatches();
     await fetchTestimonies(auditionId);
     // None left: the audition may have gone with its last one, deleted from
     // elsewhere meanwhile (a witness's link, another admin) — the list says
@@ -52,7 +52,7 @@ export function useAuditionPopup(
   /** Its last testimony deleted, the audition went with it: out of the list. */
   async function onAuditionEmptied(auditionId: string) {
     if (selectedAudition.value === auditionId) closePopup();
-    refreshFilterable();
+    refreshMatches();
     await fetchAuditions();
   }
 
@@ -115,6 +115,8 @@ export function useAuditionPopup(
       await api.del(`/api/auditions/${id}`);
       toast({ title: "Succès!", description: "Audition supprimée" });
       if (selectedAudition.value === id) closePopup();
+      // Its testimonies leave the theme counts too.
+      refreshMatches();
       await fetchAuditions();
     } catch (e) {
       toast({

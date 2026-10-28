@@ -1,38 +1,43 @@
-import { computed, ref, type Ref } from "vue";
-import { useQuery, useQueryClient } from "@tanstack/vue-query";
-import { answersText } from "@ac/shared";
+import { computed, onScopeDispose, ref, watch, type Ref } from "vue";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/vue-query";
+import type { AdminAuditionFilter } from "@ac/shared";
 import { api } from "@/shared/api/client";
 import { useAuthStore } from "@/features/auth";
 import {
   buildLocationTree,
-  buildTopicOptions,
   dateBoundsOf,
-  fold,
-  passesContent,
   passesDate,
   passesLocation,
+  TEXT_DEBOUNCE_MS,
+  topicOptionsOf,
   useFilters,
-  type TestimonyContent,
 } from "@/features/filters";
+import {
+  contentAskOf,
+  contentOn,
+  passesContentMatches,
+  themeCountsOf,
+  type ContentAsk,
+  type ContentMatches,
+} from "./contentMatches";
 import type { AdminAudition } from "./useAdminAuditions";
 
-/** A testimony as the filters judge it (see /api/testimonies/admin/filterable). */
-interface FilterableTestimony extends TestimonyContent {
-  audition_id: string;
-}
-
-const FILTERABLE_KEY = ["admin", "filterable-testimonies"];
+const MATCHES_KEY = ["admin", "audition-filter"] as const;
 
 /**
  * The filters of the Témoignages map, applied to the admin list's auditions.
  * Place, dates, themes, verified only, free text and order. Place and dates are
  * the audition's own; themes, "verified" and the text are judged on its
  * testimonies — an audition passes when one of them does (the free text may
- * also be found in the audition's title, place or context).
+ * also be found in the audition's title, place or context). The testimonies
+ * are judged by the server (/api/auditions/admin/filter, contentMatches.ts),
+ * the text 300 ms after the last keystroke; the list stays as it was until
+ * its answer is in.
  *
  * `auditions`: every audition the list holds, judged once per change;
- * `reachableAuditions`: those the signed-in admin may open — what the options
- * offered and the result count are drawn from.
+ * `reachableAuditions`: those the signed-in admin may open — what the place
+ * and date options and the result count are drawn from (the server counts
+ * the themes over the same auditions).
  */
 export function useAuditionFilters(
   auditions: Ref<AdminAudition[]>,
@@ -61,83 +66,93 @@ export function useAuditionFilters(
   const filtersOpen = ref(false);
   const filterOn = computed(() => chips.value.length > 0);
 
-  // What the testimonies are judged on is only fetched when it is needed: while
-  // the filters are open, or while a filter judged on testimonies is on. Most
-  // visits to this page never filter — and neither switching tabs nor editing an
-  // audition re-downloads it.
+  // The text, once typing has paused: each change is a round trip. Emptied at
+  // once (a chip taken off).
+  const typed = ref(text.value);
+  let typing: ReturnType<typeof setTimeout> | undefined;
+  watch(text, (next) => {
+    clearTimeout(typing);
+    if (!next.trim()) {
+      typed.value = next;
+      return;
+    }
+    typing = setTimeout(() => (typed.value = next), TEXT_DEBOUNCE_MS);
+  });
+  onScopeDispose(() => clearTimeout(typing));
+
+  /** The content filters as the server is asked them. */
+  const ask = computed(() =>
+    contentAskOf({ verified: verified.value, topics: topics.value, text: typed.value }),
+  );
+
+  // What the server says of the testimonies is only asked for when it is
+  // needed: while the filters are open (the themes offered), or while a filter
+  // judged on testimonies is on. Most visits to this page never filter — and
+  // neither switching tabs nor editing an audition asks again.
   const queryClient = useQueryClient();
   const testimonyFilterOn = computed(
     () => verified.value || topics.value.length > 0 || Boolean(needle.value),
   );
-  const filterableQuery = useQuery({
-    queryKey: computed(() => [...FILTERABLE_KEY, auth.user?.id ?? null]),
-    queryFn: () => api.get<FilterableTestimony[]>("/api/testimonies/admin/filterable", true),
-    enabled: computed(() => filtersOpen.value || testimonyFilterOn.value),
+  const matchesQuery = useQuery({
+    queryKey: computed(() => [...MATCHES_KEY, auth.user?.id ?? null, ask.value] as const),
+    queryFn: async ({ queryKey, signal }): Promise<ContentMatches> => {
+      const asked = queryKey[3];
+      const qs = new URLSearchParams(asked.params).toString();
+      const answer = await api.get<AdminAuditionFilter>(
+        `/api/auditions/admin/filter${qs ? `?${qs}` : ""}`,
+        true,
+        signal,
+      );
+      return { ...answer, ask: asked };
+    },
+    enabled: computed(() => filtersOpen.value || contentOn(ask.value)),
     staleTime: 5 * 60_000,
-    // Fetched once per change, not walked through its text by Vue on each read.
+    // The answer before stays on screen until the next one is in.
+    placeholderData: keepPreviousData,
     shallow: true,
   });
   function openFilters() {
     filtersOpen.value = true;
     // A first load that failed is tried again (an enabled query would not be).
-    if (filterableQuery.isError.value && !filterableQuery.data.value)
-      void filterableQuery.refetch();
+    if (matchesQuery.isError.value && !matchesQuery.data.value) void matchesQuery.refetch();
   }
-  /** Testimonies were added, changed, analysed or removed: what is filtered on
-   *  is stale. Fetched again at once only if it is in use; else when it next is. */
-  function refreshFilterable() {
-    void queryClient.invalidateQueries({ queryKey: FILTERABLE_KEY });
+  /** Testimonies were added, changed, analysed or removed, or an audition
+   *  deleted: what the server said is stale. Asked again at once only if it is
+   *  in use; else when it next is. */
+  function refreshMatches() {
+    void queryClient.invalidateQueries({ queryKey: MATCHES_KEY });
   }
-  /** They could not be fetched (and none are at hand). */
-  const filterableFailed = computed(
-    () => filterableQuery.isError.value && !filterableQuery.data.value,
+  /** The server could not say (and nothing it said is at hand). */
+  const matchesFailed = computed(() => matchesQuery.isError.value && !matchesQuery.data.value);
+
+  /** What the list is judged by: the answer on screen (the one asked for, or
+   *  the one before while it comes) with what it was asked; none at hand, the
+   *  filters asked and no testimony passing them. */
+  const judged = computed<{
+    ask: ContentAsk;
+    matches: AdminAuditionFilter["matches"] | null;
+  }>(() => {
+    const m = matchesQuery.data.value;
+    if (!contentOn(ask.value) || !m) return { ask: ask.value, matches: null };
+    return { ask: m.ask, matches: m.matches };
+  });
+
+  const topicOptions = computed(() =>
+    topicOptionsOf(themeCountsOf(matchesQuery.data.value?.themes ?? [])),
   );
-
-  // Each audition's testimonies, with the text the free search looks in folded
-  // once — not on every keystroke.
-  const testimoniesByAudition = computed(() => {
-    const byAudition = new Map<string, { t: FilterableTestimony; hay: string }[]>();
-    for (const t of filterableQuery.data.value ?? []) {
-      // The witness's words only: not the questions of a testimony sent online.
-      const entry = {
-        t,
-        hay: fold(`${t.person_name} ${t.person_info ?? ""} ${answersText(t.content)}`),
-      };
-      const list = byAudition.get(t.audition_id);
-      if (list) list.push(entry);
-      else byAudition.set(t.audition_id, [entry]);
-    }
-    return byAudition;
-  });
-
-  const topicOptions = computed(() => {
-    const reachable = new Set(reachableAuditions.value.map((a) => a.id));
-    return buildTopicOptions(
-      (filterableQuery.data.value ?? [])
-        .filter((t) => reachable.has(t.audition_id))
-        .map((t) => t.topics),
-    );
-  });
   const dateBounds = computed(() => dateBoundsOf(reachableAuditions.value.map((a) => a.date)));
 
-  /** A filter on the testimonies is on, and they are on their way. */
+  /** A filter on the testimonies is asked for, and nothing the server said is
+   *  at hand yet. */
   const waitingForTestimonies = computed(
-    () => testimonyFilterOn.value && !filterableQuery.data.value && !filterableFailed.value,
+    () => contentOn(ask.value) && !matchesQuery.data.value && !matchesFailed.value,
   );
 
   function passes(a: AdminAudition): boolean {
     if (!passesDate(a.date, dateFrom.value, dateTo.value)) return false;
     if (!passesLocation(a.area ?? null, locations.value)) return false;
-    const onTestimonies = verified.value || topics.value.length > 0;
-    if (!onTestimonies && !needle.value) return true;
-    const textInAudition =
-      Boolean(needle.value) && fold(`${a.title} ${a.location} ${a.content}`).includes(needle.value);
-    const textIn = (hay: string) => !needle.value || textInAudition || hay.includes(needle.value);
-    const own = testimoniesByAudition.value.get(a.id) ?? [];
-    if (!onTestimonies) return textInAudition || own.some((e) => textIn(e.hay));
-    // The text was looked for above, once per testimony: not again inside.
-    const others = { verified: verified.value, topics: topics.value, needle: "" };
-    return own.some((e) => passesContent(e.t, others) && textIn(e.hay));
+    const { ask: asked, matches } = judged.value;
+    return passesContentMatches(a, asked, matches);
   }
 
   /** Newest first, or oldest first; undated last either way. */
@@ -176,10 +191,10 @@ export function useAuditionFilters(
     locationTree,
     topicOptions,
     dateBounds,
-    // The testimonies the filters are judged on.
-    filterableQuery,
-    filterableFailed,
-    refreshFilterable,
+    // What the server says of the testimonies.
+    matchesQuery,
+    matchesFailed,
+    refreshMatches,
     testimonyFilterOn,
     waitingForTestimonies,
     // What passes.
