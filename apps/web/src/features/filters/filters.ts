@@ -112,7 +112,16 @@ export function buildTopicOptions(
   for (const list of topicLists) {
     for (const theme of themesOf(list)) counts.set(theme, (counts.get(theme) ?? 0) + 1);
   }
+  return topicOptionsOf(counts);
+}
+
+/** The theme picker's options from each theme's count (the themes found:
+ *  a count above 0), the most frequent first. */
+export function topicOptionsOf(
+  counts: ReadonlyMap<string, number>,
+): { value: string; label: string; hint: string }[] {
   return [...counts.entries()]
+    .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([value, n]) => ({ value, label: value, hint: String(n) }));
 }
