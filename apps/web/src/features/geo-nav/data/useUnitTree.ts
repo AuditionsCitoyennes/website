@@ -27,16 +27,19 @@
 //   (PR K): selected, flown to and labelled at once, its own row replacing it
 //   — or, its unit loaded without it, gone (it does not match there). The
 //   open lieu goes along, as a stub, into a key's store swapped in without it.
-// - A place read invalidated in the query cache (an audition created,
-//   app/AppDialogs.vue) drops every store, 100 ms after the last one: the key
-//   on screen is asked for again — its scope's chain, as for a filter change —
-//   and swapped in once the answer holds it, the tree before on screen
-//   meanwhile; the place picker's too, if it was wanted.
+// - An audition created (keys.ts' reloadPlaces, from app/AppDialogs.vue)
+//   drops every store, 100 ms after the last one: the key on screen is asked
+//   for again — its scope's chain, as for a filter change — and swapped in
+//   once the answer holds it, the tree before on screen meanwhile; the place
+//   picker's too, if it was wanted. Told directly, not by the query cache's
+//   invalidate events: none comes for a query already invalidated (a reload
+//   still on its way, or one that failed).
 
 import { getCurrentScope, onScopeDispose, ref } from "vue";
 import { isCancelledError, type QueryClient } from "@tanstack/vue-query";
 import type { PlaceCounts, PlaceFacts, PlaceLieuRow, PlaceUnitRow } from "@ac/shared";
 import { WORLD, type LieuStub, type UnitTreeData, type UnitTreeEntry } from "@/features/geo";
+import { onPlacesReload } from "../keys";
 import {
   createCountsBatcher,
   EMPTY_KEY,
@@ -60,7 +63,7 @@ const KEYS_KEPT = 4;
 const WINDOW_MS = 50;
 /** A unit's answer is fresh this long (the app's default). */
 const STALE_MS = 5 * 60 * 1000;
-/** After the last place read invalidated, the stores are reloaded. */
+/** After the last reload asked for (an audition created), the stores are. */
 const REFRESH_MS = 100;
 
 interface Entry extends UnitTreeEntry {
@@ -93,8 +96,8 @@ class KeyStore implements UnitTreeData {
   readonly timers = new Set<number>();
   /** Units asked for (the probe's count). */
   asked = 0;
-  /** Invalidated: on screen until its reload is (see refresh), never asked
-   *  for again nor handed out by storeOf. */
+  /** Reloaded: on screen until its reload is (see refresh), never asked for
+   *  again nor handed out by storeOf. */
   stale = false;
   constructor(readonly req: CountsRequest) {}
 
@@ -144,12 +147,12 @@ export function useUnitTree(opts: UnitTreeOptions) {
   let next: KeyStore | null = null;
   /** The scope and the units above it, root first (setScope). */
   let chain: string[] = [WORLD];
-  /** The place picker's store before an invalidation, read until its reload
+  /** The place picker's store before a reload, read until its own reload
    *  holds the world. */
   let staleEmpty: KeyStore | null = null;
-  /** The reload after an invalidation, waiting for the last one. */
+  /** The reload after an audition created, waiting for the last one. */
   let refreshTimer = 0;
-  /** Reloads after an invalidation (the probe's count). */
+  /** Reloads after an audition created (the probe's count). */
   let refreshes = 0;
 
   const batcher = createCountsBatcher({
@@ -231,7 +234,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
       if (from && from !== ks) carryInto(ks, from);
       version.value++;
       status.value++;
-      // A store an invalidation left on screen: gone now.
+      // A store a reload left on screen: gone now.
       if (from?.stale && stores.get(from.req.key) === from) drop(from);
       trim();
       return;
@@ -416,7 +419,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
   }
 
   /** Asks the store on screen for these units' subtrees (those on view) —
-   *  its reload's, while an invalidated one is on screen; `deep`: their
+   *  its reload's, while a reloaded one is on screen; `deep`: their
    *  children's too (the scope, so that the next drill step finds its units
    *  loaded). */
   function ensure(ids: readonly string[], deep = false) {
@@ -444,7 +447,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
     ks.stubs.set(lieu.id, lieu);
     ks.version++;
     version.value++;
-    // Invalidated: its reload holds the stub too, and asks for its path.
+    // Reloaded: its reload holds the stub too, and asks for its path.
     const reload = ks.stale && next?.req.key === ks.req.key ? next : null;
     if (reload && stubFits(reload, lieu)) {
       reload.stubs.set(lieu.id, lieu);
@@ -487,11 +490,11 @@ export function useUnitTree(opts: UnitTreeOptions) {
   }
 
   /**
-   * A place read was invalidated (an audition created): every store goes, and
-   * the key asked for last is asked again, as a new key is — its scope's
-   * chain in one request, swapped in once it is held; the tree on screen
-   * stays meanwhile, never asked for again. The place picker's is asked
-   * again if it was wanted (the one before read meanwhile).
+   * An audition was created: every store goes, and the key asked for last is
+   * asked again, as a new key is — its scope's chain in one request, swapped
+   * in once it is held; the tree on screen stays meanwhile, never asked for
+   * again. The place picker's is asked again if it was wanted (the one before
+   * read meanwhile). A reload while the last one is on its way starts over.
    */
   function refresh() {
     const current = next ?? shown;
@@ -507,9 +510,11 @@ export function useUnitTree(opts: UnitTreeOptions) {
         continue;
       }
       // On screen until its reload is: kept for its key's parameters, its
-      // requests and retries let go.
+      // requests and retries let go, its answers out of the query cache (one
+      // that came during a reload may predate this one's audition).
       ks.stale = true;
       abandon(ks);
+      queryClient.removeQueries({ queryKey: [...placesKeys.all, ks.req.key] });
     }
     next = null;
     // Its reload holds the lieux opened from a list before it is asked.
@@ -522,11 +527,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
     if (pickerWanted) wantEmpty();
   }
 
-  // Listened to in the query cache: an invalidate of any place read (the
-  // lists' own are asked again by their observers).
-  const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
-    if (event.type !== "updated" || event.action.type !== "invalidate") return;
-    if (event.query.queryKey[0] !== placesKeys.all[0]) return;
+  // reloadPlaces (the lists' queries are asked again by their observers).
+  const unsubscribe = onPlacesReload(() => {
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(refresh, REFRESH_MS);
   });
@@ -602,7 +604,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
   }
 
   /** Every audition on the map (EMPTY_KEY), for the place picker: asked for
-   *  once wanted (the one before an invalidation until its reload is in);
+   *  once wanted (the one before a reload until its own reload is in);
    *  read after both versions. */
   function emptyData(): UnitTreeData | null {
     void version.value;

@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/vue-query";
 import { useAuthStore } from "@/features/auth";
 import { loadCreateAuditionDialog, useCreateAudition } from "@/features/admin";
 import { loadSubmitTestimonyDialog, useSubmitTestimony } from "@/features/testify";
-import { placesKeys, testimoniesKeys } from "@/features/temoignages";
+import { reloadPlaces, testimoniesKeys } from "@/features/temoignages";
 import { useLazyDialog } from "./useLazyDialog";
 
 const auth = useAuthStore();
@@ -35,9 +35,10 @@ function onAuditionCreated() {
   // The public pages show what they loaded a moment ago: the new audition
   // belongs on them now, wherever it was created from — the place reads too
   // (the Témoignages map and the home card reload their tree, useUnitTree).
-  for (const key of [testimoniesKeys.list, testimoniesKeys.map, placesKeys.all]) {
+  for (const key of [testimoniesKeys.list, testimoniesKeys.map]) {
     void queryClient.invalidateQueries({ queryKey: key });
   }
+  reloadPlaces(queryClient);
 }
 
 // Signed out (or no longer an admin): the popup goes, and does not come back

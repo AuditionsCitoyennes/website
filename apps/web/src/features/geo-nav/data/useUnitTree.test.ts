@@ -1,7 +1,9 @@
 // The server's tree store (map phase 1, design E2) against a fake API: a
 // filter key swaps in once it knows the scope's chain — also a key still held
 // from before —, what failed is asked for again when wanted again, a key let
-// go stops asking, and a dropped key's answers leave the query cache. Run
+// go stops asking, a dropped key's answers leave the query cache, and an
+// audition created (reloadPlaces) is read whatever state the last reload is
+// in. Run
 // with `node --import tsx --test` (root "test:scripts"): the store's two app
 // imports are mapped here (the API client to a stub: no Supabase, no fetch).
 
@@ -38,6 +40,7 @@ g.window = globalThis;
 g.__TEST_TOOLS__ = false;
 
 const { useUnitTree } = await import("./useUnitTree");
+const { reloadPlaces } = await import("../keys");
 const { buildTreeFromUnits } = await import("@/features/geo");
 const { ApiError } = (await import("@/shared/api/client")) as unknown as {
   ApiError: new (m: string, status: number, retryAfter?: number | null) => Error;
@@ -70,6 +73,7 @@ const KEYS: Record<string, { lieux: string[]; complete: boolean }> = {
   "": { lieux: Object.keys(LIEUX), complete: false },
   empty: { lieux: Object.keys(LIEUX), complete: false },
   ll: { lieux: ["l:0000000000000002"], complete: true },
+  whole: { lieux: Object.keys(LIEUX), complete: true },
   qmace: { lieux: ["l:0000000000000001"], complete: false },
 };
 const keyOf = (k: string) => KEYS[k] ?? { lieux: Object.keys(LIEUX), complete: false };
@@ -128,24 +132,30 @@ interface Call {
   units: readonly string[];
 }
 
-/** The fake API: answers, or the failure `fail` gives for a request. */
+/** The fake API: answers as the data stood when asked (after `delay` ms), or
+ *  the failure `fail` gives for a request. */
 function fakeApi() {
   const calls: Call[] = [];
   let fail: ((c: Call) => Error | null) | null = null;
+  let delay = 5;
   const fetch = async (units: readonly string[], req: CountsRequest, signal?: AbortSignal) => {
     const call = { key: req.key, units: [...units] };
     calls.push(call);
-    await new Promise((r) => setTimeout(r, 5));
+    const answers = units.map((u) => answerFor(u, req.key));
+    await new Promise((r) => setTimeout(r, delay));
     if (signal?.aborted) throw new DOMException("abandoned", "AbortError");
     const err = fail?.(call);
     if (err) throw err;
-    return { answers: units.map((u) => answerFor(u, req.key)), ignored: null };
+    return { answers, ignored: null };
   };
   return {
     calls,
     fetch,
     failWith(f: ((c: Call) => Error | null) | null) {
       fail = f;
+    },
+    slow(ms: number) {
+      delay = ms;
     },
   };
 }
@@ -300,6 +310,116 @@ test("the scope's own answer, refused once, is asked for again (its units' child
     tree.stats().units - 1,
     "its régions loaded (only Lyon 7e not)",
   );
+});
+
+test("a key that failed, left for the tree on screen, is asked for again when typed again", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  tree.request({ key: "", params: {} });
+  await wait(80);
+  tree.setScope(FR);
+  fake.failWith((c) => (c.key === "qmarche" ? new ApiError("slow down", 429, 0.01) : null));
+  tree.request({ key: "qmarche", params: { q: "marché" } });
+  // Tried 4 times, 250 ms apart.
+  await wait(1100);
+  assert.equal(tree.failed(), true, "the error line");
+  // The text cleared: back to the tree on screen; then typed again.
+  tree.request({ key: "", params: {} });
+  assert.equal(tree.failed(), false);
+  fake.failWith(null);
+  const before = fake.calls.length;
+  tree.request({ key: "qmarche", params: { q: "marché" } });
+  await wait(120);
+  assert.ok(
+    fake.calls.slice(before).some((c) => c.key === "qmarche"),
+    "asked again",
+  );
+  assert.equal(tree.shownKey(), "qmarche");
+  assert.equal(tree.failed(), false);
+});
+
+// ---- An audition created (PR L) -------------------------------------------------
+
+const NEW_LIEU = "l:0000000000000003";
+/** An audition created at a new lieu in Villeurbanne: in the keys without
+ *  filters ("whole": a world answer that is the whole tree, production's). */
+function createAudition() {
+  LIEUX[NEW_LIEU] = { unit: "fr:com:69266", key: "Parc de la Feyssine" };
+  for (const k of ["", "whole"]) KEYS[k].lieux.push(NEW_LIEU);
+}
+function forgetAudition() {
+  delete LIEUX[NEW_LIEU];
+  for (const k of ["", "whole"]) KEYS[k].lieux = KEYS[k].lieux.filter((l) => l !== NEW_LIEU);
+}
+const holds = (tree: ReturnType<typeof useUnitTree>, id: string) => !!tree.data()?.lieux.has(id);
+
+test("an audition created while the last reload is on its way is read by a second reload", async (t) => {
+  t.after(forgetAudition);
+  const fake = fakeApi();
+  const { tree, queryClient } = store(fake);
+  // The whole tree in one answer: a reload asks for the world alone, the
+  // query its first reload is still reading.
+  tree.request({ key: "whole", params: {} });
+  await wait(80);
+  tree.setScope(VILLEURBANNE);
+  await wait(80);
+  fake.slow(200);
+  reloadPlaces(queryClient);
+  await wait(150);
+  assert.equal(tree.stats().refreshes, 1);
+  assert.ok(tree.stats().inflight > 0, "the first reload on its way");
+  // A second audition, written after the first reload's read.
+  createAudition();
+  reloadPlaces(queryClient);
+  await wait(600);
+  assert.equal(tree.stats().refreshes, 2, "reloaded again");
+  assert.equal(tree.shownKey(), "whole");
+  assert.equal(holds(tree, NEW_LIEU), true, "the second audition's lieu is on screen");
+});
+
+test("an audition created after a reload failed is read", async (t) => {
+  t.after(forgetAudition);
+  const fake = fakeApi();
+  const { tree, queryClient } = store(fake);
+  tree.request({ key: "", params: {} });
+  await wait(80);
+  tree.setScope(VILLEURBANNE);
+  await wait(80);
+  fake.failWith((c) => (c.key === "" ? new ApiError("boom", 500) : null));
+  reloadPlaces(queryClient);
+  await wait(200);
+  assert.equal(tree.failed(), true, "the reload failed: the error line");
+  fake.failWith(null);
+  createAudition();
+  reloadPlaces(queryClient);
+  await wait(250);
+  assert.equal(tree.stats().refreshes, 2);
+  assert.equal(tree.failed(), false);
+  assert.equal(holds(tree, NEW_LIEU), true);
+});
+
+test("a reload's answer read before the next audition, landing before the next reload, is not reused", async (t) => {
+  t.after(forgetAudition);
+  const fake = fakeApi();
+  const { tree, queryClient } = store(fake);
+  tree.request({ key: "", params: {} });
+  await wait(80);
+  tree.setScope(VILLEURBANNE);
+  await wait(80);
+  fake.slow(60);
+  reloadPlaces(queryClient);
+  await wait(130);
+  // The first reload's world is on its way, read before this audition.
+  createAudition();
+  reloadPlaces(queryClient);
+  await wait(50);
+  assert.equal(tree.stats().refreshes, 1);
+  assert.equal(holds(tree, NEW_LIEU), false, "the first reload's answer, from before");
+  const before = fake.calls.length;
+  await wait(300);
+  assert.equal(tree.stats().refreshes, 2);
+  assert.ok(fake.calls.length > before, "asked again, not served from the query cache");
+  assert.equal(holds(tree, NEW_LIEU), true);
 });
 
 // ---- Lieux known from a list (PR K) ---------------------------------------------
