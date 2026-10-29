@@ -63,7 +63,15 @@ const { ensureDepFine } = deps;
 
 // ---- One hierarchy, both nav models read from it (model/useGeoHierarchy) ----
 const geo = useGeoHierarchy({ groups: toRef(props, "groups"), boundaries, communes, deps });
-const { root, index, raisedGeometryFor, containsPoint, allPlaceUnits, placeByCanonical } = geo;
+const {
+  root,
+  index,
+  raisedGeometryFor,
+  containsPoint,
+  allPlaceUnits,
+  placeByCanonical,
+  placeIdByCanonical,
+} = geo;
 
 // The association's own testimonies (all loaded with the page), grouped by
 // audition (model/auditions).
@@ -194,6 +202,7 @@ const panel = usePanelAuditions({
   ownAuditions,
   selectedPlace,
   placeByCanonical,
+  placeIdByCanonical,
   panelListEl,
   moreEl,
   spotlightPlace,

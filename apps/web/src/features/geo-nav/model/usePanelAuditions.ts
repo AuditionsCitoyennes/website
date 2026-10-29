@@ -27,6 +27,8 @@ export interface PanelAuditionsInputs {
   ownAuditions: ComputedRef<Map<string, AuditionGroup>>;
   selectedPlace: ComputedRef<GeoUnit | null>;
   placeByCanonical: ComputedRef<Map<string, GeoUnit>>;
+  /** A lieu's unit id by its canonical name (the same Map while the ids are). */
+  placeIdByCanonical: ComputedRef<Map<string, string>>;
   /** The list's scroller (`.panel-list`, GeoPanel's). */
   panelListEl: Ref<HTMLElement | null>;
   /** The "more results" sentinel at the end of the list (AuditionList's). */
@@ -48,6 +50,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     ownAuditions,
     selectedPlace,
     placeByCanonical,
+    placeIdByCanonical,
     panelListEl,
     moreEl,
     spotlightPlace,
@@ -58,7 +61,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   /** The panel's line for an audition of a group, with its testimonies (all
    *  loaded with the page) once they are here. */
   function panelAudition(g: LocationGroup, a: LocationGroup["auditions"][number]): PanelAudition {
-    return toPanelAudition(g, a, ownAuditions.value);
+    return toPanelAudition(g, a, ownAuditions.value, placeIdByCanonical.value);
   }
 
   // The open lieu's auditions: listed at once from what the map already knows of

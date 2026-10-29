@@ -2,7 +2,7 @@
 // commands, outlines, the slabs to stand) and what the map hands back each
 // frame (where the plateau and its slabs are on screen).
 
-import type { Bounds } from "@/features/geo";
+import type { Bounds, HeightClass } from "@/features/geo";
 import type { PieceBox } from "./lib";
 
 /** A pin to plot: an aggregated admin unit, or a leaf place. */
@@ -29,11 +29,16 @@ export interface CameraCmd {
   /** For type "fit": the bbox to frame so the whole unit fits the visible area. */
   bounds?: Bounds;
   /** For type "fit": the unit framed, when its outline is known — framed by
-   *  its silhouette, raised (`id` says how high), rather than by `bounds`
-   *  (see fitCamera). `lands`: whether the view's centre may land on a ground
-   *  point, the scope read from there being the unit (absent: inside its
-   *  outline). */
-  shape?: { id: string; geometry: unknown; lands?: (lng: number, lat: number) => boolean };
+   *  its silhouette, raised (`heightClass` says how high), rather than by
+   *  `bounds` (see fitCamera). `lands`: whether the view's centre may land on a
+   *  ground point, the scope read from there being the unit (absent: inside
+   *  its outline). */
+  shape?: {
+    id: string;
+    heightClass: HeightClass;
+    geometry: unknown;
+    lands?: (lng: number, lat: number) => boolean;
+  };
   /** For type "fit": boxes up to `lng` × `lat` degrees (the unit's children)
    *  fill at most `fill` of the view once framed, as the scope measures it
    *  (visibleBounds): the zoom is capped at that. */
@@ -54,7 +59,9 @@ export interface CameraCmd {
   fresh?: boolean;
 }
 
-/** Boundary outlines (GeoJSON) for the current scope's children. */
+/** Boundary outlines (GeoJSON) for the current scope's children. Each
+ *  feature's properties: `kind` (scope, focus, context), the unit's `id`, its
+ *  `level` (LevelKey) and its `heightClass` (HeightClass). */
 export interface OutlineFC {
   type: "FeatureCollection";
   features: Array<{ type: "Feature"; geometry: unknown; properties: Record<string, unknown> }>;

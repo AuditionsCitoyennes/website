@@ -7,8 +7,10 @@ import { computed, watch, type ComputedRef } from "vue";
 import {
   type Bounds,
   centerInBounds,
+  communeCodeOf,
   depCodeOf,
   type GeoUnit,
+  outlineSourceOf,
   unitsByLevelKey,
 } from "@/features/geo";
 import type { MapUnit, OutlineFC } from "@/features/map";
@@ -49,12 +51,13 @@ export function useMapFeed(inputs: MapFeedInputs) {
       const geometry = geometryOf(u);
       // `id` lets the map detect a selection change instantly (before any network
       // round-trip) and start the plateau transition without dead time. `level`
-      // drives per-feature stroke width (country/région outlines are thinner).
+      // drives per-feature stroke width (country/région outlines are thinner),
+      // `heightClass` how high the unit rises when raised.
       if (geometry) {
         features.push({
           type: "Feature",
           geometry,
-          properties: { kind, id: u.id, level: u.levelKey },
+          properties: { kind, id: u.id, level: u.levelKey, heightClass: u.heightClass },
         });
       }
     }
@@ -105,16 +108,16 @@ export function useMapFeed(inputs: MapFeedInputs) {
     if (raisedOutlineDue(s)) return true; // a département's own outline (depFine)
     if (raisedGeometryFor(s)) return false;
     // Geometry absent: hold only while it can still ARRIVE — a terminal fetch
-    // failure must release the hold (teardown beats a stale wrong plateau).
-    if (s.levelKey === "country") return !metroQuery.isError.value;
-    if (s.levelKey === "region") return !regionsQuery.isError.value;
+    // failure must release the hold (teardown beats a stale wrong plateau), and
+    // a unit no source holds (outside France) has nothing to wait for.
+    const src = outlineSourceOf(s);
+    if (!src) return false;
+    if (src.kind === "metropole") return !metroQuery.isError.value;
+    if (src.kind === "regions") return !regionsQuery.isError.value;
     // Loaded without it: an overseas département (france-geojson has none) whose
     // own outline was given up on — it rises when that lands.
-    if (s.levelKey === "dep") return !depsQuery.isError.value && !depsQuery.data.value;
-    if ((s.levelKey === "city" || s.levelKey === "arr") && s.insee) {
-      return !failedInsee.value.has(s.insee);
-    }
-    return false;
+    if (src.kind === "departements") return !depsQuery.isError.value && !depsQuery.data.value;
+    return !failedInsee.value.has(src.insee);
   });
 
   /** The outline has every geometry it will get: nothing of the scope's own,
@@ -127,8 +130,8 @@ export function useMapFeed(inputs: MapFeedInputs) {
     const geo = communeGeo.value;
     const failed = failedInsee.value;
     for (const u of [...panelUnits.value, ...scopeSiblings.value]) {
-      if ((u.levelKey !== "city" && u.levelKey !== "arr") || !u.insee) continue;
-      if (!geo[u.insee] && !failed.has(u.insee)) return false;
+      const code = communeCodeOf(u);
+      if (code && !geo[code] && !failed.has(code)) return false;
     }
     const code = depCodeOf(currentScope.value);
     return !code || !!depFine.value[code] || depGaveUp.value.has(code);
@@ -286,7 +289,8 @@ export function useMapFeed(inputs: MapFeedInputs) {
   const visibleInsee = computed(() => {
     const codes: string[] = [];
     const add = (u: GeoUnit) => {
-      if ((u.levelKey === "city" || u.levelKey === "arr") && u.insee) codes.push(u.insee);
+      const code = communeCodeOf(u);
+      if (code) codes.push(code);
     };
     panelUnits.value.forEach(add); // the focused level's villes/arrondissements
     add(currentScope.value); // the scope itself (its outline at the lieu level)

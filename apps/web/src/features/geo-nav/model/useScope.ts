@@ -84,15 +84,13 @@ export function useScope(inputs: ScopeInputs) {
       if (fresh !== cur) currentScope.value = fresh;
       return;
     }
-    // The scope itself vanished from the filtered tree — walk up its path.
-    let id = cur.parentId;
-    while (id) {
-      const up = idx.get(id);
+    // The scope itself vanished from the filtered tree — walk up its ancestors.
+    for (let i = cur.ancestors.length - 1; i >= 0; i--) {
+      const up = idx.get(cur.ancestors[i]);
       if (up) {
         currentScope.value = up;
         return;
       }
-      id = id.includes("/") ? id.slice(0, id.lastIndexOf("/")) : null;
     }
     currentScope.value = root.value;
   });

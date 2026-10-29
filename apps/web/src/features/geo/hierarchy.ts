@@ -4,7 +4,7 @@
 
 import { FRANCE_CENTER, splitCityNamed, type LocationGroup } from "@ac/shared";
 import { boundsCenter, METRO_FRANCE, pointBounds, unionBounds } from "./bounds";
-import type { GeoUnit, LevelKey } from "./types";
+import type { GeoLevel, GeoRef, GeoUnit, HeightClass, LevelKey } from "./types";
 
 // Drop the redundant ", <ville>" suffix from a lieu label (the ville is shown
 // above it in the tree / breadcrumb).
@@ -25,6 +25,12 @@ interface Builder {
   levelKey: LevelKey;
   label: string;
   parentId: string | null;
+  /** Its parent's childAncestors: one array for all the siblings. */
+  ancestors: readonly string[];
+  /** Built once, when its first child is. */
+  childAncestors?: readonly string[];
+  level?: GeoLevel;
+  code?: string;
   children: Map<string, Builder>;
   leaf?: { coords: [number, number]; count: number; canonical: string; insee?: string };
 }
@@ -39,29 +45,58 @@ interface ChainStep {
   id: string;
   levelKey: LevelKey;
   label: string;
+  /** Where it is found in France's gazetteer, by its label too: its level
+   *  (none for a lieu) and its code when the group gives it (the country's,
+   *  a département's; a ville's or an arrondissement's INSEE code comes from
+   *  its lieux). */
+  level?: GeoLevel;
+  code?: string;
 }
 
 // The units a group sits in, pays first, lieu last: THE id encoding of the
 // hierarchy. A ville's lieux hang right under it unless it is split into
-// arrondissements; a group with no département skips that level.
+// arrondissements; a group with no département skips that level. Every unit of
+// the corpus is French; the names are the ones the boundaries are matched by.
 function chainSteps(g: ChainArea): ChainStep[] | null {
   if (!g.region) return null; // admin-less → no place on the map
   const steps: ChainStep[] = [];
-  const push = (key: string, levelKey: LevelKey, label: string) => {
+  const push = (
+    key: string,
+    levelKey: LevelKey,
+    label: string,
+    level?: GeoLevel,
+    code?: string,
+  ) => {
     const parent = steps[steps.length - 1];
-    steps.push({ key, id: parent ? `${parent.id}/${key}` : key, levelKey, label });
+    steps.push({ key, id: parent ? `${parent.id}/${key}` : key, levelKey, label, level, code });
   };
-  push("France", "country", "France");
-  push(`r:${g.region}`, "region", g.region);
+  push("France", "country", "France", "country", "FR");
+  push(`r:${g.region}`, "region", g.region, "region");
   if (g.departementCode) {
-    push(`d:${g.departementCode}`, "dep", g.departementName ?? g.departementCode);
+    const label = g.departementName ?? g.departementCode;
+    push(`d:${g.departementCode}`, "dep", label, "county", g.departementCode);
   }
   if (g.city) {
-    push(`v:${g.city}`, "city", g.city);
-    if (g.arrondissement) push(`a:${g.arrondissement}`, "arr", g.arrondissement);
+    push(`v:${g.city}`, "city", g.city, "locality");
+    if (g.arrondissement) push(`a:${g.arrondissement}`, "arr", g.arrondissement, "locality");
   }
   push(`p:${g.canonicalName}`, "place", placeLabel(g));
   return steps;
+}
+
+// A département, a ville and an arrondissement rise half as high (map/lib/polygon).
+const HALF_HEIGHT: ReadonlySet<LevelKey> = new Set(["dep", "city", "arr"]);
+function heightClassOf(levelKey: LevelKey): HeightClass {
+  return HALF_HEIGHT.has(levelKey) ? "half" : "full";
+}
+
+/** A French unit's reference: its step's, with the INSEE code a ville or an
+ *  arrondissement shares with its lieux. */
+function geoRefOf(b: Builder, insee: string | undefined): GeoRef | undefined {
+  const { level, label: nom } = b;
+  if (!level) return undefined;
+  const code = level === "locality" ? insee : b.code;
+  return code === undefined ? { country: "FR", level, nom } : { country: "FR", level, code, nom };
 }
 
 /** The ids of every unit a group belongs to, root first: ["France",
@@ -86,6 +121,7 @@ export function buildGeoHierarchy(groups: LocationGroup[]): {
     levelKey: "world",
     label: "Monde",
     parentId: null,
+    ancestors: [],
     children: new Map(),
   };
 
@@ -98,6 +134,10 @@ export function buildGeoHierarchy(groups: LocationGroup[]): {
         levelKey: step.levelKey,
         label: step.label,
         parentId: parent.id,
+        // concat: an exact-size array, where a spread's is three times as big.
+        ancestors: (parent.childAncestors ??= parent.ancestors.concat(parent.id)),
+        level: step.level,
+        code: step.code,
         children: new Map(),
       };
       parent.children.set(step.key, n);
@@ -129,6 +169,8 @@ export function buildGeoHierarchy(groups: LocationGroup[]): {
         levelKey: b.levelKey,
         label: b.label,
         parentId: b.parentId,
+        ancestors: b.ancestors,
+        heightClass: heightClassOf(b.levelKey),
         count: b.leaf.count,
         // Copy, don't alias: `coords` comes from caller-supplied LocationGroups
         // and may be a reactive Proxy. GeoUnit.center is read in per-frame paths
@@ -162,6 +204,9 @@ export function buildGeoHierarchy(groups: LocationGroup[]): {
       levelKey: b.levelKey,
       label: b.label,
       parentId: b.parentId,
+      ancestors: b.ancestors,
+      geoRef: geoRefOf(b, insee),
+      heightClass: heightClassOf(b.levelKey),
       count: children.reduce((s, c) => s + c.count, 0),
       center: isCountry ? FRANCE_CENTER : boundsCenter(childBounds),
       bounds: isCountry ? METRO_FRANCE : childBounds,

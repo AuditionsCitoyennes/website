@@ -6,7 +6,7 @@
 // as a getter.
 
 import type mapboxgl from "mapbox-gl";
-import type { Bounds } from "@/features/geo";
+import type { Bounds, HeightClass } from "@/features/geo";
 import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
@@ -278,7 +278,10 @@ export function usePlateau({
     // reverse (centre → boundary). Must precede any setGeometry rebuild below —
     // the new focus set no longer contains the selected unit's fill.
     plateauWall.beginSelection(scopeId);
-    const heightM = plateauHeightM(scopeId, raised);
+    const heightM = plateauHeightM(
+      raised[0]?.properties?.heightClass as HeightClass | undefined,
+      raised,
+    );
     // Start the lid snapshot IMMEDIATELY — it depends on nothing but the geometry,
     // and it's the longest pole (hidden-map tiles + capture). Started here it runs
     // through the sink, the POST and the whole camera flight, landing around the

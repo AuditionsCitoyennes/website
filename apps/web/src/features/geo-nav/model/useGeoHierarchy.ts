@@ -1,14 +1,18 @@
 // One hierarchy, both nav models read from it, enriched with real geometry:
 // the régions' and départements' outlines and centroids, the communes'
-// contours and the raised départements' own. With it, which polygon a unit is
-// drawn, framed and hit with, and whether a unit holds a point.
+// contours and the raised départements' own — France's, for French units only.
+// With it, which polygon a unit is drawn, framed and hit with, whether it has
+// none to wait for, and whether a unit holds a point.
 import { computed, toRaw, type ComputedRef, type Ref } from "vue";
 import type { LocationGroup } from "@ac/shared";
 import {
   applyBoundaries,
   buildGeoHierarchy,
+  communeCodeOf,
   depCodeOf,
+  featureFor,
   geometryContains,
+  outlineSourceOf,
   type GeoUnit,
 } from "@/features/geo";
 import { perfOn, perfSpan } from "@/shared/perf/perf";
@@ -25,43 +29,56 @@ export interface GeoHierarchyInputs {
 
 export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   const { groups, boundaries, communes, deps } = inputs;
-  const { regionsQuery, depsQuery, metroQuery, regionByNom, depByNom } = boundaries;
-  const { communeGeo, inseeGeo } = communes;
+  const { regionsQuery, depsQuery, metroQuery, regionLookup, depLookup } = boundaries;
+  const { communeGeo, failedInsee, inseeGeo } = communes;
   const { depFine, depGaveUp, depFineGeo } = deps;
 
   const hierarchy = computed(() => {
     const end = perfOn ? perfSpan("vue.hierarchy") : null;
     const h = buildGeoHierarchy(groups.value);
-    applyBoundaries(
-      h.index,
-      { region: regionByNom.value, dep: depByNom.value },
-      inseeGeo.value,
-      depFineGeo.value,
-    );
+    applyBoundaries(h.index, {
+      regions: regionLookup.value,
+      departements: depLookup.value,
+      byInsee: inseeGeo.value,
+      byDep: depFineGeo.value,
+    });
     if (end) end({ units: h.index.size });
     return h;
   });
   const root: ComputedRef<GeoUnit> = computed(() => hierarchy.value.root);
   const index: ComputedRef<Map<string, GeoUnit>> = computed(() => hierarchy.value.index);
 
-  // Boundary geometry for a set of units: régions/départements from the bundled
-  // FCs (by nom), villes/arrondissements from the on-demand commune geometry (by
-  // INSEE), the country from the métropole contour. Only the world level has none.
-  // The boundary polygon for a unit (régions/deps by nom, villes/arr by INSEE).
+  // The boundary polygon for a unit, from its source (outlineSourceOf): the
+  // country FR from the métropole contour, régions/départements from the bundled
+  // FCs (by code, else nom), villes/arrondissements from the on-demand commune
+  // geometry (by INSEE). None for the world, a lieu or a unit outside France.
   function geometryFor(u: GeoUnit): unknown {
+    const src = outlineSourceOf(u);
+    if (!src) return undefined;
     // toRaw: strip any reactive Proxy before geometry reaches the hot paths
     // (mesh rebuild, scanlines, hit tests) — a no-op on already-plain objects.
-    if (u.levelKey === "country") {
-      return toRaw(metroQuery.data.value?.features[0]?.geometry);
-    }
-    if (u.levelKey === "region" || u.levelKey === "dep") {
-      const fc = u.levelKey === "region" ? regionsQuery.data.value : depsQuery.data.value;
-      return toRaw(fc?.features.find((x) => x.properties.nom === u.label)?.geometry);
-    }
-    if ((u.levelKey === "city" || u.levelKey === "arr") && u.insee) {
-      return toRaw(communeGeo.value[u.insee]?.geometry);
-    }
-    return undefined;
+    if (src.kind === "metropole") return toRaw(metroQuery.data.value?.features[0]?.geometry);
+    if (src.kind === "commune") return toRaw(communeGeo.value[src.insee]?.geometry);
+    const fc = src.kind === "regions" ? regionsQuery.data.value : depsQuery.data.value;
+    return toRaw(featureFor(fc?.features, src)?.geometry);
+  }
+
+  /** The unit has no outline and none is on its way, so nothing to wait for:
+   *  no source of France's holds it (the world, a lieu, a unit outside
+   *  France), or its source answered without it — a DROM région
+   *  (france-geojson's régions are the métropole's), a département with no
+   *  france-geojson outline whose own is not waited for, a commune whose
+   *  contour fetch gave nothing (failedInsee: a dead code, or a failed batch
+   *  until it is retried). Reactive: false again once an outline lands. A
+   *  failed collection fetch is no answer (scopePending releases on it). */
+  function geometryKnownAbsent(u: GeoUnit): boolean {
+    if (raisedGeometryFor(u)) return false;
+    const src = outlineSourceOf(u);
+    if (!src) return true;
+    if (src.kind === "metropole") return !!metroQuery.data.value;
+    if (src.kind === "regions") return !!regionsQuery.data.value;
+    if (src.kind === "departements") return !!depsQuery.data.value && !raisedOutlineDue(u);
+    return failedInsee.value.has(src.insee);
   }
 
   /** The outline a unit is RAISED with — framed, holding the view's centre:
@@ -92,7 +109,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   function containsPoint(u: GeoUnit, lat: number, lng: number): boolean {
     if (u.levelKey === "country" || u.levelKey === "region" || u.levelKey === "dep") {
       const hit = finestAt(lat, lng);
-      if (hit) return hit.id.startsWith(`${u.id}/`);
+      if (hit) return hit.ancestors.includes(u.id);
     }
     const b = u.bounds;
     if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) return false;
@@ -101,9 +118,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   }
   /** Villes and arrondissements that can have a contour. */
   const communeUnits = computed(() =>
-    [...index.value.values()].filter(
-      (u) => (u.levelKey === "city" || u.levelKey === "arr") && u.insee,
-    ),
+    [...index.value.values()].filter((u) => communeCodeOf(u) !== undefined),
   );
   // A fit asks the same point of every unit down a chain, and of their rivals.
   let finestMemo: {
@@ -148,17 +163,33 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
     return map;
   });
 
+  /** A lieu's unit id by its canonical name (PanelAudition.placeId). The same
+   *  Map while the ids are: the hierarchy is rebuilt as each contour arrives,
+   *  its lieux keeping their ids, and a fresh Map would redo every list. */
+  let lastPlaceIds = new Map<string, string>();
+  const placeIdByCanonical = computed(() => {
+    const next = new Map<string, string>();
+    for (const [canonical, u] of placeByCanonical.value) next.set(canonical, u.id);
+    const same =
+      next.size === lastPlaceIds.size &&
+      [...next].every(([canonical, id]) => lastPlaceIds.get(canonical) === id);
+    if (!same) lastPlaceIds = next;
+    return lastPlaceIds;
+  });
+
   return {
     hierarchy,
     root,
     index,
     geometryFor,
+    geometryKnownAbsent,
     raisedGeometryFor,
     raisedOutlineDue,
     containsPoint,
     finestAt,
     allPlaceUnits,
     placeByCanonical,
+    placeIdByCanonical,
   };
 }
 

@@ -4,7 +4,7 @@
 // height is decided (ensurePlateau raises it, the fit frames it). And the two
 // coordinate flips between the geo model's [lat, lng] and mapbox's [lng, lat].
 
-import type { Bounds } from "@/features/geo";
+import type { Bounds, HeightClass } from "@/features/geo";
 import type { OutlineFC } from "../types";
 
 /** The geo model's [lat, lng] as mapbox's [lng, lat]. */
@@ -267,18 +267,19 @@ function heightForSelection(features: OutlineFC["features"]): number {
 }
 
 /**
- * The plateau's height for the unit `scopeId` (its outline: `features`), m —
- * the lid stands WALL_OVERSHOOT over it. Height scales with the SELECTION's own
- * size (max bbox span), NOT the current viewport — selecting a small commune
- * from a zoomed-out view must not produce a kilometres-tall tower. A small
- * fraction of the unit's span reads as a consistent lift once the camera fits
- * it. Département/ville/arrondissement get HALF that: their fit views sit much
- * closer to the ground, where the full proportional lift reads too tall.
- * (Scope ids are path-encoded — the last segment's prefix is the level:
- * d:/v:/a:.) The fit reads it too (fitCamera): the lid is part of what it frames.
+ * The plateau's height for a unit of class `heightClass` (its outline:
+ * `features`), m — the lid stands WALL_OVERSHOOT over it. Height scales with
+ * the SELECTION's own size (max bbox span), NOT the current viewport —
+ * selecting a small commune from a zoomed-out view must not produce a
+ * kilometres-tall tower. A small fraction of the unit's span reads as a
+ * consistent lift once the camera fits it. A "half" unit
+ * (département/ville/arrondissement) gets HALF that: their fit views sit much
+ * closer to the ground, where the full proportional lift reads too tall. The
+ * fit reads it too (fitCamera): the lid is part of what it frames.
  */
-export function plateauHeightM(scopeId: string, features: OutlineFC["features"]): number {
-  const lastSeg = scopeId.split("/").pop() ?? "";
-  const halfHeight = /^(d|v|a):/.test(lastSeg);
-  return heightForSelection(features) * (halfHeight ? 0.5 : 1);
+export function plateauHeightM(
+  heightClass: HeightClass | undefined,
+  features: OutlineFC["features"],
+): number {
+  return heightForSelection(features) * (heightClass === "half" ? 0.5 : 1);
 }
