@@ -1,24 +1,36 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, defineAsyncComponent, effectScope, onBeforeUnmount, watch } from "vue";
+import { useQueryClient } from "@tanstack/vue-query";
 import { FiltersDialog, FilterChips } from "@/features/filters";
 import { GeoNav } from "@/features/geo-nav";
 import { useMapGroupsQuery, useTestimoniesQuery } from "./api/queries";
 import { useTestimonyFiltering } from "./useTestimonyFiltering";
 import { useAnalysesToggle } from "./useAnalysesToggle";
+import { dataSource, placeTreeMode } from "./dataSource";
 
 // The testimonies map — the page, or (preview) the card on the home page: the
 // same instance moves between the two (see MapStage).
 const props = defineProps<{ preview?: boolean }>();
 
-const testimoniesQuery = useTestimoniesQuery(computed(() => !props.preview));
+// Where the figures come from (dataSource.ts: a DEV switch; production's is
+// the corpus). In J the corpus and the map's groups stay mounted whatever the
+// source: the auditions' lists are theirs.
+const fromServer = dataSource !== "corpus";
+const comparing = __TEST_TOOLS__ && dataSource === "comparer";
 
-const loading = computed(() => testimoniesQuery.isLoading.value);
-const isError = computed(() => testimoniesQuery.isError.value);
+const testimoniesQuery = useTestimoniesQuery(computed(() => !props.preview));
 
 const mapQuery = useMapGroupsQuery();
 
 const ownGroups = computed(() => mapQuery.data.value ?? []);
 
+const queryClient = useQueryClient();
+const filtering = useTestimonyFiltering({
+  preview: () => Boolean(props.preview),
+  testimonies: testimoniesQuery.data,
+  ownGroups,
+  server: fromServer ? { queryClient, placeTreeMode, comparing } : undefined,
+});
 const {
   text,
   topics,
@@ -37,13 +49,43 @@ const {
   locationTree,
   dateBounds,
   topicOptions,
-} = useTestimonyFiltering({
-  preview: () => Boolean(props.preview),
-  testimonies: testimoniesQuery.data,
-  ownGroups,
-});
+  listFiltered,
+  searchHint,
+  unitTree,
+  serverFilters,
+} = filtering;
+
+// The panel waits for the corpus — or for the server's world answer, and for
+// the corpus too while filters are on: the results' list is still the
+// corpus' (until PR K), unfiltered until it is in.
+const loading = computed(() =>
+  unitTree
+    ? unitTree.loading() || (listFiltered.value && testimoniesQuery.isLoading.value)
+    : testimoniesQuery.isLoading.value,
+);
+const isError = computed(() =>
+  unitTree
+    ? unitTree.failed() || (listFiltered.value && testimoniesQuery.isError.value)
+    : testimoniesQuery.isError.value,
+);
+// What the results were looked up with: the text as debounced, from the server.
+const highlight = computed(() => (serverFilters ? serverFilters.text.value : text.value));
 
 const { analyses, analysesBtn } = useAnalysesToggle(() => Boolean(props.preview));
+
+// The testing tools: the data switch, and the comparer (both pipelines side by
+// side, every difference in window.__acCompare). Not in a production build.
+const DevDataSwitch = __TEST_TOOLS__
+  ? defineAsyncComponent(() => import("./DevDataSwitch.vue"))
+  : null;
+if (comparing && unitTree) {
+  const tree = unitTree;
+  const scope = effectScope();
+  onBeforeUnmount(() => scope.stop());
+  void import("./compare").then(({ startCompare }) =>
+    scope.run(() => startCompare({ queryClient, tree, filtering, preview: () => !!props.preview })),
+  );
+}
 
 // Back to a card: it shows everything again.
 watch(
@@ -65,11 +107,12 @@ watch(
       :testimonies="filteredTestimonies"
       :loading="loading"
       :is-error="isError"
-      :highlight="text"
+      :highlight="highlight"
       :sort="sort"
-      :filtered="chips.length > 0"
+      :filtered="listFiltered"
       :theme-filter="topics"
       :preview="preview"
+      :unit-tree="unitTree"
     >
       <template #head-actions>
         <div class="head-actions">
@@ -135,10 +178,13 @@ watch(
       :date-bounds="dateBounds"
       :topic-options="topicOptions"
       :result-count="resultCount"
+      :search-hint="searchHint"
       @close="filtersOpen = false"
       @remove="removeChip"
       @reset="resetFilters"
     />
+
+    <DevDataSwitch v-if="DevDataSwitch && !preview" />
   </div>
 </template>
 

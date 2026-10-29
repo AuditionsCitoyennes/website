@@ -62,6 +62,8 @@ export function scopeForView(
   const lng = (view.minLng + view.maxLng) / 2;
   let node = root;
   for (;;) {
+    // Its children are not known yet: nothing to descend into (useUnitTree).
+    if (node.childrenPending) break;
     const kids = node.children.filter((c) => c.levelKey !== "place");
     if (!kids.length) break;
     // Children whose POLYGON provably contains the centre (when geometry is

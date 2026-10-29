@@ -18,7 +18,21 @@ export {
   type UnitGeo,
 } from "./types";
 export { centerInBounds } from "./bounds";
-export { ancestorsOf, buildGeoHierarchy, unitChainOf, unitsByLevelKey } from "./hierarchy";
+export {
+  ancestorsOf,
+  buildGeoHierarchy,
+  placeLabel,
+  unitChainOf,
+  unitsByLevelKey,
+} from "./hierarchy";
+export {
+  buildTreeFromUnits,
+  byServerOrder,
+  WORLD,
+  type ServerOrdered,
+  type UnitTreeData,
+  type UnitTreeEntry,
+} from "./treeFromUnits";
 export {
   applyBoundaries,
   communeCodeOf,

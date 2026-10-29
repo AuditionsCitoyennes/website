@@ -5,6 +5,7 @@
 // wrapping, the slabs' near-edge growth) that are not the barrel's.
 export { default as ScopeAnalysisOverlay } from "./overlay/ScopeAnalysisOverlay.vue";
 export * from "./stats/scopeStats";
+export { buildFactsIndex, figuresHash, figuresOfFacts } from "./stats/factsStats";
 export { countsOf, emptyTextOf, fmtN, plural, shortName, type CountPart } from "./content/text";
 export { THEME_COLORS, THEME_PASTELS } from "./content/themeColors";
 export {

@@ -3,6 +3,7 @@
 // scope id — drilling in slides the new list in from the right, stepping back
 // out reverses it.
 import { abbrevCount, type GeoUnit } from "@/features/geo";
+import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
 
 defineProps<{
   units: GeoUnit[];
@@ -12,6 +13,8 @@ defineProps<{
    *  new list in from the right (`level-in`), stepping back out reverses it
    *  (`level-out`). */
   slide: "level-in" | "level-out";
+  /** The scope's units are on their way (the server's tree, lazy): loading. */
+  pending?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -31,6 +34,7 @@ const emit = defineEmits<{
   <div class="unit-viewport">
     <Transition :name="slide">
       <div :key="scopeId" class="unit-list">
+        <LoadingDots v-if="pending" label="Chargement des lieux…" />
         <button
           v-for="u in units"
           :key="u.id"

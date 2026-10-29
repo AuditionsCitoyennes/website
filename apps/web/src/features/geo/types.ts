@@ -57,6 +57,9 @@ export interface GeoUnit {
   /** INSEE code of a commune (ville) or arrondissement municipal — the join key
    *  to fetch its boundary geometry. Undefined for levels above ville. */
   insee?: string;
+  /** The server's tree only: what it holds is not known yet (its children are
+   *  on their way). The scope stops above it, the panel shows them loading. */
+  childrenPending?: boolean;
 }
 
 /** A unit's real geometry-derived centre + extent (from the boundaries endpoint). */

@@ -24,6 +24,12 @@
 //   (the band of before, its hole the larger), "moyen" (analyses/content/ring:
 //   RING_THICK, the default) or "epais". The ring's box stays as it is: no
 //   room, no slab moves.
+// - "Analyses en attente" (the Témoignages page's DEV data switch, map phase
+//   1): the server's tree sends a unit's figures with its own answer or its
+//   parent's; on the lazy path a deep jump reaches a unit before them. Until
+//   they come the plates keep the previous figures ("garder", the default) or
+//   show none ("masquer"). Production keeps "garder", read nowhere: every
+//   figure comes with the tree there.
 import { ref } from "vue";
 import { RING_THICK } from "./content/ring";
 import { FRAME_FILL, TEXT_SCALE } from "@/features/map/lib";
@@ -31,6 +37,7 @@ import { FRAME_FILL, TEXT_SCALE } from "@/features/map/lib";
 export type SlabLidMode = "verre" | "opaque" | "carte";
 export type SlabTextMode = "redresse" | "plat";
 export type RingBandMode = "fin" | "moyen" | "epais";
+export type PendingAnalysesMode = "garder" | "masquer";
 
 const enabled = __TEST_TOOLS__;
 // (Not "ac:slab-lid", which kept the choice made while Opaque was the
@@ -84,6 +91,11 @@ export const slabTextMode = ref<SlabTextMode>(stored(TEXT_KEY, ["redresse", "pla
 export const slabTextScale = ref<number>(storedShare(SIZE_KEY, TEXT_SCALE));
 export const frameFill = ref<number>(storedShare(FILL_KEY, FRAME_FILL));
 export const ringBandMode = ref<RingBandMode>(stored(RING_KEY, ["fin", "moyen", "epais"], "moyen"));
+// Read only in the builds with the testing tools: production has neither the
+// key nor the call.
+export const pendingAnalysesMode = ref<PendingAnalysesMode>(
+  __TEST_TOOLS__ ? stored("ac:analyses-pending", ["garder", "masquer"], "garder") : "garder",
+);
 
 export function setSlabLidMode(m: SlabLidMode) {
   if (!enabled) return;
@@ -113,4 +125,10 @@ export function setRingBandMode(m: RingBandMode) {
   if (!enabled) return;
   ringBandMode.value = m;
   store(RING_KEY, m);
+}
+
+export function setPendingAnalysesMode(m: PendingAnalysesMode) {
+  if (!enabled) return;
+  pendingAnalysesMode.value = m;
+  store("ac:analyses-pending", m);
 }

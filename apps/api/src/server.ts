@@ -96,6 +96,9 @@ export function buildServer() {
     // A browser may keep a preflight's answer 2 h (Chrome's cap): the admin
     // UI's mutations stop paying an OPTIONS round trip each.
     maxAge: 7200,
+    // How long a refused place read asks to wait (429, 503): the map's tree
+    // retries after it. Not a safelisted header: unread cross-origin otherwise.
+    exposedHeaders: ["Retry-After"],
   });
   // The map/boundary payloads are large JSON with very high entropy overlap.
   app.register(compress, { global: true, threshold: 1024 });

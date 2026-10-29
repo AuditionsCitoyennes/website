@@ -27,6 +27,8 @@ withDefaults(
     searchPlaceholder?: string;
     /** What the results are, in the singular ("résultat", "audition"). */
     resultNoun?: string;
+    /** Under the search field: why the text typed is not searched yet. */
+    searchHint?: string | null;
   }>(),
   {
     description: "Affinez la liste des témoignages",
@@ -176,7 +178,9 @@ const dateToInput = computed({
           class="form-input"
           type="search"
           :placeholder="searchPlaceholder"
+          :aria-describedby="searchHint ? 'filters-text-hint' : undefined"
         />
+        <p v-if="searchHint" id="filters-text-hint" class="field-hint">{{ searchHint }}</p>
       </div>
 
       <div class="dialog-actions">
@@ -222,6 +226,12 @@ const dateToInput = computed({
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground));
+}
+
+.field-hint {
+  margin: 0;
+  font-size: var(--text-caption);
   color: hsl(var(--muted-foreground));
 }
 

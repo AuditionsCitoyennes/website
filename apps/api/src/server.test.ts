@@ -72,6 +72,16 @@ test("a deliberate 503 keeps its wording", async () => {
   assert.equal(res.json().message, "Le dépôt de témoignages en ligne n'est pas disponible.");
 });
 
+test("a cross-origin page can read Retry-After (the map's tree waits as told)", async () => {
+  const res = await app.inject({
+    method: "GET",
+    url: "/t/gone",
+    headers: { origin: "http://localhost:5173" },
+  });
+  assert.equal(res.headers["access-control-allow-origin"], "http://localhost:5173");
+  assert.match(String(res.headers["access-control-expose-headers"]), /\bRetry-After\b/);
+});
+
 test("an unknown route is a plain 404", async () => {
   const res = await app.inject({ method: "GET", url: "/t/nowhere" });
   assert.equal(res.statusCode, 404);

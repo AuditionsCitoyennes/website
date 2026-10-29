@@ -25,12 +25,20 @@ export interface CameraInputs {
   ensureDepFine: (code: string | undefined) => Promise<void>;
   mapCmp: Ref<MapHandle | null>;
   listMode: ComputedRef<boolean>;
+  /**
+   * Where the results' lieux stand, the server's tree being the source (map
+   * phase 1; absent: "ready"). "pending": the filters' answer is not on
+   * screen yet — the fit waits for it (resultsArrived); "partial": the tree on
+   * screen holds only some of them (the lazy path) — no fit, rather than one
+   * on the few loaded (PR K brings the server's frame).
+   */
+  resultsFrame?: () => "ready" | "pending" | "partial";
 }
 
 export function useCamera(inputs: CameraInputs) {
   const { nav, index, raisedGeometryFor, containsPoint, allPlaceUnits, ensureDepFine, mapCmp } =
     inputs;
-  const { listMode } = inputs;
+  const { listMode, resultsFrame } = inputs;
   const { currentScope, inMicroZone, openAuditions } = nav;
 
   const camera = ref<CameraCmd | null>(null);
@@ -88,7 +96,9 @@ export function useCamera(inputs: CameraInputs) {
   // scope then resolves to that unit. Not edge to edge: its silhouette fills
   // FRAME_FILL of the rectangle (map/lib/slabs; DEV: "Cadrage"), the map around it
   // in sight — its own fill still well over the scope's hold (SPAN_ASCEND).
-  function flyToUnit(unit: GeoUnit, animate: boolean, fresh = false) {
+  // `byBox`: framed by its box alone, whatever outline is in (the boot's first
+  // fit from the server's tree: see GeoNav).
+  function flyToUnit(unit: GeoUnit, animate: boolean, fresh = false, byBox = false) {
     let bounds = unit.bounds;
     // The map frames the unit's silhouette, raised (its outline, when loaded),
     // centred where the scope read off the view is the unit.
@@ -113,7 +123,7 @@ export function useCamera(inputs: CameraInputs) {
       // A département rises with its own outline (depFine): ask for it now, the
       // frame takes it if it is already in.
       void ensureDepFine(depCodeOf(unit));
-      const geometry = raisedGeometryFor(unit);
+      const geometry = byBox ? undefined : raisedGeometryFor(unit);
       // markRaw: the command lives in a deep ref, and the geometry must never be
       // proxied (see communeGeo's note).
       if (geometry) {
@@ -188,6 +198,8 @@ export function useCamera(inputs: CameraInputs) {
   // once the list has stopped changing. And not from under someone reading an
   // audition — the map is on its lieu.
   let fitTimer = 0;
+  /** A fit was due while the results' lieux were on their way. */
+  let fitOwed = false;
   function scheduleResultsFit() {
     window.clearTimeout(fitTimer);
     fitTimer = window.setTimeout(() => {
@@ -198,6 +210,9 @@ export function useCamera(inputs: CameraInputs) {
         scheduleResultsFit();
         return;
       }
+      const frame = resultsFrame?.() ?? "ready";
+      fitOwed = frame === "pending";
+      if (frame !== "ready") return;
       const bounds = resultBounds(allPlaceUnits.value);
       if (!bounds) return;
       setCamera({
@@ -214,6 +229,14 @@ export function useCamera(inputs: CameraInputs) {
   }
   onBeforeUnmount(() => window.clearTimeout(fitTimer));
 
+  /** The results' lieux are on screen (the server's tree swapped in): the fit
+   *  that waited for them, if one did. */
+  function resultsArrived() {
+    if (!fitOwed) return;
+    fitOwed = false;
+    scheduleResultsFit();
+  }
+
   return {
     camera,
     framedFit,
@@ -222,6 +245,7 @@ export function useCamera(inputs: CameraInputs) {
     flyToUnit,
     spotlightPlace,
     scheduleResultsFit,
+    resultsArrived,
   };
 }
 

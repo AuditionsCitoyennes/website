@@ -83,12 +83,16 @@ export interface PlaceCounts {
   units: PlaceUnitRow[];
   lieux: PlaceLieuRow[];
   textIgnored?: true;
+  /** With textIgnored: the shortest text searched (SEARCH_MIN_CHARS). */
+  minChars?: number;
 }
 
 /** GET /api/places?units=… */
 export interface PlaceCountsBatch {
   results: PlaceCounts[];
   textIgnored?: true;
+  /** With textIgnored: the shortest text searched (SEARCH_MIN_CHARS). */
+  minChars?: number;
 }
 
 /** Where a result, or a lieu, is on the map. */
@@ -128,6 +132,8 @@ export interface PlaceResultsPage {
   /** With `through`. */
   throughFound?: boolean;
   textIgnored?: true;
+  /** With textIgnored: the shortest text searched (SEARCH_MIN_CHARS). */
+  minChars?: number;
 }
 
 /** GET /api/places/lieu */
@@ -136,6 +142,8 @@ export interface PlaceLieuAuditions {
   lieu: PlaceResultLieu | null;
   auditions: { id: string; title: string; date: string; n: number }[];
   textIgnored?: true;
+  /** With textIgnored: the shortest text searched (SEARCH_MIN_CHARS). */
+  minChars?: number;
 }
 
 /** GET /api/places/facets */
@@ -165,6 +173,8 @@ export interface TestimonyPage {
   testimonies: PlaceTestimony[];
   next: TestimonyPageCursor | null;
   textIgnored?: true;
+  /** With textIgnored: the shortest text searched (SEARCH_MIN_CHARS). */
+  minChars?: number;
 }
 
 /** GET /api/auditions/admin/filter */

@@ -2,40 +2,51 @@
 // the régions' and départements' outlines and centroids, the communes'
 // contours and the raised départements' own — France's, for French units only.
 // With it, which polygon a unit is drawn, framed and hit with, whether it has
-// none to wait for, and whether a unit holds a point.
+// none to wait for, and whether a unit holds a point. The hierarchy is the
+// corpus' (the map's groups), or the server's tree (map phase 1).
 import { computed, toRaw, type ComputedRef, type Ref } from "vue";
 import type { LocationGroup } from "@ac/shared";
 import {
   applyBoundaries,
   buildGeoHierarchy,
+  buildTreeFromUnits,
   communeCodeOf,
   depCodeOf,
   featureFor,
   geometryContains,
   outlineSourceOf,
   type GeoUnit,
+  type UnitTreeData,
 } from "@/features/geo";
 import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BoundaryQueries } from "../data/useBoundaryQueries";
 import type { CommuneGeo, CommuneGeoStore } from "../data/useCommuneGeo";
 import type { DepFineStore } from "../data/useDepFine";
+import type { UnitTree } from "../data/useUnitTree";
 
 export interface GeoHierarchyInputs {
   groups: Ref<LocationGroup[]>;
   boundaries: BoundaryQueries;
   communes: CommuneGeoStore;
   deps: DepFineStore;
+  /** The server's tree: the hierarchy is built from it, not from `groups`. */
+  unitTree?: UnitTree | null;
 }
+
+const NO_UNITS: UnitTreeData = { units: new Map(), lieux: new Map() };
 
 export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   const { groups, boundaries, communes, deps } = inputs;
+  const unitTree = inputs.unitTree ?? null;
   const { regionsQuery, depsQuery, metroQuery, regionLookup, depLookup } = boundaries;
   const { communeGeo, failedInsee, inseeGeo } = communes;
   const { depFine, depGaveUp, depFineGeo } = deps;
 
   const hierarchy = computed(() => {
     const end = perfOn ? perfSpan("vue.hierarchy") : null;
-    const h = buildGeoHierarchy(groups.value);
+    const h = unitTree
+      ? buildTreeFromUnits(unitTree.data() ?? NO_UNITS)
+      : buildGeoHierarchy(groups.value);
     applyBoundaries(h.index, {
       regions: regionLookup.value,
       departements: depLookup.value,
@@ -178,6 +189,8 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   });
 
   return {
+    /** The server's tree is on screen. */
+    serverTree: unitTree !== null,
     hierarchy,
     root,
     index,

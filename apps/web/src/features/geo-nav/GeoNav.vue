@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, toRef, watch } from "vue";
+import { computed, markRaw, nextTick, onBeforeUnmount, ref, toRef, watch } from "vue";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
-import { ancestorsOf } from "@/features/geo";
+import { ancestorsOf, placeLabel } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
-import { analysisSummary, ScopeAnalysisOverlay, useScopeAnalysis } from "@/features/analyses";
+import {
+  analysisSummary,
+  buildFactsIndex,
+  ScopeAnalysisOverlay,
+  useScopeAnalysis,
+} from "@/features/analyses";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
 import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
@@ -25,6 +30,7 @@ import { useBottomSheet } from "./panel/useBottomSheet";
 import { usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
 import { usePlaqueFocus } from "./ring/usePlaqueFocus";
+import type { UnitTree } from "./data/useUnitTree";
 
 const props = defineProps<{
   groups: LocationGroup[];
@@ -48,7 +54,17 @@ const props = defineProps<{
   /** The themes picked in the filters (canonical names): every testimony
    *  counted cites one, so the analyses do not rank them. */
   themeFilter?: string[];
+  /**
+   * The server's tree (map phase 1, the "Données" DEV switch): the map, the
+   * panel's units, their counts and the analyses come from it; `groups` and
+   * `testimonies` (the corpus) feed the auditions' lists only. Set once:
+   * the source does not change under a mounted page.
+   */
+  unitTree?: UnitTree | null;
 }>();
+
+/** The server's tree, when it is the source (fixed for this instance). */
+const unitTree = props.unitTree ?? null;
 
 /** The analyses of the raised territory, drawn on the map around it. The page
  *  owns the toggle; the plates' own close button turns it off from here. */
@@ -62,7 +78,13 @@ const deps = useDepFine();
 const { ensureDepFine } = deps;
 
 // ---- One hierarchy, both nav models read from it (model/useGeoHierarchy) ----
-const geo = useGeoHierarchy({ groups: toRef(props, "groups"), boundaries, communes, deps });
+const geo = useGeoHierarchy({
+  groups: toRef(props, "groups"),
+  boundaries,
+  communes,
+  deps,
+  unitTree,
+});
 const {
   root,
   index,
@@ -190,8 +212,18 @@ const cam = useCamera({
   ensureDepFine,
   mapCmp,
   listMode,
+  // The server's tree: the results are framed once the filters' answer is on
+  // screen, and not on the lazy path's few loaded lieux.
+  resultsFrame: unitTree
+    ? () =>
+        unitTree.wantedKey() !== unitTree.shownKey()
+          ? "pending"
+          : unitTree.complete()
+            ? "ready"
+            : "partial"
+    : undefined,
 });
-const { camera, framedFit, flyToUnit, spotlightPlace, scheduleResultsFit } = cam;
+const { camera, framedFit, flyToUnit, spotlightPlace, scheduleResultsFit, resultsArrived } = cam;
 
 // ---- The panel's auditions (model/usePanelAuditions): a lieu's own, or the results ----
 const panel = usePanelAuditions({
@@ -330,6 +362,10 @@ const { activate, onUnitClick, drillToCrumb } = useNavActions({
 const NO_THEMES: string[] = [];
 const filterThemes = computed(() => props.themeFilter ?? NO_THEMES);
 
+// The server's figures: indexed once per key and store version (the facts
+// come with the tree, so turning the analyses on asks for nothing).
+const factsIndex = unitTree ? computed(() => markRaw(buildFactsIndex(unitTree.facts()))) : null;
+
 const { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLoaded } =
   useScopeAnalysis({
     analyses,
@@ -347,6 +383,12 @@ const { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLo
     listMode,
     themeFilter: filterThemes,
     framedFit,
+    server: factsIndex
+      ? {
+          stats: () => factsIndex.value,
+          placeLabel: (lieu) => placeLabel(lieu.key, lieu.city),
+        }
+      : undefined,
   });
 // The room the plates need, bound late for the camera (navState's roomNow box):
 // setCamera reads it at each command, the resize watch above as the width changes.
@@ -499,7 +541,10 @@ watch(
 );
 
 // Nudge the camera onto France once the hierarchy has data (the map starts wide;
-// this puts the régions in the visible area beside the panel).
+// this puts the régions in the visible area beside the panel). The corpus' map
+// groups come in before the métropole's outline, as a rule, so France is
+// framed by its box; the server's tree comes after it, so it is framed by its
+// box on purpose — the same first view, whatever arrives first.
 let framed = false;
 watch(
   root,
@@ -507,10 +552,69 @@ watch(
     if (framed || !r.children.length) return;
     framed = true;
     const country = r.children.find((c) => c.levelKey === "country") ?? r.children[0];
-    flyToUnit(country, false);
+    flyToUnit(country, false, false, unitTree !== null);
   },
   { immediate: true },
 );
+
+// ---- The server's tree (map phase 1): what it is asked for --------------------
+// After every watcher above (their order is behaviour). The scope's chain is
+// what a filter change waits for before swapping trees (the store asks for
+// the scope and its parent). On view (design E2): the scope's own answer when
+// its units' children are not known yet, so that the next drill step finds
+// them — one level ahead, no more — and the communes and arrondissements
+// shown whose lieux are not known yet.
+/** The scope's children are on their way: the panel shows them loading. */
+const scopeChildrenPending = computed(() => currentScope.value.childrenPending === true);
+/** The scope's answer (or the filter's) could not be had: the error line. */
+const scopeFailed = computed(() => (unitTree ? unitTree.failed(currentScope.value.id) : false));
+if (unitTree) {
+  const tree = unitTree;
+  watch(
+    () => currentScope.value.id,
+    () => tree.setScope(currentScope.value),
+    { immediate: true },
+  );
+  watch(
+    () => {
+      const s = currentScope.value;
+      const deep = s.children.some((c) => c.levelKey !== "place" && c.childrenPending);
+      // The communes around: the scope's siblings (and at an arrondissement,
+      // the cities around its ville), as useMapFeed shows them.
+      const parent = s.parentId ? index.value.get(s.parentId) : undefined;
+      const around = [...(parent?.children ?? [])];
+      const grand = s.levelKey === "arr" && parent?.parentId;
+      if (grand) around.push(...(index.value.get(grand)?.children ?? []));
+      const communes = new Set(
+        [s, ...panelUnits.value, ...around]
+          .filter((u) => (u.levelKey === "city" || u.levelKey === "arr") && u.childrenPending)
+          .map((u) => u.id),
+      );
+      return `${deep ? s.id : ""}\n${[...communes].sort().join(",")}`;
+    },
+    (wanted) => {
+      const [deep, communes] = wanted.split("\n");
+      if (deep) tree.ensure([deep], true);
+      if (communes) tree.ensure(communes.split(","));
+    },
+    { immediate: true },
+  );
+  // The results are framed on the tree's lieux (until PR K brings the
+  // server's frame): a fit due while the filters' answer was on its way
+  // runs once it is on screen (useCamera's resultsFrame).
+  watch(
+    () => tree.shownKey(),
+    () => resultsArrived(),
+  );
+  if (__TEST_TOOLS__) {
+    const w = window as unknown as { __acUnitTree?: () => unknown };
+    const probe = () => tree.stats();
+    w.__acUnitTree = probe;
+    onBeforeUnmount(() => {
+      if (w.__acUnitTree === probe) delete w.__acUnitTree;
+    });
+  }
+}
 </script>
 
 <template>
@@ -596,7 +700,9 @@ watch(
         <div v-if="loading" class="state">
           <LoadingDots label="Chargement des témoignages…" />
         </div>
-        <div v-else-if="isError" class="state">Impossible de charger les témoignages.</div>
+        <div v-else-if="isError || scopeFailed" class="state">
+          Impossible de charger les témoignages.
+        </div>
 
         <!-- The auditions being listed, each unfolding its testimonies: those of
              the selected lieu (exiting goes through the breadcrumb — any ancestor
@@ -622,10 +728,11 @@ watch(
              keyed by scope id — drilling in slides the new list in from the
              right, stepping back out reverses it. -->
         <UnitList
-          v-else-if="panelUnits.length"
+          v-else-if="panelUnits.length || scopeChildrenPending"
           :units="panelUnits"
           :scope-id="currentScope.id"
           :slide="slideName"
+          :pending="scopeChildrenPending"
           @activate="activate"
           @hover="hoveredPanelId = $event"
         />

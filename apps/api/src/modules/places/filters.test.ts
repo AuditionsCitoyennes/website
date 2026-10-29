@@ -6,6 +6,8 @@ import {
   likePattern,
   placeFilterKey,
   placeFilterParams,
+  placeFilterQueryOf,
+  placeFilterQueryParams,
   placeFilterQuerySchema,
   placeFiltersOf,
   rpcPlaceFilters,
@@ -131,4 +133,61 @@ test("the web's query: one spelling, which parses back to the same key", () => {
   assert.deepEqual(params, { v: "1", t: "1,3", q: "climat", u: "FR,fr:dep:69" });
   assert.equal(keyOf(params), `v1|m${themeMask([1, 3])}|qclimat|uFR,fr:dep:69`);
   assert.deepEqual(placeFilterParams({}), {});
+});
+
+test("the web's zod-free query is the schema's, and keeps what is valid where the schema refuses", () => {
+  const units = (n: number) => Array.from({ length: n }, (_, i) => `fr:com:${10000 + i}`);
+  const lieux = (n: number) =>
+    Array.from({ length: n }, (_, i) => `l:${(0xabc0000000000000n + BigInt(i)).toString(16)}`);
+  const inputs = [
+    {},
+    { verified: true },
+    { themes: [3, 1, 3, 15, 0] },
+    { text: "  Écoles  " },
+    { text: "é" },
+    { text: "l'" },
+    { text: "x".repeat(200) },
+    { from: "2026-01-01", to: "2026-12-31" },
+    { units: ["fr:dep:69", "FR", "fr:dep:69"], lieux: ["l:0123456789abcdef"] },
+    { units: units(50), lieux: lieux(50) },
+    {
+      verified: true,
+      themes: [2],
+      text: "climat",
+      from: "2025-06-01",
+      units: ["fr:reg:84"],
+      lieux: ["l:0123456789abcdef"],
+    },
+  ];
+  for (const input of inputs) {
+    const q = placeFilterQueryOf(input);
+    const parsed = placeFilterQuerySchema.safeParse(placeFilterParams(input));
+    assert.ok(parsed.success, JSON.stringify(input));
+    assert.deepEqual(q, parsed.data, JSON.stringify(input));
+    // Its parameters parse back to it: the API's key is the web's.
+    const back = placeFilterQuerySchema.parse(placeFilterQueryParams(q));
+    assert.deepEqual(back, q);
+    assert.equal(placeFilterKey(placeFiltersOf(back, 2)), placeFilterKey(placeFiltersOf(q, 2)));
+  }
+
+  // Where the schema refuses the whole query, only what fails is left out.
+  const refused = [
+    { input: { verified: true, text: "a\u0000b" }, kept: { v: "1" } },
+    { input: { from: "2025-02-30", to: "2026-01-01" }, kept: { to: "2026-01-01" } },
+    { input: { themes: [16, -1, 1.5, 2] }, kept: { t: [2] } },
+    { input: { units: ["lyon", "FR"], lieux: ["l:XYZ"] }, kept: { u: ["FR"] } },
+    { input: { text: "x".repeat(201), verified: true }, kept: { v: "1" } },
+  ] as const;
+  for (const { input, kept } of refused) {
+    assert.equal(placeFilterQuerySchema.safeParse(placeFilterParams(input)).success, false);
+    assert.deepEqual(placeFilterQueryOf(input), kept, JSON.stringify(input));
+  }
+  // More than 50 places: the first 50 picked, the other filters kept.
+  const many = placeFilterQueryOf({ verified: true, from: "2026-01-01", lieux: lieux(51) });
+  assert.equal(
+    placeFilterQuerySchema.safeParse(placeFilterParams({ lieux: lieux(51) })).success,
+    false,
+  );
+  assert.deepEqual(many, { v: "1", from: "2026-01-01", l: lieux(50) });
+  assert.ok(placeFilterQuerySchema.safeParse(placeFilterQueryParams(many)).success);
 });
