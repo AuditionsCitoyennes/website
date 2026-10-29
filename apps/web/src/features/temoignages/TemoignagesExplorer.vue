@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, effectScope, onBeforeUnmount, watch } from "vue";
+import { computed, defineAsyncComponent, effectScope, onBeforeUnmount, ref, watch } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
+import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { FiltersDialog, FilterChips } from "@/features/filters";
 import { GeoNav } from "@/features/geo-nav";
 import { useMapGroupsQuery, useTestimoniesQuery } from "./api/queries";
@@ -13,21 +14,23 @@ import { dataSource, placeTreeMode } from "./dataSource";
 const props = defineProps<{ preview?: boolean }>();
 
 // Where the figures come from (dataSource.ts: a DEV switch; production's is
-// the corpus). In J the corpus and the map's groups stay mounted whatever the
-// source: the auditions' lists are theirs.
+// the corpus). From the server, the lists too (PR K): the corpus and the map's
+// groups are not even asked for — unless the comparer runs today's pipeline
+// beside the server's.
 const fromServer = dataSource !== "corpus";
 const comparing = __TEST_TOOLS__ && dataSource === "comparer";
+const corpusMounted = !fromServer || comparing;
 
-const testimoniesQuery = useTestimoniesQuery(computed(() => !props.preview));
+const testimoniesQuery = corpusMounted ? useTestimoniesQuery(computed(() => !props.preview)) : null;
 
-const mapQuery = useMapGroupsQuery();
+const mapQuery = corpusMounted ? useMapGroupsQuery() : null;
 
-const ownGroups = computed(() => mapQuery.data.value ?? []);
+const ownGroups = computed(() => mapQuery?.data.value ?? []);
 
 const queryClient = useQueryClient();
 const filtering = useTestimonyFiltering({
   preview: () => Boolean(props.preview),
-  testimonies: testimoniesQuery.data,
+  testimonies: testimoniesQuery?.data ?? ref(undefined),
   ownGroups,
   server: fromServer ? { queryClient, placeTreeMode, comparing } : undefined,
 });
@@ -55,19 +58,18 @@ const {
   serverFilters,
 } = filtering;
 
-// The panel waits for the corpus — or for the server's world answer, and for
-// the corpus too while filters are on: the results' list is still the
-// corpus' (until PR K), unfiltered until it is in.
+// The panel waits for the corpus — or for the server's world answer.
 const loading = computed(() =>
-  unitTree
-    ? unitTree.loading() || (listFiltered.value && testimoniesQuery.isLoading.value)
-    : testimoniesQuery.isLoading.value,
+  unitTree ? unitTree.loading() : (testimoniesQuery?.isLoading.value ?? false),
 );
 const isError = computed(() =>
-  unitTree
-    ? unitTree.failed() || (listFiltered.value && testimoniesQuery.isError.value)
-    : testimoniesQuery.isError.value,
+  unitTree ? unitTree.failed() : (testimoniesQuery?.isError.value ?? false),
 );
+// The server's tree and lists stand alone: GeoNav reads none of the corpus.
+const NO_GROUPS: LocationGroup[] = [];
+const NO_TESTIMONIES: PublicTestimony[] = [];
+const navGroups = computed(() => (unitTree ? NO_GROUPS : groups.value));
+const navTestimonies = computed(() => (unitTree ? NO_TESTIMONIES : filteredTestimonies.value));
 // What the results were looked up with: the text as debounced, from the server.
 const highlight = computed(() => (serverFilters ? serverFilters.text.value : text.value));
 
@@ -103,8 +105,8 @@ watch(
   <div class="temoignages">
     <GeoNav
       v-model:analyses="analyses"
-      :groups="groups"
-      :testimonies="filteredTestimonies"
+      :groups="navGroups"
+      :testimonies="navTestimonies"
       :loading="loading"
       :is-error="isError"
       :highlight="highlight"

@@ -276,3 +276,89 @@ test("the world before its answer: no children, pending", () => {
   assert.equal(root.childrenPending, true);
   assert.deepEqual(root.children, []);
 });
+
+test("a lieu known from a list only: under its unit, or the deepest unit the tree holds", () => {
+  const groups = mapOrder(GROUPS);
+  const lyon7 = ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69387"];
+  const stub = {
+    id: "l:0123456789abcdef",
+    key: "Square Delfosse, Lyon",
+    unit: "fr:com:69387",
+    path: lyon7,
+    lat: 45.74,
+    lng: 4.84,
+    city: "Lyon",
+    n: 3,
+  };
+  // Its unit is in the tree, its lieux not known yet: last among its
+  // children, labelled and placed.
+  const whole = serverData(groups, (id) => id !== "fr:com:69387");
+  const { index } = buildTreeFromUnits({ ...whole, stubs: new Map([[stub.id, stub]]) });
+  const u = index.get(stub.id)!;
+  assert.equal(u.levelKey, "place");
+  assert.equal(u.label, "Square Delfosse");
+  assert.equal(u.canonical, stub.key);
+  assert.deepEqual(u.center, [45.74, 4.84]);
+  assert.equal(u.count, 3);
+  assert.equal(u.insee, "69387");
+  assert.equal(u.parentId, "fr:com:69387");
+  assert.deepEqual(u.ancestors, ["world", ...lyon7]);
+  const parent = index.get("fr:com:69387")!;
+  assert.equal(parent.children[parent.children.length - 1], u);
+  // Counts are the server's: a stub adds nothing to its unit's.
+  assert.equal(parent.count, buildTreeFromUnits(whole).index.get("fr:com:69387")!.count);
+
+  // The Rhône's children not known yet: under the Rhône, the deepest held.
+  const lazy = serverData(groups, (id) => id !== "fr:dep:69" && id !== "fr:com:69387");
+  const pending = buildTreeFromUnits({ ...lazy, stubs: new Map([[stub.id, stub]]) }).index;
+  assert.equal(pending.get(stub.id)!.parentId, "fr:dep:69");
+  assert.equal(pending.get(stub.id)!.insee, undefined);
+  assert.equal(pending.get("fr:dep:69")!.childrenPending, true);
+
+  // Nothing of its path held (the world not answered yet): under the world.
+  const empty = buildTreeFromUnits({
+    units: new Map(),
+    lieux: new Map(),
+    stubs: new Map([[stub.id, stub]]),
+  });
+  assert.equal(empty.index.get(stub.id)!.parentId, "world");
+});
+
+test("a stub gives way to the lieu's own row", () => {
+  const groups = mapOrder(GROUPS);
+  const data = serverData(groups);
+  const real = [...data.lieux.values()][0];
+  const stub = {
+    id: real.id,
+    key: "Another name",
+    unit: real.unit,
+    path: ["FR"],
+    lat: 0,
+    lng: 0,
+    city: null,
+    n: 0,
+  };
+  const withStub = buildTreeFromUnits({ ...data, stubs: new Map([[stub.id, stub]]) });
+  const plain = buildTreeFromUnits(data);
+  assert.deepEqual(shape(withStub.root), shape(plain.root));
+  assert.equal(withStub.index.get(real.id)!.canonical, real.key);
+});
+
+test("a stub whose unit's lieux are known without it is gone: it does not match", () => {
+  const groups = mapOrder(GROUPS);
+  const lyon7 = ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69387"];
+  const stub = {
+    id: "l:0123456789abcdef",
+    key: "Square Delfosse, Lyon",
+    unit: "fr:com:69387",
+    path: lyon7,
+    lat: 45.74,
+    lng: 4.84,
+    city: "Lyon",
+    n: 3,
+  };
+  const data = serverData(groups);
+  const withStub = buildTreeFromUnits({ ...data, stubs: new Map([[stub.id, stub]]) });
+  assert.equal(withStub.index.has(stub.id), false);
+  assert.deepEqual(shape(withStub.root), shape(buildTreeFromUnits(data).root));
+});

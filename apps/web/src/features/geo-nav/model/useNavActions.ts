@@ -19,8 +19,12 @@ export interface NavActionsInputs {
     resultAuditions: ComputedRef<PanelAudition[]>;
     shownCount: Ref<number>;
     toggleAud: (id: string) => Promise<void>;
+    isAudOpen: (id: string) => boolean;
     audToTop: (id: string, ifHidden?: boolean) => number | null;
     keepAtTop: (audition: PanelAudition) => void;
+    /** The server's lists: where a lieu's first result sits when the pages
+     *  loaded do not hold it (-1: not there); null with the corpus'. */
+    findResultFurther: ((unit: GeoUnit) => Promise<number>) | null;
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
@@ -31,7 +35,8 @@ export function useNavActions(inputs: NavActionsInputs) {
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, openAuditions, hoveredPanelId } =
     nav;
   const { flyToUnit, spotlightPlace } = camera;
-  const { resultAuditions, shownCount, toggleAud, audToTop, keepAtTop } = panel;
+  const { resultAuditions, shownCount, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
+  const { findResultFurther } = panel;
 
   /** The perf probes (shared/perf): a unit selected — its plateau and its
    *  boundaries are timed from here. */
@@ -89,6 +94,8 @@ export function useNavActions(inputs: NavActionsInputs) {
 
   // The results are listed and a lieu's dot is clicked on the map: that is asking
   // for its audition — the first of the list held there.
+  /** The latest click's: a click whose lookup a later one overtook is dropped. */
+  let resultClicks = 0;
   async function openResultAt(unit: GeoUnit) {
     hoveredPanelId.value = null;
     // The dot of the lieu whose audition is being read: only bring the map (and
@@ -99,8 +106,25 @@ export function useNavActions(inputs: NavActionsInputs) {
       spotlightPlace(unit);
       return;
     }
-    const at = resultAuditions.value.findIndex((a) => a.canonical === unit.canonical);
-    if (at === -1) return;
+    const click = ++resultClicks;
+    // The corpus' results are all in memory (by the lieu's name); the server's
+    // pages loaded may not reach the lieu's (by its id): the server says where.
+    let at = findResultFurther
+      ? resultAuditions.value.findIndex((a) => a.placeId === unit.id)
+      : resultAuditions.value.findIndex((a) => a.canonical === unit.canonical);
+    if (at === -1 && findResultFurther) {
+      at = await findResultFurther(unit);
+      // Another click took over meanwhile; or this audition was opened since
+      // (its line pressed): opened, not closed again.
+      if (click !== resultClicks) return;
+      if (at !== -1 && isAudOpen(resultAuditions.value[at].id)) {
+        sheetOpen.value = true;
+        mapEngaged.value = false;
+        spotlightPlace(unit);
+        return;
+      }
+    }
+    if (at === -1 || !listMode.value) return;
     const audition = resultAuditions.value[at];
     if (at >= shownCount.value) shownCount.value = at + 1; // its line may not be listed yet
     sheetOpen.value = true;

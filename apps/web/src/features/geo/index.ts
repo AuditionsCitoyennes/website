@@ -29,6 +29,7 @@ export {
   buildTreeFromUnits,
   byServerOrder,
   WORLD,
+  type LieuStub,
   type ServerOrdered,
   type UnitTreeData,
   type UnitTreeEntry,

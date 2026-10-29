@@ -4,7 +4,7 @@
 // runs the ring's hook first (ring/useAnalysesRing registers it; neither
 // imports the other).
 import { markRaw, onBeforeUnmount, ref, shallowRef, type ComputedRef, type Ref } from "vue";
-import { ancestorsOf, depCodeOf, type GeoUnit, SPAN_DESCEND } from "@/features/geo";
+import { ancestorsOf, type Bounds, depCodeOf, type GeoUnit, SPAN_DESCEND } from "@/features/geo";
 import type { CameraCmd } from "@/features/map";
 import { frameFill } from "@/features/analyses";
 import type { NavState } from "../navState";
@@ -33,12 +33,15 @@ export interface CameraInputs {
    * on the few loaded (PR K brings the server's frame).
    */
   resultsFrame?: () => "ready" | "pending" | "partial";
+  /** The server's lists: the results' frame is theirs (the first page's,
+   *  resultBounds over every result's lieu), not the tree's lieux'. */
+  resultsBounds?: () => Bounds | null;
 }
 
 export function useCamera(inputs: CameraInputs) {
   const { nav, index, raisedGeometryFor, containsPoint, allPlaceUnits, ensureDepFine, mapCmp } =
     inputs;
-  const { listMode, resultsFrame } = inputs;
+  const { listMode, resultsFrame, resultsBounds } = inputs;
   const { currentScope, inMicroZone, openAuditions } = nav;
 
   const camera = ref<CameraCmd | null>(null);
@@ -213,7 +216,7 @@ export function useCamera(inputs: CameraInputs) {
       const frame = resultsFrame?.() ?? "ready";
       fitOwed = frame === "pending";
       if (frame !== "ready") return;
-      const bounds = resultBounds(allPlaceUnits.value);
+      const bounds = resultsBounds ? resultsBounds() : resultBounds(allPlaceUnits.value);
       if (!bounds) return;
       setCamera({
         type: "fit",

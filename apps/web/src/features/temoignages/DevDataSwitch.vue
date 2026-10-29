@@ -2,7 +2,8 @@
 // The Témoignages page's data switches (dataSource.ts, analyses/devSwitch.ts),
 // map phase 1: "Données" (corpus, serveur, comparer — the page loads again),
 // "Analyses en attente" and "Arbre des lieux"; in comparer mode a badge
-// counting the differences (compare.ts: window.__acCompare). The testing tools
+// counting the differences (compare.ts: window.__acCompare, the tree's, and
+// window.__acCompareLists, the lists'). The testing tools
 // only: the explorer loads it behind `__TEST_TOOLS__`. Folded by default, at
 // the map's bottom-left corner above mapbox's logo (a phone: bottom-right,
 // above the attribution button and the sheet).
@@ -32,7 +33,8 @@ const TREES: readonly { id: PlaceTreeMode; label: string }[] = [
 ];
 
 function showReport() {
-  console.info((window as unknown as { __acCompare?: unknown }).__acCompare ?? null);
+  const w = window as unknown as { __acCompare?: unknown; __acCompareLists?: unknown };
+  console.info(w.__acCompare ?? null, w.__acCompareLists ?? null);
 }
 </script>
 
@@ -44,11 +46,11 @@ function showReport() {
         v-if="dataSource === 'comparer'"
         type="button"
         class="diff-badge"
-        :class="{ clean: compareState.count === 0 }"
-        :title="`Différences (hors D1) — D1 : ${compareState.d1}`"
+        :class="{ clean: compareState.count === 0 && !compareState.lists }"
+        :title="`Différences (hors D1) — arbre : ${compareState.count ?? '…'}, listes : ${compareState.lists ?? '…'} — D1 : ${compareState.d1}`"
         @click.prevent="showReport"
       >
-        Δ {{ compareState.count ?? "…" }}
+        Δ {{ compareState.count === null ? "…" : compareState.count + (compareState.lists ?? 0) }}
       </button>
     </summary>
     <div class="switch-rows">

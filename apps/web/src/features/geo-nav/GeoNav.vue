@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, markRaw, nextTick, onBeforeUnmount, ref, toRef, watch } from "vue";
+import { useQueryClient } from "@tanstack/vue-query";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { ancestorsOf, placeLabel } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
@@ -31,6 +32,7 @@ import { usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
 import { usePlaqueFocus } from "./ring/usePlaqueFocus";
 import type { UnitTree } from "./data/useUnitTree";
+import { useServerLists } from "./data/useServerLists";
 
 const props = defineProps<{
   groups: LocationGroup[];
@@ -56,9 +58,10 @@ const props = defineProps<{
   themeFilter?: string[];
   /**
    * The server's tree (map phase 1, the "Données" DEV switch): the map, the
-   * panel's units, their counts and the analyses come from it; `groups` and
-   * `testimonies` (the corpus) feed the auditions' lists only. Set once:
-   * the source does not change under a mounted page.
+   * panel's units, their counts and the analyses come from it, and the
+   * auditions' lists from the server's lists beside it (PR K); `groups` and
+   * `testimonies` (the corpus) are not read. Set once: the source does not
+   * change under a mounted page.
    */
   unitTree?: UnitTree | null;
 }>();
@@ -190,6 +193,19 @@ watch(panelUnits, (units) => {
 // one flies the map to its lieu (see toggleAud).
 const listMode = computed(() => Boolean(props.filtered));
 
+// ---- The server's lists (data/useServerLists, map phase 1): the results, the
+// open lieu's auditions, the open audition's testimonies ----
+const lists = unitTree
+  ? useServerLists({
+      queryClient: useQueryClient(),
+      tree: unitTree,
+      sort: toRef(props, "sort"),
+      listMode,
+      nav,
+      selectedPlace,
+    })
+  : null;
+
 // ---- The panel's parts (panel/GeoPanel, AuditionList): what the composables measure ----
 const panelCmp = ref<InstanceType<typeof GeoPanel> | null>(null);
 const auditionsCmp = ref<InstanceType<typeof AuditionList> | null>(null);
@@ -200,6 +216,7 @@ const sheetPeekEl = computed(() => panelCmp.value?.peekEl ?? null);
 const sheetSafeEl = computed(() => panelCmp.value?.safeEl ?? null);
 const panelListEl = computed(() => panelCmp.value?.listEl ?? null);
 const moreEl = computed(() => auditionsCmp.value?.moreEl ?? null);
+const moreTestimoniesEl = computed(() => auditionsCmp.value?.moreTestimoniesEl ?? null);
 
 // ---- The camera (model/useCamera): what GeoDrillMap is told to frame ----
 const mapCmp = ref<InstanceType<typeof GeoDrillMap> | null>(null);
@@ -212,16 +229,10 @@ const cam = useCamera({
   ensureDepFine,
   mapCmp,
   listMode,
-  // The server's tree: the results are framed once the filters' answer is on
-  // screen, and not on the lazy path's few loaded lieux.
-  resultsFrame: unitTree
-    ? () =>
-        unitTree.wantedKey() !== unitTree.shownKey()
-          ? "pending"
-          : unitTree.complete()
-            ? "ready"
-            : "partial"
-    : undefined,
+  // The server's lists: the results are framed on their frame, once the
+  // filters' answer is on screen.
+  resultsFrame: lists ? () => (lists.resultsCurrent.value ? "ready" : "pending") : undefined,
+  resultsBounds: lists?.resultsFrame,
 });
 const { camera, framedFit, flyToUnit, spotlightPlace, scheduleResultsFit, resultsArrived } = cam;
 
@@ -233,17 +244,22 @@ const panel = usePanelAuditions({
   listMode,
   ownAuditions,
   selectedPlace,
-  placeByCanonical,
   placeIdByCanonical,
+  index,
   panelListEl,
   moreEl,
   spotlightPlace,
   scheduleResultsFit,
+  moreTestimoniesEl,
+  server: lists,
 });
 const {
-  resultAuditions,
+  resultCount,
   moreResults,
   showMoreResults,
+  showMoreTestimonies,
+  placeLoading,
+  placeFailed,
   panelAuditions,
   auditionMeta,
   audSwapping,
@@ -599,22 +615,31 @@ if (unitTree) {
     },
     { immediate: true },
   );
-  // The results are framed on the tree's lieux (until PR K brings the
-  // server's frame): a fit due while the filters' answer was on its way
-  // runs once it is on screen (useCamera's resultsFrame).
+  // The results are framed on the server's frame: a fit due while the
+  // filters' answer was on its way runs once it is on screen (useCamera's
+  // resultsFrame).
   watch(
-    () => tree.shownKey(),
-    () => resultsArrived(),
+    () => lists?.resultsCurrent.value ?? false,
+    (current) => {
+      if (current) resultsArrived();
+    },
   );
   if (__TEST_TOOLS__) {
-    const w = window as unknown as { __acUnitTree?: () => unknown };
+    const w = window as unknown as { __acUnitTree?: () => unknown; __acLists?: () => unknown };
     const probe = () => tree.stats();
     w.__acUnitTree = probe;
+    const listsProbe = () => lists?.stats() ?? null;
+    w.__acLists = listsProbe;
     onBeforeUnmount(() => {
       if (w.__acUnitTree === probe) delete w.__acUnitTree;
+      if (w.__acLists === listsProbe) delete w.__acLists;
     });
   }
 }
+/** Filters on, the server's results not on screen yet (the panel's dots). */
+const listsLoading = computed(() => lists?.resultsLoading.value ?? false);
+/** The results could not be had. */
+const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
 </script>
 
 <template>
@@ -697,10 +722,10 @@ if (unitTree) {
         <template #head-actions><slot name="head-actions" /></template>
         <template #head-below><slot name="head-below" /></template>
 
-        <div v-if="loading" class="state">
+        <div v-if="loading || listsLoading" class="state">
           <LoadingDots label="Chargement des témoignages…" />
         </div>
-        <div v-else-if="isError || scopeFailed" class="state">
+        <div v-else-if="isError || scopeFailed || listsFailed" class="state">
           Impossible de charger les témoignages.
         </div>
 
@@ -713,15 +738,18 @@ if (unitTree) {
           ref="auditionsCmp"
           :list-mode="listMode"
           :place="selectedPlace"
-          :result-count="resultAuditions.length"
+          :result-count="resultCount"
           :auditions="panelAuditions"
           :open="openAuditions"
           :meta="auditionMeta"
           :swapping="audSwapping"
           :highlight="highlight"
           :more="moreResults"
+          :loading="placeLoading"
+          :failed="placeFailed"
           @toggle="toggleAud"
           @more="showMoreResults"
+          @more-testimonies="showMoreTestimonies"
         />
 
         <!-- Unit list: children of the scope. The level is swapped as ONE block,

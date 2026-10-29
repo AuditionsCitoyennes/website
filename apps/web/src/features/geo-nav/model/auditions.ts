@@ -1,7 +1,8 @@
 // The auditions as the panel lists them — pure: how the association's own
-// testimonies group by audition, the ordering, a group's line for the panel,
-// the frame the results are shown in, the page size. No Vue, no DOM.
-import type { LocationGroup, PublicTestimony } from "@ac/shared";
+// testimonies group by audition, the ordering, a group's line for the panel
+// (or a server list's row), the frame the results are shown in, the page
+// size. No Vue, no DOM.
+import type { LocationGroup, PlaceResultLieu, PublicTestimony } from "@ac/shared";
 import type { Bounds, GeoUnit } from "@/features/geo";
 
 export interface AuditionGroup {
@@ -61,6 +62,12 @@ export interface PanelAudition {
   count: number;
   /** null: not in memory yet (the testimonies are still loading). */
   testimonies: PublicTestimony[] | null;
+  /** The server's lists: more testimonies than are listed (the next page). */
+  more?: boolean;
+  /** The server's lists: its testimonies could not be had. */
+  failed?: boolean;
+  /** A result of the server's (its lieu, as the results row places it). */
+  lieu?: PlaceResultLieu;
 }
 
 /** The panel's line for an audition of a group, with its testimonies (all
@@ -82,6 +89,28 @@ export function toPanelAudition(
     count: mine ? mine.testimonies.length : a.testimony_count,
     testimonies: mine ? mine.testimonies : null,
   };
+}
+
+/** The panel's line for an audition of the server's lists (map phase 1, K):
+ *  its lieu, its testimonies once the open one's are here. */
+export function serverPanelAudition(
+  a: { id: string; title: string; date: string; n: number },
+  place: { id: string; canonical: string; lieu?: PlaceResultLieu },
+  testimonies: { list: PublicTestimony[] | null; more: boolean; failed: boolean },
+): PanelAudition {
+  const out: PanelAudition = {
+    id: a.id,
+    title: a.title,
+    date: a.date,
+    canonical: place.canonical,
+    placeId: place.id,
+    count: a.n,
+    testimonies: testimonies.list,
+  };
+  if (testimonies.more) out.more = true;
+  if (testimonies.failed) out.failed = true;
+  if (place.lieu) out.lieu = place.lieu;
+  return out;
 }
 
 /** An audition's testimonies — null while they are not here (yet). */
