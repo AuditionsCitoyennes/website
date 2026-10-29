@@ -17,6 +17,8 @@ withDefaults(
     open: boolean;
     chips: { id: string; label: string }[];
     locationTree: LocNode[];
+    /** Asks for a lazy place's children (a tree read as it is opened). */
+    loadLocationChildren?: (node: LocNode) => void;
     /** Earliest/latest audition date in the data — bounds the picker. */
     dateBounds: { min: string | null; max: string | null };
     topicOptions: Option[];
@@ -102,6 +104,7 @@ const dateToInput = computed({
         <LocationMultiSelect
           v-model="locations"
           :tree="locationTree"
+          :load-children="loadLocationChildren"
           all-label="Tous les lieux"
           placeholder="Rechercher un lieu, un département, une région..."
         />

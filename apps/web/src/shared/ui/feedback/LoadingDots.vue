@@ -2,13 +2,17 @@
 // "Something is loading": a few dots crossing from left to right. Each one
 // fades in on the left, rushes in, lingers in the middle — where they bunch up
 // — rushes out and fades away on the right.
-withDefaults(defineProps<{ label?: string }>(), { label: "Chargement…" });
+// `live: false` inside a live region of the caller's, so it is announced once.
+withDefaults(defineProps<{ label?: string; live?: boolean }>(), {
+  label: "Chargement…",
+  live: true,
+});
 
 const DOTS = 5;
 </script>
 
 <template>
-  <div class="loading-dots" role="status">
+  <div class="loading-dots" :role="live ? 'status' : undefined">
     <span class="visually-hidden">{{ label }}</span>
     <span class="track" aria-hidden="true">
       <!-- A lane spans the whole track and carries its dot at its left end:

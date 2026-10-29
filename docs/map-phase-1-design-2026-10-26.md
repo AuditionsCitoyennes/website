@@ -1597,7 +1597,11 @@ Requests go through `queryClient.fetchQuery` with keys `[...placesKeys.all, fkey
 8. **Filter dialog place tree.**
    - Built from `empty=1` rows. A country level appears only with more than one country.
    - Arrondissements are flattened into their commune (`filters.ts:96-151`), per "Arbre des lieux".
-   - Lazy children at scale: `LocationMultiSelect` gains `loadChildren`.
+   - Lazy children at scale: `LocationMultiSelect` gains `loadChildren` (L2). A unit whose children are not all known (not loaded, or, flattened, an arrondissement not loaded) is a `lazy` node with no children. Opening it asks the store for its own answer (`loadEmpty`: `units=` batched, `empty=1`, retried as the map's reads); LoadingDots and `aria-busy` meanwhile, a failure line with "Réessayer" after the retries (both in one polite live region; "Réessayer" hands the focus back to the node's caret). A whole tree (production's) has no lazy node and asks for nothing.
+   - The dialog closed lets go of the opened places' retries (`idleEmpty`; the world's go on, the chips read it); a node opened again asks again.
+   - An audition created (`reloadPlaces`) on the lazy path asks the picker's reload for the places opened before, in the world's request, and the tree before stays until they are in: the picks keep their labels, partial boxes and ancestors (the selection stays an antichain, the key the same as at production size).
+   - Search on an incomplete tree matches what is loaded, and says so ("La recherche ne voit que les zones déjà dépliées : effacez-la et dépliez-en une…", in a live region mounted while the tree is incomplete, so it is announced as it appears). It loads nothing: there is no unit-name search, and asking for every unopened région would read all their communes at each search (megabytes at scale, and a slice of the visitor's miss limit) while still missing the lieux below the communes.
+   - The comparer compares the loaded part: a lazy node itself, not its children (`placeTreePending`). A lazy node in a whole tree is a difference (`lazy`). `__acComparePickerLoad()` loads the whole picker tree (local data).
 
 ### E3. Units without geometry in phase 1
 

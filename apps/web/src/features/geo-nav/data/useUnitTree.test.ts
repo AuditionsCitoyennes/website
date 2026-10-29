@@ -3,9 +3,10 @@
 // from before —, what failed is asked for again when wanted again, a key let
 // go stops asking, a dropped key's answers leave the query cache, and an
 // audition created (reloadPlaces) is read whatever state the last reload is
-// in. Run
+// in; the place picker's tree read as it is opened, on the lazy path. Run
 // with `node --import tsx --test` (root "test:scripts"): the store's two app
-// imports are mapped here (the API client to a stub: no Supabase, no fetch).
+// imports are mapped here (the API client to a stub: no Supabase, no fetch),
+// and the filters' barrel to the picker's tree alone.
 
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
@@ -32,6 +33,9 @@ registerHooks({
     if (specifier === "@/features/geo") {
       return next(new URL("features/geo/index.ts", SRC).href, context);
     }
+    if (specifier === "@/features/filters") {
+      return next(new URL("features/filters/placeTree.ts", SRC).href, context);
+    }
     return next(specifier, context);
   },
 });
@@ -42,6 +46,7 @@ g.__TEST_TOOLS__ = false;
 const { useUnitTree } = await import("./useUnitTree");
 const { reloadPlaces } = await import("../keys");
 const { buildTreeFromUnits } = await import("@/features/geo");
+const { buildPlaceTree } = await import("@/features/filters");
 const { ApiError } = (await import("@/shared/api/client")) as unknown as {
   ApiError: new (m: string, status: number, retryAfter?: number | null) => Error;
 };
@@ -491,4 +496,245 @@ test("the open lieu goes along into a key swapped in without it, until that key 
   tree.request({ key: "qb", params: { q: "b" } });
   for (let i = 0; i < 40 && tree.shownKey() !== "qb"; i++) await wait(2);
   assert.equal(tree.data()!.stubs?.size ?? 0, 0);
+});
+
+// ---- The place picker's tree, read as it is opened (L2) -------------------------
+
+type PickerNode = ReturnType<typeof buildPlaceTree>[number];
+const picker = (tree: ReturnType<typeof useUnitTree>) =>
+  buildPlaceTree(tree.emptyData()!, {
+    arrondissements: false,
+    statusOf: (id) => tree.emptyStatus(id),
+  });
+const shape = (nodes: PickerNode[]): unknown =>
+  nodes.map((n) => [n.token, n.label, n.count, n.lazy ?? null, shape(n.children ?? [])]);
+
+test("the place picker's tree read as it is opened: the units opened together go out as one empty=1 request, until it is the whole tree", async (t) => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  tree.wantEmpty();
+  await wait(80);
+  assert.deepEqual(
+    picker(tree).map((n) => [n.label, n.lazy]),
+    [["Auvergne-Rhône-Alpes", "idle"]],
+    "the world's answer: France's régions, their children not known",
+  );
+
+  let before = fake.calls.length;
+  tree.loadEmpty(["fr:reg:84"]);
+  assert.equal(picker(tree)[0].lazy, "loading");
+  await wait(80);
+  assert.deepEqual(fake.calls.slice(before), [{ key: "empty", units: ["fr:reg:84"] }]);
+  const rhone = picker(tree)[0].children![0];
+  assert.equal(rhone.label, "Rhône");
+  assert.deepEqual(
+    rhone.children!.map((c) => [c.label, c.lazy]),
+    [
+      ["Lyon", "idle"],
+      ["Villeurbanne", "idle"],
+    ],
+  );
+
+  before = fake.calls.length;
+  tree.loadEmpty(["fr:com:69123"]);
+  tree.loadEmpty(["fr:com:69266"]);
+  await wait(80);
+  assert.deepEqual(
+    fake.calls.slice(before),
+    [{ key: "empty", units: ["fr:com:69123", "fr:com:69266"] }],
+    "one request",
+  );
+
+  // The same tree as a whole answer gives (production's), which asks for nothing.
+  KEYS.empty.complete = true;
+  t.after(() => {
+    KEYS.empty.complete = false;
+  });
+  const wholeFake = fakeApi();
+  const whole = store(wholeFake);
+  whole.tree.wantEmpty();
+  await wait(80);
+  assert.deepEqual(shape(picker(tree)), shape(picker(whole.tree)));
+  assert.equal(JSON.stringify(shape(picker(whole.tree))).includes("idle"), false);
+  const asked = wholeFake.calls.length;
+  whole.tree.loadEmpty(["fr:reg:84", "fr:com:69123"]);
+  await wait(80);
+  assert.equal(wholeFake.calls.length, asked, "a whole tree asks for nothing");
+});
+
+test("a place picker read refused is retried after Retry-After; failed after its retries, asked again when opened again", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  tree.wantEmpty();
+  await wait(80);
+
+  let refusals = 1;
+  fake.failWith((c) =>
+    c.units.includes("fr:reg:84") && refusals-- > 0 ? new ApiError("slow down", 429, 0.3) : null,
+  );
+  tree.loadEmpty(["fr:reg:84"]);
+  await wait(120);
+  assert.equal(tree.emptyStatus("fr:reg:84"), "loading", "waiting to be asked again");
+  await wait(400);
+  assert.equal(fake.calls.filter((c) => c.units.includes("fr:reg:84")).length, 2);
+  assert.equal(picker(tree)[0].lazy, undefined, "its children in");
+
+  fake.failWith((c) =>
+    c.units.includes("fr:com:69123") ? new ApiError("slow down", 429, 0.01) : null,
+  );
+  tree.loadEmpty(["fr:com:69123"]);
+  await wait(1400);
+  assert.equal(fake.calls.filter((c) => c.units.includes("fr:com:69123")).length, 4);
+  const lyon = () => picker(tree)[0].children![0].children![0];
+  assert.equal(lyon().lazy, "failed");
+  fake.failWith(null);
+  tree.loadEmpty(["fr:com:69123"]);
+  assert.equal(lyon().lazy, "loading");
+  await wait(80);
+  assert.equal(lyon().lazy, undefined);
+  assert.deepEqual(
+    lyon().children!.map((c) => c.label),
+    ["Place Jean Macé"],
+  );
+});
+
+test("an audition created on the lazy path: the places opened in the picker come back with its reload, in the world's request, the tree before read meanwhile", async (t) => {
+  // The new audition's lieu, in Villeurbanne, matches the picker's key too.
+  t.after(() => {
+    forgetAudition();
+    KEYS.empty.lieux = KEYS.empty.lieux.filter((l) => l !== NEW_LIEU);
+  });
+  const fake = fakeApi();
+  const { tree, queryClient } = store(fake);
+  tree.request({ key: "", params: {} });
+  tree.wantEmpty();
+  await wait(80);
+  tree.loadEmpty(["fr:reg:84"]);
+  await wait(80);
+  tree.loadEmpty(["fr:com:69123", "fr:com:69266"]);
+  await wait(80);
+  const before = tree.emptyData();
+  const deep = shape(picker(tree));
+  assert.equal(JSON.stringify(deep).includes("idle"), false, "opened down to the lieux");
+
+  createAudition();
+  KEYS.empty.lieux.push(NEW_LIEU);
+  fake.slow(60);
+  const n = fake.calls.length;
+  reloadPlaces(queryClient);
+  await wait(140);
+  assert.equal(tree.emptyData(), before, "the tree before, while its reload is on its way");
+  assert.deepEqual(shape(picker(tree)), deep);
+  await wait(150);
+  assert.deepEqual(
+    fake.calls.slice(n).filter((c) => c.key === "empty"),
+    [{ key: "empty", units: ["world", "fr:reg:84", "fr:com:69123", "fr:com:69266"] }],
+    "one request",
+  );
+  assert.notEqual(tree.emptyData(), before, "its reload in place");
+  const villeurbanne = picker(tree)[0].children![0].children!.find(
+    (c) => c.token === "fr:com:69266",
+  )!;
+  assert.deepEqual(
+    villeurbanne.children!.map((c) => c.label),
+    ["Marché des Gratte-Ciel", "Parc de la Feyssine"],
+    "as deep as before, the new audition's lieu in it",
+  );
+  assert.equal(JSON.stringify(shape(picker(tree))).includes("idle"), false);
+});
+
+test("an audition created with a whole place picker tree (production's): its reload asks for the world alone", async (t) => {
+  KEYS.empty.complete = true;
+  t.after(() => {
+    KEYS.empty.complete = false;
+  });
+  const fake = fakeApi();
+  const { tree, queryClient } = store(fake);
+  tree.request({ key: "", params: {} });
+  tree.wantEmpty();
+  await wait(80);
+  tree.loadEmpty(["fr:reg:84", "fr:com:69123"]);
+  await wait(80);
+  const n = fake.calls.length;
+  reloadPlaces(queryClient);
+  await wait(250);
+  assert.deepEqual(
+    fake.calls.slice(n).filter((c) => c.key === "empty"),
+    [{ key: "empty", units: ["world"] }],
+  );
+});
+
+test("the filter dialog closed: a place picker read refused is not retried, the world's is; opened again, it is asked again", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  const reads = (id: string) => fake.calls.filter((c) => c.units.includes(id)).length;
+
+  // The world refused once with the dialog closed: retried all the same (the
+  // chips read it).
+  let worldRefusals = 1;
+  fake.failWith((c) =>
+    c.units.includes("world") && worldRefusals-- > 0 ? new ApiError("slow down", 429, 0.2) : null,
+  );
+  tree.idleEmpty();
+  tree.wantEmpty();
+  await wait(400);
+  assert.equal(reads("world"), 2);
+  assert.ok(tree.emptyData(), "the world in");
+
+  // Refused, waiting to be asked again when the dialog closes: let go.
+  fake.failWith((c) =>
+    c.units.includes("fr:reg:84") ? new ApiError("slow down", 429, 0.2) : null,
+  );
+  tree.loadEmpty(["fr:reg:84"]);
+  await wait(80);
+  assert.equal(tree.emptyStatus("fr:reg:84"), "loading", "waiting to be asked again");
+  tree.idleEmpty();
+  assert.equal(tree.emptyStatus("fr:reg:84"), null);
+  assert.equal(picker(tree)[0].lazy, "idle");
+  await wait(400);
+  assert.equal(reads("fr:reg:84"), 1, "not asked again");
+
+  // On its way when the dialog closes, then refused: not asked again either.
+  tree.loadEmpty(["fr:reg:84"]);
+  tree.idleEmpty();
+  await wait(400);
+  assert.equal(reads("fr:reg:84"), 2);
+  assert.equal(tree.emptyStatus("fr:reg:84"), null);
+
+  // Opened again: asked again, and retried.
+  let refusals = 1;
+  fake.failWith((c) =>
+    c.units.includes("fr:reg:84") && refusals-- > 0 ? new ApiError("slow down", 429, 0.2) : null,
+  );
+  tree.loadEmpty(["fr:reg:84"]);
+  await wait(400);
+  assert.equal(reads("fr:reg:84"), 4);
+  assert.equal(picker(tree)[0].lazy, undefined, "its children in");
+});
+
+test("the filter dialog reopened while a place picker read is on its way: a refusal is retried after its wait", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  const times = (id: string) => fake.calls.filter((c) => c.units.includes(id)).length;
+  tree.openEmpty();
+  await wait(80);
+  assert.ok(tree.emptyData(), "the world in");
+
+  // Asked, the dialog closed and reopened before the (slow) refusal lands.
+  let refusals = 1;
+  fake.failWith((c) =>
+    c.units.includes("fr:reg:84") && refusals-- > 0 ? new ApiError("slow down", 429, 0.3) : null,
+  );
+  fake.slow(100);
+  tree.loadEmpty(["fr:reg:84"]);
+  tree.idleEmpty();
+  tree.openEmpty();
+  await wait(150);
+  assert.equal(times("fr:reg:84"), 1, "the refusal landed");
+  assert.equal(tree.emptyStatus("fr:reg:84"), "loading", "waiting to be asked again");
+  await wait(100);
+  assert.equal(times("fr:reg:84"), 1, "not asked again before Retry-After");
+  await wait(400);
+  assert.equal(times("fr:reg:84"), 2, "asked again after Retry-After");
+  assert.equal(picker(tree)[0].lazy, undefined, "its children in");
 });

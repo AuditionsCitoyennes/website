@@ -30,6 +30,7 @@ import {
   useUnitTree,
   type UnitTree,
 } from "@/features/geo-nav";
+import type { LocNode } from "@/shared/ui/select/treeNode";
 import type { PlaceTreeMode } from "./dataSource";
 
 // ---- Filter state (the page owns it: one filtered set drives BOTH the map
@@ -69,11 +70,17 @@ export function useTestimonyFiltering(input: {
     buildLocationTree(ownGroups.value.map((g) => ({ area: g, weight: g.totalTestimonies }))),
   );
   // From the server: every audition on the map (empty=1), by unit and lieu ids.
+  // On the lazy path (a tree too big for one answer), a place opened in the
+  // picker asks for its children; a whole tree (production's) asks for nothing.
   let unitTree: UnitTree | null = null;
   const serverLocationTree = computed(() => {
-    const data = unitTree?.emptyData();
-    return data
-      ? buildPlaceTree(data, { arrondissements: server?.placeTreeMode.value === "avec" })
+    const tree = unitTree;
+    const data = tree?.emptyData();
+    return tree && data
+      ? buildPlaceTree(data, {
+          arrondissements: server?.placeTreeMode.value === "avec",
+          statusOf: (id) => tree.emptyStatus(id),
+        })
       : [];
   });
   const locationTree = server ? serverLocationTree : corpusLocationTree;
@@ -81,6 +88,12 @@ export function useTestimonyFiltering(input: {
   const filters = useFilters(locationTree);
   const { topics, locations, dateFrom, dateTo, verified, needle, chips } = filters;
   const filtersOpen = ref(false);
+  // Not once the dialog is closing (a node still open as it fades out).
+  const loadLocationChildren = server
+    ? (node: LocNode) => {
+        if (filtersOpen.value) unitTree?.loadEmpty([node.token]);
+      }
+    : undefined;
 
   // ---- The server's filters and tree -------------------------------------------
   const serverFilters = server ? useServerFilters(filters) : null;
@@ -112,8 +125,10 @@ export function useTestimonyFiltering(input: {
       },
       { immediate: true },
     );
+    // Closed: the places opened in the picker are not asked for again.
     watch(filtersOpen, (open) => {
-      if (open) tree.wantEmpty();
+      if (open) tree.openEmpty();
+      else tree.idleEmpty();
     });
   }
 
@@ -274,6 +289,7 @@ export function useTestimonyFiltering(input: {
     groups,
     resultCount,
     locationTree,
+    loadLocationChildren,
     dateBounds,
     topicOptions,
     listFiltered,

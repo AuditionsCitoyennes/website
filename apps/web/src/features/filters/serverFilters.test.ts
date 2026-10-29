@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { effectScope, nextTick, ref } from "vue";
 import type { LocationGroup, PlaceLieuRow, PlaceUnitRow } from "@ac/shared";
 import { buildLocationTree } from "./filters";
+import type { LocNode } from "@/shared/ui/select/treeNode";
 import { buildPlaceTree, type PlaceTreeData } from "./placeTree";
 import { passesPlaceIds, placeIdsOf, useServerFilters } from "./serverFilters";
 
@@ -229,17 +230,33 @@ function data(): PlaceTreeData {
   ];
   const units = new Map<
     string,
-    { row: PlaceUnitRow | null; childIds: string[]; lieuIds: string[] }
+    { row: PlaceUnitRow | null; childIds: string[]; lieuIds: string[]; loaded: boolean }
   >();
-  units.set("world", { row: null, childIds: ["FR"], lieuIds: [] });
+  units.set("world", { row: null, childIds: ["FR"], lieuIds: [], loaded: true });
   for (const r of rows) {
     units.set(r.id, {
       row: r,
       childIds: rows.filter((c) => c.parent === r.id).map((c) => c.id),
       lieuIds: lieux.filter((l) => l.unit === r.id).map((l) => l.id),
+      loaded: true,
     });
   }
   return { units, lieux: new Map(lieux.map((l) => [l.id, l])) };
+}
+
+/** data() as a lazy read leaves it: these units' children and lieux unknown
+ *  (and the lieux under them never read). */
+function partial(unloaded: string[]): PlaceTreeData {
+  const whole = data();
+  const units = new Map(
+    [...whole.units].map(([id, e]) =>
+      unloaded.includes(id)
+        ? [id, { row: e.row, loaded: false }]
+        : [id, { ...e, loaded: true as boolean }],
+    ),
+  );
+  const lieux = new Map([...whole.lieux].filter(([, l]) => !unloaded.includes(l.unit)));
+  return { units, lieux };
 }
 
 test("the place picker's tree: one country, its régions first; arrondissements flattened", () => {
@@ -367,4 +384,75 @@ test("the place picker's tree matches the corpus' (labels, hints, counts, order)
     children: (n.children as never[] | undefined)?.map(strip) ?? null,
   });
   assert.deepEqual(buildPlaceTree(data()).map(strip), corpus.map(strip));
+});
+
+test("the place picker's tree read lazily: a unit whose children are not loaded is lazy, childless", () => {
+  // The world's answer at depth 2: France loaded, its régions not.
+  const tree = buildPlaceTree(
+    partial([
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69387",
+      "fr:com:69381",
+      "fr:com:69266",
+    ]),
+  );
+  assert.deepEqual(
+    tree.map((n) => ({ token: n.token, count: n.count, lazy: n.lazy, children: n.children })),
+    [{ token: "fr:reg:84", count: 12, lazy: "idle", children: undefined }],
+  );
+  // Where its children stand, as the store says.
+  const asked = buildPlaceTree(
+    partial([
+      "fr:reg:84",
+      "fr:dep:69",
+      "fr:com:69123",
+      "fr:com:69387",
+      "fr:com:69381",
+      "fr:com:69266",
+    ]),
+    { arrondissements: false, statusOf: (id) => (id === "fr:reg:84" ? "loading" : null) },
+  );
+  assert.equal(asked[0].lazy, "loading");
+  const failed = buildPlaceTree(partial(["fr:reg:84"]), {
+    arrondissements: false,
+    statusOf: () => "failed",
+  });
+  assert.equal(failed[0].lazy, "failed");
+});
+
+test("the place picker's tree read lazily: a commune's unloaded arrondissements make it lazy when flattened", () => {
+  // Lyon known from its département's answer, its arrondissements not.
+  const sans = buildPlaceTree(partial(["fr:com:69387", "fr:com:69381"]));
+  const lyon = sans[0].children![0].children![0];
+  assert.equal(lyon.label, "Lyon");
+  assert.equal(lyon.lazy, "idle", "its lieux are its arrondissements'");
+  assert.equal(lyon.children, undefined);
+  const villeurbanne = sans[0].children![0].children![1];
+  assert.equal(villeurbanne.lazy, undefined);
+  assert.deepEqual(
+    villeurbanne.children!.map((c) => c.token),
+    ["l:d"],
+  );
+  // "avec arrondissements": Lyon is known, its arrondissements are lazy.
+  const avec = buildPlaceTree(partial(["fr:com:69387", "fr:com:69381"]), {
+    arrondissements: true,
+  });
+  const lyonAvec = avec[0].children![0].children![0];
+  assert.equal(lyonAvec.lazy, undefined);
+  assert.deepEqual(
+    lyonAvec.children!.map((c) => [c.label, c.lazy]),
+    [
+      ["Lyon 7e", "idle"],
+      ["Lyon 1er", "idle"],
+    ],
+  );
+});
+
+test("the place picker's whole tree has no lazy node", () => {
+  const some = (nodes: LocNode[]): boolean =>
+    nodes.some((n) => n.lazy !== undefined || some(n.children ?? []));
+  assert.equal(some(buildPlaceTree(data())), false);
+  assert.equal(some(buildPlaceTree(data(), { arrondissements: true })), false);
 });

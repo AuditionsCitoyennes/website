@@ -93,7 +93,8 @@ class KeyStore implements UnitTreeData {
   readonly waiting = new Set<string>();
   readonly attempts = new Map<string, number>();
   readonly failed = new Set<string>();
-  readonly timers = new Set<number>();
+  /** Each unit waiting to be asked again: its timer. */
+  readonly timers = new Map<string, number>();
   /** Units asked for (the probe's count). */
   asked = 0;
   /** Reloaded: on screen until its reload is (see refresh), never asked for
@@ -148,8 +149,14 @@ export function useUnitTree(opts: UnitTreeOptions) {
   /** The scope and the units above it, root first (setScope). */
   let chain: string[] = [WORLD];
   /** The place picker's store before a reload, read until its own reload
-   *  holds the world. */
+   *  holds the world and the places opened in it (see settleEmpty). */
   let staleEmpty: KeyStore | null = null;
+  /** The units the place picker asked for as they were opened (loadEmpty),
+   *  on the lazy path: asked for again with its reload. */
+  const pickerOpened = new Set<string>();
+  /** The filter dialog is closed: the places opened in the picker are not
+   *  asked for again after a refusal (the world is: the chips read it). */
+  let pickerIdle = false;
   /** The reload after an audition created, waiting for the last one. */
   let refreshTimer = 0;
   /** Reloads after an audition created (the probe's count). */
@@ -203,7 +210,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
       }
     }
     ks.version++;
-    if (staleEmpty && ks.req.key === EMPTY_KEY && ks.units.get(WORLD)?.loaded) staleEmpty = null;
+    settleEmpty(ks);
     if (ks === shown) version.value++;
     else sideVersion.value++;
     if (ks === next) settleNext();
@@ -289,33 +296,46 @@ export function useUnitTree(opts: UnitTreeOptions) {
     if (cached.length) merge(ks, cached);
   }
 
-  /** The store is wanted: on screen, asked for, or the place picker's. */
-  function wanted(ks: KeyStore): boolean {
-    return ks === shown || ks === next || ks.req.key === EMPTY_KEY;
+  /** The store is wanted for this unit: on screen, asked for, or the place
+   *  picker's — its world always (the chips read it), the places opened in it
+   *  while the filter dialog is open, or while its reload brings them back. */
+  function wanted(ks: KeyStore, id: string): boolean {
+    if (ks === shown || ks === next) return true;
+    if (ks.req.key !== EMPTY_KEY) return false;
+    return id === WORLD || !pickerIdle || (staleEmpty !== null && pickerOpened.has(id));
   }
 
   /** A unit's read failed: asked again (as it was: `deep`) while the store is
-   *  wanted, or marked failed. */
+   *  wanted, or marked failed. A place picker's read no longer wanted is let
+   *  go: asked for again when opened again. */
   function failedOnce(ks: KeyStore, id: string, err: unknown, deep: boolean) {
-    if (stores.get(ks.req.key) !== ks || !wanted(ks)) return;
+    if (stores.get(ks.req.key) !== ks) return;
+    if (!wanted(ks, id)) {
+      if (ks.req.key === EMPTY_KEY) {
+        ks.attempts.delete(id);
+        settleEmpty(ks);
+        bumpFor(ks);
+      }
+      return;
+    }
     const n = (ks.attempts.get(id) ?? 0) + 1;
     ks.attempts.set(id, n);
     if (!retryable(err) || n > RETRIES) {
       ks.failed.add(id);
-      if (ks === shown || ks === next) status.value++;
-      else sideVersion.value++;
+      settleEmpty(ks);
+      bumpFor(ks);
       return;
     }
     ks.waiting.add(id);
     const timer = window.setTimeout(
       () => {
-        ks.timers.delete(timer);
+        ks.timers.delete(id);
         ks.waiting.delete(id);
-        if (stores.get(ks.req.key) === ks && wanted(ks)) ensureIn(ks, [id], false, deep);
+        if (stores.get(ks.req.key) === ks && wanted(ks, id)) ensureIn(ks, [id], false, deep);
       },
       retryWait(n, err),
     );
-    ks.timers.add(timer);
+    ks.timers.set(id, timer);
   }
 
   /** Whatever failed under a store is tried again when next wanted. */
@@ -329,7 +349,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
   /** Abandons a store's requests on their way and its retries (it may ask
    *  again at once, from scratch). */
   function abandon(ks: KeyStore) {
-    for (const t of ks.timers) window.clearTimeout(t);
+    for (const t of ks.timers.values()) window.clearTimeout(t);
     ks.timers.clear();
     ks.waiting.clear();
     ks.attempts.clear();
@@ -503,6 +523,10 @@ export function useUnitTree(opts: UnitTreeOptions) {
     const picker = stores.get(EMPTY_KEY);
     if (picker?.units.get(WORLD)?.loaded) staleEmpty = picker;
     const pickerWanted = !!picker && req.key !== EMPTY_KEY;
+    // On the lazy path, the places opened in the picker come back with its
+    // reload (the tree before read until they are in): the picks' labels and
+    // ancestors with them. A whole tree comes back whole.
+    const reopen = pickerWanted && staleEmpty && !staleEmpty.complete ? [...pickerOpened] : [];
     const stubs = shown?.req.key === req.key ? [...shown.stubs.values()] : [];
     for (const ks of [...stores.values()]) {
       if (ks !== shown) {
@@ -525,6 +549,12 @@ export function useUnitTree(opts: UnitTreeOptions) {
     refreshes++;
     request(req);
     if (pickerWanted) wantEmpty();
+    if (reopen.length) {
+      // In the world's request.
+      const ks = emptyStore();
+      ensureIn(ks, reopen, true, true);
+      bumpFor(ks);
+    }
   }
 
   // reloadPlaces (the lists' queries are asked again by their observers).
@@ -609,18 +639,96 @@ export function useUnitTree(opts: UnitTreeOptions) {
   function emptyData(): UnitTreeData | null {
     void version.value;
     void sideVersion.value;
+    if (staleEmpty) return staleEmpty;
     const ks = stores.get(EMPTY_KEY);
-    return ks?.units.get(WORLD)?.loaded ? ks : staleEmpty;
+    return ks?.units.get(WORLD)?.loaded ? ks : null;
+  }
+
+  /** The place picker's reload replaces the store before once it holds the
+   *  world and the places opened before (or they failed, or were let go). */
+  function settleEmpty(ks: KeyStore) {
+    if (!staleEmpty || ks.req.key !== EMPTY_KEY || !ks.units.get(WORLD)?.loaded) return;
+    for (const id of pickerOpened) {
+      if (!ks.units.get(id)?.own && (ks.inflight.has(id) || ks.waiting.has(id))) return;
+    }
+    staleEmpty = null;
   }
   function wantEmpty() {
-    const known = stores.get(EMPTY_KEY);
-    const ks = known && !known.stale ? known : storeOf({ key: EMPTY_KEY, params: {} });
+    const ks = emptyStore();
     // Wanted again: a failed answer is asked for again.
-    if (forgetFailures(ks)) {
-      if (ks === shown || ks === next) status.value++;
-      else sideVersion.value++;
-    }
+    if (forgetFailures(ks)) bumpFor(ks);
     ensureIn(ks, [WORLD], true);
+  }
+
+  /** The place picker's store asked for now (a reloaded one's reload). */
+  function emptyStore(): KeyStore {
+    const known = stores.get(EMPTY_KEY);
+    return known && !known.stale ? known : storeOf({ key: EMPTY_KEY, params: {} });
+  }
+
+  /** What a change of a store's loading or failures bumps. */
+  function bumpFor(ks: KeyStore) {
+    if (ks === shown || ks === next) status.value++;
+    else sideVersion.value++;
+  }
+
+  /**
+   * The place picker's tree on the lazy path: these units' children asked
+   * for (a node opened), their own answers, batched and retried as the map's
+   * are; what failed under them is asked for again. A unit already known
+   * (always, when the world's answer was the whole tree) asks for nothing.
+   */
+  function loadEmpty(ids: readonly string[]) {
+    const ks = emptyStore();
+    pickerIdle = false;
+    for (const id of ids) {
+      if (!ks.units.get(id)?.own) pickerOpened.add(id);
+      ks.failed.delete(id);
+      ks.attempts.delete(id);
+    }
+    ensureIn(ks, ids, false, true);
+    bumpFor(ks);
+  }
+
+  /** The filter dialog opened: the places opened in the picker are wanted
+   *  again, so a read still on its way since it closed is retried after its
+   *  wait, not let go and asked again at once. */
+  function openEmpty() {
+    pickerIdle = false;
+    wantEmpty();
+  }
+
+  /** The filter dialog closed: the place picker's reads of opened places
+   *  waiting to be asked again are let go (asked again when opened again; a
+   *  read on its way is not retried). */
+  function idleEmpty() {
+    pickerIdle = true;
+    const ks = stores.get(EMPTY_KEY);
+    if (!ks) return;
+    let changed = false;
+    for (const id of [...ks.waiting]) {
+      if (wanted(ks, id)) continue;
+      window.clearTimeout(ks.timers.get(id));
+      ks.timers.delete(id);
+      ks.waiting.delete(id);
+      ks.attempts.delete(id);
+      changed = true;
+    }
+    if (!changed) return;
+    settleEmpty(ks);
+    bumpFor(ks);
+  }
+
+  /** Where a unit of the place picker's tree stands: its answer on its way
+   *  (or waiting to be asked again), failed, or neither. */
+  function emptyStatus(id: string): "loading" | "failed" | null {
+    void version.value;
+    void sideVersion.value;
+    void status.value;
+    const ks = stores.get(EMPTY_KEY);
+    if (!ks) return null;
+    if (ks.inflight.has(id) || ks.waiting.has(id)) return "loading";
+    return ks.failed.has(id) ? "failed" : null;
   }
 
   /** For the testing tools' probe. */
@@ -643,6 +751,25 @@ export function useUnitTree(opts: UnitTreeOptions) {
       waiting: [...stores.values()].reduce((s, ks) => s + ks.waiting.size, 0),
       failed: shown ? [...shown.failed] : [],
       failedNext: next ? [...next.failed] : [],
+      picker: pickerStats(),
+    };
+  }
+
+  function pickerStats() {
+    const ks = stores.get(EMPTY_KEY);
+    if (!ks) return null;
+    return {
+      units: ks.units.size,
+      loaded: [...ks.units.values()].filter((e) => e.loaded).length,
+      lieux: ks.lieux.size,
+      complete: ks.complete,
+      asked: ks.asked,
+      opened: pickerOpened.size,
+      idle: pickerIdle,
+      stale: staleEmpty !== null,
+      inflight: [...ks.inflight.keys()],
+      waiting: [...ks.waiting],
+      failed: [...ks.failed],
     };
   }
 
@@ -666,6 +793,10 @@ export function useUnitTree(opts: UnitTreeOptions) {
     facts,
     emptyData,
     wantEmpty,
+    loadEmpty,
+    openEmpty,
+    idleEmpty,
+    emptyStatus,
     stats,
   };
 }

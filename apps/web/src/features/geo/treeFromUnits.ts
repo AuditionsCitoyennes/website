@@ -48,6 +48,8 @@ export interface UnitTreeData {
   lieux: ReadonlyMap<string, PlaceLieuRow>;
   /** Lieux known from a list only, by id (none: the tree holds every lieu listed). */
   stubs?: ReadonlyMap<string, LieuStub>;
+  /** The world's answer held the whole tree. */
+  readonly complete?: boolean;
 }
 
 /** Something the server orders: units and lieux alike. */
