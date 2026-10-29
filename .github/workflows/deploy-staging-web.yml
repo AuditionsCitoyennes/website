@@ -162,8 +162,11 @@ jobs:
           echo "$health" | jq .
           [ "$(jq -r .serviceRole <<<"$health")" = "true" ]
           # A route the API keeps for the site's Worker (REQUIRE_PROXY): the
-          # Worker vouches for the request with the shared secret.
-          get -sSf --max-time 30 -o /dev/null "$URL/api/auditions"
+          # Worker vouches for the request with the shared secret. A place
+          # read, through the service role's read functions — never a
+          # whole-table pull (/api/auditions refuses past 5,000 auditions).
+          facets=$(get -sSf --max-time 30 "$URL/api/places/facets")
+          jq -e '.themes | type == "array"' <<<"$facets" >/dev/null
           if [ "$api" != "$seen" ]; then
             echo "::error::the API sees $api, Cloudflare saw $seen: the visitor's address is lost (STAGING_PROXY_SECRET on both sides?)"
             exit 1

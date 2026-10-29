@@ -1,7 +1,9 @@
-// The place reads' vue-query keys (map phase 1): a secondary entry of
-// geo-nav, so that what app/ reaches through temoignages' barrel (the
-// invalidation after an audition is created) is these few lines — never the
-// map, which the barrel would bring along.
+// The place reads' vue-query keys (map phase 1), and their reload after an
+// audition is created: a secondary entry of geo-nav, so that what app/
+// reaches through temoignages' barrel is these few lines — never the map,
+// which the barrel would bring along.
+
+import type { QueryClient } from "@tanstack/vue-query";
 
 /** The key of every audition on the map, testimonies or not (empty=1, no
  *  filters): the home card and the place picker. Never a filter key. */
@@ -29,3 +31,25 @@ export const placesKeys = {
   testimonies: (audition: string, contentKey: string) =>
     [...placesKeys.all, "testimonies", audition, contentKey] as const,
 };
+
+const reloadListeners = new Set<() => void>();
+
+/**
+ * The place reads are read again (an audition was created): every one is
+ * invalidated — those on screen are asked again by their observers — and the
+ * server's trees (useUnitTree) and the comparer are told directly: the query
+ * cache sends no invalidate event for a query already invalidated (its last
+ * read failed, or an earlier reload's is still on its way).
+ */
+export function reloadPlaces(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: placesKeys.all });
+  for (const fn of [...reloadListeners]) fn();
+}
+
+/** `fn` is called at each reloadPlaces; returns what stops it. */
+export function onPlacesReload(fn: () => void): () => void {
+  reloadListeners.add(fn);
+  return () => {
+    reloadListeners.delete(fn);
+  };
+}

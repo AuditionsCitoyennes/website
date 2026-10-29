@@ -546,7 +546,16 @@ function schedule(ms: number, candidates = false): void {
 /** Why the job does not run here, if it does not. */
 function whyOff(): { reason: string; warn: boolean } | null {
   if (!config.PLACEMENT_JOB) {
-    return { reason: "PLACEMENT_JOB is not true (the sweep places a database)", warn: false };
+    // Production's map reads the stored places alone (map phase 1, PR L):
+    // once its database is placed, the job is what brings the old app's
+    // writes and a LOCATION_RULES change to it.
+    const prod = config.APP_ENV === "production";
+    return {
+      reason: prod
+        ? "PLACEMENT_JOB is not true: the map shows neither the old app's writes nor a LOCATION_RULES change (turn it on, with MAP_SOURCE=db, once the sweep has placed the database)"
+        : "PLACEMENT_JOB is not true (the sweep places a database)",
+      warn: prod,
+    };
   }
   if (!hasServiceRole) return { reason: "SUPABASE_SERVICE_ROLE_KEY is not set", warn: true };
   if (mapSource !== "db") return { reason: "MAP_SOURCE is not db", warn: true };

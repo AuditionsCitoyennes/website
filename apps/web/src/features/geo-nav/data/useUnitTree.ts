@@ -27,11 +27,19 @@
 //   (PR K): selected, flown to and labelled at once, its own row replacing it
 //   — or, its unit loaded without it, gone (it does not match there). The
 //   open lieu goes along, as a stub, into a key's store swapped in without it.
+// - An audition created (keys.ts' reloadPlaces, from app/AppDialogs.vue)
+//   drops every store, 100 ms after the last one: the key on screen is asked
+//   for again — its scope's chain, as for a filter change — and swapped in
+//   once the answer holds it, the tree before on screen meanwhile; the place
+//   picker's too, if it was wanted. Told directly, not by the query cache's
+//   invalidate events: none comes for a query already invalidated (a reload
+//   still on its way, or one that failed).
 
-import { ref } from "vue";
+import { getCurrentScope, onScopeDispose, ref } from "vue";
 import { isCancelledError, type QueryClient } from "@tanstack/vue-query";
 import type { PlaceCounts, PlaceFacts, PlaceLieuRow, PlaceUnitRow } from "@ac/shared";
 import { WORLD, type LieuStub, type UnitTreeData, type UnitTreeEntry } from "@/features/geo";
+import { onPlacesReload } from "../keys";
 import {
   createCountsBatcher,
   EMPTY_KEY,
@@ -55,6 +63,8 @@ const KEYS_KEPT = 4;
 const WINDOW_MS = 50;
 /** A unit's answer is fresh this long (the app's default). */
 const STALE_MS = 5 * 60 * 1000;
+/** After the last reload asked for (an audition created), the stores are. */
+const REFRESH_MS = 100;
 
 interface Entry extends UnitTreeEntry {
   row: PlaceUnitRow | null;
@@ -86,6 +96,9 @@ class KeyStore implements UnitTreeData {
   readonly timers = new Set<number>();
   /** Units asked for (the probe's count). */
   asked = 0;
+  /** Reloaded: on screen until its reload is (see refresh), never asked for
+   *  again nor handed out by storeOf. */
+  stale = false;
   constructor(readonly req: CountsRequest) {}
 
   entry(id: string): Entry {
@@ -134,6 +147,13 @@ export function useUnitTree(opts: UnitTreeOptions) {
   let next: KeyStore | null = null;
   /** The scope and the units above it, root first (setScope). */
   let chain: string[] = [WORLD];
+  /** The place picker's store before a reload, read until its own reload
+   *  holds the world. */
+  let staleEmpty: KeyStore | null = null;
+  /** The reload after an audition created, waiting for the last one. */
+  let refreshTimer = 0;
+  /** Reloads after an audition created (the probe's count). */
+  let refreshes = 0;
 
   const batcher = createCountsBatcher({
     windowMs: WINDOW_MS,
@@ -183,6 +203,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
       }
     }
     ks.version++;
+    if (staleEmpty && ks.req.key === EMPTY_KEY && ks.units.get(WORLD)?.loaded) staleEmpty = null;
     if (ks === shown) version.value++;
     else sideVersion.value++;
     if (ks === next) settleNext();
@@ -213,6 +234,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
       if (from && from !== ks) carryInto(ks, from);
       version.value++;
       status.value++;
+      // A store a reload left on screen: gone now.
+      if (from?.stale && stores.get(from.req.key) === from) drop(from);
       trim();
       return;
     }
@@ -233,6 +256,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
       if (
         state?.data &&
         state.status === "success" &&
+        !state.isInvalidated &&
         Date.now() - state.dataUpdatedAt < STALE_MS
       ) {
         cached.push(state.data);
@@ -335,13 +359,15 @@ export function useUnitTree(opts: UnitTreeOptions) {
 
   function storeOf(req: TreeRequest): KeyStore {
     const known = stores.get(req.key);
-    if (known) {
+    if (known && !known.stale) {
       // The most recent last.
       stores.delete(req.key);
       stores.set(req.key, known);
       return known;
     }
     const ks = new KeyStore({ key: req.key, params: req.params, facts: req.key !== EMPTY_KEY });
+    // In place of a stale one (still on screen until this one is).
+    stores.delete(req.key);
     stores.set(req.key, ks);
     return ks;
   }
@@ -385,18 +411,20 @@ export function useUnitTree(opts: UnitTreeOptions) {
     let retried = false;
     for (const ks of [shown, next]) if (ks && forgetFailures(ks)) retried = true;
     if (retried) status.value++;
-    if (shown) ensureIn(shown, chain.slice(-2));
+    if (shown && !shown.stale) ensureIn(shown, chain.slice(-2));
     if (next) {
       if (chainKnown(next)) settleNext();
       else askChain(next);
     }
   }
 
-  /** Asks the store on screen for these units' subtrees (those on view);
-   *  `deep`: their children's too (the scope, so that the next drill step
-   *  finds its units loaded). */
+  /** Asks the store on screen for these units' subtrees (those on view) —
+   *  its reload's, while a reloaded one is on screen; `deep`: their
+   *  children's too (the scope, so that the next drill step finds its units
+   *  loaded). */
   function ensure(ids: readonly string[], deep = false) {
-    if (shown) ensureIn(shown, ids, false, deep);
+    const ks = shown?.stale ? next : shown;
+    if (ks) ensureIn(ks, ids, false, deep);
   }
 
   /** A stub can stand in a store for this lieu: the store is not whole (it
@@ -419,7 +447,13 @@ export function useUnitTree(opts: UnitTreeOptions) {
     ks.stubs.set(lieu.id, lieu);
     ks.version++;
     version.value++;
-    ensureIn(ks, lieu.path);
+    // Reloaded: its reload holds the stub too, and asks for its path.
+    const reload = ks.stale && next?.req.key === ks.req.key ? next : null;
+    if (reload && stubFits(reload, lieu)) {
+      reload.stubs.set(lieu.id, lieu);
+      reload.version++;
+      ensureIn(reload, lieu.path);
+    } else if (!ks.stale) ensureIn(ks, lieu.path);
     return true;
   }
 
@@ -453,6 +487,56 @@ export function useUnitTree(opts: UnitTreeOptions) {
     }
     const { key, unit, lat, lng, city, n } = row;
     return { id, key, unit, path, lat, lng, city, n };
+  }
+
+  /**
+   * An audition was created: every store goes, and the key asked for last is
+   * asked again, as a new key is — its scope's chain in one request, swapped
+   * in once it is held; the tree on screen stays meanwhile, never asked for
+   * again. The place picker's is asked again if it was wanted (the one before
+   * read meanwhile). A reload while the last one is on its way starts over.
+   */
+  function refresh() {
+    const current = next ?? shown;
+    if (!current) return;
+    const req: TreeRequest = { key: current.req.key, params: current.req.params };
+    const picker = stores.get(EMPTY_KEY);
+    if (picker?.units.get(WORLD)?.loaded) staleEmpty = picker;
+    const pickerWanted = !!picker && req.key !== EMPTY_KEY;
+    const stubs = shown?.req.key === req.key ? [...shown.stubs.values()] : [];
+    for (const ks of [...stores.values()]) {
+      if (ks !== shown) {
+        drop(ks);
+        continue;
+      }
+      // On screen until its reload is: kept for its key's parameters, its
+      // requests and retries let go, its answers out of the query cache (one
+      // that came during a reload may predate this one's audition).
+      ks.stale = true;
+      abandon(ks);
+      queryClient.removeQueries({ queryKey: [...placesKeys.all, ks.req.key] });
+    }
+    next = null;
+    // Its reload holds the lieux opened from a list before it is asked.
+    if (stubs.length) {
+      const reload = storeOf(req);
+      for (const stub of stubs) reload.stubs.set(stub.id, stub);
+    }
+    refreshes++;
+    request(req);
+    if (pickerWanted) wantEmpty();
+  }
+
+  // reloadPlaces (the lists' queries are asked again by their observers).
+  const unsubscribe = onPlacesReload(() => {
+    window.clearTimeout(refreshTimer);
+    refreshTimer = window.setTimeout(refresh, REFRESH_MS);
+  });
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      unsubscribe();
+      window.clearTimeout(refreshTimer);
+    });
   }
 
   // ---- What is read (after `version`) ----
@@ -520,15 +604,17 @@ export function useUnitTree(opts: UnitTreeOptions) {
   }
 
   /** Every audition on the map (EMPTY_KEY), for the place picker: asked for
-   *  once wanted; read after both versions. */
+   *  once wanted (the one before a reload until its own reload is in);
+   *  read after both versions. */
   function emptyData(): UnitTreeData | null {
     void version.value;
     void sideVersion.value;
     const ks = stores.get(EMPTY_KEY);
-    return ks?.units.get(WORLD)?.loaded ? ks : null;
+    return ks?.units.get(WORLD)?.loaded ? ks : staleEmpty;
   }
   function wantEmpty() {
-    const ks = stores.get(EMPTY_KEY) ?? storeOf({ key: EMPTY_KEY, params: {} });
+    const known = stores.get(EMPTY_KEY);
+    const ks = known && !known.stale ? known : storeOf({ key: EMPTY_KEY, params: {} });
     // Wanted again: a failed answer is asked for again.
     if (forgetFailures(ks)) {
       if (ks === shown || ks === next) status.value++;
@@ -549,6 +635,8 @@ export function useUnitTree(opts: UnitTreeOptions) {
       lieux: shown?.lieux.size ?? 0,
       stubs: shown ? [...shown.stubs.keys()] : [],
       complete: shown?.complete ?? null,
+      stale: shown?.stale ?? false,
+      refreshes,
       unitsAsked: [...stores.values()].reduce((s, ks) => s + ks.asked, 0),
       requests: batcher.sent(),
       inflight: [...stores.values()].reduce((s, ks) => s + ks.inflight.size, 0),

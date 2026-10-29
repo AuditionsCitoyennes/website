@@ -36,9 +36,9 @@ const {
   locationTree,
   topicOptions,
   dateBounds,
-  filterableQuery,
-  filterableFailed,
-  refreshFilterable,
+  matchesFailed,
+  retryMatches,
+  refreshMatches,
   testimonyFilterOn,
   waitingForTestimonies,
   filterOn,
@@ -89,7 +89,7 @@ const {
   onAuditionEmptied,
   deleting,
   handleDelete,
-} = useAuditionPopup(reachableAuditions, { fetchAuditions, refreshFilterable });
+} = useAuditionPopup(reachableAuditions, { fetchAuditions, refreshMatches });
 
 // The "missing analyses" buttons: the popup's (its audition) and, for super
 // admins, the one over "Auditions existantes" (every audition of the site).
@@ -99,12 +99,19 @@ const { analyzingAll, analyzingMultiple, handleAnalyzeSelected, handleAnalyzeAll
     selectedAudition,
     testimonies,
     fetchTestimonies,
-    refreshFilterable,
+    refreshMatches,
   });
 
 onMounted(fetchAuditions);
 
-defineExpose({ refresh: fetchAuditions });
+// An audition created elsewhere (the nav bar's popup): the list, and what the
+// server says of the testimonies, asked again.
+defineExpose({
+  refresh: () => {
+    refreshMatches();
+    return fetchAuditions();
+  },
+});
 </script>
 
 <template>
@@ -126,13 +133,9 @@ defineExpose({ refresh: fetchAuditions });
       </span>
       <!-- Without them, "vérifiés", the themes and the text in testimonies
            cannot be judged: the lists below only reflect the rest. -->
-      <p v-if="filterableFailed && testimonyFilterOn" class="filters-error">
+      <p v-if="matchesFailed && testimonyFilterOn" class="filters-error">
         Les témoignages n'ont pas pu être chargés : les filtres qui portent sur eux sont incomplets.
-        <button
-          type="button"
-          class="ac-btn ac-btn--outline ac-btn--sm"
-          @click="filterableQuery.refetch()"
-        >
+        <button type="button" class="ac-btn ac-btn--outline ac-btn--sm" @click="retryMatches">
           Réessayer
         </button>
       </p>

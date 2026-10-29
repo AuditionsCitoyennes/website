@@ -26,7 +26,7 @@
 // server's, or the difference counts. The testing tools only: imported by the
 // explorer in comparer mode, never in a production build.
 
-import { reactive, watch } from "vue";
+import { getCurrentScope, onScopeDispose, reactive, watch } from "vue";
 import type { QueryClient } from "@tanstack/vue-query";
 import type {
   PlaceLieuAuditions,
@@ -48,6 +48,7 @@ import {
   bySort,
   compareTrees,
   groupOwnAuditions,
+  onPlacesReload,
   placeLabel,
   placesKeys,
   resultBounds,
@@ -197,19 +198,23 @@ export function startCompare(inputs: {
   // The published auditions (D1: the others' testimonies leave the counts);
   // null until read, or when they cannot be (past the API's guard).
   let published: Set<string> | null = null;
-  void queryClient
-    .fetchQuery({
-      queryKey: ["compare", "published"],
-      queryFn: () => api.get<{ id: string }[]>("/api/auditions"),
-    })
-    .then(
-      (rows) => {
-        published = new Set(rows.map((a) => a.id));
-        publish();
-      },
-      (err) =>
-        console.warn("[comparer] the published auditions could not be read: D1 unchecked", err),
-    );
+  function readPublished(fresh: boolean) {
+    void queryClient
+      .fetchQuery({
+        queryKey: ["compare", "published"],
+        queryFn: () => api.get<{ id: string }[]>("/api/auditions"),
+        ...(fresh && { staleTime: 0 }),
+      })
+      .then(
+        (rows) => {
+          published = new Set(rows.map((a) => a.id));
+          publish();
+        },
+        (err) =>
+          console.warn("[comparer] the published auditions could not be read: D1 unchecked", err),
+      );
+  }
+  readPublished(false);
 
   function run(): CompareReport | null {
     const key = sf.key.value;
@@ -649,6 +654,14 @@ export function startCompare(inputs: {
     return report;
   }
   w.__acCompareListsRun = publishLists;
+
+  // An audition created (reloadPlaces): what was read for the lists, and the
+  // published auditions, are read again.
+  const stopReload = onPlacesReload(() => {
+    allResults.clear();
+    readPublished(true);
+  });
+  if (getCurrentScope()) onScopeDispose(stopReload);
 
   let timer = 0;
   watch(

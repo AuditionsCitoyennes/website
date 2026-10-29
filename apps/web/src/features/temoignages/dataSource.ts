@@ -16,14 +16,16 @@
 //   arrondissements of Paris, Lyon and Marseille flattened into their commune
 //   as today ("sans"), or kept as a level ("avec").
 //
-// Production has neither: DEFAULT_SOURCE (PR L flips it), no key, no switch.
+// Production has neither: DEFAULT_SOURCE, the server (map phase 1, PR L), no
+// key, no switch. The corpus' pipeline stays behind the switch until the
+// comparer has had its say on staging (PR Q removes it).
 import { ref } from "vue";
 
 export type DataSource = "corpus" | "serveur" | "comparer";
 export type PlaceTreeMode = "sans" | "avec";
 
-/** The source of a build without the testing tools. */
-export const DEFAULT_SOURCE: DataSource = "corpus";
+/** The source of a build without the testing tools, and the switch's default. */
+export const DEFAULT_SOURCE: DataSource = "serveur";
 
 export const DATA_SOURCES: readonly DataSource[] = ["corpus", "serveur", "comparer"];
 const SOURCE_KEY = "ac:data-source";

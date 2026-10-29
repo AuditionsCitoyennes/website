@@ -5,7 +5,7 @@
 // panel's orders and the results' frame.
 export { default as GeoNav } from "./GeoNav.vue";
 export { useUnitTree, type TreeRequest, type UnitTree } from "./data/useUnitTree";
-export { EMPTY_KEY, placesKeys } from "./keys";
+export { EMPTY_KEY, onPlacesReload, placesKeys } from "./keys";
 export { fetchFacets, retryable, retryWait, RETRIES, type CountsRequest } from "./data/placesApi";
 export { bySort, groupOwnAuditions, resultBounds } from "./model/auditions";
 export { compareTrees, type TreeComparison, type TreeDiff } from "./data/compareTrees";

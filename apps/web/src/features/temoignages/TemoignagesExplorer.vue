@@ -14,9 +14,9 @@ import { dataSource, placeTreeMode } from "./dataSource";
 const props = defineProps<{ preview?: boolean }>();
 
 // Where the figures come from (dataSource.ts: a DEV switch; production's is
-// the corpus). From the server, the lists too (PR K): the corpus and the map's
-// groups are not even asked for — unless the comparer runs today's pipeline
-// beside the server's.
+// the server). From the server, the lists too: the corpus and the map's
+// groups are not even asked for — unless the switch picks the corpus, or the
+// comparer runs the corpus' pipeline beside the server's.
 const fromServer = dataSource !== "corpus";
 const comparing = __TEST_TOOLS__ && dataSource === "comparer";
 const corpusMounted = !fromServer || comparing;

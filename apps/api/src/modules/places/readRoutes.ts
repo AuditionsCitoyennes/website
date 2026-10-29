@@ -213,6 +213,16 @@ const testimoniesQuery = contentQuery.extend({
     .optional(),
 });
 
+// ---- Cache keys --------------------------------------------------------------------
+
+/** A unit's answer in placesCache: its unit, how it was asked, its filter key. */
+function countsKey(unit: string, args: CountsArgs, fkey: string): string {
+  return `places|${unit}|d${args.depth}|x${Number(args.facts)}|e${Number(args.empty)}|b${args.budget}|${fkey}`;
+}
+
+/** The filter dialog's facets in placesCache. */
+const FACETS_KEY = "facets";
+
 /** zod's first complaint, in the visitor's words. */
 function firstIssue(error: z.ZodError): string {
   return error.issues[0]?.message ?? "Requête invalide.";
@@ -477,8 +487,7 @@ export default async function placeReadRoutes(app: FastifyInstance) {
     };
     // Each unit once, in the order first asked (the answers carry their unit).
     const units = q.unit !== undefined ? [q.unit] : [...new Set(q.units)];
-    const keyOf = (unit: string) =>
-      `places|${unit}|d${args.depth}|x${Number(args.facts)}|e${Number(empty)}|b${args.budget}|${fkey}`;
+    const keyOf = (unit: string) => countsKey(unit, args, fkey);
     const unitOfKey = new Map(units.map((u) => [keyOf(u), u]));
 
     const timing = newTiming();
@@ -586,7 +595,7 @@ export default async function placeReadRoutes(app: FastifyInstance) {
     nudgePlacementJobFromRead();
     return serveRead(req, reply, placeFiltersOf({}), {
       family: placesCache,
-      key: "facets",
+      key: FACETS_KEY,
       fetch: (timing) => placeFacets(timing),
     });
   });
@@ -644,3 +653,40 @@ export default async function placeReadRoutes(app: FastifyInstance) {
 }
 
 const COMMA = Buffer.from(",");
+
+/** What the Témoignages map asks first, unfiltered: the world two levels
+ *  down, with every unit's analyses figures (useUnitTree). */
+const ROOT_COUNTS: CountsArgs = {
+  depth: 2,
+  facts: true,
+  empty: false,
+  budget: BUDGET_DEFAULT,
+  filters: {},
+};
+
+/** What the home page's card asks first: every audition on the map, those
+ *  without testimonies too (empty=1), no figures. */
+const CARD_COUNTS: CountsArgs = { ...ROOT_COUNTS, facts: false, empty: true };
+
+/**
+ * The place reads every first visit to the map waits on, filled at boot
+ * (prewarm.ts) under the very keys the routes read: the world with its
+ * figures (/api/places?unit=world&depth=2&facts=1), the facets, and the home
+ * card's world (/api/places?unit=world&depth=2&empty=1). Charged to no
+ * visitor. Resolves (or rejects) per read, in that order.
+ */
+export function prewarmPlaceReads(): [string, Promise<unknown>][] {
+  const opts = { transient: isTransientDbError };
+  const world = (args: CountsArgs): [string, Promise<unknown>] => {
+    const key = countsKey("world", args, "");
+    return [
+      key,
+      placesCache.get(key, async () => (await placeCountsMany(["world"], args))[0], opts),
+    ];
+  };
+  return [
+    world(ROOT_COUNTS),
+    [FACETS_KEY, placesCache.get(FACETS_KEY, () => placeFacets(), opts)],
+    world(CARD_COUNTS),
+  ];
+}

@@ -12,20 +12,20 @@ import type { AdminAudition } from "./useAdminAuditions";
  * for next time while the batch goes on; only a configuration error stops it.
  *
  * `testimonies` are the popup's, `selectedAudition` the audition they belong
- * to; `fetchTestimonies` and `refreshFilterable` show the new topics.
+ * to; `fetchTestimonies` and `refreshMatches` show the new topics.
  */
 export function useTopicAnalysis({
   auditions,
   selectedAudition,
   testimonies,
   fetchTestimonies,
-  refreshFilterable,
+  refreshMatches,
 }: {
   auditions: Ref<AdminAudition[]>;
   selectedAudition: Ref<string | null>;
   testimonies: Ref<Testimony[]>;
   fetchTestimonies: (auditionId: string) => Promise<void>;
-  refreshFilterable: () => void;
+  refreshMatches: () => void;
 }) {
   const { toast } = useToast();
 
@@ -61,7 +61,7 @@ export function useTopicAnalysis({
       const analyzed = await analyzeMissing(testimonies.value);
       // The user may have closed it, or opened another one, during the batch.
       if (selectedAudition.value === auditionId) await fetchTestimonies(auditionId);
-      refreshFilterable();
+      refreshMatches();
       toast({ title: "Analyse terminée", description: `${analyzed} témoignage(s) analysé(s)` });
     } catch (e) {
       toast({
@@ -91,7 +91,7 @@ export function useTopicAnalysis({
         totalAnalyzed += await analyzeMissing(list);
       }
       if (selectedAudition.value) await fetchTestimonies(selectedAudition.value);
-      refreshFilterable();
+      refreshMatches();
       toast({
         title: "Analyse groupée terminée",
         description: `${totalAnalyzed} témoignage(s) analysé(s) sur ${totalAuditions} audition(s)`,

@@ -4,54 +4,79 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import type { FastifyBaseLogger } from "fastify";
+import { FakeDb, fakeEnv, installFakes, type Row } from "./testing/fakes";
 
-// The boot prewarm fills the auditions and the map, never the testimony
-// corpus: a boot must not pull a table that grows with every testimony.
+// The boot prewarm fills what every first visit to the map waits on — the
+// world with its figures, the filter dialog's facets and the home card's
+// world (map phase 1) — under the keys the routes read, and nothing else:
+// never a whole-table read (the auditions, the map, the testimony corpus).
 
 const cacheDir = await mkdtemp(join(tmpdir(), "ac-prewarm-"));
-Object.assign(process.env, {
-  APP_ENV: "local",
-  EMAIL_MODE: "log",
-  SUPABASE_URL: "http://supabase.test",
-  SUPABASE_ANON_KEY: "anon",
-  // As in CI, whatever a local apps/api/.env holds: the anon key's paths.
-  SUPABASE_SERVICE_ROLE_KEY: "",
-  LOG_LEVEL: "fatal",
-  CACHE_DIR: cacheDir,
-});
+fakeEnv(cacheDir);
+const db = new FakeDb();
+const restore = installFakes({ db });
 
-const paths: string[] = [];
-const realFetch = globalThis.fetch;
-globalThis.fetch = (async (input: string | URL | Request) => {
-  paths.push(new URL(input instanceof Request ? input.url : input).pathname);
-  return Response.json([]);
-}) as typeof fetch;
+const calls: { rpc: string; args: Row }[] = [];
+db.rpcs.place_counts_many = (args) => {
+  calls.push({ rpc: "place_counts_many", args });
+  return (args.p_units as string[]).map((unit) => ({
+    unit,
+    complete: true,
+    self: { n: 3, auditions: 1, rank: "2026-01-01", bbox: null },
+    units: [],
+    lieux: [],
+  }));
+};
+db.rpcs.place_facets = (args) => {
+  calls.push({ rpc: "place_facets", args });
+  return { themes: [{ i: 0, n: 3 }], dates: ["2026-01-01", "2026-01-01"] };
+};
 
 after(async () => {
-  globalThis.fetch = realFetch;
-  await rm(cacheDir, { recursive: true, force: true });
+  restore();
+  await rm(cacheDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-test("prewarm reads the auditions and builds the map, not the corpus", async () => {
+test("prewarm fills the world with its figures, the facets and the card's world, nothing else", async () => {
   const { prewarmPublicCaches } = await import("./prewarm");
-  const { legacyCache, PUBLIC_CACHE_KEYS } = await import("./lib/publicCache");
-
   const warnings: unknown[] = [];
   const log = { warn: (...args: unknown[]) => warnings.push(args) } as unknown as FastifyBaseLogger;
   await prewarmPublicCaches(log);
 
   assert.deepEqual(warnings, []);
-  assert.deepEqual([...new Set(paths)].sort(), [
-    "/rest/v1/audition_testimony_counts",
-    "/rest/v1/auditions",
+  // Three RPC calls, and not one table read (no whole-table pull, no count).
+  assert.deepEqual(db.requests.map((r) => r.url.pathname).sort(), [
+    "/rest/v1/rpc/place_counts_many",
+    "/rest/v1/rpc/place_counts_many",
+    "/rest/v1/rpc/place_facets",
+  ]);
+  const counts = calls.filter((c) => c.rpc === "place_counts_many").map((c) => c.args);
+  const world = { p_units: ["world"], p_filters: {}, p_depth: 2, p_budget: 600 };
+  assert.deepEqual(counts, [
+    { ...world, p_facts: true, p_empty: false },
+    { ...world, p_facts: false, p_empty: true },
   ]);
 
-  // Filled: served without a read.
-  const unexpected = async () => assert.fail("filled at boot, read again");
-  await legacyCache.value(PUBLIC_CACHE_KEYS.auditions, unexpected);
-  await legacyCache.value(PUBLIC_CACHE_KEYS.map, unexpected);
-  // Not filled: the first request reads it.
-  let corpusReads = 0;
-  await legacyCache.value(PUBLIC_CACHE_KEYS.testimonies, async () => ++corpusReads);
-  assert.equal(corpusReads, 1);
+  // The page's first requests are hits: served without a call.
+  const { buildServer } = await import("./server");
+  const app = buildServer();
+  await app.ready();
+  try {
+    for (const url of [
+      "/api/places?unit=world&depth=2&facts=1",
+      "/api/places/facets",
+      "/api/places?unit=world&depth=2&empty=1",
+    ]) {
+      const res = await app.inject({ url });
+      assert.equal(res.statusCode, 200, `${url}: ${res.body}`);
+      assert.equal(res.headers["x-cache"], "hit", url);
+    }
+    // Another read is not warmed: a miss.
+    const other = await app.inject({ url: "/api/places?unit=world&depth=2" });
+    assert.equal(other.headers["x-cache"], "miss");
+  } finally {
+    await app.close();
+  }
+  assert.equal(calls.length, 4);
+  assert.ok(!db.requests.some((r) => !r.url.pathname.startsWith("/rest/v1/rpc/")), "no table read");
 });

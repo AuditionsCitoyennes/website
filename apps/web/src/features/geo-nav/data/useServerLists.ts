@@ -18,7 +18,8 @@
 //   page of the open lieu's first auditions asked for ahead (D10).
 //
 // Every read is a vue-query entry under placesKeys.all (an audition created
-// invalidates them all, PR L), tried again after Retry-After when refused.
+// invalidates them all: those on screen are asked again), tried again after
+// Retry-After when refused.
 
 import { computed, onScopeDispose, shallowRef, watch, type ComputedRef, type Ref } from "vue";
 import {
