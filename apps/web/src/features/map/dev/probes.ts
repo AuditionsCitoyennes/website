@@ -3,7 +3,8 @@
 // present in production too: the plateau/terrain path only runs in a real
 // browser, never in a headless preview, so diagnosing "the map looks
 // low-detail" needs a way to read the live state from the console) and
-// `__acFrame` (the frame bus, DEV).
+// `__acFrame` (the frame bus, DEV). Testing tools only (__TEST_TOOLS__): the
+// map's idleness check, `__acPerf.rendersIn(ms)`.
 
 import type mapboxgl from "mapbox-gl";
 import type { usePlateauFrames } from "../composables/usePlateauFrames";
@@ -16,7 +17,34 @@ type Probes = {
   __acMap?: mapboxgl.Map;
   __acPlateau?: () => unknown;
   __acFrame?: () => unknown;
+  __acPerf?: Record<string, unknown>;
 };
+
+/** Idleness check: request one repaint, then count the map's `render` events over
+ *  `ms`. A map with a plateau standing and nothing moving renders that one frame
+ *  and falls idle: `{ renders: 1, idleFired: true }`. Anything that repaints by
+ *  itself shows as more renders and `idleFired: false`. */
+function rendersIn(
+  map: mapboxgl.Map,
+  ms: number,
+): Promise<{ renders: number; idleFired: boolean }> {
+  return new Promise((resolve) => {
+    let renders = 0;
+    let idleFired = false;
+    const onRender = () => renders++;
+    const onIdle = () => {
+      idleFired = true;
+    };
+    map.on("render", onRender);
+    map.once("idle", onIdle);
+    map.triggerRepaint();
+    setTimeout(() => {
+      map.off("render", onRender);
+      map.off("idle", onIdle);
+      resolve({ renders, idleFired });
+    }, ms);
+  });
+}
 
 export interface ProbeSources {
   getMap: () => mapboxgl.Map | null;
@@ -48,6 +76,12 @@ export function installProbes({ getMap, frames, plateau, lid, slabs }: ProbeSour
     };
   };
   if (import.meta.env.DEV) w.__acFrame = frames.probe;
+  if (__TEST_TOOLS__ && w.__acPerf) {
+    w.__acPerf.rendersIn = (ms = 1000) => {
+      const m = getMap();
+      return m ? rendersIn(m, ms) : Promise.resolve({ renders: 0, idleFired: false });
+    };
+  }
   return () => {
     if (import.meta.env.DEV && w.__acFrame === frames.probe) delete w.__acFrame;
   };

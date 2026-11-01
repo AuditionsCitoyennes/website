@@ -21,12 +21,13 @@ export function usePlateauFrames({ getMap, wall: plateauWall }: PlateauFramesInp
   // For what is laid over the map and must move WITH the plateau (the analyses
   // plates, their leader lines, labels on the lid). mapbox fires `render` at the
   // end of every frame it draws, in the same task as the draw: camera moves, the
-  // rise and sink (camera still — `move` misses those), resizes (drawNow) and the
-  // halo's paced repaints. The plateau layer keeps the camera each frame was
-  // drawn with, and the rim is projected with it — never with map.project (see
-  // projectInto). Per frame nothing allocates and nothing touches Vue state, and
-  // a frame that would come out identical to the last one is not sent at all:
-  // that is the halo's 25 Hz while the map stands still.
+  // rise and sink (camera still — `move` misses those) and resizes (drawNow). A
+  // standing plateau repaints nothing by itself, so a still map sends no frames.
+  // The plateau layer keeps the camera each frame was drawn with, and the rim is
+  // projected with it — never with map.project (see projectInto). Per frame
+  // nothing allocates and nothing touches Vue state, and a frame that would come
+  // out identical to the last one is not sent at all: e.g. the repaint of a hover
+  // sweep or of a lid upload.
   interface FrameBuf {
     frame: PlateauFrame;
     okTop: Uint8Array;
