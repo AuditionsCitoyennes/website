@@ -8,3 +8,4 @@ supabase
 .boundaries-cache.json
 .boundaries-cache/
 apps/api/data/france-geojson/*.geojson
+scripts/parity/fixtures/dem/
