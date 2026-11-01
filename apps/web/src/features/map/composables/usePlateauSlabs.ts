@@ -9,6 +9,7 @@ import type { Bounds } from "@/features/geo";
 import { perfNote, perfOn } from "@/shared/perf/perf";
 import { slabRects, solveSlabScales, type SlabCam, type SlabRect, type SlabScales } from "../lib";
 import { boundsContain, boundsOfFeatures, unionBounds } from "../lib/polygon";
+import { riseProgress } from "../lib/rise";
 import { WALL_OVERSHOOT } from "../gl/mesh";
 import { NO_RING, type PlateauWallLayer, type SlabRingState } from "../gl/PlateauWallLayer";
 import type { OutlineFC, SlabSpec } from "../types";
@@ -125,7 +126,7 @@ export function usePlateauSlabs({
       };
       const tick = (now: number) => {
         if (!slabAnim) return;
-        const t = Math.min(1, (now - t0) / ms);
+        const t = riseProgress(now, t0, ms);
         if (t >= 1 || !getMap()) return finish();
         plateauWall.setSlabPresence(from + (to - from) * ease(t));
         slabAnim.raf = requestAnimationFrame(tick);
