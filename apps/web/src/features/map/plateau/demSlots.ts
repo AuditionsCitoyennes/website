@@ -82,9 +82,11 @@ export function createDemSlots<Spec>({ getMap, terrainSrc }: DemSlotsInputs<Spec
     };
   }
 
-  /** Whether `id` is the slot the last swap left, with no frame rendered since. */
-  function spareNeedsFrame(id: DemSlot): boolean {
-    return swapRenderPending && swapLeft === id;
+  /** Whether `id` is the slot the last swap left, with no frame rendered since
+   *  — and still a source: one never added (the first swap's `old`) cannot be
+   *  named by the evaluated terrain. */
+  function spareNeedsFrame(map: DemSlotMap<Spec>, id: DemSlot): boolean {
+    return swapRenderPending && swapLeft === id && !!map.getSource(id);
   }
 
   /** One repaint asked, then the first rendered frame or SPARE_WAIT_CAP_MS,

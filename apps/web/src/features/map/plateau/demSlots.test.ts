@@ -20,6 +20,9 @@ class FakeMap implements DemSlotMap {
   sources = new Set<string>();
   terrain: { source?: string } | null = null;
   listeners: (() => void)[] = [];
+  /** Who registered each listener: `owner` at the time of its `once`. */
+  owners = new Map<() => void, string>();
+  owner = "";
   repaints = 0;
   removed: string[] = [];
   throwOnRemove = false;
@@ -27,6 +30,11 @@ class FakeMap implements DemSlotMap {
   dead = false;
   once(_type: "render", l: () => void) {
     this.listeners.push(l);
+    this.owners.set(l, this.owner);
+  }
+  /** The live listeners `owner` registered. */
+  listenersOf(owner: string) {
+    return this.listeners.filter((l) => this.owners.get(l) === owner).length;
   }
   off(_type: "render", l: () => void) {
     this.listeners = this.listeners.filter((x) => x !== l);
@@ -70,8 +78,11 @@ function setup() {
     slots.addDemSlot(map, next, {});
     state.src = next;
     map.terrain = { source: next };
+    map.owner = "swap";
     slots.swapped(map, old);
+    map.owner = "";
     slots.dropDemSourceSoon(map, old);
+    return old;
   };
   return { map, state, slots, swap };
 }
@@ -189,11 +200,19 @@ test("no frame since the swap: one repaint asked, the drop after that frame, out
 test("listeners stay at one for the swap and one per slot over 10 swaps", (t) => {
   t.after(() => mock.timers.reset());
   const { map, state, swap } = setup();
+  const atMostOne = (when: string) => {
+    for (const owner of ["swap", A, B])
+      assert.ok(map.listenersOf(owner) <= 1, `${when}: ${owner} has ${map.listenersOf(owner)}`);
+    assert.equal(map.listenersOf(""), 0, `${when}: a listener nobody owns`);
+  };
   for (let i = 0; i < 10; i++) {
-    swap();
-    assert.ok(map.listeners.length <= 3, `swap ${i}: ${map.listeners.length}`);
+    const old = swap();
+    atMostOne(`swap ${i}`);
+    // The only floor timer left is `old`'s: what registers in this tick is its drop's.
+    map.owner = old;
     mock.timers.tick(DROP_FLOOR_MS + 100); // no frame: each drop waits on one
-    assert.ok(map.listeners.length <= 3, `swap ${i} after the floor: ${map.listeners.length}`);
+    map.owner = "";
+    atMostOne(`swap ${i} after the floor`);
   }
   map.render();
   mock.timers.tick(0);
@@ -254,8 +273,8 @@ test("the spare slot's wait: only for the slot the last swap left, ended by a fr
   swap();
   map.render();
   swap(); // b → a, no frame yet
-  assert.equal(slots.spareNeedsFrame(B), true);
-  assert.equal(slots.spareNeedsFrame(A), false);
+  assert.equal(slots.spareNeedsFrame(map, B), true);
+  assert.equal(slots.spareNeedsFrame(map, A), false);
 
   let byFrame = false;
   const before = map.repaints;
@@ -264,7 +283,7 @@ test("the spare slot's wait: only for the slot the last swap left, ended by a fr
   map.render();
   await settle();
   assert.equal(byFrame, true);
-  assert.equal(slots.spareNeedsFrame(B), false);
+  assert.equal(slots.spareNeedsFrame(map, B), false);
   mock.timers.tick(DROP_FLOOR_MS); // b's drop, its frame rendered
   assert.deepEqual(map.removed, [B]);
 
@@ -277,4 +296,12 @@ test("the spare slot's wait: only for the slot the last swap left, ended by a fr
   await settle();
   assert.equal(byCap, true);
   assert.equal(map.listeners.length, 0);
+});
+
+test("the spare slot's wait: none for the first swap's never-added slot", (t) => {
+  t.after(() => mock.timers.reset());
+  const { map, slots, swap } = setup();
+  swap(); // a (never added) → b, no frame yet
+  assert.equal(slots.spareNeedsFrame(map, A), false);
+  assert.equal(slots.spareNeedsFrame(map, B), false);
 });

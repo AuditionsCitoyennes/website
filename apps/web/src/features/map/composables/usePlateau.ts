@@ -384,7 +384,7 @@ export function usePlateau({
       const next: DemSlot = terrainSrc === "plateau-dem-a" ? "plateau-dem-b" : "plateau-dem-a";
       // A fast drill: the last swap left `next` and no frame has rendered since,
       // so mapbox's evaluated terrain may still name it — one frame first (≤ 1 s).
-      if (slots.spareNeedsFrame(next)) {
+      if (slots.spareNeedsFrame(map, next)) {
         await slots.waitForFrame(map);
         map = getMap();
         if (seq !== plateauSeq || !map) return;
