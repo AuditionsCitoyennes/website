@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ROUTE } from "@/shared/routes";
 import { MAP_MOVED_EVENT } from "@/features/map/events";
@@ -123,13 +123,45 @@ async function open() {
   // is gone).
   if (!elsewhere) {
     await nextTick();
-    const title = stageEl.value?.querySelector<HTMLElement>(".panel-head h1");
-    if (title) {
-      title.tabIndex = -1;
-      title.focus({ preventScroll: true });
-    }
+    if (!focusTitle()) focusTitleWhenIn();
   }
 }
+
+function focusTitle() {
+  const title = stageEl.value?.querySelector<HTMLElement>(".panel-head h1");
+  if (!title) return false;
+  title.tabIndex = -1;
+  title.focus({ preventScroll: true });
+  return true;
+}
+
+let stopTitleWatch: (() => void) | null = null;
+
+/**
+ * The explorer's code is still coming: the title does not exist yet. It gets
+ * the focus when it appears — unless the visitor has moved the focus meanwhile
+ * (anywhere but the page's body), or ten seconds have gone by.
+ */
+function focusTitleWhenIn() {
+  const el = stageEl.value;
+  if (!el) return;
+  stopTitleWatch?.();
+  const stop = () => {
+    observer.disconnect();
+    window.clearTimeout(timer);
+    document.removeEventListener("focusin", stop, true);
+    if (stopTitleWatch === stop) stopTitleWatch = null;
+  };
+  const observer = new MutationObserver(() => {
+    if (focusTitle()) stop();
+  });
+  const timer = window.setTimeout(stop, 10_000);
+  observer.observe(el, { childList: true, subtree: true });
+  document.addEventListener("focusin", stop, true);
+  stopTitleWatch = stop;
+}
+
+onBeforeUnmount(() => stopTitleWatch?.());
 </script>
 
 <template>
