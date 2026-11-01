@@ -18,9 +18,12 @@
 //                     fitCamera; detail: shape, hull points)
 //   outline.change    a note (0 ms) per run of GeoDrillMap's outline watcher
 //                     (detail: features, pending)
-//   dem.tilesReady    a DEM slot's addSource → the first event after which its
-//                     tiles are all loaded, at least one tile in (usePlateau;
-//                     detail: scope, route, tiles, errTiles)
+//   dem.tilesReady    a DEM slot's addSource → the first tile event after
+//                     which its tiles are all loaded (usePlateau; detail:
+//                     scope, route, tiles, errTiles — a 404 comes as
+//                     `sourcedata`, any other failure as a map `error`, after
+//                     which mapbox reads the source loaded: errTiles > 0 is
+//                     no ready time)
 // Reserved for the phases to come, so their tables share one vocabulary:
 // dem.key, plateau.meshBuild, plateau.globeBuild, plateau.globeLate,
 // mesh.roundTrip, outline.fetch, outline.decode, outline.fallback.

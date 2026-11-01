@@ -407,11 +407,13 @@ export function useMapCamera({
       flyCamera((m) => {
         const end = perfOn ? perfSpan("camera.fit") : null;
         const cam = fitCamera(m, cmd, padding, pitch, maxZoom);
-        // The hull's size is read once the span has ended: the fit has just
-        // cached it, and a cold read would not be the fit's cost.
+        // The hull's size is read once the span has ended, and only from a
+        // fit that got as far as computing it (a camera came out): a cache
+        // hit then, where a cold read would not be the fit's cost. An empty
+        // hull or no shape is framed by the box, reported as 4.
         if (end) {
           const g = cmd.shape?.geometry as { type?: string } | undefined;
-          end({ shape: !!cmd.shape, hull: g?.type ? fitHullOf(g).length / 2 : 4 });
+          end({ shape: !!cmd.shape, hull: cam && g?.type ? fitHullOf(g).length / 2 || 4 : 4 });
         }
         if (cam) {
           // The camera this fit lands on: the analyses' slabs of the unit it

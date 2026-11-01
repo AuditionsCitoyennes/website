@@ -111,10 +111,16 @@ export function usePlateau({
   // The `dem.tilesReady` probe (testing tools only): a DEM slot's addSource →
   // the first of its tile events after which the source is loaded. Not its
   // first `sourcedata`: the `metadata` event already reads loaded with no tile
-  // in. Errored tiles count apart. One listener at a time, on the map it was
-  // put on: a newer slot's addSource drops it (that span is superseded and
-  // never ends), and so does abort(). A plain run of the watcher on the same
-  // version keeps it — the same source is still loading.
+  // in. Errored tiles count apart: mapbox reports a 404 tile as `sourcedata`
+  // (`sourceDataType: "error"`) but any other failure only as a map `error`
+  // carrying the tile, so both are heard (GeoDrillMap already listens to
+  // `error`: one more listener changes no console output). Such a failure
+  // also makes mapbox read the source loaded for good, so the span ends on it:
+  // with errTiles > 0 it is no ready time, only a flag. One pair of
+  // listeners at a time, on the map it was put on: a newer slot's addSource
+  // drops it (that span is superseded and never ends), and so does abort(). A
+  // plain run of the watcher on the same version keeps it — the same source is
+  // still loading.
   let offTilesReady: (() => void) | null = null;
   const demReady = { started: 0, ended: 0 };
   function stopTilesReady() {
@@ -131,6 +137,14 @@ export function usePlateau({
       if (e.sourceId !== id || !e.tile) return;
       if (e.sourceDataType === "error") errTiles++;
       else tiles++;
+      endIfLoaded();
+    };
+    const onTileError = (e: { error?: unknown; sourceId?: string; tile?: unknown }) => {
+      if (e.sourceId !== id || !e.tile) return;
+      errTiles++;
+      endIfLoaded();
+    };
+    const endIfLoaded = () => {
       // isSourceLoaded on a missing id fires a map `error`: ask only while it stands.
       if (!map.getSource(id)) return;
       let loaded = false;
@@ -145,7 +159,11 @@ export function usePlateau({
       end({ tiles, errTiles });
     };
     map.on("sourcedata", onTile);
-    offTilesReady = () => map.off("sourcedata", onTile);
+    map.on("error", onTileError);
+    offTilesReady = () => {
+      map.off("sourcedata", onTile);
+      map.off("error", onTileError);
+    };
   }
 
   // The plateau rises/sinks by animating the terrain EXAGGERATION (0 → 1 → 0): the
