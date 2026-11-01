@@ -62,9 +62,13 @@ function tierForScreen(): LidTier {
 
 // "ecran": the hidden map is created this small (device px) — the style, its
 // shaders and the workers are what the warm-up is for, not a big drawing
-// buffer — and parked at PARK_CSS css px between shots, its 1-4k px buffer freed.
+// buffer — and parked at PARK_CSS css px once idle, its 1-4k px buffer freed.
+// Not right after a shot: a select's refine follows it within seconds, and
+// parked in between it paid the resize and the re-render back (phones: ~1 s
+// more to the lid). LID_PARK_DELAY_MS without a new shot, then it parks.
 const WARM_PX = 512;
 const PARK_CSS = 64;
+const LID_PARK_DELAY_MS = 6000;
 
 export class SnapshotManager {
   private map: mapboxgl.Map | null = null;
@@ -72,6 +76,8 @@ export class SnapshotManager {
   private loaded = false;
   private seq = 0;
   private px = 0; // 0 while parked: the next shot resizes it back
+  private parkTimer: ReturnType<typeof setTimeout> | null = null;
+  private shooting = 0; // captures running
 
   /** `mode`: "ecran" sizes from the screen and parks; "ancien" is the lid as before. */
   constructor(private readonly mode: LidMode = "ecran") {}
@@ -137,6 +143,7 @@ export class SnapshotManager {
   /** Free the drawing buffer between shots ("ecran"): the map, its style and
    *  its workers stay, only the canvas shrinks. */
   private park() {
+    this.parkTimer = null;
     if (!this.map || !this.container || this.px === 0) return;
     this.px = 0;
     this.container.style.width = `${PARK_CSS}px`;
@@ -174,12 +181,27 @@ export class SnapshotManager {
   ): Promise<Snapshot | null> {
     const seq = ++this.seq;
     if (this.mode === "ancien") return this.shoot(seq, style, bounds, wantPx, hardMax);
+    this.cancelPark();
+    this.shooting++;
     try {
       return await this.shoot(seq, style, bounds, wantPx, hardMax);
     } finally {
-      // Landed, timed out or blank: park. Superseded: the newer shot owns the map.
-      if (seq === this.seq) this.park();
+      this.shooting--;
+      // Landed, timed out or blank: park once idle. Superseded: the newer shot
+      // owns the map.
+      if (seq === this.seq) {
+        this.cancelPark();
+        this.parkTimer = setTimeout(() => {
+          if (seq === this.seq && !this.shooting) this.park();
+          else this.parkTimer = null;
+        }, LID_PARK_DELAY_MS);
+      }
     }
+  }
+
+  private cancelPark() {
+    if (this.parkTimer) clearTimeout(this.parkTimer);
+    this.parkTimer = null;
   }
 
   private async shoot(
@@ -278,6 +300,7 @@ export class SnapshotManager {
   }
 
   destroy() {
+    this.cancelPark();
     this.seq++;
     this.map?.remove();
     this.map = null;
