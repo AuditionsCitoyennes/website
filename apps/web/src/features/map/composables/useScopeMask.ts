@@ -26,7 +26,11 @@ export interface ScopeMaskInputs {
    * is held, and no outline goes to the hover-fill source (a plateau is coming).
    */
   scopePending: () => boolean | undefined;
-  /** Whether a plateau is standing — the grey is cut around it. */
+  /**
+   * Whether a plateau is standing — the grey is cut around it. Not read by
+   * applyOutline: it still describes the previous selection until ensurePlateau's
+   * DEM POST returns.
+   */
   plateauActive: () => boolean;
 }
 
@@ -269,8 +273,11 @@ export function useScopeMask({
     // POST).
     //
     // Accepted: no draped hover during the DEM POST (~40-80 ms) and the
-    // deep-link intro flight, during a cold hold (the département merge, 0.5-1 s)
-    // and after a DEM failure — the GL sweep draws nothing there either.
+    // deep-link intro flight, during a cold hold (the département merge, 0.5-1 s;
+    // with the dev corpus source a DROM région holds for the whole visit, because
+    // its régions query never resolves a geometry and the geometryKnownAbsent
+    // release exists only for the server tree) and after a DEM failure — the GL
+    // sweep draws nothing there either.
     //
     // The dedupe compares objects, which holds because useMapFeed builds a fresh
     // outline on every recompute and nothing mutates one.
