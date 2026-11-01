@@ -37,6 +37,8 @@ export interface MapCameraInputs {
   onSettled: () => void;
   /** The intro has been released (a real flight, or the intro's own tilt): raise the plateau. */
   onIntroReleased: () => void;
+  /** The map's load handler has run (what ensurePlateau waits for). */
+  mapReady: () => boolean;
   /** A fit has just been issued: size the slabs of the unit it frames for it. */
   afterFit: () => void;
   /** The intro reveals the map: the `ready` emit. */
@@ -51,6 +53,7 @@ export function useMapCamera({
   emitView,
   onSettled,
   onIntroReleased,
+  mapReady,
   afterFit,
   onReady,
 }: MapCameraInputs) {
@@ -60,9 +63,10 @@ export function useMapCamera({
   // plateau holds and instant fits stay flat; any real (animated) flight — e.g.
   // the user drills before idle — releases the intro instead (fits tilt already).
   let introPending = true;
-  /** An animated flight released the intro before the style had loaded — when
-   *  ensurePlateau, waiting for the load, raised nothing (see beginIntro). */
-  let releasedBeforeStyle = false;
+  /** An animated flight released the intro before the map's load handler had
+   *  run — when ensurePlateau, waiting for that handler, raised nothing (see
+   *  beginIntro). */
+  let releasedBeforeLoad = false;
   let userInteracted = false;
   let lastCmd: CameraCmd | null = null;
   /** The padding `lastCmd` was framed against (see onPaddingChange). */
@@ -383,7 +387,7 @@ export function useMapCamera({
     // itself, so release the plateau hold and let the outline-driven pipeline run.
     if (introPending && duration > 0) {
       introPending = false;
-      releasedBeforeStyle = !getMap()?.isStyleLoaded();
+      releasedBeforeLoad = !mapReady();
       onIntroReleased();
     }
     // fit: frame the whole unit so its boundary stays on screen; the viewport-derived
@@ -494,12 +498,12 @@ export function useMapCamera({
       // An animated flight released the intro already (runCamera) — the home
       // page's card opened before the basemap was in: no tilt to play, the
       // flight tilted, but the map is presentable only now. A release before
-      // the style's load raised nothing (ensurePlateau waits for it): the
-      // plateau goes up now. After the load the flight's own run stands — a
-      // second one would cost another DEM request and supersede the first.
+      // the load handler ran raised nothing (ensurePlateau waits for it): the
+      // plateau goes up now. After that handler the flight's own run stands —
+      // a second one would cost another DEM request and supersede the first.
       onReady();
-      if (releasedBeforeStyle) onIntroReleased();
-      releasedBeforeStyle = false;
+      if (releasedBeforeLoad) onIntroReleased();
+      releasedBeforeLoad = false;
       return;
     }
     introPending = false;
@@ -710,7 +714,7 @@ export function useMapCamera({
     /** Unmount: a new map plays the intro again. */
     resetIntro: () => {
       introPending = true;
-      releasedBeforeStyle = false;
+      releasedBeforeLoad = false;
     },
     /** A finger or the mouse is on the map, or it is still gliding from one: a
      *  camera command now would cut that gesture short. */

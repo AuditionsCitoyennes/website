@@ -151,6 +151,7 @@ const camera = useMapCamera({
   // A real animated flight (or the intro's own tilt) releases the intro: the
   // outline-driven pipeline runs — the rise plays in the flight's tail.
   onIntroReleased: () => void plateau.ensurePlateau(),
+  mapReady: () => mapReady,
   // The same fit run again (a resize, a new padding) lands on another camera:
   // its unit's slabs are sized for it now.
   afterFit: () => slabs.syncSlabs(),
