@@ -409,7 +409,8 @@ export function useMapPins({
   }
 
   // Central hover switch: updates the cursor, lifts the hovered pin, highlights
-  // the zone (GL fill on the plateau + draped fill on the ground), and toggles
+  // the zone (GL fill on the plateau, or the draped fill on the ground when no
+  // plateau stands or is coming — its source is empty otherwise), and toggles
   // only the two affected pins from cached room/visibility state.
   function setHover(id: string) {
     if (id === hoveredUnitId) return;
@@ -438,8 +439,9 @@ export function useMapPins({
       }
     }
     plateauWall.setHovered(id);
-    // Draped fallback only when no plateau is up (world scope) — with a plateau,
-    // the GL sweep covers focus AND context, and doubling would break the sweep.
+    // Draped fallback only when no plateau is up (the world scope, or a scope
+    // with no boundary of its own) — with a plateau, the GL sweep covers focus
+    // AND context, and doubling would break the sweep.
     if (map?.getLayer("scope-hover-fill")) {
       const drapedId = plateauActive() ? "__none__" : id || "__none__";
       map.setFilter("scope-hover-fill", [

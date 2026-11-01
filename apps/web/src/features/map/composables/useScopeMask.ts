@@ -1,5 +1,6 @@
 // The grey outside the raised unit, and the layers it stands among: the
-// outline source (the draped hover-fill fallback), the draped mask the globe
+// outline source (the draped hover-fill fallback, fed only when no plateau
+// stands or is coming), the draped mask the globe
 // shows, the GL tint sheet the flat view shows, the plateau's wall and slab
 // layers — installed once the style has loaded, in this order (setupLayers).
 // Owns the regime flags: which renderer holds the grey, whether the style is
@@ -10,6 +11,7 @@ import type * as GeoJSON from "geojson";
 import type { Bounds } from "@/features/geo";
 import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
+import { nextOutlineUpload } from "../lib/outlineUpload";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { MASK_OPACITY, ScopeTintLayer, sameGeoms, type MaskGeom } from "../gl/ScopeTintLayer";
 
@@ -19,7 +21,10 @@ export interface ScopeMaskInputs {
   wall: PlateauWallLayer;
   /** The scope's outline: the `outline` prop. */
   outline: () => OutlineFC | null | undefined;
-  /** The scope's boundary is still loading (the `scopePending` prop). */
+  /**
+   * The scope's boundary is still loading (the `scopePending` prop): the grey
+   * is held, and no outline goes to the hover-fill source (a plateau is coming).
+   */
   scopePending: () => boolean | undefined;
   /** Whether a plateau is standing — the grey is cut around it. */
   plateauActive: () => boolean;
@@ -93,6 +98,9 @@ export function useScopeMask({
   // The perf probes: when the draped sheet's data was last handed to the
   // worker, until it reports it indexed (0: nothing pending).
   let drapedSetAt = 0;
+  // What the outline source holds now: EMPTY_FC, or the outline object last
+  // uploaded (compared by identity, see nextOutlineUpload).
+  let outlineUploaded: OutlineFC = EMPTY_FC;
 
   /**
    * The draped sheet covers the world. On the globe a lat/lng rectangle cannot
@@ -249,9 +257,31 @@ export function useScopeMask({
   function applyOutline() {
     // The outline source only feeds the draped hover-fill fallback now — the
     // boundary LINES are GL geometry rebuilt by ensurePlateau (line widths are
-    // per-feature, derived from `level` inside setGeometry).
+    // per-feature, derived from `level` inside setGeometry). That fallback only
+    // shows when no plateau stands, so the outline goes up only when none is
+    // coming: no `kind === "scope"` feature (the predicate ensurePlateau raises
+    // on) and no boundary pending. Every other case holds EMPTY_FC, which also
+    // keeps a stale outline out: the hover filter outlives the click (setHover
+    // returns early on the same id), so the previous outline would keep painting
+    // over the new plateau. A drill costs one empty write, the way back to the
+    // world one outline write. `plateauActive` is not read: it still describes
+    // the PREVIOUS selection at this point (ensurePlateau sets it after the DEM
+    // POST).
+    //
+    // Accepted: no draped hover during the DEM POST (~40-80 ms) and the
+    // deep-link intro flight, during a cold hold (the département merge, 0.5-1 s)
+    // and after a DEM failure — the GL sweep draws nothing there either.
+    //
+    // The dedupe compares objects, which holds because useMapFeed builds a fresh
+    // outline on every recompute and nothing mutates one.
     const src = getMap()?.getSource(OUTLINE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
-    src?.setData((outline() ?? EMPTY_FC) as unknown as GeoJSON.FeatureCollection);
+    if (!src) return;
+    const next = nextOutlineUpload(outlineUploaded, outline(), !!scopePending(), EMPTY_FC);
+    if (!next) return;
+    outlineUploaded = next;
+    const end = perfOn ? perfSpan("outline.setData", { features: next.features.length }) : null;
+    src.setData(next as unknown as GeoJSON.FeatureCollection);
+    if (end) end();
   }
 
   function setupLayers() {
@@ -261,6 +291,7 @@ export function useScopeMask({
       type: "geojson",
       data: EMPTY_FC as unknown as GeoJSON.FeatureCollection,
     });
+    outlineUploaded = EMPTY_FC;
     // Grey everything outside the raised area (see MASK_LAYER's note). It must
     // land ABOVE the basemap's fills but BELOW its labels — greying the map is the
     // point, illegible place names are not.
@@ -325,10 +356,13 @@ export function useScopeMask({
     // The analyses' slabs: right after it, a layer of their own — drawn over the
     // map's labels (see PlateauWallLayer.slabLayer).
     map.addLayer(wall.slabLayer);
-    // Hovered-zone highlight FALLBACK for the no-plateau case only (world scope):
-    // with a plateau up, BOTH focus and context highlights come from the GL sweep
-    // pass in PlateauWallLayer (draped paint can't reach the lid, and the sweep
-    // animation only exists there).
+    // Hovered-zone highlight FALLBACK for the no-plateau case only (the world
+    // scope, and scopes with no raisable boundary of their own, such as the DROM
+    // or other countries): with a plateau up, BOTH focus and context highlights
+    // come from the GL sweep pass in PlateauWallLayer (draped paint can't reach
+    // the lid, and the sweep animation only exists there). Its source is empty
+    // whenever a plateau stands or is coming (applyOutline), so it draws nothing
+    // then.
     map.addLayer({
       id: "scope-hover-fill",
       type: "fill",
