@@ -8,10 +8,11 @@ import { useMapStage } from "@/features/map-stage";
 // - Reached (within NEAR_MARGIN of the screen: a quick scroll, a reload half
 //   way down): at once, whatever the policy — even before the page is in.
 // - Heading there ("proche", the policy of every build without the testing
-//   tools): from the visitor's first scroll on, a screen ahead (LEAD_MARGIN) —
-//   the map loads while the copy beside it is read, and is ready to be opened
-//   into the testimonies page by the time it is reached. Never on the layout
-//   alone: a visitor who does not scroll lends it nothing, however tall the
+//   tools): from the visitor's first scroll away from the top on, a screen
+//   ahead (LEAD_MARGIN) — the map loads while the copy beside it is read, and
+//   is ready to be opened into the testimonies page by the time it is
+//   reached. Never on the layout alone, nor on the router's own scroll to the
+//   top: a visitor who does not scroll lends it nothing, however tall the
 //   screen.
 // - And at once when the map already exists (back from /temoignages: it comes
 //   straight back into its card).
@@ -141,8 +142,17 @@ export function useMapCardSlot(mapCard: Ref<HTMLElement | null>, heroReady: Ref<
     takeWithin(NEAR_MARGIN);
     if (homeMapPolicy === "contact") return;
     if (homeMapPolicy === "proche") {
-      // Passive: the page's scrolling never waits on it.
-      once(window, ["scroll"], () => takeWithin(LEAD_MARGIN), { passive: true });
+      // Passive: the page's scrolling never waits on it. Only a scroll that
+      // leaves the top counts: the router's own scroll-to-top, on arriving
+      // from a page that was scrolled, is not the visitor heading down.
+      const onScroll = () => {
+        if (window.scrollY <= 0) return;
+        window.removeEventListener("scroll", onScroll);
+        waiting = waiting.filter((w) => w.fn !== onScroll);
+        takeWithin(LEAD_MARGIN);
+      };
+      window.addEventListener("scroll", onScroll, { passive: true });
+      waiting.push({ target: window, type: "scroll", fn: onScroll });
       return;
     }
     const whenIdle = () => {
