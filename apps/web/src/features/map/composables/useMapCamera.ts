@@ -60,6 +60,9 @@ export function useMapCamera({
   // plateau holds and instant fits stay flat; any real (animated) flight — e.g.
   // the user drills before idle — releases the intro instead (fits tilt already).
   let introPending = true;
+  /** An animated flight released the intro before the style had loaded — when
+   *  ensurePlateau, waiting for the load, raised nothing (see beginIntro). */
+  let releasedBeforeStyle = false;
   let userInteracted = false;
   let lastCmd: CameraCmd | null = null;
   /** The padding `lastCmd` was framed against (see onPaddingChange). */
@@ -380,6 +383,7 @@ export function useMapCamera({
     // itself, so release the plateau hold and let the outline-driven pipeline run.
     if (introPending && duration > 0) {
       introPending = false;
+      releasedBeforeStyle = !getMap()?.isStyleLoaded();
       onIntroReleased();
     }
     // fit: frame the whole unit so its boundary stays on screen; the viewport-derived
@@ -489,11 +493,13 @@ export function useMapCamera({
     if (!introPending) {
       // An animated flight released the intro already (runCamera) — the home
       // page's card opened before the basemap was in: no tilt to play, the
-      // flight tilted, but the map is presentable only now. And a release
-      // before the style's load raised nothing (ensurePlateau waits for it):
-      // the plateau goes up now.
+      // flight tilted, but the map is presentable only now. A release before
+      // the style's load raised nothing (ensurePlateau waits for it): the
+      // plateau goes up now. After the load the flight's own run stands — a
+      // second one would cost another DEM request and supersede the first.
       onReady();
-      onIntroReleased();
+      if (releasedBeforeStyle) onIntroReleased();
+      releasedBeforeStyle = false;
       return;
     }
     introPending = false;
@@ -704,6 +710,7 @@ export function useMapCamera({
     /** Unmount: a new map plays the intro again. */
     resetIntro: () => {
       introPending = true;
+      releasedBeforeStyle = false;
     },
     /** A finger or the mouse is on the map, or it is still gliding from one: a
      *  camera command now would cut that gesture short. */
