@@ -6,16 +6,20 @@
 # Source: Etalab contours-administratifs at 50 m (Licence Ouverte), the
 # régions, départements and communes (with the 45 arrondissements) that
 # build-boundaries.sh's etalab step downloads into <raw>; --etalab-year names
-# their vintage in the manifest and NOTICE.txt.
+# their vintage in the manifest and NOTICE.txt. Countries: Overture's
+# divisions (ODbL), the 272 countries and dependencies of <raw>/country/
+# world.geojson that build-boundaries.sh's chunks step writes;
+# --overture-release names that release.
 #
 # Steps, in this order (each leaves a marker under <out>/.work/<build>;
 # --force redoes them). A step needs the one before it done; a step that runs
 # again makes the later ones run again. A build id is cut with one set of
-# --fr-tier, --etalab-year and --raw: another set needs another --build (or
-# --force, which then redoes every step from prep).
-#   prep      Etalab → the site's unit ids, 5-decimal coordinates (prep.ts)
+# --fr-tier, --etalab-year, --overture-release and --raw: another set needs
+# another --build (or --force, which then redoes every step from prep).
+#   prep      Etalab and Overture → the site's unit ids, 5-decimal coordinates
+#             (prep.ts)
 #   simplify  mapshaper: k/FR's tier, the régions' dissolves, the families
-#             over the self budget (simplify.sh)
+#             over the self budget, the six world runs (simplify.sh)
 #   pack      the files of format v1 into <out>/<build>/ (pack.ts)
 #   check     the gates; a failed gate fails the build (check.ts)
 #   release   outlines-<build>.tar.gz beside the build, its sha256, the lock
@@ -26,7 +30,7 @@
 # Usage:
 #   scripts/map-data/outlines/build-outlines.sh [--out DIR] [--build o20261102-1]
 #     [--raw DIR] [--fr-tier 1000|300] [--etalab-year 2026]
-#     [--steps prep,simplify,pack,check,release] [--force]
+#     [--overture-release 2026-10-21.0] [--steps prep,simplify,pack,check,release] [--force]
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,6 +39,7 @@ RAW="$HOME/.cache/ac-map-data/raw"
 BUILD="o$(date +%Y%m%d)-1"
 FR_TIER=1000
 ETALAB_YEAR=2026
+OVERTURE=2026-10-21.0
 STEPS="prep,simplify,pack,check,release"
 FORCE=0
 export MAPSHAPER="${MAPSHAPER:-$HOME/.cache/ac-map-data/tools/node_modules/.bin/mapshaper-xl}"
@@ -46,6 +51,7 @@ while [ $# -gt 0 ]; do
     --raw) RAW="$2"; shift 2 ;;
     --fr-tier) FR_TIER="$2"; shift 2 ;;
     --etalab-year) ETALAB_YEAR="$2"; shift 2 ;;
+    --overture-release) OVERTURE="$2"; shift 2 ;;
     --steps) STEPS="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
     -h|--help) sed -n '2,/^set -euo pipefail/p' "$0" | sed '$d'; exit 0 ;;
@@ -54,6 +60,7 @@ while [ $# -gt 0 ]; do
 done
 case "$FR_TIER" in 1000|300) ;; *) echo "--fr-tier is 1000 or 300" >&2; exit 2 ;; esac
 case "$ETALAB_YEAR" in [0-9][0-9][0-9][0-9]) ;; *) echo "--etalab-year looks like 2026" >&2; exit 2 ;; esac
+case "$OVERTURE" in 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].[0-9]*) ;; *) echo "--overture-release looks like 2026-10-21.0" >&2; exit 2 ;; esac
 case "$BUILD" in o[0-9]*-[0-9]*) ;; *) echo "--build looks like o20261102-1" >&2; exit 2 ;; esac
 if [ ! -x "$MAPSHAPER" ]; then
   echo "mapshaper-xl not found at $MAPSHAPER — npm install mapshaper, then MAPSHAPER=<path>/mapshaper-xl" >&2
@@ -66,6 +73,10 @@ for f in regions departements communes; do
     exit 1
   }
 done
+[ -s "$RAW/country/world.geojson" ] || {
+  echo "missing $RAW/country/world.geojson — scripts/map-data/build-boundaries.sh --steps extract,chunks" >&2
+  exit 1
+}
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
@@ -73,7 +84,7 @@ RAW="$(cd "$RAW" && pwd)"
 WORK="$OUT/.work/$BUILD"
 mkdir -p "$WORK"
 ORDER="prep simplify pack check release"
-PARAMS="fr-tier=$FR_TIER etalab-year=$ETALAB_YEAR raw=$RAW"
+PARAMS="fr-tier=$FR_TIER etalab-year=$ETALAB_YEAR overture=$OVERTURE raw=$RAW"
 if [ -f "$WORK/params" ] && [ "$(cat "$WORK/params")" != "$PARAMS" ]; then
   if [ "$FORCE" = 0 ]; then
     echo "build $BUILD was cut with $(cat "$WORK/params"); use another --build, or --force to redo it with $PARAMS" >&2
@@ -132,7 +143,7 @@ release() {
 
 step prep tsx prep.ts "$RAW" "$WORK"
 step simplify "$HERE/simplify.sh" "$WORK" "$FR_TIER"
-step pack tsx pack.ts "$WORK" "$OUT" "$BUILD" "$FR_TIER" "$ETALAB_YEAR" "$("$MAPSHAPER" -v)"
+step pack tsx pack.ts "$WORK" "$OUT" "$BUILD" "$FR_TIER" "$ETALAB_YEAR" "$OVERTURE" "$("$MAPSHAPER" -v)"
 step check tsx check.ts "$WORK" "$OUT" "$BUILD"
 step release release
 log "done: $OUT/$BUILD"

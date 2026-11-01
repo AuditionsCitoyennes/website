@@ -28,12 +28,21 @@ import {
   type OutlineFileV1,
   type RootV1,
 } from "./lib";
+import type { WorldEntry } from "./prep";
 
 export interface CheckOptions {
   /** Each région's reference outline at its tier (Etalab's, or its family run's). */
   regionRefs: Map<string, Geometry>;
-  /** The site's ids (gate 4): FR_REGIONS names, FR_DEPARTMENTS codes, seed fixture commune ids. */
-  expected?: { regionNames: string[]; depCodes: string[]; fixtureIds: string[] };
+  /**
+   * The ids the build must hold (gate 4): FR_REGIONS names, FR_DEPARTMENTS
+   * codes, seed fixture commune ids, and the ISO codes of the world input.
+   */
+  expected?: {
+    regionNames: string[];
+    depCodes: string[];
+    fixtureIds: string[];
+    countryIds?: string[];
+  };
   /** Files in the build, NOTICE and manifest included (default: the outline files). */
   fileCount?: number;
 }
@@ -57,6 +66,8 @@ export interface CheckResult {
 }
 
 const ZERO_M = 0.001;
+/** The overseas codes whose top polygons Overture files apart from France (build-boundaries.sh). */
+const FR_OVERSEAS = ["GP", "MQ", "GF", "RE", "YT", "PM", "BL", "MF", "WF", "PF", "NC", "TF", "CP"];
 const ringCounts = (g: Geometry) => {
   const polys = polygonsOf(g);
   return `${polys.length} polygons, ${polys.reduce((n, p) => n + p.length - 1, 0)} holes`;
@@ -147,6 +158,12 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
     same(f.id, f.tier, f.self.g, `${p} self`);
     if (f.kind === "k") for (const u of f.units) same(u.id, f.tier, u.g, `${p} entry`);
   }
+  // c3000 and w3000 are the same world run.
+  for (const [p, f] of outlines) {
+    const g = f.tier === "c3000" && outlines.get(`g/${keyOf(f.id)}.json`);
+    if (g && JSON.stringify(g.self.g) !== JSON.stringify(f.self.g))
+      g2.push(`${f.id}: ${p} at c3000 differs from its g/ at w3000`);
+  }
   gate("2 identity", g2);
 
   // 3. Budgets.
@@ -207,6 +224,8 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
     const fine = (p: string) => p.startsWith("k/fr_dep_") || p.startsWith("k/fr_com_");
     for (const id of opts.expected.fixtureIds)
       if (!fine(entryIn.get(id) ?? "")) g4.push(`fixture unit ${id} absent`);
+    for (const id of opts.expected.countryIds ?? [])
+      if (rowOf.get(id)?.level !== "country" || !rowOf.get(id)?.g) g4.push(`country ${id} absent`);
   }
   gate("4 ids", g4);
 
@@ -226,6 +245,11 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
     const s = outlines.get(`u/${keyOf(r.id)}.json`) ?? outlines.get(`k/${keyOf(r.id)}.json`);
     if (s && (s.tier !== r.st || JSON.stringify(s.self.bbox) !== JSON.stringify(r.bbox)))
       g5.push(`row ${r.id}: st ${r.st} / bbox against ${s.tier} / ${JSON.stringify(s.self.bbox)}`);
+    for (const kind of ["k", "u", "g"]) {
+      const f = outlines.get(`${kind}/${keyOf(r.id)}.json`);
+      if (f && (f.wrap === 1) !== (r.wrap === 1))
+        g5.push(`row ${r.id}: wrap ${r.wrap ?? 0} but ${kind}/ has ${f.wrap ?? 0}`);
+    }
   }
   for (const [p, f] of outlines) {
     if (f.self.n !== vertexCount(f.self.g)) g5.push(`${p}: self.n ${f.self.n}`);
@@ -307,6 +331,9 @@ async function main(work: string, out: string, build: string) {
     .filter(Boolean);
   const { FR_DEPARTMENTS, FR_REGIONS } =
     await import("../../../apps/api/src/modules/geo/frDepartments");
+  const world: WorldEntry[] = JSON.parse(
+    fs.readFileSync(path.join(work, "prep", "world.json"), "utf8"),
+  );
   const fixture: { id: string }[] = JSON.parse(
     fs.readFileSync(new URL("../../seed/fixtures/fr-units.json", import.meta.url), "utf8"),
   );
@@ -317,6 +344,7 @@ async function main(work: string, out: string, build: string) {
       regionNames: Object.keys(FR_REGIONS),
       depCodes: Object.keys(FR_DEPARTMENTS),
       fixtureIds: fixture.map((u) => u.id).filter((id) => id.startsWith("fr:com:")),
+      countryIds: world.map((c) => c.id),
     },
     fileCount: all.length,
   });
@@ -330,6 +358,21 @@ async function main(work: string, out: string, build: string) {
     for (const o of g.offenders.slice(0, 25)) console.log(`    ${o}`);
   }
   for (const w of res.warnings) console.log(`check: warning: ${w}`);
+  // Gate 7: known oddities, listed, never failures.
+  const root = files.get("root.json") as RootV1;
+  const overseas = world.filter((c) => FR_OVERSEAS.includes(c.id));
+  const oddities = [
+    ...world.filter((c) => c.id === "MF").map((c) => `MF ${c.name}: Overture level ${c.overture}`),
+    `${overseas.length} French overseas codes are rows of their own: ${overseas.map((c) => c.id).join(" ")}`,
+    ...root.units
+      .filter((r) => r.wrap && r.bbox[2] - r.bbox[0] >= 359)
+      .map((r) => `${r.id}: its largest polygon spans ±180, kept as delivered (wrap, 360°)`),
+    `unwrapped (wrap): ${root.units
+      .filter((r) => r.wrap)
+      .map((r) => r.id)
+      .join(" ")}`,
+  ];
+  for (const o of oddities) console.log(`check: oddity: ${o}`);
   const exact = res.parents.filter((r) => r.segmentsEqual && r.sharedPct === 100).length;
   console.log(
     `check: ${res.parents.length} parents, ${exact} exact; heaviest selves: ${res.heaviest.self.join(", ")}`,
