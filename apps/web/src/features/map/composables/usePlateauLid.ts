@@ -63,6 +63,15 @@ export function usePlateauLid({
   let inFlightKey = "";
   let inFlightId = 0;
   let inFlightSeq = 0;
+  // The running shot's rectangle and px: a re-run asking for the same rectangle
+  // at under LID_REFINE_RATIO more px adopts it rather than starting over.
+  let inFlightBounds = "";
+  let inFlightPx = 0;
+  // A select's whole-unit shot (captureLid) is running ("ecran"). Until it
+  // lands, the lid showing is the previous unit's, so hasTexture() says no:
+  // a same-unit re-run of ensurePlateau then asks again and adopts the shot,
+  // instead of bumping the plateau seq past it.
+  let selectInFlight = false;
   let captureCount = 0;
   // Diagnostics for __acPlateau(): asks skipped because the same shot was
   // showing or running, and the running shots a newer plateau run adopted.
@@ -80,8 +89,9 @@ export function usePlateauLid({
   // it, so the visible plateau must stay inside this or the wall shows through.
   let lidCovered: Bounds | null = null;
   // Diagnostic for __acPlateau(): the lid is coarser than the screen, but the
-  // rectangle a refine would capture is no smaller than the one we already have,
-  // so re-shooting would not sharpen anything.
+  // slice a refine would capture is no finer than the texture showing (in
+  // "ecran" by texel density, in "ancien" by rectangle span), so re-shooting
+  // would not sharpen anything.
   let lidRefineBlockedByGain = false;
   const boundsKey = (b: Bounds) =>
     `${b.minLat.toFixed(4)},${b.maxLat.toFixed(4)},${b.minLng.toFixed(4)},${b.maxLng.toFixed(4)}`;
@@ -154,13 +164,13 @@ export function usePlateauLid({
     /** Re-shoot even the rectangle already showing (the DEV "Carte" lid). */
     force = false,
   ) {
-    if (force || before) return shootLid(seq, raised, over, force, true);
+    if (force || before) return shootLid(seq, raised, over, force, true, true);
     // A select asks from the outline's watcher, which runs before the camera's
     // (GeoDrillMap): let that flush end, then the flight a list row or a crumb
     // issues is under way. None (the scope followed a pan or a wheel, or the
     // outline came after the landing): the live camera is the unit's own.
     await Promise.resolve();
-    return shootLid(seq, raised, over, false, !!getMap()?.isEasing());
+    return shootLid(seq, raised, over, false, !!getMap()?.isEasing(), true);
   }
 
   async function shootLid(
@@ -170,6 +180,8 @@ export function usePlateauLid({
     force: boolean,
     /** Asked before a camera flight: the live camera is not this shot's. */
     preFlight: boolean,
+    /** A whole-unit shot from captureLid (a select, the DEV "Carte" shot). */
+    select = false,
   ) {
     if (noLid) return;
     if (force) lidTargetKey = "";
@@ -193,11 +205,22 @@ export function usePlateauLid({
     // don't cancel it to re-shoot the same thing. Fetching it counts too: before
     // the first lid lands, every re-run of ensurePlateau (each outline identity
     // change) asked again and the hidden map dropped the shot to start over.
-    const key = `${boundsKey(b)}@${px}`;
-    if (key === lidTargetKey && (Number.isFinite(lidMpp) || (!before && inFlightKey === key))) {
-      // The run asking for the shot already running adopts it: it lands for
-      // that run ("ancien" did not, and dropped it as superseded).
-      if (!before && inFlightKey === key) {
+    const rect = boundsKey(b);
+    const key = `${rect}@${px}`;
+    // The run asking for the rectangle already running adopts the shot: it
+    // lands for that run ("ancien" did not, and dropped it as superseded). At
+    // more px too, short of LID_REFINE_RATIO: a select's re-run after its
+    // flight landed sizes from the camera, and starting over cancelled a shot
+    // nearly done for a gain the refresh would not re-shoot for. A real
+    // sharpening is left to refreshLidForZoom once it has landed.
+    const adopt =
+      !before &&
+      !force &&
+      !!inFlightKey &&
+      inFlightBounds === rect &&
+      px < inFlightPx * LID_REFINE_RATIO;
+    if (adopt || (key === lidTargetKey && Number.isFinite(lidMpp))) {
+      if (adopt) {
         inFlightSeq = seq;
         adopted++;
       }
@@ -209,8 +232,18 @@ export function usePlateauLid({
     inFlightKey = key;
     inFlightId = id;
     inFlightSeq = seq;
+    inFlightBounds = rect;
+    inFlightPx = px;
+    selectInFlight = select && !before;
     lastCapturePx = px;
     const endCapture = perfOn ? perfSpan("lid.capture", { px, preFlight }) : null;
+    // "ancien" sizes without it, so its span reads the flight as "ecran" does,
+    // once the select's watchers have run: `preFlight` means the same in both.
+    let flightSeen = preFlight;
+    if (endCapture && before)
+      void Promise.resolve().then(() => {
+        flightSeen = !!getMap()?.isEasing();
+      });
     let got = false;
     let applied = false;
     try {
@@ -232,11 +265,12 @@ export function usePlateauLid({
       /* no lid → status quo (walls + draped terrain) */
     } finally {
       // `got`: a bitmap came back; `applied`: it is the lid now.
-      if (endCapture) endCapture({ got, applied });
+      if (endCapture) endCapture({ got, applied, preFlight: flightSeen });
       // "ancien": any capture's end cleared the flag, as before.
       if (before || inFlightId === id) {
         inFlightKey = "";
         inFlightId = 0;
+        selectInFlight = false;
       }
     }
   }
@@ -384,8 +418,9 @@ export function usePlateauLid({
     /** After a gesture settles: bring the texture up to the camera's resolution. */
     scheduleRefresh: scheduleLidRefresh,
     reset,
-    /** A texture is showing (or has been): its resolution is known. */
-    hasTexture: () => Number.isFinite(lidMpp),
+    /** A texture is showing (or has been): its resolution is known. Not while a
+     *  select's shot runs ("ecran"): the lid showing is the previous unit's. */
+    hasTexture: () => Number.isFinite(lidMpp) && !selectInFlight,
     /** The rectangle the current lid texture covers. */
     covered: () => lidCovered,
     /** Hidden lid-snapshot map: pay the style init now (the load handler). */
