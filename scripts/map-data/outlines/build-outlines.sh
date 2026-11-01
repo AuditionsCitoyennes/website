@@ -143,7 +143,13 @@ release() {
 
 step prep tsx prep.ts "$RAW" "$WORK"
 step simplify "$HERE/simplify.sh" "$WORK" "$FR_TIER"
-step pack tsx pack.ts "$WORK" "$OUT" "$BUILD" "$FR_TIER" "$ETALAB_YEAR" "$OVERTURE" "$("$MAPSHAPER" -v)"
+# The manifest names the tools that shaped the geometry: mapshaper, and
+# DuckDB with its spatial extension (pack's repair).
+DUCKDB_VERSION="$(duckdb -no-agent --version)"
+SPATIAL_VERSION="$(duckdb -no-agent -csv -noheader -c "SELECT extension_version FROM duckdb_extensions() WHERE extension_name = 'spatial'")"
+[ -n "$SPATIAL_VERSION" ] || { echo "duckdb has no spatial extension — duckdb -c 'INSTALL spatial'" >&2; exit 1; }
+step pack tsx pack.ts "$WORK" "$OUT" "$BUILD" "$FR_TIER" "$ETALAB_YEAR" "$OVERTURE" "$("$MAPSHAPER" -v)" \
+  "$DUCKDB_VERSION" "$SPATIAL_VERSION"
 step check tsx check.ts "$WORK" "$OUT" "$BUILD"
 step release release
 log "done: $OUT/$BUILD"

@@ -3,6 +3,7 @@
 // fixture test runs it); the CLI reads <work>, writes <out>/<build>/ and the
 // references check.ts compares the régions with.
 //   npx tsx pack.ts <work-dir> <out-dir> <build> <fr-tier-metres> <etalab-year> <overture-release> <mapshaper-version>
+//     <duckdb-version> <spatial-version>
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -298,6 +299,8 @@ function main(
   etalabYear: string,
   overture: string,
   mapshaper: string,
+  duckdb: string,
+  spatial: string,
 ) {
   const P = (f: string) => path.join(work, "prep", f);
   const S = (f: string) => path.join(work, "simp", f);
@@ -376,8 +379,11 @@ function main(
       "under the Licence Ouverte / Open Licence 2.0 (https://www.etalab.gouv.fr/licence-ouverte-open-licence/).",
       "Derived work: coordinates rounded to 5 decimals; France's outline, the",
       "régions' outlines and the coarser tiers simplified and dissolved with mapshaper.",
+      "Etalab takes the communes of the collectivités d'outre-mer (975, 977, 978, 986)",
+      "from OpenStreetMap: their files (fr_reg_ and fr_dep_ 975, 977, 978, 986) are",
+      "© OpenStreetMap contributors, under the Open Database License 1.0 as below.",
       "",
-      "Countries and dependencies (g/<ISO>.json, u/<ISO>.json):",
+      "Countries and dependencies (g/<ISO>.json, u/<ISO>.json and the country rows of root.json):",
       `Overture Maps Foundation, divisions theme, release ${overture} (https://overturemaps.org),`,
       "which holds data from OpenStreetMap: © OpenStreetMap contributors",
       "(https://www.openstreetmap.org/copyright).",
@@ -402,6 +408,9 @@ function main(
     sources: { etalab: `${etalabYear}/50m`, overture },
     inputs: JSON.parse(fs.readFileSync(P("inputs.json"), "utf8")),
     mapshaper,
+    // The DuckDB repair reshapes a few country geometries (GEOS in spatial).
+    duckdb,
+    spatial,
     counts: {
       rows: { country: level("country"), region: level("region"), dep: level("dep") },
       entries: k.reduce((n, f) => n + f.units.length, 0),
@@ -434,6 +443,7 @@ function main(
 }
 
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
-  const [work, out, build, frTolM, etalabYear, overture, mapshaper] = process.argv.slice(2);
-  main(work, out, build, Number(frTolM), etalabYear, overture, mapshaper);
+  const [work, out, build, frTolM, etalabYear, overture, mapshaper, duckdb, spatial] =
+    process.argv.slice(2);
+  main(work, out, build, Number(frTolM), etalabYear, overture, mapshaper, duckdb, spatial);
 }
