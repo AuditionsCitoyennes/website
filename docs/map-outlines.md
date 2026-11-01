@@ -108,7 +108,10 @@ for the manifest's `created`.
    geometry's vertex count; every file passes `validateFileV1`.
 6. **Validity**: finite coordinates, latitudes within ±85.0511, longitudes
    within ±180, closed rings of ≥ 4 positions without repeated points, one
-   winding per file, DuckDB `ST_IsValid` on every distinct geometry.
+   winding per file, DuckDB `ST_IsValid` on every distinct geometry. This
+   DuckDB spatial has no `ST_IsValidReason`, so an offender's reason is coarse:
+   "a ring intersects itself" or "rings touch, cross or nest wrongly", told
+   apart by whether its boundary is simple.
 
 Results of `o20261101-1`: all six pass. 139 of 139 parents at 0 m / 0 m / 100 %
 with equal segment sets; 35,176 distinct geometries valid. One escalation:
@@ -143,13 +146,22 @@ between régions; `-clean` removes five of them and keeps the 26 régions.
 | `u/fr_reg_*` | 26 | 1,026 / 115,823 / 366,978 / 412,394 | 418 / 37,143 / 104,371 / 114,088 |
 | `u/fr_dep_*` | 109 | 1,026 / 43,393 / 103,054 / 412,394 | 418 / 13,820 / 31,172 / 114,088 |
 
+The city bundles: Lyon 11,171 / 2,246 B, Paris 16,182 / 3,306 B, Marseille
+47,245 / 9,594 B gzip. Marseille is above the ≤ 8 KB gzip the plan expected
+(16 arrondissements and a long coast); no cap is involved.
+
 `k/FR`: self 1,645 vertices, 31,764 B / 12,009 B gzip; its 26 régions 7,338
 vertices, 49,089 B gzip.
 
 Against the S3 spike's children-only bundles (`{"<id>": geometry}`, Etalab as
 delivered): the children's vertex counts equal Etalab's in every `e50` file
 (108 départements, the 3 cities), every self's `n` equals Etalab's (or the
-dissolve's), and the children-only bytes are the spike's to 0.03 %.
+dissolve's), and the children-only bytes are the spike's within 0.03 % raw and
+0.9 % gzip (Auvergne-Rhône-Alpes 158,277 against 159,681 B gzip, −0.88 %). The
+plan's own bar, the children's geometry bytes without keys (the sum of
+`JSON.stringify(unit.g)`) within 2 % of S3's, holds for five of the six and
+misses for Lyon at −2.29 %: S3's figure counts each child's id, which weighs
+most beside Lyon's nine short geometries; the like-for-like construct matches.
 
 | bundle | children | S3 children-only raw / gz | this build, same construct | whole file raw / gz |
 |---|---|---|---|---|
