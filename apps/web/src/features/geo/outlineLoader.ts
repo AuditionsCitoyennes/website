@@ -9,8 +9,10 @@
 // fetched once and written once. A failure is per file: root.json and k/FR
 // end the session on the API's outlines; so does a release skew on any file
 // (the host holds another build, or none: a tab opened before a deploy), once
-// a refetch past the HTTP cache confirms it; a network failure is retried
-// once, then final; a missing or malformed file is final at once.
+// a refetch past the HTTP cache confirms it (after the network retry too); a
+// network failure is retried once, then final; a missing or malformed file is
+// final at once. Once the session fell back, nothing is requested any more,
+// not even the next attempt of a request under way.
 
 import {
   checkResponse,
@@ -155,7 +157,12 @@ export class OutlineLoader {
 
   /** Warms the HTTP cache with a declared file (a hover): never writes, never fails. */
   prefetch(kind: OutlineKind, id: string): void {
-    if (this.mode !== "fichiers" || !this.declared(kind, id) || this.o.store.loaded(kind, id))
+    if (
+      this.mode !== "fichiers" ||
+      !this.declared(kind, id) ||
+      this.o.store.loaded(kind, id) ||
+      this.failed.has(fileKey(kind, id))
+    )
       return;
     const url = fileUrl(this.o.base, this.o.build, kind, id);
     if (this.inflight.has(url) || this.prefetched.has(url)) return;
@@ -202,7 +209,7 @@ export class OutlineLoader {
     const r = await this.request(fileUrl(base, build, kind, id), key, { build, kind, id });
     if (this.off()) return "fallback";
     if (!r.ok) return this.fail(key, r.reason, root);
-    this.write([r.file as OutlineFileV1], key);
+    this.write([r.file as OutlineFileV1]);
     return "loaded";
   }
 
@@ -239,15 +246,20 @@ export class OutlineLoader {
       fate.set(key, r.ok ? "loaded" : this.fail(key, r.reason, false));
     }
     if (this.off()) return ids.map(() => "fallback");
-    if (files.length) this.write(files, keys.join(" "));
+    this.write(files);
     return plan.map((p) => p.status ?? fate.get(p.key!)!);
   }
 
-  private write(files: OutlineFileV1[], key: string): void {
+  /** Writes the files not loaded yet: a caller that joined another's request
+   *  finds its file written, and writes (and times) nothing. */
+  private write(files: OutlineFileV1[]): void {
+    const fresh = files.filter((f) => !this.o.store.loaded(f.kind, f.id));
+    if (!fresh.length) return;
+    const key = fresh.map((f) => fileKey(f.kind, f.id)).join(" ");
     const before = this.o.store.version;
     const end = this.o.span?.("outline.decode", { key, phase: "write" });
-    this.o.store.putMany(files, this.o.wrap);
-    end?.({ vertices: files.reduce((n, f) => n + verticesOf(f), 0) });
+    this.o.store.putMany(fresh, this.o.wrap);
+    end?.({ vertices: fresh.reduce((n, f) => n + verticesOf(f), 0) });
     if (this.o.store.version !== before) this.o.onWrite(this.o.store.version);
   }
 
@@ -290,19 +302,23 @@ export class OutlineLoader {
     };
   }
 
-  /** The shared request of a URL: one network retry, one skew confirm. */
+  /** The shared request of a URL: one network retry, then one skew confirm
+   *  (whichever attempt saw the skew); no further attempt once the session
+   *  fell back (its callers then answer "fallback"). */
   private request(url: string, key: string, expect: Expect): Promise<Checked<unknown>> {
     let job = this.inflight.get(url);
     if (!job) {
       job = (async () => {
-        const r = await this.attempt(url, key, expect, false);
-        if (r.ok) return r;
-        if (r.reason === "network") {
+        let r = await this.attempt(url, key, expect, false);
+        if (!r.ok && r.reason === "network" && !this.off()) {
           await new Promise<void>((done) => this.o.setTimer(done, this.o.retryMs ?? 1_000));
-          return this.attempt(url, key, expect, false);
+          if (this.off()) return r;
+          r = await this.attempt(url, key, expect, false);
         }
         // An immutable cache may hold an old SPA answer: ask past it once.
-        return isReleaseSkew(r.reason) ? this.attempt(url, key, expect, true) : r;
+        if (!r.ok && isReleaseSkew(r.reason) && !this.off())
+          r = await this.attempt(url, key, expect, true);
+        return r;
       })().finally(() => this.inflight.delete(url));
       this.inflight.set(url, job);
     }

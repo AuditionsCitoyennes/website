@@ -85,6 +85,7 @@ function setup(script: Record<string, Reply[]> = {}) {
   let next = 0;
   const writes: number[] = [];
   const modes: unknown[][] = [];
+  const spans: Record<string, unknown>[] = [];
   let sets = 0;
   const fetchFn = async (u: string, init: { signal: AbortSignal; cache?: "reload" }) => {
     requests.push({ url: u, cache: init.cache, signal: init.signal });
@@ -129,6 +130,11 @@ function setup(script: Record<string, Reply[]> = {}) {
     onWrite: (v) => void writes.push(v),
     onSets: () => void sets++,
     onMode: (...a) => void modes.push(a),
+    span: (name, detail) => {
+      const s = { name, ...detail };
+      spans.push(s);
+      return (more) => void Object.assign(s, more);
+    },
   });
   const flush = () => new Promise((done) => setImmediate(done));
   /** Moves the clock, firing the timers due on the way. */
@@ -151,8 +157,11 @@ function setup(script: Record<string, Reply[]> = {}) {
     assert.equal(await r, "loaded");
     requests.length = 0;
     writes.length = 0;
+    spans.length = 0;
   };
-  return { loader, store, requests, writes, modes, armed, tick, boot, sets: () => sets };
+  /** The `outline.decode` spans of the writes. */
+  const written = () => spans.filter((s) => s.name === "outline.decode" && s.phase === "write");
+  return { loader, store, requests, writes, modes, armed, tick, boot, written, sets: () => sets };
 }
 
 test("(1) two concurrent ensureBundle of one unit: one request, one write", async () => {
@@ -170,6 +179,10 @@ test("(1) two concurrent ensureBundle of one unit: one request, one write", asyn
     [url("k/fr_dep_69")],
   );
   assert.equal(t.writes.length, 1);
+  assert.deepEqual(
+    t.written().map((s) => s.key),
+    ["k/fr_dep_69"],
+  );
 });
 
 test("(2) undeclared files are never requested", async () => {
@@ -216,6 +229,11 @@ test("(4) batchSelf: one request per file, one write; a failure marks only its f
   assert.deepEqual(await some, ["loaded", "loaded", "loaded", "failed", "loaded"]);
   assert.equal(u.requests.length, 6);
   assert.equal(u.writes.length, 1);
+  // The write's span names the files written, not the one that failed.
+  assert.deepEqual(
+    u.written().map((s) => [s.key, s.vertices]),
+    [[["u/fr_dep_01", "u/fr_dep_03", "u/fr_dep_07", "u/fr_dep_69"].join(" "), 20]],
+  );
   assert.ok(u.store.has("fr:dep:69", "e50") && !u.store.has("fr:dep:15", "e50"));
   assert.deepEqual([...u.loader.failed], ["u/fr_dep_15"]);
   assert.ok(u.loader.isFailed("u", "fr:dep:15") && u.loader.selfSettled("fr:dep:15"));
@@ -271,6 +289,23 @@ test("(6) a release skew on any file: confirmed past the cache once, then fallba
   assert.equal(await u.loader.ensureBundle("fr:reg:84"), "loaded");
   assert.equal(u.loader.mode, "fichiers");
   assert.equal(u.requests.length, 2);
+
+  // A skew seen on the network retry is confirmed the same way.
+  for (const [then, status] of [
+    ["json", "loaded"],
+    ["html", "fallback"],
+  ] as const) {
+    const w = setup({ "k/fr_reg_84": [503, "html", then] });
+    await w.boot();
+    const r = w.loader.ensureBundle("fr:reg:84");
+    await w.tick(1_000);
+    assert.equal(await r, status);
+    assert.deepEqual(
+      w.requests.map((q) => q.cache),
+      [undefined, undefined, "reload"],
+    );
+    assert.equal(w.loader.mode, status === "loaded" ? "fichiers" : "fallback");
+  }
 });
 
 test("(7) a missing file fails at once, a 503 after exactly one retry; both final", async () => {
@@ -287,6 +322,9 @@ test("(7) a missing file fails at once, a 503 after exactly one retry; both fina
   assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
   assert.equal(await t.loader.ensureSelf("fr:dep:69"), "failed");
   assert.deepEqual(await t.loader.batchSelf(["fr:dep:69"]), ["failed"]);
+  t.loader.prefetch("k", "fr:reg:84");
+  t.loader.prefetch("u", "fr:dep:69");
+  await t.tick(5_000);
   assert.equal(t.requests.length, 0);
   assert.equal(t.loader.mode, "fichiers");
 });
@@ -360,4 +398,17 @@ test("(11) ensureGlobe of three countries: one write", async () => {
   assert.equal(t.requests.length, 3);
   assert.equal(t.writes.length, 1);
   assert.ok(t.store.globeOf("ES") && t.store.loaded("g", "IT"));
+});
+
+test("(12) once the session fell back, a request under way makes no further attempt", async () => {
+  const t = setup({ "u/fr_dep_01": ["html"], "u/fr_dep_03": [503] });
+  await t.boot();
+  const both = Promise.all([t.loader.ensureSelf("fr:dep:01"), t.loader.ensureSelf("fr:dep:03")]);
+  await t.tick(0);
+  assert.equal(t.loader.mode, "fallback");
+  assert.equal(t.requests.length, 3); // 01, its reload confirm, 03
+  await t.tick(5_000); // past 03's retry time
+  assert.deepEqual(await both, ["fallback", "fallback"]);
+  assert.equal(t.requests.length, 3);
+  assert.equal(t.modes.length, 2);
 });
