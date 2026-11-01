@@ -4,7 +4,7 @@ import { HERO_IMAGE as hero, srcFor, srcsetFor } from "./homeImages";
 
 // `ready` once the photograph is shown — or could not be: at once when it is
 // there already (cached, or decoded before this ran), else when it loads or
-// fails. The map card waits for it (useMapCardSlot).
+// fails. The map card's "tot" policy waits for it (useMapCardSlot, testing tools only).
 const emit = defineEmits<{ ready: [] }>();
 
 const heroImg = ref<HTMLImageElement | null>(null);

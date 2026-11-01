@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, toRef } from "vue";
+import { defineAsyncComponent, ref, toRef } from "vue";
 import { useMapCardSlot } from "./useMapCardSlot";
 import { vReveal } from "./vReveal";
 
 const props = defineProps<{
-  /** The hero photograph is shown (HeroSection): the map may load from now on. */
+  /** The hero photograph is shown (HeroSection): what the "tot" policy waits for. */
   heroReady: boolean;
 }>();
 
@@ -12,6 +12,11 @@ const props = defineProps<{
 // card growing into it.
 const mapCard = ref<HTMLElement | null>(null);
 useMapCardSlot(mapCard, toRef(props, "heroReady"));
+
+// The testing tools only: when the card is lent (useMapCardSlot's policies).
+const DevHomeMapSwitch = __TEST_TOOLS__
+  ? defineAsyncComponent(() => import("./DevHomeMapSwitch.vue"))
+  : null;
 </script>
 
 <template>
@@ -49,6 +54,10 @@ useMapCardSlot(mapCard, toRef(props, "heroReady"));
           <span class="spinner"></span>
         </div>
       </div>
+    </div>
+    <!-- Under the card, not in it: the card's link covers all of it. -->
+    <div v-if="DevHomeMapSwitch" class="container-page">
+      <DevHomeMapSwitch />
     </div>
   </section>
 </template>
