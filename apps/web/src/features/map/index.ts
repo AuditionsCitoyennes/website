@@ -5,3 +5,5 @@
 export { default as GeoDrillMap } from "./GeoDrillMap.vue";
 export * from "./types";
 export * from "./events";
+// The plateau lid's DEV switch (the Témoignages page draws it).
+export { lidMode, setLidMode, type LidMode } from "./plateau/lidSwitch";

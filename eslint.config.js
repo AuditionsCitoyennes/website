@@ -104,7 +104,7 @@ export default defineConfigWithVueTs(
     map: ["geo"],
     analyses: ["geo", "map"],
     "geo-nav": ["geo", "map", "analyses", "filters"],
-    temoignages: ["geo-nav", "analyses", "filters"],
+    temoignages: ["geo-nav", "map", "analyses", "filters"],
     "map-stage": ["temoignages", "map"],
     // beside that chain
     filters: [],
