@@ -96,11 +96,6 @@ const getMap = () => map;
 // the country became a plateau scope (its pipeline starts ~1 s into a fresh
 // page, racing the style load); the load handler runs ensurePlateau itself.
 let mapReady = false;
-// The map out of sight — a card further down the home page, loaded ahead of
-// being reached: the halo's self-scheduled frames stop (as for a hidden tab,
-// plateauWall.setPaused), and start again once it is back on screen.
-let offscreen = false;
-let visibilityObserver: IntersectionObserver | null = null;
 let resizeObserver: ResizeObserver | null = null;
 
 // The plateau's violet wall (and the analyses' slabs' pieces): our custom
@@ -151,6 +146,7 @@ const camera = useMapCamera({
   // A real animated flight (or the intro's own tilt) releases the intro: the
   // outline-driven pipeline runs — the rise plays in the flight's tail.
   onIntroReleased: () => void plateau.ensurePlateau(),
+  mapReady: () => mapReady,
   // The same fit run again (a resize, a new padding) lands on another camera:
   // its unit's slabs are sized for it now.
   afterFit: () => slabs.syncSlabs(),
@@ -344,15 +340,6 @@ onMounted(() => {
     });
     resizeObserver.observe(el.value);
 
-    visibilityObserver = new IntersectionObserver((entries) => {
-      const seen = entries.some((e) => e.isIntersecting);
-      const wasOffscreen = offscreen;
-      offscreen = !seen;
-      plateauWall.setPaused(offscreen);
-      if (wasOffscreen && seen) map?.triggerRepaint(); // the halo picks up again
-    });
-    visibilityObserver.observe(el.value);
-
     setTimeout(() => map?.resize(), 0);
     setTimeout(() => map?.resize(), 300);
   } catch (e) {
@@ -392,7 +379,7 @@ window.addEventListener(MAP_MOVED_EVENT, onMapMoved);
 // Teardown, in today's order: the window listener; the pins' pending frames;
 // the camera's padding timer and pointer listeners; the plateau's and the
 // slabs' animations and the theme observer; the plateau pipeline aborted; the
-// lid's hidden map; the observers; the markers; the map itself; the flags;
+// lid's hidden map; the resize observer; the markers; the map itself; the flags;
 // the frame bus; the probes.
 onBeforeUnmount(() => {
   window.removeEventListener(MAP_MOVED_EVENT, onMapMoved);
@@ -403,10 +390,6 @@ onBeforeUnmount(() => {
   plateau.abort(); // abort any in-flight ensurePlateau
   lid.destroy();
   resizeObserver?.disconnect();
-  visibilityObserver?.disconnect();
-  visibilityObserver = null;
-  offscreen = false;
-  plateauWall.setPaused(false);
   resizeObserver = null;
   pins.clear();
   map?.remove();

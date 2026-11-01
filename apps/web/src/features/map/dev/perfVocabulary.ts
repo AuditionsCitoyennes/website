@@ -11,7 +11,7 @@
 //   lieu-pins         a lieu opened → the dots around it placed (useMapPins)
 //
 // Spans: dem.post, plateau.rise, plateau.setGeometry, projection.ringBases,
-// projection.lidBases, tint.setSelection, mask.setData, mask.drapedIndexed,
+// projection.lidBases, tint.setSelection, mask.setData, mask.drapedIndexed, outline.setData,
 // lid.capture, slabs.sync, pins.buildMarkers, vue.hierarchy, vue.outline,
 // vue.mapUnits, vue.deriveScope, pmtiles.firstTiles.
 

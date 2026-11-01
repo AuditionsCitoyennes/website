@@ -61,7 +61,9 @@ export function usePlateau({
   forgetLidExtra,
 }: PlateauInputs) {
   // Whether a plateau is currently standing — the draped hover-fill fallback only
-  // applies when none is (world scope); otherwise the GL sweep owns the highlight.
+  // applies when none stands or is coming (the world, or a scope with no boundary
+  // of its own: DROM régions, non-FR units); otherwise the GL sweep owns the
+  // highlight.
   let plateauActive = false;
   // ---- Plateau elevation: raise the SELECTED area's real map as a flat-topped
   // plateau (custom DEM served by the API). The camera tilts so the relief reads. ----
