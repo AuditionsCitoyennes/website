@@ -41,8 +41,8 @@ const FIXTURES_DIR = new URL("./fixtures/dem/", import.meta.url);
 const GOLDEN = new URL("./demRelief.golden.json", import.meta.url);
 const GROUND_TS = new URL("../../apps/web/src/features/map/relief/demGround.ts", import.meta.url);
 const GOLDEN_MAX_BYTES = 60_000;
-/** Tiles per zoom from z4 up: the edge tiles first, then an even stride over the rest
- *  (planOf). */
+/** Tiles per zoom from z4 up: up to PER_Z - EDGE_ROOM edge tiles, the rest split
+ *  between the plateau and the ground tiles, each by an even stride (planOf). */
 const PER_Z = 24;
 /** Slots per zoom the edge tiles leave to the constant ones. */
 const EDGE_ROOM = 4;
@@ -319,14 +319,16 @@ describe("server parity", () => {
   test("the stored height is the first one posted, unrounded; the key rounds it", async () => {
     const square = FIXTURES.find((f) => f.name === "square")!;
     const { features, polys, tiles } = planOf(square);
-    const first = S.setSelection(features, 37.5);
-    assert.equal(S.setSelection(features, 38), first);
-    assert.equal(await demKey(polys, 38), first);
+    // A key no other test posts (41): the server memoises tiles per version, so
+    // a key rendered before would answer from that memo whatever the store holds.
+    const first = S.setSelection(features, 41.4);
+    assert.equal(S.setSelection(features, 41), first);
+    assert.equal(await demKey(polys, 41), first);
     const top = tiles.find((t) => t.constant === "plateau")!;
     const server = decodeRgbPng(S.renderTile(first, top.z, top.x, top.y)!).rgb;
-    assert.equal((server[0] << 16) | (server[1] << 8) | server[2], 100375);
-    assert.deepEqual([...server.subarray(0, 3)], encodeHeight(37.5));
-    const client = renderDemTile(makeSelection(polys, 37.5), top.z, top.x, top.y);
+    assert.equal((server[0] << 16) | (server[1] << 8) | server[2], 100414);
+    assert.deepEqual([...server.subarray(0, 3)], encodeHeight(41.4));
+    const client = renderDemTile(makeSelection(polys, 41.4), top.z, top.x, top.y);
     assert.ok(Buffer.from(server).equals(client.rgb));
   });
 
