@@ -2,7 +2,9 @@
 // its tile requests in a `blob:` worker, where a relative URL has no base to
 // resolve against: a `/api/dem/…` template fails every tile with "Failed to
 // parse URL" before it reaches the network. Every base URL handed to Mapbox
-// goes through here. Pure: no imports, no DOM (the origin is passed in).
+// must go through here; the TEST_TOOLS `?pmtiles=` probe is the exception: it
+// takes its URL as typed, so type an absolute one. Pure: no imports, no DOM
+// (the origin is passed in).
 
 /** `base` resolved against `origin` (an empty base is the origin itself), with
  *  ONE trailing `/` removed so `${absoluteBase(…)}/api/…` never doubles it.
