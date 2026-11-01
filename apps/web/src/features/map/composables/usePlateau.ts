@@ -7,6 +7,7 @@
 
 import type mapboxgl from "mapbox-gl";
 import type { Bounds, HeightClass } from "@/features/geo";
+import { apiBase } from "@/shared/absoluteUrl";
 import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
@@ -15,7 +16,7 @@ import { createDemSlots, type DemSlot } from "../plateau/demSlots";
 import type { OutlineFC } from "../types";
 import type { usePlateauLid } from "./usePlateauLid";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API_BASE = apiBase(import.meta.env.VITE_API_URL, location.origin);
 
 export interface PlateauInputs {
   getMap: () => mapboxgl.Map | null;
