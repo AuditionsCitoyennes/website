@@ -225,7 +225,14 @@ onMounted(() => {
       // z6 via the experimental custom-layer API), so no projection juggling.
     });
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-left");
-    uninstallProbes = installProbes({ getMap, frames, plateau, lid, slabs });
+    uninstallProbes = installProbes({
+      getMap,
+      frames,
+      plateau,
+      lid,
+      slabs,
+      meshDigest: __TEST_TOOLS__ ? (o) => plateauWall.meshDigest(o) : null,
+    });
 
     // The slabs' opaque lids take the site's card colour, and follow the theme.
     slabs.observeTheme();
