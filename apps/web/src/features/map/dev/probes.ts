@@ -79,12 +79,10 @@ export function installProbes({ getMap, frames, plateau, lid, slabs }: ProbeSour
     };
   };
   if (import.meta.env.DEV) w.__acFrame = frames.probe;
-  const rendersInProbe = (ms = 1000) => rendersIn(getMap(), ms);
-  if (__TEST_TOOLS__ && w.__acPerf) {
-    w.__acPerf.rendersIn = rendersInProbe;
-  }
+  const rendersInProbe = __TEST_TOOLS__ ? (ms = 1000) => rendersIn(getMap(), ms) : null;
+  if (rendersInProbe && w.__acPerf) w.__acPerf.rendersIn = rendersInProbe;
   return () => {
     if (import.meta.env.DEV && w.__acFrame === frames.probe) delete w.__acFrame;
-    if (w.__acPerf?.rendersIn === rendersInProbe) delete w.__acPerf.rendersIn;
+    if (__TEST_TOOLS__ && w.__acPerf?.rendersIn === rendersInProbe) delete w.__acPerf.rendersIn;
   };
 }
