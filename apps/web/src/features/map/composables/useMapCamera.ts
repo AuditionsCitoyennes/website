@@ -484,8 +484,18 @@ export function useMapCamera({
    */
   function beginIntro() {
     const m = getMap();
-    if (introStarted || !introPending || !m) return;
+    if (introStarted || !m) return;
     introStarted = true;
+    if (!introPending) {
+      // An animated flight released the intro already (runCamera) — the home
+      // page's card opened before the basemap was in: no tilt to play, the
+      // flight tilted, but the map is presentable only now. And a release
+      // before the style's load raised nothing (ensurePlateau waits for it):
+      // the plateau goes up now.
+      onReady();
+      onIntroReleased();
+      return;
+    }
     introPending = false;
     // Reveal HERE, not once the plateau is up: the tilt + rise below is a
     // designed entrance, and playing it behind a loading screen would trade
