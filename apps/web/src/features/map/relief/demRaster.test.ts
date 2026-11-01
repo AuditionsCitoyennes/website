@@ -21,6 +21,7 @@ import {
   makeSelection,
   pngDataUrl,
   polysOf,
+  rasterizeMask,
   renderDemTile,
   tileTouches,
   zlibStored,
@@ -188,7 +189,7 @@ test("a tile inside the plateau is constantRgb(height), one outside is constantR
   assert.equal(empty.constant, "ground");
 });
 
-test("the per-polygon box cull renders the same bytes as no cull", () => {
+test("the per-polygon box cull leaves the mask, so the bytes, as no cull does", () => {
   const url = new URL(
     "../../../../../../scripts/parity/fixtures/dem/cull-edge.geojson",
     import.meta.url,
@@ -207,6 +208,11 @@ test("the per-polygon box cull renders the same bytes as no cull", () => {
       [cx8 * s - 1, cy8 * s],
       [cx8 * s, cy8 * s],
     ]) {
+      // The mask, not only the tile: the erosion clears squares this small, so
+      // a cull a few texels too eager would still render the same bytes.
+      const maskOn = rasterizeMask(sel, z, x, y, PAD, true);
+      const maskOff = rasterizeMask(sel, z, x, y, PAD, false);
+      assert.ok(Buffer.from(maskOn).equals(maskOff), `${z}/${x}/${y}: mask`);
       const on = renderDemTile(sel, z, x, y, true);
       const off = renderDemTile(sel, z, x, y, false);
       assert.ok(Buffer.from(on.rgb).equals(off.rgb), `${z}/${x}/${y}`);

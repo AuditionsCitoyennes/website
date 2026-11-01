@@ -139,8 +139,10 @@ export function encodeHeight(h: number): [number, number, number] {
 }
 
 // The selection's inside/outside mask of (SIZE + 2·pad)² texels for one tile:
-// even-odd across the rings of one polygon, the polygons OR-ed.
-function rasterizeMask(
+// even-odd across the rings of one polygon, the polygons OR-ed. Exported for
+// the tests: the box cull must leave the mask itself unchanged, not only the
+// eroded tile.
+export function rasterizeMask(
   sel: DemSelection,
   z: number,
   x: number,
