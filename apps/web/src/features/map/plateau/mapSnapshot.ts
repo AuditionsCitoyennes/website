@@ -1,4 +1,6 @@
 import mapboxgl from "mapbox-gl";
+import type { LidMode } from "./lidSwitch";
+import { lidTier, type LidTier } from "./lidTier";
 
 // One persistent HIDDEN Mapbox map used to snapshot the basemap for the plateau's
 // map-textured top ("lid"). The lid mesh is vector-crisp (it shares the selection's
@@ -46,12 +48,33 @@ function ceilingForDevice(): number {
   return SNAP_PX_CEIL;
 }
 
+/** "ecran": the floor and the ceiling from this window (lidTier.ts), read at
+ *  each ask so a rotated phone or a resized window gets its own. */
+function tierForScreen(): LidTier {
+  return lidTier({
+    innerW: window.innerWidth,
+    innerH: window.innerHeight,
+    dpr: window.devicePixelRatio || 1,
+    deviceMemory: (navigator as { deviceMemory?: number }).deviceMemory,
+    coarse: window.matchMedia?.("(pointer: coarse)").matches ?? false,
+  });
+}
+
+// "ecran": the hidden map is created this small (device px) — the style, its
+// shaders and the workers are what the warm-up is for, not a big drawing
+// buffer — and parked at PARK_CSS css px between shots, its 1-4k px buffer freed.
+const WARM_PX = 512;
+const PARK_CSS = 64;
+
 export class SnapshotManager {
   private map: mapboxgl.Map | null = null;
   private container: HTMLDivElement | null = null;
   private loaded = false;
   private seq = 0;
-  private px = 0;
+  private px = 0; // 0 while parked: the next shot resizes it back
+
+  /** `mode`: "ecran" sizes from the screen and parks; "ancien" is the lid as before. */
+  constructor(private readonly mode: LidMode = "ecran") {}
 
   /**
    * Backing-store size this manager will capture at, given what the caller wants.
@@ -60,9 +83,13 @@ export class SnapshotManager {
    * (GL_MAX_TEXTURE_SIZE — a larger bitmap simply fails to upload).
    */
   private budget(wantPx: number, hardMax: number): number {
-    const ceil = Math.min(ceilingForDevice(), hardMax > 0 ? hardMax : SNAP_PX_FLOOR);
+    const tier =
+      this.mode === "ancien"
+        ? { floor: SNAP_PX_FLOOR, ceiling: ceilingForDevice() }
+        : tierForScreen();
+    const ceil = Math.min(tier.ceiling, hardMax > 0 ? hardMax : SNAP_PX_FLOOR);
     const want = Math.ceil(Math.max(wantPx, 1) / 256) * 256;
-    return Math.max(Math.min(want, ceil), Math.min(SNAP_PX_FLOOR, ceil));
+    return Math.max(Math.min(want, ceil), Math.min(tier.floor, ceil));
   }
 
   private ensureMap(style: string, px: number): mapboxgl.Map {
@@ -107,10 +134,28 @@ export class SnapshotManager {
     this.map.resize();
   }
 
+  /** Free the drawing buffer between shots ("ecran"): the map, its style and
+   *  its workers stay, only the canvas shrinks. */
+  private park() {
+    if (!this.map || !this.container || this.px === 0) return;
+    this.px = 0;
+    this.container.style.width = `${PARK_CSS}px`;
+    this.container.style.height = `${PARK_CSS}px`;
+    this.map.resize();
+  }
+
   /** Create the hidden map ahead of time (style + workers warm), so the first
    *  real capture doesn't pay initialisation. */
   warmup(style: string) {
-    this.ensureMap(style, this.budget(SNAP_PX_FLOOR, SNAP_PX_CEIL));
+    this.ensureMap(
+      style,
+      this.mode === "ancien" ? this.budget(SNAP_PX_FLOOR, SNAP_PX_CEIL) : WARM_PX,
+    );
+  }
+
+  /** The hidden map's drawing-buffer width (device px) — for diagnostics. */
+  hiddenMapPx(): number | null {
+    return this.map?.getCanvas().width ?? null;
   }
 
   /** Backing-store size the next capture would use — for diagnostics. */
@@ -128,6 +173,22 @@ export class SnapshotManager {
     hardMax = SNAP_PX_CEIL,
   ): Promise<Snapshot | null> {
     const seq = ++this.seq;
+    if (this.mode === "ancien") return this.shoot(seq, style, bounds, wantPx, hardMax);
+    try {
+      return await this.shoot(seq, style, bounds, wantPx, hardMax);
+    } finally {
+      // Landed, timed out or blank: park. Superseded: the newer shot owns the map.
+      if (seq === this.seq) this.park();
+    }
+  }
+
+  private async shoot(
+    seq: number,
+    style: string,
+    bounds: SnapshotBounds,
+    wantPx: number,
+    hardMax: number,
+  ): Promise<Snapshot | null> {
     const map = this.ensureMap(style, this.budget(wantPx, hardMax));
     // Wait for the style (first capture only; later ones resolve immediately).
     await this.until(() => this.loaded, 15000);
