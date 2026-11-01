@@ -3,9 +3,10 @@
 // kept in localStorage like the Témoignages page's data source
 // (temoignages/dataSource.ts) and drawn as its DEV switch's "Couvercle" row:
 //
-// - "ecran" (the default): the budget from the screen (lidTier.ts) — every
-//   whole-unit shot at the floor, the refines capped by the ceiling — and the
-//   hidden map warmed up small and parked between shots.
+// - "ecran" (the default): the budget from the screen (lidTier.ts) — a select
+//   that flies the camera shot at the floor, every other shot sized from the
+//   camera between the floor and the ceiling — and the hidden map warmed up
+//   small and parked once idle.
 // - "ancien": the lid as before — a 2048 floor and a 4096 ceiling, every shot
 //   sized from the live camera, the hidden map kept at its last size.
 // - "aucun": no lid at all — no capture, no hidden map; the plateau's top is

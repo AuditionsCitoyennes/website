@@ -1,5 +1,5 @@
-// The plateau lid's budget from the screen (lidTier.ts): the floor of the
-// whole-unit shots and the ceiling of the refines, per device. Run with
+// The plateau lid's budget from the screen (lidTier.ts): the floor of a
+// select's pre-flight shot and the ceiling of the refines, per device. Run with
 // `node --import tsx --test` (root "test:scripts"). Pure: no DOM, no alias at
 // run time.
 

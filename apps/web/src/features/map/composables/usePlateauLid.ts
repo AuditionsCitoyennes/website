@@ -57,10 +57,17 @@ export function usePlateauLid({
   let lidRaised: OutlineFC["features"] = [];
   // The capture running, by key and by number: a superseded capture's end must
   // not clear the newer one's (it would let a refine or a re-run of the same
-  // shot start over it, and cancel it).
+  // shot start over it, and cancel it). `inFlightSeq` is the plateau run it
+  // lands for: a re-run asking for the same shot adopts it (its seq), or the
+  // shot would land tagged with the superseded run and be thrown away.
   let inFlightKey = "";
   let inFlightId = 0;
+  let inFlightSeq = 0;
   let captureCount = 0;
+  // Diagnostics for __acPlateau(): asks skipped because the same shot was
+  // showing or running, and the running shots a newer plateau run adopted.
+  let dedupeSkips = 0;
+  let adopted = 0;
   let lastCapturePx = 0; // backing-store width the last capture asked for
   let lidRecaptureTimer: ReturnType<typeof setTimeout> | null = null;
   // Bounds the current (or in-flight) lid texture covers. Guards against
@@ -140,14 +147,20 @@ export function usePlateauLid({
   }
 
   /** A whole-unit shot: a new selection's, the "Carte" (DEV) one with the slabs. */
-  function captureLid(
+  async function captureLid(
     seq: number,
     raised: OutlineFC["features"],
     over?: Bounds,
     /** Re-shoot even the rectangle already showing (the DEV "Carte" lid). */
     force = false,
   ) {
-    return shootLid(seq, raised, over, force, false);
+    if (force || before) return shootLid(seq, raised, over, force, true);
+    // A select asks from the outline's watcher, which runs before the camera's
+    // (GeoDrillMap): let that flush end, then the flight a list row or a crumb
+    // issues is under way. None (the scope followed a pan or a wheel, or the
+    // outline came after the landing): the live camera is the unit's own.
+    await Promise.resolve();
+    return shootLid(seq, raised, over, false, !!getMap()?.isEasing());
   }
 
   async function shootLid(
@@ -155,8 +168,8 @@ export function usePlateauLid({
     raised: OutlineFC["features"],
     over: Bounds | undefined,
     force: boolean,
-    /** The padded visible slice (a refine), not the whole unit. */
-    slice: boolean,
+    /** Asked before a camera flight: the live camera is not this shot's. */
+    preFlight: boolean,
   ) {
     if (noLid) return;
     if (force) lidTargetKey = "";
@@ -168,11 +181,13 @@ export function usePlateauLid({
     // Resolve the pixel budget HERE so it can go in the identity key below: the
     // same rectangle at a bigger budget is a genuinely sharper texture, and
     // keying on bounds alone would suppress that re-capture as a duplicate.
-    // A whole-unit shot takes the floor, whatever the camera: it is asked for
-    // before the flight, so the live camera is the previous unit's — a zoom-OUT
-    // select (Lyon → Rhône) read the close camera and asked for the ceiling.
-    // A refine is sized from the camera it sharpens for, capped by the ceiling.
-    const wantPx = before || slice ? lidPixelBudget(b) : 0;
+    // A shot asked for before a camera flight (a select from a list row or a
+    // crumb, the DEV "Carte" shot) takes the floor: the live camera is still the
+    // previous unit's — a zoom-OUT select (Lyon → Rhône) read the close camera
+    // and asked for the ceiling. Every other shot (a refine, the widen back, a
+    // scope that followed a pan or a wheel) is sized from the camera it is for,
+    // between the floor and the ceiling.
+    const wantPx = before || !preFlight ? lidPixelBudget(b) : 0;
     const px = snapshotMgr.pixelBudget(wantPx, plateauWall.maxTextureSize);
     // Already showing (or fetching) exactly this rectangle at this resolution →
     // don't cancel it to re-shoot the same thing. Fetching it counts too: before
@@ -180,19 +195,30 @@ export function usePlateauLid({
     // change) asked again and the hidden map dropped the shot to start over.
     const key = `${boundsKey(b)}@${px}`;
     if (key === lidTargetKey && (Number.isFinite(lidMpp) || (!before && inFlightKey === key))) {
+      // The run asking for the shot already running adopts it: it lands for
+      // that run ("ancien" did not, and dropped it as superseded).
+      if (!before && inFlightKey === key) {
+        inFlightSeq = seq;
+        adopted++;
+      }
+      dedupeSkips++;
       return;
     }
     lidTargetKey = key;
     const id = ++captureCount;
     inFlightKey = key;
     inFlightId = id;
+    inFlightSeq = seq;
     lastCapturePx = px;
+    const endCapture = perfOn ? perfSpan("lid.capture", { px, preFlight }) : null;
+    let got = false;
+    let applied = false;
     try {
-      const endCapture = perfOn ? perfSpan("lid.capture", { px }) : null;
       const snap = await snapshotMgr.capture(style, b, px, plateauWall.maxTextureSize);
-      if (endCapture) endCapture({ got: !!snap });
+      got = !!snap;
       if (!snap) return;
-      if (seq !== plateauSeq()) {
+      // The run it lands for: the newest one that asked for it while it ran.
+      if ((inFlightId === id ? inFlightSeq : seq) !== plateauSeq()) {
         snap.bitmap.close();
         return;
       }
@@ -201,9 +227,12 @@ export function usePlateauLid({
       lidCovered = b;
       lidRaised = raised;
       plateauWall.setLidTexture(snap);
+      applied = true;
     } catch {
       /* no lid → status quo (walls + draped terrain) */
     } finally {
+      // `got`: a bitmap came back; `applied`: it is the lid now.
+      if (endCapture) endCapture({ got, applied });
       // "ancien": any capture's end cleared the flag, as before.
       if (before || inFlightId === id) {
         inFlightKey = "";
@@ -270,16 +299,24 @@ export function usePlateauLid({
       clip.maxLat <= lidCovered.maxLat &&
       clip.minLng >= lidCovered.minLng &&
       clip.maxLng <= lidCovered.maxLng;
-    // A capture is a fixed pixel budget over whatever rectangle we ask for, so a
-    // re-shoot only sharpens if the new rectangle is genuinely SMALLER than the
-    // current one. Comparing against the screen alone is canvas-dependent — on a
-    // wide display the snapshot can never beat it, and every settle would fire a
-    // fresh capture forever. Requiring a real improvement makes this self-limiting.
+    // A re-shoot only helps if it is genuinely FINER than the texture showing.
+    // Comparing against the screen alone is canvas-dependent — on a wide display
+    // the snapshot can never beat it, and every settle would fire a fresh capture
+    // forever. Requiring a real improvement makes this self-limiting. "ecran"
+    // compares densities (the slice's ground span over the pixels it would get),
+    // so a lid taken at the floor can refine to the ceiling over the same
+    // rectangle; "ancien" compared the rectangles' spans alone, as before.
     const spanOf = (b: Bounds) => {
       const cos = Math.cos((((b.minLat + b.maxLat) / 2) * Math.PI) / 180) || 1e-6;
       return Math.max((b.maxLng - b.minLng) * cos, b.maxLat - b.minLat);
     };
-    const gain = lidCovered ? spanOf(lidCovered) / Math.max(spanOf(want), 1e-9) : Infinity;
+    const gain = !lidCovered
+      ? Infinity
+      : before
+        ? spanOf(lidCovered) / Math.max(spanOf(want), 1e-9)
+        : lidMpp /
+          (boundsGroundSpanM(want) /
+            snapshotMgr.pixelBudget(lidPixelBudget(want), plateauWall.maxTextureSize));
     const tooCoarse = lidMpp > mpp * LID_REFINE_RATIO;
     const wantsFiner = tooCoarse && gain >= LID_REFINE_RATIO;
     lidRefineBlockedByGain = tooCoarse && !wantsFiner;
@@ -287,7 +324,7 @@ export function usePlateauLid({
     if (covers && !wantsFiner && !tooFine) return;
     // Uncovered or zoomed back out → the whole unit; otherwise the padded slice.
     const whole = tooFine || !covers;
-    void shootLid(plateauSeq(), lidRaised, whole ? sel : want, false, !whole);
+    void shootLid(plateauSeq(), lidRaised, whole ? sel : want, false, false);
   }
 
   function scheduleLidRefresh() {
@@ -326,17 +363,19 @@ export function usePlateauLid({
       // >1 means the lid is COARSER than the screen (blurry top).
       lidCoarserThanScreenBy: Number.isFinite(lidMpp) ? +(lidMpp / vm).toFixed(2) : null,
       lidCovers: boundsOfFeatures(lidRaised),
-      // True when the lid IS too coarse but a refine cannot help: a capture is
-      // a fixed pixel budget over whatever rectangle we ask for, so it only
-      // sharpens if that rectangle shrinks — and there is nothing to shrink to
-      // while the whole selection is on screen. Separates "the refine never
-      // fired" from "the lid is capped at selectionSpan / SNAP_PX".
+      // True when the lid IS too coarse but a refine cannot help: the slice it
+      // would capture is no finer than the texture showing (its rectangle no
+      // smaller, or its pixels already at the ceiling). Separates "the refine
+      // never fired" from "the lid is capped at selectionSpan / SNAP_PX".
       lidRefineBlockedByGain,
       // How the lid is captured (plateau/lidSwitch), what the last capture
       // asked for, and the hidden map's drawing buffer now (small once parked).
       lidMode,
       lidCapturePx: lastCapturePx || null,
       hiddenMapPx: snapshotMgr.hiddenMapPx(),
+      // Asks the in-flight dedupe skipped, and running shots a re-run adopted.
+      lidDedupeSkips: dedupeSkips,
+      lidAdopted: adopted,
     };
   }
 

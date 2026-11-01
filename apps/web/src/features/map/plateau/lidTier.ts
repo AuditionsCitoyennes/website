@@ -5,12 +5,13 @@
 // `matchMedia("(pointer: coarse)")`. Run with `node --import tsx --test`
 // (root "test:scripts").
 //
-// - The floor sizes every whole-unit shot (a selection's, the widen back to it):
-//   a unit framed whole fills about the window's short side, so its device
-//   pixels are what the screen can show of it. 1024 at least (a small window
-//   still zooms in), 2048 at most (today's fixed shot).
-// - The ceiling caps the refines over the visible slice: they ask for 1.7× the
-//   slice (LID_MARGIN on each side, usePlateauLid), so 1.7× the window's width.
+// - The floor sizes a select's shot taken before its camera flight, and is the
+//   least any shot takes: a unit framed whole fills about the window's short
+//   side, so its device pixels are what the screen can show of it. 1024 at
+//   least (a small window still zooms in), 2048 at most (today's fixed shot).
+// - The ceiling caps every shot sized from the camera, the refines over the
+//   visible slice above all: they ask for 1.7× the slice (LID_MARGIN on each
+//   side, usePlateauLid), so 1.7× the window's width.
 //   A phone (a coarse pointer, the short side under 600 css px) stops at 2048:
 //   its tall canvas asks for ~4096 (64 MiB) to sharpen a strip it shows at
 //   ~1179 device px.
