@@ -7,6 +7,11 @@
 // technologies: it cannot tell the card from the page, and on the home page
 // it must not be announced; on the page, GeoNav's curtain announces right
 // after.
+
+// The async wrapper hands its props over (`preview`): declared so that they
+// are not left on the root as attributes, and not used.
+defineOptions({ inheritAttrs: false });
+defineProps<{ preview?: boolean }>();
 </script>
 
 <template>
