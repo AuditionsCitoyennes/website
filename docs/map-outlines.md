@@ -9,10 +9,12 @@ simplify per zoom and per level). Nothing here runs in CI or in production; the
 web reads a released build.
 
 Why Etalab 50 m as delivered works: every département's segment set equals the
-union of its communes (109 of 109, no segment on either side only), every
-région's equals the union of its départements (26 of 26), and Paris, Lyon and
-Marseille equal the union of their arrondissements (the S3 spike's
-`raw-union-all.json`, re-checked by gate 1 of every build).
+union of its communes (109 of 109, no segment on either side only) and every
+région's equals the union of its départements (26 of 26), per the S3 spike's
+`raw-union-all.json`. Paris, Lyon and Marseille equal the union of their
+arrondissements (142, 159 and 726 outer segments, none on one side only): a
+separate check of the Etalab data made while the plan was reviewed, as that
+file holds no city.
 
 ## Files (format v1)
 
@@ -55,19 +57,28 @@ declare the files that exist: the web never probes for one. `lib.ts` exports
 
 ## Running it
 
-Once a year, when Etalab publishes a vintage (download it with
-`scripts/map-data/build-boundaries.sh --steps etalab --etalab-year <year>`):
+Once a year, when Etalab publishes a vintage. `build-boundaries.sh`'s etalab
+step downloads only the files missing from `raw/` and skips itself once done,
+so remove the old files and force it:
 
 ```bash
-scripts/map-data/outlines/build-outlines.sh --build o20261101-1
+rm ~/.cache/ac-map-data/raw/etalab-{regions,departements,communes}-50m.geojson
+scripts/map-data/build-boundaries.sh --out ~/.cache/ac-map-data --steps etalab --etalab-year <year> --force
+scripts/map-data/outlines/build-outlines.sh --build o<YYYYMMDD>-1 --etalab-year <year>
 #   [--out DIR] [--raw DIR] [--fr-tier 1000|300] [--steps prep,simplify,pack] [--force]
 ```
 
+`--etalab-year` (default 2026) is the vintage the manifest's `sources` and
+`NOTICE.txt` name; the manifest also holds the sha256 of each input.
+
 It needs Node (`npx tsx`) and `mapshaper-xl` (`MAPSHAPER=` to point at it).
-Steps leave markers under `<out>/.work/<build>/`; `--force` redoes the steps
-asked for. On this Mac (10 cores, 2026-11-01): prep 2 s, simplify 2 s, pack
-8 s. Two builds from the same inputs are byte-identical but for the
-manifest's `created`.
+Steps run in order and leave markers under `<out>/.work/<build>/`: a step needs
+the one before it done, `--force` redoes the steps asked for, and a step that
+runs again makes the later ones run again. A build id keeps the `--fr-tier`,
+`--etalab-year` and `--raw` it was cut with: another value needs a new
+`--build` (or `--force`, then with every step from prep). On this Mac
+(10 cores, 2026-11-01): prep 2 s, simplify 2 s, pack 8 s. Two builds from the
+same inputs are byte-identical but for the manifest's `created`.
 
 ## Not here
 

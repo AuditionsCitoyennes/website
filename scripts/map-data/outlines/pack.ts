@@ -2,7 +2,7 @@
 // the files of format v1 (docs/map-outlines.md). `pack()` is pure (the
 // fixture test runs it); the CLI reads <work>, writes <out>/<build>/ and the
 // references check.ts compares the régions with.
-//   npx tsx pack.ts <work-dir> <out-dir> <build> <fr-tier-metres> <mapshaper-version>
+//   npx tsx pack.ts <work-dir> <out-dir> <build> <fr-tier-metres> <etalab-year> <mapshaper-version>
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -198,7 +198,14 @@ const geometries = (file: string): { props: Record<string, string>; g: Geometry 
     return { props: o.properties ?? {}, g };
   });
 
-function main(work: string, out: string, build: string, frTolM: number, mapshaper: string) {
+function main(
+  work: string,
+  out: string,
+  build: string,
+  frTolM: number,
+  etalabYear: string,
+  mapshaper: string,
+) {
   const P = (f: string) => path.join(work, "prep", f);
   const S = (f: string) => path.join(work, "simp", f);
   const units = (file: string) => readNdjson(file).map(unitOf);
@@ -253,7 +260,7 @@ function main(work: string, out: string, build: string, frTolM: number, mapshape
       `Auditions Citoyennes — administrative outlines, build ${build}`,
       "",
       "France (régions, départements, communes, arrondissements municipaux):",
-      "Etalab / IGN contours-administratifs 2026, 50 m generalisation",
+      `Etalab / IGN contours-administratifs ${etalabYear}, 50 m generalisation`,
       "(https://etalab-datasets.geo.data.gouv.fr/contours-administratifs/),",
       "under the Licence Ouverte / Open Licence 2.0 (https://www.etalab.gouv.fr/licence-ouverte-open-licence/).",
       "Derived work: coordinates rounded to 5 decimals; France's outline, the",
@@ -270,7 +277,7 @@ function main(work: string, out: string, build: string, frTolM: number, mapshape
     v: 1,
     build,
     created: new Date().toISOString(),
-    sources: { etalab: "2026/50m" },
+    sources: { etalab: `${etalabYear}/50m` },
     inputs: JSON.parse(fs.readFileSync(P("inputs.json"), "utf8")),
     mapshaper,
     counts: {
@@ -293,6 +300,6 @@ function main(work: string, out: string, build: string, frTolM: number, mapshape
 }
 
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
-  const [work, out, build, frTolM, mapshaper] = process.argv.slice(2);
-  main(work, out, build, Number(frTolM), mapshaper);
+  const [work, out, build, frTolM, etalabYear, mapshaper] = process.argv.slice(2);
+  main(work, out, build, Number(frTolM), etalabYear, mapshaper);
 }
