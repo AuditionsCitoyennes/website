@@ -134,9 +134,9 @@ export const G_FILL_VS = `attribute vec3 aMerc;
     gl_Position = morphProject(aMerc, aEcefLo, aEcefHi);
   }`;
 
-// ---- the halo: a glow ribbon fading outward from the wall's foot, with a
-// breathing swell whose phase drifts outward (a continuous sine — a fract()
-// ramp gives hard moving fronts that read as spikes) ----
+// ---- the halo: a static glow ribbon fading outward from the wall's foot (it used
+// to breathe with a 2.6 s swell, which forced a repaint ~25 times a second for as
+// long as a plateau stood) ----
 export const HALO_VS = `attribute vec3 aPos;
   attribute float aDist;
   uniform mat4 uMatrix;
@@ -148,10 +148,10 @@ export const HALO_VS = `attribute vec3 aPos;
   }`;
 export const HALO_FS = `precision highp float;
   varying float vD;
-  uniform float uPulseT;
   void main() {
-    float wave = 0.5 + 0.5 * sin(6.2831853 * (uPulseT - vD * 0.4));
-    float a = pow(1.0 - vD, 1.6) * (0.22 + 0.4 * wave);
+    // 0.42 is the time-average of the former swell (0.22 + 0.4 * wave, the wave
+    // averaging 0.5; trough 0.22, peak 0.62)
+    float a = pow(1.0 - vD, 1.6) * 0.42;
     gl_FragColor = vec4(0.486, 0.361, 1.0, 1.0) * a;
   }`;
 export const G_HALO_VS = `attribute vec3 aMerc;

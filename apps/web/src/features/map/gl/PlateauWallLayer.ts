@@ -70,9 +70,6 @@ import {
 // just exact world-space geometry. The DEM is eroded inward server-side, so the
 // terrain wall is always recessed behind this sheet. Height rise/sink is a single
 // uniform (uScale) — animated without touching the geometry.
-// Pace for the halo's self-scheduled frames (~25 Hz). The pulse is a slow 2.6 s
-// ribbon, so it reads identically here, but the map gets real idle frames back.
-const PULSE_FRAME_MS = 40;
 
 // ---- The analyses' slabs' pieces (PlateauWallLayer.setSlabs) ----------------------
 
@@ -228,28 +225,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     { g: { type?: string; coordinates?: unknown }; altM: number; raised: boolean }
   >();
   private fillOrigin: [number, number] | null = null;
-  private pulseTimer = 0;
-  /** The map out of sight (setPaused): the halo's self-scheduled frames stop. */
-  private paused = false;
-
-  /**
-   * The halo's pulse drives itself: calling triggerRepaint() from inside render()
-   * schedules another rAF, which re-enters render() — a loop with no exit, so once
-   * a plateau stands the map NEVER goes idle again (verified in mapbox-gl:
-   * _triggerFrame clears this._frame before invoking _render, so a repaint
-   * requested during render always queues the next frame). That pinned the whole
-   * map — placement, elevation sampling, every layer, MSAA — at display rate
-   * while the user was just reading, leaving no headroom for panning or hover.
-   * Pacing the self-scheduled frames keeps the animation while giving the machine
-   * real idle time. The draw itself is untouched: it stays load-bearing.
-   */
-  private requestPulseFrame() {
-    if (this.pulseTimer || document.hidden || this.paused) return;
-    this.pulseTimer = window.setTimeout(() => {
-      this.pulseTimer = 0;
-      this.map?.triggerRepaint();
-    }, PULSE_FRAME_MS);
-  }
 
   /**
    * Build the hover-fill mesh for ONE unit, on demand. Only the hovered unit is
@@ -314,8 +289,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // Whether the snapshotted fill came from a RAISED (focus) unit — ground
   // retracts keep the depth test so they stay hidden behind the plateau.
   private retractRaised = true;
-  // Pulsing halo on the SELECTED scope's boundary: a band from the wall base
-  // outward, with a ripple traveling away from the plateau.
+  // Halo on the SELECTED scope's boundary: a static glow band from the wall
+  // base outward.
   private haloPositions = new Float32Array(0);
   private gHaloPositions = new Float32Array(0);
   private haloBuffer: WebGLBuffer | null = null;
@@ -603,16 +578,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
-  /**
-   * The map out of sight — a card further down the home page, loaded ahead of
-   * being reached (the component's IntersectionObserver): the halo's
-   * self-scheduled frames stop, as for a hidden tab, and start again once it
-   * is back on screen (the component repaints then).
-   */
-  setPaused(paused: boolean) {
-    this.paused = paused;
-  }
-
   /** Highlight (or clear) the hovered unit's fill (restarts the inward sweep). */
   setHovered(id: string) {
     if (this.hoveredFillId === id) return;
@@ -623,7 +588,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   }
 
   /** Sweep progress ∈ [0, 1.15]: threshold past 1+feather so the fill completes.
-   *  Keeps repainting until done. */
+   *  Keeps repainting until done. NB triggerRepaint() from inside render() always
+   *  queues another frame (mapbox clears _frame before _render), so only BOUNDED
+   *  loops may do it, like this sweep and the retract's; an unbounded one never lets
+   *  the map rest (the halo pulse once did, later paced at 25 Hz from a timer). */
   private fillSweepT(): number {
     const t = Math.min(1.15, ((performance.now() - this.hoverT0) / 133) * 1.15);
     if (t < 1.15) this.map?.triggerRepaint();
@@ -654,7 +622,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
-  /** Reverse-sweep threshold: 1.15 → −0.13 over ~350 ms; deactivates at the end. */
+  /** Reverse-sweep threshold: 1.15 → −0.13 over ~117 ms; deactivates at the end. */
   private retractT(): number {
     const t = 1.15 - ((performance.now() - this.retractT0) / 117) * 1.28;
     if (t <= -0.13) {
@@ -1219,22 +1187,15 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.gHovBuffer = gl.createBuffer();
     this.retractBuffer = gl.createBuffer();
     this.gRetractBuffer = gl.createBuffer();
-    // Halo programs: a continuous glow ribbon fading outward from the wall base,
-    // with a smooth breathing swell whose phase drifts outward (a continuous
-    // sine — a fract() ramp gives hard moving fronts that read as spikes).
-    this.haloProg = buildProgram(
-      gl,
-      HALO_VS,
-      HALO_FS,
-      ["aPos", "aDist"],
-      ["uMatrix", "uScale", "uPulseT"],
-    );
+    // Halo programs: a static glow ribbon fading outward from the wall base (no
+    // time uniform, no self-scheduled repaint).
+    this.haloProg = buildProgram(gl, HALO_VS, HALO_FS, ["aPos", "aDist"], ["uMatrix", "uScale"]);
     this.gHaloProg = buildProgram(
       gl,
       G_HALO_VS,
       HALO_FS,
       ["aMerc", "aEcefLo", "aEcefHi", "aDist"],
-      [...GLOBE_UNIS, "uPulseT"],
+      GLOBE_UNIS,
     );
     this.haloBuffer = gl.createBuffer();
     this.gHaloBuffer = gl.createBuffer();
@@ -1269,10 +1230,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   }
 
   onRemove(_map: mapboxgl.Map, gl: WebGL2RenderingContext) {
-    if (this.pulseTimer) {
-      clearTimeout(this.pulseTimer);
-      this.pulseTimer = 0;
-    }
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
     if (this.lidProgram) gl.deleteProgram(this.lidProgram);
@@ -1636,7 +1593,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       gl.enable(gl.DEPTH_TEST);
     }
 
-    // ---- pulsing halo (continuous ribbon from the wall base outward) ----
+    // ---- halo (static ribbon from the wall base outward) ----
     if (this.haloProg && this.haloBuffer && this.haloVertexCount && this.scale >= 0.15) {
       const p = this.haloProg;
       gl.useProgram(p.prog);
@@ -1647,13 +1604,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       }
       gl.uniformMatrix4fv(p.uni.uMatrix, false, mat);
       gl.uniform1f(p.uni.uScale, this.scale);
-      gl.uniform1f(p.uni.uPulseT, (performance.now() / 2600) % 1);
       gl.enableVertexAttribArray(p.attr.aPos);
       gl.vertexAttribPointer(p.attr.aPos, 3, gl.FLOAT, false, 16, 0);
       gl.enableVertexAttribArray(p.attr.aDist);
       gl.vertexAttribPointer(p.attr.aDist, 1, gl.FLOAT, false, 16, 12);
       gl.drawArrays(gl.TRIANGLES, 0, this.haloVertexCount);
-      this.requestPulseFrame(); // the pulse is continuous — but paced, not rAF-bound
     }
     // ---- the words' glass boxes (their lids' depth, their walls), then the
     // slabs' glow, the plateau's ----
@@ -1816,13 +1771,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.slabHaloBuf);
     gl.uniformMatrix4fv(p.uni.uMatrix, false, mat);
     gl.uniform1f(p.uni.uScale, ss);
-    gl.uniform1f(p.uni.uPulseT, (performance.now() / 2600) % 1);
     gl.enableVertexAttribArray(p.attr.aPos);
     gl.vertexAttribPointer(p.attr.aPos, 3, gl.FLOAT, false, 16, 0);
     gl.enableVertexAttribArray(p.attr.aDist);
     gl.vertexAttribPointer(p.attr.aDist, 1, gl.FLOAT, false, 16, 12);
     gl.drawArrays(gl.TRIANGLES, 0, this.slabHaloCount);
-    this.requestPulseFrame();
   }
 
   /** The globe-regime draw: same three passes, positions morphed sphere↔mercator
@@ -1968,7 +1921,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (this.retractActive && this.retractRaised) drawRetract();
     drawLines(true);
 
-    // ---- pulsing halo (continuous ribbon from the wall base outward) ----
+    // ---- halo (static ribbon from the wall base outward) ----
     if (this.gHaloProg && this.gHaloBuffer && this.haloVertexCount && this.scale >= 0.15) {
       const hp = this.gHaloProg;
       setCommon(hp);
@@ -1980,9 +1933,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       bindTriple(hp, 40);
       gl.enableVertexAttribArray(hp.attr.aDist);
       gl.vertexAttribPointer(hp.attr.aDist, 1, gl.FLOAT, false, 40, 36);
-      gl.uniform1f(hp.uni.uPulseT, (performance.now() / 2600) % 1);
       gl.drawArrays(gl.TRIANGLES, 0, this.haloVertexCount);
-      this.requestPulseFrame(); // the pulse is continuous — but paced, not rAF-bound
     }
   }
 
@@ -2063,7 +2014,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       bindTriple(hp, 40);
       gl.enableVertexAttribArray(hp.attr.aDist);
       gl.vertexAttribPointer(hp.attr.aDist, 1, gl.FLOAT, false, 40, 36);
-      gl.uniform1f(hp.uni.uPulseT, (performance.now() / 2600) % 1);
       gl.drawArrays(gl.TRIANGLES, 0, this.slabHaloCount);
     }
     const p = this.gSlabPieceProg;
