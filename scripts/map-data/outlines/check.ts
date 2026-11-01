@@ -12,10 +12,12 @@ import {
   MAX_FILES,
   MAX_FILE_BYTES,
   MAX_SELF_VERTICES,
+  bboxOf,
   coincidence,
   isSubset,
   keyOf,
   polygonsOf,
+  ringArea,
   ringProblems,
   segmentKeys,
   setDiff,
@@ -229,7 +231,8 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
   }
   gate("4 ids", g4);
 
-  // 5. Closure: every flag has its file, every file a flag; rows match their self files.
+  // 5. Closure: every flag has its file, every file a flag; rows match their self
+  // files (u/, else k/), and a file has wrap when its own geometry needs it.
   const g5: string[] = [...shape];
   const declared = new Set<string>();
   const flag = (what: string, id: string, kind: "k" | "u" | "g", on: 0 | 1 | undefined) => {
@@ -242,17 +245,19 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
   };
   for (const r of root.units) {
     (["k", "u", "g"] as const).forEach((kind) => flag("row", r.id, kind, r[kind]));
-    const s = outlines.get(`u/${keyOf(r.id)}.json`) ?? outlines.get(`k/${keyOf(r.id)}.json`);
+    const kind = outlines.has(`u/${keyOf(r.id)}.json`) ? "u" : "k";
+    const s = outlines.get(`${kind}/${keyOf(r.id)}.json`);
     if (s && (s.tier !== r.st || JSON.stringify(s.self.bbox) !== JSON.stringify(r.bbox)))
       g5.push(`row ${r.id}: st ${r.st} / bbox against ${s.tier} / ${JSON.stringify(s.self.bbox)}`);
-    for (const kind of ["k", "u", "g"]) {
-      const f = outlines.get(`${kind}/${keyOf(r.id)}.json`);
-      if (f && (f.wrap === 1) !== (r.wrap === 1))
-        g5.push(`row ${r.id}: wrap ${r.wrap ?? 0} but ${kind}/ has ${f.wrap ?? 0}`);
-    }
+    // A g/ is another run: a polygon its u/ moved may be gone there (UM at 3000 m).
+    if (s && (s.wrap === 1) !== (r.wrap === 1))
+      g5.push(`row ${r.id}: wrap ${r.wrap ?? 0} but ${kind}/ has ${s.wrap ?? 0}`);
   }
   for (const [p, f] of outlines) {
     if (f.self.n !== vertexCount(f.self.g)) g5.push(`${p}: self.n ${f.self.n}`);
+    const needs = needsWrap(f.self.g);
+    if ((f.wrap === 1) !== needs)
+      g5.push(`${p}: wrap ${f.wrap ?? 0} but its geometry needs ${needs ? 1 : 0}`);
     if (f.kind !== "k") continue;
     for (const u of f.units) {
       flag(`entry of ${p}`, u.id, "k", u.k);
@@ -284,6 +289,20 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
   return { gates, warnings, parents, heaviest: { self: top(selfN), bundle: top(bundleN) } };
 }
 
+/**
+ * What `wrap` says of a geometry (unwrap() in lib.ts): a longitude past ±180,
+ * or a largest polygon that spans the antimeridian itself (Antarctica).
+ */
+function needsWrap(g: Geometry): boolean {
+  const [w, , e] = bboxOf(g);
+  if (w < -180 || e > 180) return true;
+  const largest = polygonsOf(g).reduce((a, p) =>
+    Math.abs(ringArea(p[0])) > Math.abs(ringArea(a[0])) ? p : a,
+  );
+  const [lo, , hi] = bboxOf({ type: "Polygon", coordinates: [largest[0]] });
+  return hi - lo > 180;
+}
+
 // ---- CLI ------------------------------------------------------------------------
 
 function duckdbInvalid(work: string, outlines: Map<string, unknown>): string[] {
@@ -312,6 +331,20 @@ function duckdbInvalid(work: string, outlines: Map<string, unknown>): string[] {
   const rows: { key: string; reason: string }[] = out ? JSON.parse(out) : [];
   console.log(`check: ST_IsValid over ${lines.length} distinct geometries, ${rows.length} invalid`);
   return rows.map((r) => `${r.key}: ${r.reason}`);
+}
+
+/** The km² two geometries share (DuckDB's spheroid area); null when DuckDB fails. */
+function duckdbOverlapKm2(work: string, a: Geometry, b: Geometry): number | null {
+  const file = path.join(work, "overlap.ndjson");
+  const lines = [a, b].map((g, i) => JSON.stringify({ key: `${i}`, g: JSON.stringify(g) }));
+  fs.writeFileSync(file, lines.join("\n") + "\n");
+  const sql = `LOAD spatial; SET geometry_always_xy = true; WITH t AS (SELECT key, ST_GeomFromGeoJSON(g) AS geom FROM read_json('${file}', format = 'newline_delimited', columns = {key: 'VARCHAR', g: 'VARCHAR'})) SELECT ST_Area_Spheroid(ST_Intersection(a.geom, b.geom)) / 1e6 AS km2 FROM t a, t b WHERE a.key = '0' AND b.key = '1';`;
+  try {
+    const res = execFileSync("duckdb", ["-no-agent", "-json", "-c", sql], { encoding: "utf8" });
+    return (JSON.parse(res) as { km2: number }[])[0].km2;
+  } catch {
+    return null; // gate 7 never fails the build
+  }
 }
 
 async function main(work: string, out: string, build: string) {
@@ -368,10 +401,19 @@ async function main(work: string, out: string, build: string) {
       .filter((r) => r.wrap && r.bbox[2] - r.bbox[0] >= 359)
       .map((r) => `${r.id}: its largest polygon spans ±180, kept as delivered (wrap, 360°)`),
     `unwrapped (wrap): ${root.units
-      .filter((r) => r.wrap)
+      .filter((r) => r.wrap && r.bbox[2] - r.bbox[0] < 359)
       .map((r) => r.id)
       .join(" ")}`,
   ];
+  const [taaf, aq] = ["k/fr_reg_984.json", "u/AQ.json"].map(
+    (p) => (files.get(p) as OutlineFileV1 | undefined)?.self,
+  );
+  if (taaf && aq) {
+    const km2 = duckdbOverlapKm2(work, taaf.g, aq.g);
+    oddities.push(
+      `${taaf.id} (TAAF, Adélie Land) overlaps AQ over ${km2 === null ? "an area DuckDB could not measure" : `${Math.round(km2).toLocaleString("en")} km²`}`,
+    );
+  }
   for (const o of oddities) console.log(`check: oddity: ${o}`);
   const exact = res.parents.filter((r) => r.segmentsEqual && r.sharedPct === 100).length;
   console.log(

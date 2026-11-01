@@ -85,7 +85,7 @@ const expected = {
   countryIds: countries.map((c) => c.id),
 };
 
-function build(): Map<string, unknown> {
+function build(more: CountryInput[] = []): Map<string, unknown> {
   const { files } = pack({
     build: "o20261102-1",
     fr: { tolM: 1000, self: cell(0, 0, 3, 1), regions },
@@ -95,7 +95,7 @@ function build(): Map<string, unknown> {
     communes,
     arrondissements,
     families: new Map(),
-    countries,
+    countries: [...countries, ...more],
   });
   // A deep copy the broken cases may change.
   return new Map([...files].map(([p, f]) => [p, JSON.parse(JSON.stringify(f))]));
@@ -242,6 +242,20 @@ test("gate 5 names a missing g/ file and a wrap flag its file lacks", () => {
   const offenders = failed(run(files), "5");
   assert.ok(offenders.includes("row MC: g=1 but g/MC.json is missing"));
   assert.ok(offenders.includes("row UM: wrap 1 but u/ has 0"));
+});
+
+test("gate 5 reads a row's wrap from its u/, and each file's from its own geometry", () => {
+  // Fiji-like: its piece east of 180 moves at c30 and is gone from the 3000 m run.
+  const fj = country("FJ", cell(178.5, -17, 179.5, -16.5), cell(-179.5, -17, -179, -16.5));
+  fj.runs.set(3000, unwrap(cell(178.5, -17, 179.5, -16.5)));
+  const files = build([fj]);
+  const row = (files.get("root.json") as RootV1).units.find((r) => r.id === "FJ")!;
+  assert.equal(`${row.st} ${row.wrap}`, "c30 1");
+  assert.equal((files.get("g/FJ.json") as OutlineFileV1).wrap, undefined);
+  const res = run(files);
+  assert.equal(res.gates.filter((g) => !g.ok).length, 0, JSON.stringify(res.gates));
+  (files.get("g/FJ.json") as OutlineFileV1).wrap = 1;
+  assert.deepEqual(failed(run(files), "5"), ["g/FJ.json: wrap 1 but its geometry needs 0"]);
 });
 
 test("gate 6 names a longitude past 180 without wrap", () => {
