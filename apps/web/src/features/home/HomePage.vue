@@ -12,7 +12,8 @@ import AuditionsSection from "./AuditionsSection.vue";
 const stage = useMapStage();
 
 // The hero photograph is shown (or could not be): from then on the map may
-// load into its card (TestimoniesSection) — it must not compete with it.
+// load into its card under the "tot" policy (useMapCardSlot) — it must not
+// compete with it.
 const heroReady = ref(false);
 </script>
 

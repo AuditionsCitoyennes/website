@@ -7,6 +7,8 @@ import { loadTemoignagesExplorer } from "@/features/temoignages";
 import { useMapStage } from "./useMapStage";
 import { useCardOpenGestures } from "./useCardOpenGestures";
 import { grown, nextFrame, pageRect } from "./openTransition";
+import StageLoading from "./StageLoading.vue";
+import StageFailed from "./StageFailed.vue";
 
 // The one testimonies map (see useMapStage): mounted in whichever place a page
 // lends it — the home page's card, or /temoignages — and moved, not rebuilt,
@@ -14,7 +16,14 @@ import { grown, nextFrame, pageRect } from "./openTransition";
 // lifted out of the card (fixed, where the card was), grows to the page's
 // area while the home page fades away, and the route changes under it.
 
-const Temoignages = defineAsyncComponent(loadTemoignagesExplorer);
+// Its code comes once a place is lent; until then the stage shows the map's
+// own curtain (StageLoading) — in the card, growing, on the page alike.
+const Temoignages = defineAsyncComponent({
+  loader: loadTemoignagesExplorer,
+  loadingComponent: StageLoading,
+  errorComponent: StageFailed,
+  delay: 0,
+});
 
 const stage = useMapStage();
 const router = useRouter();
@@ -187,6 +196,8 @@ async function open() {
   /* The card's own corners (HomePage's .map-card), at first. */
   border-radius: 1.5rem;
   box-shadow: var(--shadow-2xl);
+  /* Never see-through, whatever is in it yet: under a live map, never seen. */
+  background: hsl(var(--background));
 }
 
 .map-stage--growing {
