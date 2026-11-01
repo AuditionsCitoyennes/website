@@ -21,13 +21,16 @@ type Probes = {
 };
 
 /** Idleness check: request one repaint, then count the map's `render` events over
- *  `ms`. A map with a plateau standing and nothing moving renders that one frame
- *  and falls idle: `{ renders: 1, idleFired: true }`. Anything that repaints by
- *  itself shows as more renders and `idleFired: false`. */
+ *  `ms`. Read the verdict from `renders`: an idle map renders a small fixed number
+ *  of frames (1-2) whatever `ms` is, while a self-repainting map's count grows with
+ *  `ms` (about ms/40 for the old 25 Hz halo loop). `idleFired` only shows the map
+ *  can reach idle at all: a timer-paced loop lets it fire between its frames too.
+ *  `map: false` means no map was mounted (then `renders` is 0, `idleFired` false). */
 function rendersIn(
-  map: mapboxgl.Map,
+  map: mapboxgl.Map | null,
   ms: number,
-): Promise<{ renders: number; idleFired: boolean }> {
+): Promise<{ renders: number; idleFired: boolean; map: boolean }> {
+  if (!map) return Promise.resolve({ renders: 0, idleFired: false, map: false });
   return new Promise((resolve) => {
     let renders = 0;
     let idleFired = false;
@@ -41,7 +44,7 @@ function rendersIn(
     setTimeout(() => {
       map.off("render", onRender);
       map.off("idle", onIdle);
-      resolve({ renders, idleFired });
+      resolve({ renders, idleFired, map: true });
     }, ms);
   });
 }
@@ -54,7 +57,7 @@ export interface ProbeSources {
   slabs: Pick<ReturnType<typeof usePlateauSlabs>, "probe">;
 }
 
-/** Install the probes; returns what unmount calls (the frame probe is removed,
+/** Install the probes; returns what unmount calls (the frame and idleness probes are removed,
  *  the others stay, as before). */
 export function installProbes({ getMap, frames, plateau, lid, slabs }: ProbeSources): () => void {
   const w = window as unknown as Probes;
@@ -76,13 +79,12 @@ export function installProbes({ getMap, frames, plateau, lid, slabs }: ProbeSour
     };
   };
   if (import.meta.env.DEV) w.__acFrame = frames.probe;
+  const rendersInProbe = (ms = 1000) => rendersIn(getMap(), ms);
   if (__TEST_TOOLS__ && w.__acPerf) {
-    w.__acPerf.rendersIn = (ms = 1000) => {
-      const m = getMap();
-      return m ? rendersIn(m, ms) : Promise.resolve({ renders: 0, idleFired: false });
-    };
+    w.__acPerf.rendersIn = rendersInProbe;
   }
   return () => {
     if (import.meta.env.DEV && w.__acFrame === frames.probe) delete w.__acFrame;
+    if (w.__acPerf?.rendersIn === rendersInProbe) delete w.__acPerf.rendersIn;
   };
 }

@@ -590,8 +590,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   /** Sweep progress ∈ [0, 1.15]: threshold past 1+feather so the fill completes.
    *  Keeps repainting until done. NB triggerRepaint() from inside render() always
    *  queues another frame (mapbox clears _frame before _render), so only BOUNDED
-   *  loops may do it, like this sweep and the retract's: the old halo pulse did it
-   *  without end and pinned the map at 25 Hz, never idle. */
+   *  loops may do it, like this sweep and the retract's; an unbounded one never lets
+   *  the map rest (the halo pulse once did, later paced at 25 Hz from a timer). */
   private fillSweepT(): number {
     const t = Math.min(1.15, ((performance.now() - this.hoverT0) / 133) * 1.15);
     if (t < 1.15) this.map?.triggerRepaint();

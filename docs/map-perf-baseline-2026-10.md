@@ -69,7 +69,7 @@ The API's département merge, measured apart with curl on the same API (the unio
 
 What this says for the plan: on a laptop the map is not CPU-bound; its latency is the animations (450 ms of sink + rise), the server-rendered DEM, the département merge when cold, and the lid snapshot. The one main-thread hot spot phase 2 removes by moving triangulation to a worker is the département mesh (60–70 ms frames). The phones decide the rest: §4.
 
-Since the halo became static (2026-11), a standing plateau leaves the map idle: in headless Chrome on software GL, a plateau that stands with nothing moving renders 0 frames in 3 s (before: 9–29, one frame per 40 ms timer plus the frame's own cost, so up to 25 Hz on a real GPU) and the map reaches `idle` again; `__acPerf.rendersIn(ms)` (testing tools) re-checks it on any device. The phone runs of §4 therefore compare against an idle map, not against a map repainting by itself.
+Since the halo became static (2026-11), a standing plateau leaves the map idle: in headless Chrome on software GL, a plateau that stands with nothing moving renders 0 frames in 3 s (before: 9–29, one frame per 40 ms timer plus the frame's own cost, so up to 25 Hz on a real GPU) and the map stops redrawing; `__acPerf.rendersIn(ms)` (testing tools) re-checks it on any device. The phone runs of §4 therefore compare against an idle map, not against a map repainting by itself.
 
 ## 3. The boundary tileset (Overture + Etalab → PMTiles)
 

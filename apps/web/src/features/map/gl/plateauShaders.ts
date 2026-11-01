@@ -136,7 +136,7 @@ export const G_FILL_VS = `attribute vec3 aMerc;
 
 // ---- the halo: a static glow ribbon fading outward from the wall's foot (it used
 // to breathe with a 2.6 s swell, which forced a repaint ~25 times a second for as
-// long as a plateau stood, so the map never went idle) ----
+// long as a plateau stood) ----
 export const HALO_VS = `attribute vec3 aPos;
   attribute float aDist;
   uniform mat4 uMatrix;
