@@ -11,6 +11,7 @@ import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
+import { createDemSlots, type DemSlot } from "../plateau/demSlots";
 import type { OutlineFC } from "../types";
 import type { usePlateauLid } from "./usePlateauLid";
 
@@ -73,7 +74,7 @@ export function usePlateau({
   let plateauSeq = 0; // guards overlapping ensurePlateau runs (fast drills)
   // Double-buffered DEM source slots: the NEW selection's tiles prefetch in the spare
   // slot while the old plateau is still sinking, so the rise starts without waiting.
-  let terrainSrc: "plateau-dem-a" | "plateau-dem-b" = "plateau-dem-a";
+  let terrainSrc: DemSlot = "plateau-dem-a";
 
   // setTerrain with the exaggeration transition ZEROED. Terrain exaggeration is a
   // transitionable style property (default ~300 ms ease): each per-frame setTerrain
@@ -88,26 +89,11 @@ export function usePlateau({
     } as unknown as mapboxgl.TerrainSpecification);
   }
 
-  // Removing a raster-dem source in the SAME tick as a terrain change crashes
-  // inside mapbox's updateTerrain on globe with fragment styles ("Cannot read
-  // properties of undefined (reading 'get')") — hit both when a swap replaced the
-  // fragment's own terrain (after a teardown's setTerrain(null)) and when it
-  // replaced ours. So old DEM slots are dropped LATER, in a terrain-quiet frame,
-  // guarded and swallowed: a stale resident source is harmless, a crashed pipeline
-  // is not. The prefetch's synchronous removal of the SPARE slot stays (no terrain
-  // mutation in that tick, and the slot must be free for addSource).
-  function dropDemSourceSoon(id: string) {
-    window.setTimeout(() => {
-      const map = getMap();
-      try {
-        if (map && terrainSrc !== id && map.getTerrain()?.source !== id && map.getSource(id)) {
-          map.removeSource(id);
-        }
-      } catch {
-        /* leave it resident — retried implicitly on the next swap into this slot */
-      }
-    }, 500);
-  }
+  // The slots' lifecycle (plateau/demSlots): the slot a swap left is dropped
+  // LATER, once a frame has rendered since the swap. The prefetch's removal of
+  // the SPARE slot stays synchronous (no terrain mutation in that tick, and the
+  // slot must be free for addSource), after one frame on a fast drill.
+  const slots = createDemSlots({ getMap, terrainSrc: () => terrainSrc });
 
   // The `dem.tilesReady` probe (testing tools only): a DEM slot's addSource →
   // the first of its tile events after which the source is loaded. Not its
@@ -395,10 +381,16 @@ export function usePlateau({
       const wb = boundsOfFeatures(raised);
       const zCanon = wb ? canonicalDemZoom(wb) : 12;
       if (wb) warmDemTiles(version, wb, zCanon);
-      const next = terrainSrc === "plateau-dem-a" ? "plateau-dem-b" : "plateau-dem-a";
+      const next: DemSlot = terrainSrc === "plateau-dem-a" ? "plateau-dem-b" : "plateau-dem-a";
+      // A fast drill: the last swap left `next` and no frame has rendered since,
+      // so mapbox's evaluated terrain may still name it — one frame first (≤ 1 s).
+      if (slots.spareNeedsFrame(next)) {
+        await slots.waitForFrame(map);
+        map = getMap();
+        if (seq !== plateauSeq || !map) return;
+      }
       if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
-      if (map.getSource(next)) map.removeSource(next);
-      map.addSource(next, {
+      slots.addDemSlot(map, next, {
         type: "raster-dem",
         tiles: [`${API_BASE}/api/dem/${version}/{z}/{x}/{y}`],
         tileSize: 256,
@@ -443,8 +435,9 @@ export function usePlateau({
         const oldSrc = terrainSrc;
         terrainSrc = next;
         setTerrainRaw(next, terrainExag);
+        slots.swapped(map, oldSrc);
         if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
-        if (oldSrc !== next) dropDemSourceSoon(oldSrc);
+        if (oldSrc !== next) slots.dropDemSourceSoon(map, oldSrc);
         plateauWall.setGeometry(raised, heightM, focus, context);
         plateauRaised = raised;
         plateauBbox = boundsOfFeatures(raised);
@@ -479,7 +472,8 @@ export function usePlateau({
       applyMask();
       terrainExag = 0;
       setTerrainRaw(next, 0);
-      if (old !== next) dropDemSourceSoon(old);
+      slots.swapped(map, old);
+      if (old !== next) slots.dropDemSourceSoon(map, old);
       // No tile wait (arrival tiles were warmed during the sink): the rise starts
       // IMMEDIATELY on click and plays during the camera flight. Slight terrain
       // LOD re-tessellation can show mid-flight — chosen over a delayed rise.
@@ -524,6 +518,7 @@ export function usePlateau({
   function abort() {
     plateauSeq++;
     if (perfOn) stopTilesReady();
+    slots.abort();
   }
 
   /** The plateau's share of the __acPlateau probe. */
