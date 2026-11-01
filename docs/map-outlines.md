@@ -34,8 +34,8 @@ A build `o<YYYYMMDD>-<n>` lives in `<out>/<build>/` (default out:
 | `u/fr_reg_*`, `u/fr_dep_*` (135) | the unit's self alone, byte-identical to the self of its `k/` file | as `k/` |
 | `g/<ISO>.json` (272) | the country from the 3000 m world run, France's too (Overture's France: the métropole and Corsica) | `w3000` |
 | `u/<ISO>.json` (271, not FR) | the country at its own tier (the ladder below) | `c15` … `c3000` |
-| `manifest.json` | build, date, sources, sha256 of each input, mapshaper version, counts, bytes, file count | |
-| `NOTICE.txt` | Etalab Licence Ouverte credit; Overture Maps Foundation and © OpenStreetMap contributors, ODbL 1.0, for the country files | |
+| `manifest.json` | build, date, sources, sha256 of each input, the mapshaper, DuckDB and spatial versions, counts, bytes, file count | |
+| `NOTICE.txt` | Etalab Licence Ouverte credit (with © OpenStreetMap contributors, ODbL 1.0, for the collectivités d'outre-mer 975, 977, 978, 986); Overture Maps Foundation and © OpenStreetMap contributors, ODbL 1.0, for the country files and the country rows of `root.json` | |
 
 `e50` is Etalab's own 50 m generalisation, rounded to 5 decimals (`tolM: 0`).
 A family whose self exceeds 20,000 vertices is cut again as `fam<m>`. Shapes:
@@ -82,7 +82,9 @@ scripts/map-data/outlines/build-outlines.sh --build o<YYYYMMDD>-1 --etalab-year 
 
 `--etalab-year` (default 2026) and `--overture-release` (default 2026-10-21.0)
 are what the manifest's `sources` and `NOTICE.txt` name; the manifest also holds
-the sha256 of each input.
+the sha256 of each input and the versions of the tools that shape the geometry:
+`mapshaper`, `duckdb` (`duckdb --version`) and `spatial` (the extension's
+`extension_version`), since pack's DuckDB repair reshapes a few countries.
 
 It needs Node (`npx tsx`), `duckdb` with the spatial extension and
 `mapshaper-xl` (`MAPSHAPER=` to point at it). Steps run in order and leave
@@ -122,7 +124,9 @@ for `o20261101-2`).
    is an entry of a `k/fr_dep_*` or `k/fr_com_*`; every country of the world
    input has a row with `g:1`.
 5. **Closure**: every `k`/`u`/`g` flag of a row or entry has its file and every
-   file a flag; a row's `st`, `bbox` and `wrap` are its files'; every `n` is its
+   file a flag; a row's `st`, `bbox` and `wrap` are its self file's (`u/`, else
+   `k/`); a file has `wrap` exactly when its own geometry passes ±180 or its largest
+   polygon spans it (a `g/` is another run: it can lack its `u/`'s); every `n` is its
    geometry's vertex count; every file passes `validateFileV1`.
 6. **Validity**: finite coordinates, latitudes within ±85.0511, longitudes
    within ±180 unless the file has `wrap`, closed rings of ≥ 4 positions without repeated points, one
@@ -162,9 +166,14 @@ between régions; `-clean` removes five of them and keeps the 26 régions.
 shared), then `-clean allow-overlaps`. Plain runs at 15 and 3000 m left 15 and 18 countries
 invalid (the delivered outlines at 5 decimals already have 28);
 `allow-overlaps` keeps overlapping claims as delivered, where a plain `-clean`
-would hand each overlap to one country. At 3000 m it drops holes DP crossed:
-231 holes delivered, 15 left (Baarle's enclaves go at that scale; Lesotho in
-South Africa and San Marino and the Vatican in Italy stay).
+would hand each overlap to one country. Holes: the delivered outlines have 231;
+DP alone at 3000 m keeps 59 (Baarle's enclaves collapse at that scale), and
+`-clean` then removes 44 that DP crossed, in the countries it left invalid: 15
+stay (Lesotho in South Africa and San Marino and the Vatican in Italy among
+them). At the finer rungs `-clean` also turns a few rings DP crossed into small
+holes (213 at 15 m against 196 for plain DP): three `u/` files keep one where
+the delivered outline has none, AU (`c1000`), MM (`c300`) and NI (`c100`), each
+under 1 km².
 
 **Repair** (`pack.ts`): DuckDB still finds 16 of the 1,632 country geometries
 invalid once unwrapped: Russia and Fiji at every rung (their pieces met on ±180
@@ -195,8 +204,9 @@ Russia 1000 → 3000 (22,282), the United States 1000 → 3000 (26,379), Greenla
 Indonesia 18,744 (`c1000`), Chile 16,401, Sweden 14,192, Australia 14,090.
 
 **Wrap**: each polygon moves by ±360 toward the longitude of the largest
-polygon's centroid, coordinates rounded again, `wrap:1` on the row and its
-files, and `bbox` and the tier pick read the unwrapped outline (longitudes past
+polygon's centroid, coordinates rounded again, `wrap:1` on each file where a
+polygon moved and on the row when its `u/` has it, and `bbox` and the tier pick
+read the unwrapped outline (longitudes past
 ±180). Unwrapped: Russia (19.6 .. 191.0), Fiji (176.9 .. 181.8), Kiribati
 (-190.5 .. -150.2), New Zealand (165.9 .. 184.2), the United States (-187.6 ..
 -66.9). Antarctica cannot be: its largest polygon spans -180 .. 180; it stays
@@ -236,7 +246,8 @@ the ~15-20 KB gzip the plan expected.
 dependency. The 13 French overseas codes (GP MQ GF RE YT PM BL MF WF PF NC TF CP)
 are rows of their own; no site unit uses them (the site files overseas France
 under FR), and the design's merge of them under `FR` is not done here. Etalab's
-région 984 (TAAF) overlaps Antarctica over about 337,000 km². Antarctica cannot
+région 984 (TAAF) overlaps Antarctica: gate 7 measures 337,387 km² between
+`k/fr_reg_984`'s self and `u/AQ` (DuckDB `ST_Area_Spheroid`). Antarctica cannot
 be unwrapped. Overture's France (`g/FR`) is the métropole and Corsica only.
 
 ## Sizes of `o20261101-1`
@@ -304,8 +315,8 @@ The build step `release` does the first three:
 `o20261101-1`: `{"build":"o20261101-1","asset":"outlines-o20261101-1.tar.gz","sha256":"812c041b46075c52a7571c9fdb43d50e43c0d886790fdab5d3f939ad1c79760b"}`.
 
 `o20261101-2` (France and countries, 820 files, 100.2 MB raw, 31.1 MB gzip per
-file, tarball 31,678,338 B):
-`{"build":"o20261101-2","asset":"outlines-o20261101-2.tar.gz","sha256":"9d149192004b86bb25b2956ace269aac0ee3ac4ead93b98af92504b728dedcab"}`.
+file, tarball 31,678,383 B):
+`{"build":"o20261101-2","asset":"outlines-o20261101-2.tar.gz","sha256":"4aa259c3801d5966098b1da8938f6e88a5a3df43d1ba9353d7c968eef7b55dbf"}`.
 Its NOTICE.txt carries the ODbL notice the country files need: publish it with
 the release (`--notes-file`).
 
