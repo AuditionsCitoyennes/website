@@ -9,6 +9,7 @@ import type mapboxgl from "mapbox-gl";
 import type { Bounds, HeightClass } from "@/features/geo";
 import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
+import { riseProgress } from "../lib/rise";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import type { OutlineFC } from "../types";
 import type { usePlateauLid } from "./usePlateauLid";
@@ -216,7 +217,7 @@ export function usePlateau({
       const tick = (now: number) => {
         if (!exagAnim) return;
         if (!getMap()) return finish();
-        const t = Math.min(1, (now - t0) / ms);
+        const t = riseProgress(now, t0, ms);
         if (t >= 1) return finish();
         apply(from + (to - from) * ease(t));
         exagAnim.raf = requestAnimationFrame(tick);
