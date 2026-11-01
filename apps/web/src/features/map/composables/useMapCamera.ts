@@ -9,6 +9,7 @@
 
 import mapboxgl from "mapbox-gl";
 import type { Bounds } from "@/features/geo";
+import { perfOn, perfSpan } from "@/shared/perf/perf";
 import { FIT_PITCH_DEG, fitSilhouette, type FitShape, type SlabCam } from "../lib";
 import { plateauHeightM, pointInPolygon, polysOf, toLngLat, toLngLatBounds } from "../lib/polygon";
 import { fitHullOf } from "../lib/projection";
@@ -404,7 +405,14 @@ export function useMapCamera({
       // large as fits (fitCamera) — inside the move, so a throw there takes
       // the failed-move path like any other.
       flyCamera((m) => {
+        const end = perfOn ? perfSpan("camera.fit") : null;
         const cam = fitCamera(m, cmd, padding, pitch, maxZoom);
+        // The hull's size is read once the span has ended: the fit has just
+        // cached it, and a cold read would not be the fit's cost.
+        if (end) {
+          const g = cmd.shape?.geometry as { type?: string } | undefined;
+          end({ shape: !!cmd.shape, hull: g?.type ? fitHullOf(g).length / 2 : 4 });
+        }
         if (cam) {
           // The camera this fit lands on: the analyses' slabs of the unit it
           // frames are sized for it, whenever they are built (mid-flight).
