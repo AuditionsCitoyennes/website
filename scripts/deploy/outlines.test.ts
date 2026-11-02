@@ -201,6 +201,9 @@ test("lock malformed: build, asset, sha256", () => {
     setup({ build: "o2026-1", asset: "outlines-o2026-1.tar.gz", sha256: sha }).run("fetch"),
     '"build"',
   );
+  // jq's $ alone would take it: the script would use the build without its
+  // newline, the web build with it.
+  fails(setup({ build: `${BUILD}\n`, asset: ASSET, sha256: sha }).run("fetch"), '"build"');
   fails(setup({ build: BUILD, asset: "../x.tar.gz", sha256: sha }).run("fetch"), '"asset"');
   fails(setup({ build: BUILD, asset: ASSET, sha256: "abc123" }).run("fetch"), '"sha256"');
   fails(setup("not json").run("fetch"), '"build"');
@@ -234,12 +237,15 @@ test("layout: an entry outside <build>/, a ._* entry", () => {
     setup(lockOf(up.sha256)).run("fetch", { OUTLINES_TARBALL: up.tarball }),
     "a .. or ._* entry",
   );
-  // GNU tar (CI) lists a ._* entry; macOS tar reads it as its sibling's
-  // metadata and, as that is junk here, cannot read the archive: both fail.
+  // GNU tar (CI) lists a ._* entry, so Linux must fail on that check; macOS
+  // tar reads it as its sibling's metadata and, as that is junk here, cannot
+  // read the archive: either failure there.
   const fork = pack(mkdtempSync(join(tmp, "toy-")), { extra: `${BUILD}/._root.json` });
   fails(
     setup(lockOf(fork.sha256)).run("fetch", { OUTLINES_TARBALL: fork.tarball }),
-    /a \.\. or \._\* entry|not a readable \.tar\.gz/,
+    process.platform === "linux"
+      ? "a .. or ._* entry"
+      : /a \.\. or \._\* entry|not a readable \.tar\.gz/,
   );
 });
 

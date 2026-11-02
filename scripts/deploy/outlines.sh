@@ -33,14 +33,16 @@ fail() {
   exit 1
 }
 
-# The lock's three fields, each checked: build, asset, sha256.
+# The lock's three fields, each checked: build, asset, sha256. \A and \z, not
+# ^ and $: jq's $ also matches before a final newline, which $(…) would strip
+# here while the web build bakes it into __OUTLINES_BUILD__.
 read_lock() {
   [ -f "$LOCK" ] || fail "$LOCK missing"
-  build=$(jq -er '.build | select(type == "string" and test("^o[0-9]{8}-[0-9]+$"))' "$LOCK") ||
+  build=$(jq -er '.build | select(type == "string" and test("\\Ao[0-9]{8}-[0-9]+\\z"))' "$LOCK") ||
     fail "$LOCK: \"build\" is not o<YYYYMMDD>-<n>"
   asset=$(jq -er --arg a "outlines-$build.tar.gz" '.asset | select(. == $a)' "$LOCK") ||
     fail "$LOCK: \"asset\" is not outlines-$build.tar.gz"
-  sha256=$(jq -er '.sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$LOCK") ||
+  sha256=$(jq -er '.sha256 | select(type == "string" and test("\\A[0-9a-f]{64}\\z"))' "$LOCK") ||
     fail "$LOCK: \"sha256\" is not 64 lowercase hex digits"
   tarball="$WORK/$asset"
 }
@@ -82,9 +84,10 @@ install() {
   read_lock
   [ -f "$DIST/_headers" ] || fail "$DIST/_headers missing: run after Build"
   [ -f "$tarball" ] || fail "$tarball missing: run fetch first, with the same WORK"
-  mkdir -p "$DIST/map-data/outlines"
+  mkdir -p "$DIST/map-data/outlines" || fail "$DIST/map-data/outlines: cannot be made"
   # The tarball's top directory is already <build>/.
-  tar -xzf "$tarball" -C "$DIST/map-data/outlines"
+  tar -xzf "$tarball" -C "$DIST/map-data/outlines" ||
+    fail "outline build $build: $asset did not unpack into $DIST/map-data/outlines"
   dir="$DIST/map-data/outlines/$build"
   [ -f "$dir/root.json" ] || fail "outline build $build: no $dir/root.json"
   jq -e --arg b "$build" '.v == 1 and .build == $b' "$dir/manifest.json" > /dev/null ||
