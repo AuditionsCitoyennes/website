@@ -176,6 +176,64 @@ export function enrich(geom: Geometry): { bbox: BBox; center: Position } {
   return { bbox: computeBounds(geom), center: computeCenter(geom) };
 }
 
+// ---- countries: the tier ladder and the antimeridian ---------------------------
+
+/** The tolerances of the six world runs, metres: a country's tier is one of them. */
+export const WORLD_RUNGS = [15, 30, 100, 300, 1000, 3000] as const;
+
+/** A bbox's diagonal in metres (local equirectangular, the spike's diagM). */
+export function diagM([w, s, e, n]: BBox): number {
+  const kx = 111_320 * Math.cos((((s + n) / 2) * Math.PI) / 180);
+  return Math.hypot((e - w) * kx, (n - s) * 110_574);
+}
+
+/**
+ * A country's tolerance: the largest rung at most diag / 4000 (about half a
+ * pixel when the country fills a 2000 px screen), 15 m at least, then the
+ * next rung up while its self is over the vertex budget. Null when it still
+ * is at 3000 m (the build fails).
+ */
+export function pickTier(diag: number, verticesAt: (tolM: number) => number): number | null {
+  let i = 0;
+  while (i + 1 < WORLD_RUNGS.length && WORLD_RUNGS[i + 1] <= diag / 4000) i++;
+  for (; i < WORLD_RUNGS.length; i++)
+    if (verticesAt(WORLD_RUNGS[i]) <= MAX_SELF_VERTICES) return WORLD_RUNGS[i];
+  return null;
+}
+
+/**
+ * A country on both sides of ±180 in one range: each polygon moves by ±360
+ * toward the longitude of the largest polygon's centroid (longitudes may then
+ * pass ±180), re-rounded. `wrap` is set when a polygon moved, and for a
+ * largest polygon that spans the antimeridian itself (Antarctica): no shift
+ * mends that one, it stays as delivered.
+ */
+export function unwrap(geom: Geometry): { g: Geometry; wrap: boolean } {
+  const span = (r: Ring): [number, number] => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const [x] of r) [lo, hi] = [Math.min(lo, x), Math.max(hi, x)];
+    return [lo, hi];
+  };
+  const polys = polygonsOf(geom);
+  const largest = polys.reduce((a, p) =>
+    Math.abs(ringArea(p[0])) > Math.abs(ringArea(a[0])) ? p : a,
+  );
+  const [lo, hi] = span(largest[0]);
+  if (hi - lo > 180) return { g: geom, wrap: true };
+  const anchor = computeCenter(geom)[1];
+  let moved = false;
+  const out = polys.map((poly) => {
+    const [a, b] = span(poly[0]);
+    const turns = Math.round((anchor - (a + b) / 2) / 360);
+    if (!turns) return poly;
+    moved = true;
+    return poly.map((r) => r.map(([x, y]): Position => [x + 360 * turns, y]));
+  });
+  if (!moved) return { g: geom, wrap: false };
+  return { g: clean5({ type: "MultiPolygon", coordinates: out })!, wrap: true };
+}
+
 // ---- segment sets ---------------------------------------------------------------
 // Two outlines coincide when they hold the same boundary segments, compared
 // as exact 5-decimal keys (no tolerance): the test 05b-raw-union-all ran on
