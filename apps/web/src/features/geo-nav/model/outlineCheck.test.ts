@@ -45,12 +45,42 @@ test("a vertex 0.7 m off a scope vertex, another key at 5 dp, is a near miss", (
   assert.ok(r.liftedShare !== null && r.liftedShare < 1);
 });
 
-test("an edge 2 m outside the boundary is not on it", () => {
-  const out = latM(2);
+test("the same edge offset by 2 m, outward or inward: off the lid, share below 1", () => {
+  for (const dy of [-latM(2), latM(2)]) {
+    const west = poly([5, 45 + dy], [5.1, 45 + dy], [5.1, 45.1], [5, 45.1]);
+    const east = poly([5.1, 45 + dy], [5.2, 45 + dy], [5.2, 45.1], [5.1, 45.1]);
+    const r = liftCheck(SCOPE, [west, east]);
+    // Each ring's two moved vertices, 2 m beside the edge (the cut's end is in both).
+    assert.equal(r.offLid, 4, `dy ${dy}`);
+    assert.equal(r.nearMiss, 0);
+    assert.ok(r.liftedShare !== null && r.liftedShare < 1, `dy ${dy}: ${r.liftedShare}`);
+  }
+});
+
+test("an edge bulging 300 m off between two lid vertices: off the lid, share below 1", () => {
+  const west = poly([5, 45], [5.05, 45 - latM(300)], [5.1, 45], [5.1, 45.1], [5, 45.1]);
+  const r = liftCheck(SCOPE, [west, EAST]);
+  assert.equal(r.offLid, 1); // the bulge's vertex
+  // The bulge's two segments, ~3.9 km each, run along the edge off it.
+  assert.ok(r.liftedShare !== null && r.liftedShare < 0.9, `${r.liftedShare}`);
+});
+
+test("an edge 500 m outside: the sides run on past the lid's corners", () => {
+  const out = latM(500);
   const west = poly([5, 45 - out], [5.1, 45 - out], [5.1, 45.1], [5, 45.1]);
   const r = liftCheck(SCOPE, [west]);
-  assert.equal(r.offLid, 0); // its two moved vertices are 2 m away: not counted
-  // The top and the west edge are still on the boundary, through its vertices.
+  assert.equal(r.offLid, 1); // the west side's end; the cut's end leaves (5.1, 45.1) steeply
+  assert.ok(r.liftedShare !== null && r.liftedShare < 1, `${r.liftedShare}`);
+});
+
+test("a cut leaving a lid vertex at 30° to the edge is not along it", () => {
+  // West's cut leaves the bottom edge at (5.1, 45) at 30° and meets the top at (5.1, 45.1).
+  const up = 0.1 * 111_195;
+  const x = 5.1 + lngM(up / 2 / Math.tan((30 * Math.PI) / 180));
+  const scope = poly([5, 45], [5.1, 45], [5.3, 45], [5.3, 45.1], [5.1, 45.1], [5, 45.1]);
+  const west = poly([5, 45], [5.1, 45], [x, 45 + latM(up / 2)], [5.1, 45.1], [5, 45.1]);
+  const r = liftCheck(scope, [west]);
+  assert.equal(r.offLid, 0);
   assert.equal(r.liftedShare, 1);
 });
 

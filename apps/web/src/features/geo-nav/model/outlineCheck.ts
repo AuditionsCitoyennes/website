@@ -10,16 +10,29 @@
 // bundle, cut by the same run as its self (outlineRules, rule 3), so every
 // such vertex is one of the self's.
 //
+// A lifted segment runs along the boundary when it lies on it (both ends and
+// the middle within NEAR_M), when it runs beside it (both ends and the middle
+// within BESIDE_M, in the direction of the boundary segment nearest its
+// middle: a line displaced metres off the edge), or when it leaves a scope
+// vertex in the direction of one of the boundary segments there without
+// lying on it (a line bulging off the edge between two lid vertices, or
+// running on past the lid's corner). A cut between two children, leaving
+// the boundary steeply, does none of these.
+//
 // - offLid: the vertices of lifted focus rings within NEAR_M of the scope's
-//   boundary that are not (to 5 decimals, the files' precision) a vertex of
-//   the scope's rings. The gate: 0.
+//   boundary or at an end of a segment running along it that are not (to 5
+//   decimals, the files' precision) a vertex of the scope's rings. The
+//   gate: 0.
 // - nearMiss: those of them within NEAR_M of a scope vertex: the same point,
 //   written differently.
-// - liftedShare: of the lifted focus segments lying on the boundary (both
-//   ends and the middle within NEAR_M), the share by length whose both ends
-//   are scope vertices; null when none lies on it. The gate: 1.
+// - liftedShare: of the lifted focus segments running along the boundary,
+//   the share by length lying on it with both ends scope vertices; null when
+//   none runs along it. The gate: 1.
 // Only over the focus lines handed in (the panel's units, not every commune):
-// how much of the boundary they cover is not asked.
+// how much of the boundary they cover is not asked. Not seen: a stretch of
+// line farther than BESIDE_M off the edge whose ends leave the lid's
+// vertices steeply (more than 15° off the edge), and a ring with no lid
+// vertex at all (it reads null, which fails the gate).
 
 interface Geom {
   type?: string;
@@ -34,13 +47,20 @@ export interface LiftCheck {
   liftedShare: number | null;
   /** Focus features lifted onto the lid. */
   lifted: number;
-  /** Metres of lifted focus segments lying on the boundary (liftedShare's
-   *  denominator): how much the share stands on. */
+  /** Metres of lifted focus segments running along the boundary
+   *  (liftedShare's denominator): how much the share stands on. */
   boundaryM: number;
 }
 
 /** Metres: what counts as on the boundary. */
 export const NEAR_M = 1;
+/** Metres: what counts as beside it (well under the 3 km chords and
+ *  Etalab's 50 m tolerance, well over the 5-dp rounding). */
+export const BESIDE_M = 25;
+/** The sine and cosine of the widest angle (15°) still in the boundary's
+ *  direction. */
+const SIN_ALONG = Math.sin((15 * Math.PI) / 180);
+const COS_ALONG = Math.cos((15 * Math.PI) / 180);
 /** Metres per degree of latitude (and of longitude at the equator). */
 const M_PER_DEG = 111_195;
 /** The segment index's cell, in degrees (~1 km). */
@@ -84,6 +104,32 @@ function toSegment(p: readonly number[], a: readonly number[], b: readonly numbe
 
 const metres = (a: readonly number[], b: readonly number[]) => toSegment(a, b, b);
 
+/** The vector a→b in a plane local to a (degrees of latitude). */
+function vec(a: readonly number[], b: readonly number[]): [number, number] {
+  return [(b[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), b[1] - a[1]];
+}
+
+/** a→b runs in the direction of the line c–d (either way). */
+function parallel(
+  a: readonly number[],
+  b: readonly number[],
+  c: readonly number[],
+  d: readonly number[],
+) {
+  const [ux, uy] = vec(a, b);
+  const [vx, vy] = vec(a, [a[0] + d[0] - c[0], a[1] + d[1] - c[1]]);
+  const n = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+  return n > 0 && Math.abs(ux * vy - uy * vx) <= SIN_ALONG * n;
+}
+
+/** a→b leaves a in the direction a→c. */
+function sameWay(a: readonly number[], b: readonly number[], c: readonly number[]) {
+  const [ux, uy] = vec(a, b);
+  const [vx, vy] = vec(a, c);
+  const n = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+  return n > 0 && ux * vx + uy * vy >= COS_ALONG * n;
+}
+
 /** The scope's boundary segments in a grid of CELL degrees. */
 class Segments {
   private readonly cells = new Map<string, number[]>();
@@ -91,7 +137,7 @@ class Segments {
 
   add(a: readonly number[], b: readonly number[]) {
     const i = this.segs.push([a, b]) - 1;
-    const pad = NEAR_M / M_PER_DEG / Math.max(Math.cos((a[1] * Math.PI) / 180), 0.01);
+    const pad = BESIDE_M / M_PER_DEG / Math.max(Math.cos((a[1] * Math.PI) / 180), 0.01);
     const x0 = Math.floor((Math.min(a[0], b[0]) - pad) / CELL);
     const x1 = Math.floor((Math.max(a[0], b[0]) + pad) / CELL);
     const y0 = Math.floor((Math.min(a[1], b[1]) - pad) / CELL);
@@ -105,17 +151,20 @@ class Segments {
       }
   }
 
-  /** Metres to the nearest segment and to the nearest segment end, from the
-   *  segments in p's cell (Infinity when none: farther than NEAR_M). */
-  near(p: readonly number[]): { seg: number; vertex: number } {
+  /** Metres to the nearest segment (and that segment) and to the nearest
+   *  segment end, from the segments in p's cell (Infinity when none: farther
+   *  than BESIDE_M). */
+  near(p: readonly number[]): { seg: number; vertex: number; at: (readonly number[])[] | null } {
     let seg = Infinity;
     let vertex = Infinity;
+    let at: (readonly number[])[] | null = null;
     for (const i of this.cells.get(`${Math.floor(p[0] / CELL)},${Math.floor(p[1] / CELL)}`) ?? []) {
       const [a, b] = this.segs[i];
-      seg = Math.min(seg, toSegment(p, a, b));
+      const d = toSegment(p, a, b);
+      if (d < seg) [seg, at] = [d, this.segs[i]];
       vertex = Math.min(vertex, metres(p, a), metres(p, b));
     }
-    return { seg, vertex };
+    return { seg, vertex, at };
   }
 }
 
@@ -123,18 +172,28 @@ class Segments {
 export function liftCheck(scopeSelf: Geom, focus: readonly Geom[]): LiftCheck {
   const scopePolys = polysOf(scopeSelf);
   const lidBoxes = scopePolys.flatMap((poly) => (poly[0] ? [boxOf(poly[0])] : []));
-  const keys = new Set<string>();
+  /** Each scope vertex's key, to the vertices next to it on its rings. */
+  const next = new Map<string, (readonly number[])[]>();
   const boundary = new Segments();
   for (const poly of scopePolys)
     for (const ring of poly)
       for (let i = 0; i < ring.length; i++) {
-        keys.add(keyOf(ring[i]));
-        if (i + 1 < ring.length) boundary.add(ring[i], ring[i + 1]);
+        const k = keyOf(ring[i]);
+        const list = next.get(k) ?? [];
+        if (i > 0) list.push(ring[i - 1]);
+        if (i + 1 < ring.length) {
+          list.push(ring[i + 1]);
+          boundary.add(ring[i], ring[i + 1]);
+        }
+        next.set(k, list);
       }
+  // a→b leaves the scope vertex a in the direction of the boundary there.
+  const leavesAlong = (a: readonly number[], b: readonly number[]) =>
+    (next.get(keyOf(a)) ?? []).some((c) => sameWay(a, b, c));
   let offLid = 0;
   let nearMiss = 0;
   let lifted = 0;
-  let onM = 0;
+  let alongM = 0;
   let sharedM = 0;
   for (const g of focus) {
     const polys = polysOf(g);
@@ -145,28 +204,40 @@ export function liftCheck(scopeSelf: Geom, focus: readonly Geom[]): LiftCheck {
         const n = ring.length;
         const closed = n > 1 && keyOf(ring[0]) === keyOf(ring[n - 1]);
         const near = ring.map((p) => boundary.near(p));
-        for (let i = 0; i < (closed ? n - 1 : n); i++) {
-          if (near[i].seg > NEAR_M || keys.has(keyOf(ring[i]))) continue;
-          offLid++;
-          if (near[i].vertex <= NEAR_M) nearMiss++;
-        }
+        const isKey = ring.map((p) => next.has(keyOf(p)));
+        const along = ring.map((_, i) => near[i].seg <= NEAR_M);
         for (let i = 0; i + 1 < n; i++) {
           const a = ring[i];
           const b = ring[i + 1];
-          if (near[i].seg > NEAR_M || near[i + 1].seg > NEAR_M) continue;
-          const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-          if (boundary.near(mid).seg > NEAR_M) continue;
+          const mid = boundary.near([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+          const on = along[i] && along[i + 1] && mid.seg <= NEAR_M;
+          const beside =
+            near[i].seg <= BESIDE_M &&
+            near[i + 1].seg <= BESIDE_M &&
+            mid.at !== null &&
+            mid.seg <= BESIDE_M &&
+            parallel(a, b, mid.at[0], mid.at[1]);
+          const leaves =
+            !on && ((isKey[i] && leavesAlong(a, b)) || (isKey[i + 1] && leavesAlong(b, a)));
+          if (!on && !beside && !leaves) continue;
+          along[i] = along[i + 1] = true;
           const m = metres(a, b);
-          onM += m;
-          if (keys.has(keyOf(a)) && keys.has(keyOf(b))) sharedM += m;
+          alongM += m;
+          if (on && isKey[i] && isKey[i + 1]) sharedM += m;
+        }
+        if (closed) along[0] ||= along[n - 1];
+        for (let i = 0; i < (closed ? n - 1 : n); i++) {
+          if (!along[i] || isKey[i]) continue;
+          offLid++;
+          if (near[i].vertex <= NEAR_M) nearMiss++;
         }
       }
   }
   return {
     offLid,
     nearMiss,
-    liftedShare: onM > 0 ? sharedM / onM : null,
+    liftedShare: alongM > 0 ? sharedM / alongM : null,
     lifted,
-    boundaryM: Math.round(onM),
+    boundaryM: Math.round(alongM),
   };
 }
