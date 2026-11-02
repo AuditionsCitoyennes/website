@@ -13,8 +13,8 @@
 // replayed on the main thread (`failover`, for the rest of the session); so
 // is a worker that has said nothing at all (not even its `ready`) 10 s after
 // the first job was posted. Any message from it disarms that timer, and a
-// timer that comes due lets the messages already queued run first, so a busy
-// main thread cannot fail a live worker. The main-thread renderer is the same
+// timer that comes due waits one more task before it fails the worker, giving
+// the messages a busy main thread left queued a turn. The main-thread renderer is the same
 // demRaster.ts, imported on first use. Both failing a tile → the session's
 // route goes "serveur" (demoteRelief) and the plateau standing runs again on
 // it (`onReliefLost`).
@@ -141,8 +141,8 @@ export function createReliefClient(deps: ReliefClientDeps) {
   function armHealth() {
     if (heard || health !== null) return;
     health = setTimeout(() => {
-      // Due, and maybe late on a busy main thread: the worker's messages
-      // already queued go first.
+      // Due, and maybe late on a busy main thread: one more task, so the
+      // worker's messages already queued get a turn first.
       health = setTimeout(() => {
         health = null;
         if (!heard) workerDied();
