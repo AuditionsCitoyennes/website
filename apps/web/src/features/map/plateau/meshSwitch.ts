@@ -12,17 +12,20 @@
 //   regime and built with the camera clear of it gets its globe set after the
 //   map's next idle, or on the first globe frame before that
 //   (gl/globeDeferral.ts); any other build has both at once.
+// - "worker": merc's sets, built in a Web Worker (gl/meshClient.ts), the
+//   page only applying them; its globe set, when it waits, asked of the
+//   worker at the map's next idle. Lost (it fails, or says nothing for 3 s),
+//   the session builds on the page as merc does.
 //
-// "worker" (the mesh built in a Web Worker) will come. Read once per page
-// load: switching reloads the page. Production has neither key nor switch:
-// DEFAULT_MESH_MODE.
+// Read once per page load: switching reloads the page. Production has neither
+// key nor switch: DEFAULT_MESH_MODE.
 
-export type MeshMode = "ancien" | "concat" | "merc";
+export type MeshMode = "ancien" | "concat" | "merc" | "worker";
 
 /** The mode of a build without the testing tools, and the switch's default. */
 export const DEFAULT_MESH_MODE: MeshMode = "ancien";
 
-export const MESH_MODES: readonly MeshMode[] = ["ancien", "concat", "merc"];
+export const MESH_MODES: readonly MeshMode[] = ["ancien", "concat", "merc", "worker"];
 
 function storedMeshMode(): MeshMode {
   try {

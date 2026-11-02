@@ -11,6 +11,7 @@
 // replying), `__acMeshSlow` (k: the worker builds k times), `__acMeshFail`
 // ("throw": an error reply; "hang": no reply).
 
+import { perfNote, perfOn } from "@/shared/perf/perf";
 import { buildPlateauMesh } from "./meshBuild";
 import {
   MESH_TOKEN_CAP_VERTICES,
@@ -19,6 +20,7 @@ import {
   type MeshTransport,
 } from "./meshClientCore";
 import type { MeshReply } from "./meshCore";
+import type { GlobeProvider } from "./PlateauWallLayer";
 
 type Knobs = {
   __acMeshCap?: unknown;
@@ -60,6 +62,14 @@ export function warmMeshWorker(): MeshClient {
             w.__acMeshFail === "throw" || w.__acMeshFail === "hang" ? w.__acMeshFail : undefined,
         })
       : undefined,
+    // Posted → received, here (mesh.roundTrip); the worker's own build time,
+    // noted on reception (plateau.meshBuild).
+    trace: perfOn
+      ? {
+          roundTrip: (ms, detail) => perfNote("mesh.roundTrip", ms, detail),
+          meshBuild: (ms, detail) => perfNote("plateau.meshBuild", ms, detail),
+        }
+      : undefined,
   });
   if (__TEST_TOOLS__) {
     w.__acMesh = {
@@ -71,4 +81,15 @@ export function warmMeshWorker(): MeshClient {
     };
   }
   return client;
+}
+
+/** The layer's deferred globe set, asked of `client` (setGlobeProvider). */
+export function globeProviderOf(client: MeshClient): GlobeProvider {
+  return (inputs) =>
+    client.buildGlobe(inputs).then((r) => {
+      if (!r) return null;
+      const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = r.mesh;
+      if (!gWallPositions || !gLidPositions || !gLinePositions || !gHaloPositions) return null;
+      return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions, ms: r.ms };
+    });
 }

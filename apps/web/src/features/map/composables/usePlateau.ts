@@ -9,8 +9,9 @@
 import type mapboxgl from "mapbox-gl";
 import type { Bounds, HeightClass } from "@/features/geo";
 import { apiBase } from "@/shared/absoluteUrl";
-import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
+import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import { globeSetMode } from "../gl/globeDeferral";
+import type { MeshClient, MeshResult } from "../gl/meshClientCore";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
@@ -54,6 +55,9 @@ export interface PlateauInputs {
   /** The scope's geometry objects change only with its shape (the `stableOutline`
    *  prop): a run on the same objects at the same height reuses the last POST. */
   stableGeometry?: () => boolean;
+  /** ac:mesh=worker: the map's mesh worker (gl/meshClient.ts), once made at
+   *  its load. Null (not yet, or another mode): the mesh is built here. */
+  meshClient?: () => MeshClient | null;
 }
 
 /** How long a DEM POST's answer is reused (`stableGeometry`): the API keeps the
@@ -79,6 +83,7 @@ export function usePlateau({
   clearSlabs,
   forgetLidExtra,
   stableGeometry,
+  meshClient,
 }: PlateauInputs) {
   // Whether a plateau is currently standing — the draped hover-fill fallback only
   // applies when none stands or is coming (the world, or a scope with no boundary
@@ -136,6 +141,9 @@ export function usePlateau({
   // slot was re-pointed or kept instead of added, and how many early terrains.
   let earlyTerrainSlot: DemSlot | null = null;
   const prefetchRuns = { repoints: 0, keeps: 0, earlyTerrains: 0 };
+  // ac:mesh=worker: meshes the worker built and this map applied (the first
+  // is the cold worker's).
+  let workerApplies = 0;
 
   // The `dem.tilesReady` probe (testing tools only): a DEM slot's addSource →
   // the first of its tile events after which the source is loaded. Not its
@@ -353,6 +361,38 @@ export function usePlateau({
     return version;
   }
 
+  /** ac:mesh=worker: a run's mesh awaited, and how long it held the run
+   *  (`plateau.meshWait`; `first`: the worker's first mesh on this map). */
+  async function meshWait(job: Promise<MeshResult | null>, scope: string, path: string) {
+    const t0 = performance.now();
+    const res = await job;
+    if (perfOn) {
+      const first = workerApplies === 0;
+      perfNote("plateau.meshWait", performance.now() - t0, { scope, path, first });
+    }
+    return res;
+  }
+
+  /** …with the sink: the wait is the mesh's beyond the sink (0: it came first). */
+  async function sinkAndMesh(sinkP: Promise<void>, job: Promise<MeshResult | null>, scope: string) {
+    let sunk = 0;
+    let built = 0;
+    const [, res] = await Promise.all([
+      sinkP.then(() => {
+        sunk = performance.now();
+      }),
+      job.then((r) => {
+        built = performance.now();
+        return r;
+      }),
+    ]);
+    if (perfOn) {
+      const first = workerApplies === 0;
+      perfNote("plateau.meshWait", Math.max(0, built - sunk), { scope, path: "swap", first });
+    }
+    return res;
+  }
+
   // Build/refresh the plateau for the current selection. The transition is fully
   // overlapped so there's no dead time: on a selection change the OLD plateau starts
   // sinking immediately (in parallel with the DEM POST), the NEW selection's tiles
@@ -419,6 +459,21 @@ export function usePlateau({
       raised[0]?.properties?.heightClass as HeightClass | undefined,
       raised,
     );
+    // ac:mesh=worker (plateau/meshSwitch.ts): the mesh is built in the worker
+    // from now on, while the POST, the sink and the prefetch run; the
+    // canonical zoom first, for whether its globe set comes with it
+    // (gl/globeDeferral.ts: the camera now). Applied below where the other
+    // modes build it, after their awaits, never between the commit and the
+    // old slot's drop. Without the client the run is merc's.
+    const client = meshMode === "worker" ? (meshClient?.() ?? null) : null;
+    const workerEarly = client ? canonicalOf(raised) : null;
+    const startMode = workerEarly ? globeSetMode(workerEarly.zCanon, map.getZoom()) : "eager";
+    const job = client
+      ? client.build(
+          { features: raised, heightM, focus, context },
+          { merc: true, globe: startMode === "eager" },
+        )
+      : null;
     // Start the lid snapshot IMMEDIATELY — it depends on nothing but the geometry,
     // and it's the longest pole (hidden-map tiles + capture). Started here it runs
     // through the sink, the POST and the whole camera flight, landing around the
@@ -467,15 +522,40 @@ export function usePlateau({
       // ac:mesh=merc (plateau/meshSwitch.ts): the canonical zoom first — with the
       // camera at each setGeometry below, it says whether the globe set can wait
       // (gl/globeDeferral.ts). The other modes pass nothing and compute it below.
-      const early = meshMode === "merc" ? canonicalOf(raised) : null;
+      const early =
+        workerEarly ?? (meshMode === "merc" || meshMode === "worker" ? canonicalOf(raised) : null);
       const globeOpts = () => {
         if (!early) return undefined;
         const zoom = getMap()?.getZoom() ?? 0;
         return { globe: globeSetMode(early.zCanon, zoom), zCanon: early.zCanon, zoom };
       };
+      // The mesh standing: the worker's (its globe set's mode for the camera
+      // now), else built here.
+      const putMesh = (res: MeshResult | null) => {
+        const opts = globeOpts();
+        if (client && res && opts) {
+          plateauWall.applyBuilt(
+            res.mesh,
+            { features: raised, heightM, focus, context },
+            { ...opts, start: startMode, via: res.via },
+          );
+          client.applied(res);
+          workerApplies++;
+          return;
+        }
+        // Null for a current run: not by construction (superseded or disposed only).
+        if (client && import.meta.env.DEV) console.warn("[plateau] no worker mesh: built here");
+        plateauWall.setGeometry(raised, heightM, focus, context, opts);
+      };
       if (version === plateauVersion && map.getSource(terrainSrc)) {
         // Same selection → just make sure it's up (e.g. after an interrupted sink).
-        plateauWall.setGeometry(raised, heightM, focus, context, globeOpts());
+        let res: MeshResult | null = null;
+        if (job) {
+          res = await meshWait(job, scopeId, "same");
+          map = getMap();
+          if (seq !== plateauSeq || !map) return;
+        }
+        putMesh(res);
         plateauRaised = raised;
         plateauBbox = boundsOfFeatures(raised);
         syncSlabs();
@@ -604,6 +684,12 @@ export function usePlateau({
         }
         map = getMap();
         if (seq !== plateauSeq || !map) return;
+        let res: MeshResult | null = null;
+        if (job) {
+          res = await meshWait(job, scopeId, "quiet");
+          map = getMap();
+          if (seq !== plateauSeq || !map) return;
+        }
         plateauVersion = version;
         plateauScopeId = scopeId;
         earlyTerrainSlot = null;
@@ -613,7 +699,7 @@ export function usePlateau({
         slots.swapped(map, oldSrc);
         if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
         if (oldSrc !== next) slots.dropDemSourceSoon(map, oldSrc);
-        plateauWall.setGeometry(raised, heightM, focus, context, globeOpts());
+        putMesh(res);
         plateauRaised = raised;
         plateauBbox = boundsOfFeatures(raised);
         syncSlabs();
@@ -621,7 +707,10 @@ export function usePlateau({
         applyMask();
         return;
       }
-      await sinkP;
+      // ac:mesh=worker: the sink and the mesh both, the commit below one block.
+      let res: MeshResult | null = null;
+      if (job) res = await sinkAndMesh(sinkP, job, scopeId);
+      else await sinkP;
       map = getMap();
       if (seq !== plateauSeq || !map) return;
       // Swap to the prefetched slot and drop the old one. Terrain switches DIRECTLY
@@ -639,7 +728,7 @@ export function usePlateau({
       // intentionally KEPT until the new snapshot (capturing since the top of this
       // run) lands: where old/new areas overlap, slightly-stale imagery covers the
       // rim gap; elsewhere the UV discard hides it.
-      plateauWall.setGeometry(raised, heightM, focus, context, globeOpts());
+      putMesh(res);
       plateauRaised = raised;
       plateauBbox = boundsOfFeatures(raised);
       // Its slabs (the analyses on) rise with it, from 0.

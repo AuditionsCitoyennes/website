@@ -111,6 +111,16 @@ type GlobeInputs = {
   context: OutlineFC["features"];
 };
 
+/** A mesh's globe set alone. */
+type GlobeSet = Pick<
+  MeshOut,
+  "gWallPositions" | "gLidPositions" | "gLinePositions" | "gHaloPositions"
+>;
+
+/** ac:mesh=worker: the deferred globe set, built off the page (gl/meshClient.ts;
+ *  `ms`: the build's own time). Null: none (the worker superseded it, or lost). */
+export type GlobeProvider = (inputs: GlobeInputs) => Promise<(GlobeSet & { ms: number }) | null>;
+
 /** Which of the slabs a mercator draw takes (drawSlabsMercator). */
 type SlabPass = "all" | "parts" | "boxes" | "over";
 
@@ -324,6 +334,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  cancelIdleCallback / clearTimeout). */
   private globeDefer = createGlobeDeferral<GlobeInputs>();
   private globeTask: { cancel: () => void } | null = null;
+  /** ac:mesh=worker: who builds the deferred globe set (null: this layer). */
+  private globeProvider: GlobeProvider | null = null;
   /** The testing tools' count of setGeometry calls and the last call's input,
    *  for meshDigest (declared only: a build without them has no field). */
   declare private meshProbe?: { calls: number; input: OutlineFC["features"][] };
@@ -661,7 +673,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  coords are Mercator, relative to the first vertex (float32 keeps precision
    *  on small offsets; the origin is re-added into the matrix each frame in
    *  float64). z holds the FULL wall height — uScale animates it.
-   *  `opts.globe` (ac:mesh=merc only, plateau/meshSwitch.ts): "lazy" builds the
+   *  `opts.globe` (ac:mesh=merc and worker, plateau/meshSwitch.ts): "lazy" builds the
    *  mercator set alone, the globe set following after the map's next idle or
    *  on the first globe frame before that (gl/globeDeferral.ts); absent, both
    *  now. `zCanon` and `zoom`, what the mode was chosen from, go to the span. */
@@ -681,11 +693,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     const endSpan = perfOn
       ? perfSpan("plateau.setGeometry", { scope: features[0]?.properties?.id })
       : null;
-    // ac:mesh=merc: every call is a new generation of the deferred globe set
+    // ac:mesh=merc (and worker, whose teardowns and fallbacks build here):
+    // every call is a new generation of the deferred globe set
     // (gl/globeDeferral.ts), so a pass held for an older one never lands here.
-    const lazy = meshMode === "merc" && opts?.globe === "lazy";
+    const deferring = meshMode === "merc" || meshMode === "worker";
+    const lazy = deferring && opts?.globe === "lazy";
     let gen = 0;
-    if (meshMode === "merc") {
+    if (deferring) {
       this.cancelGlobePass();
       gen = this.globeDefer.begin(lazy ? { features, heightM, focus, context } : null);
     }
@@ -710,6 +724,44 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       });
     }
     if (lazy) this.scheduleGlobePass(gen);
+  }
+
+  /** ac:mesh=worker: a mesh built in the worker (gl/meshClient.ts), applied
+   *  as setGeometry applies its own — the same span (here the apply alone),
+   *  a new generation of the deferred globe set. A mesh without its globe
+   *  set holds `src` for it and asks the worker for it (setGlobeProvider) at
+   *  the map's next idle, or at once when `opts.globe` (the mode for the
+   *  camera at this apply) is "eager"; a globe frame before it lands builds
+   *  it here (ensureGlobe). `opts.start`: the mode the build was asked with. */
+  applyBuilt(
+    m: MeshOut,
+    src: GlobeInputs,
+    opts: { start: GlobeSetMode; globe: GlobeSetMode; zCanon: number; zoom: number; via: string },
+  ) {
+    const endSpan = perfOn
+      ? perfSpan("plateau.setGeometry", { scope: src.features[0]?.properties?.id })
+      : null;
+    this.cancelGlobePass();
+    const deferred = !m.gWallPositions;
+    const gen = this.globeDefer.begin(deferred ? src : null);
+    this.applyMesh(m, src);
+    if (endSpan) {
+      endSpan({
+        walls: this.vertexCount,
+        lid: this.lidVertexCount,
+        lines: this.lineVertexCount,
+        halo: this.haloVertexCount,
+        mesh: "worker",
+        part: deferred ? "merc" : "both",
+        ...opts,
+      });
+    }
+    if (deferred) this.scheduleGlobePass(gen, opts.globe === "eager");
+  }
+
+  /** ac:mesh=worker: who builds the deferred globe set (null: this layer). */
+  setGlobeProvider(p: GlobeProvider | null) {
+    this.globeProvider = p;
   }
 
   /** A built mesh (gl/meshBuild.ts), applied: everything the draws and the
@@ -811,7 +863,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
 
   /** A mesh's globe set alone (the deferred pass, ac:mesh=merc): the four
    *  globe arrays and their four flags, nothing else of the layer. */
-  private applyGlobe(m: MeshOut) {
+  private applyGlobe(m: GlobeSet) {
     this.gWallPositions = m.gWallPositions;
     this.gLidPositions = m.gLidPositions;
     this.gLinePositions = m.gLinePositions;
@@ -825,10 +877,26 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   /** A lazy setGeometry's globe set (ac:mesh=merc), built GLOBE_PASS_DELAY_MS
    *  after the map's next idle (it comes as the rise's last frame ends), then
    *  in the browser's next idle time (≤ 1 s; Safari has none: at once) — out
-   *  of the click, the rise, the half second after it and the flight. */
-  private scheduleGlobePass(gen: number) {
+   *  of the click, the rise, the half second after it and the flight.
+   *  ac:mesh=worker: asked of the worker at the map's next idle (it costs
+   *  the page nothing but four assignments), or at once (`atOnce`). */
+  private scheduleGlobePass(gen: number, atOnce = false) {
     const map = this.map;
     if (!map) return; // not on a map yet: the first globe frame builds it
+    const provider = meshMode === "worker" ? this.globeProvider : null;
+    if (provider) {
+      if (atOnce) {
+        this.workerGlobePass(gen, provider);
+        return;
+      }
+      const onWorkerIdle = () => {
+        this.globeTask = null;
+        this.workerGlobePass(gen, provider);
+      };
+      map.once("idle", onWorkerIdle);
+      this.globeTask = { cancel: () => map.off("idle", onWorkerIdle) };
+      return;
+    }
     let idle = 0;
     let timer = 0;
     const pass = () => {
@@ -868,6 +936,23 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // Only the globe frames read it: in mercator a repaint is a wasted frame.
     const map = this.map;
     if (map && map.getZoom() < 6) map.triggerRepaint();
+  }
+
+  /** ac:mesh=worker: generation `gen`'s globe set from the worker, assigned
+   *  when it comes if `gen` still holds it — not stale, cancelled, or built
+   *  meanwhile by a globe frame (ensureGlobe). */
+  private workerGlobePass(gen: number, provider: GlobeProvider) {
+    if (__TEST_TOOLS__ && (window as { __acMeshIdle?: string }).__acMeshIdle === "hold") return;
+    const inputs = this.globeDefer.claim(gen);
+    if (!inputs) return;
+    void provider(inputs).then((g) => {
+      if (!g || !this.globeDefer.claim(gen)) return;
+      this.applyGlobe(g);
+      this.globeDefer.markBuilt(gen);
+      if (perfOn) perfNote("plateau.globeBuild", g.ms, { scope: this.scopeId, mesh: "worker" });
+      const map = this.map;
+      if (map && map.getZoom() < 6) map.triggerRepaint();
+    });
   }
 
   /** Generation `gen`'s deferred globe set, built now and handed to the next
@@ -1254,7 +1339,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   }
 
   onRemove(_map: mapboxgl.Map, gl: WebGL2RenderingContext) {
-    if (meshMode === "merc") {
+    if (meshMode === "merc" || meshMode === "worker") {
       // The held inputs dropped: a pass held for this mesh never lands after it.
       this.cancelGlobePass();
       this.globeDefer.cancel();
