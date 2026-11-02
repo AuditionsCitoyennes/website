@@ -175,19 +175,21 @@ export class OutlineLoader {
     );
   }
 
-  /** Warms the HTTP cache with a declared file (a hover): never writes, never fails. */
-  prefetch(kind: OutlineKind, id: string): void {
+  /** Warms the HTTP cache with a declared file (a hover): never writes, never
+   *  fails. Settles with its request (or the one under way for that file). */
+  prefetch(kind: OutlineKind, id: string): Promise<void> {
     if (
       this.mode !== "fichiers" ||
       !this.declared(kind, id) ||
       this.o.store.loaded(kind, id) ||
       this.failed.has(fileKey(kind, id))
     )
-      return;
+      return Promise.resolve();
     const url = fileUrl(this.o.base, this.o.build, kind, id);
-    if (this.inflight.has(url) || this.prefetched.has(url)) return;
+    const under = this.inflight.get(url);
+    if (under || this.prefetched.has(url)) return under ? under.then(() => {}) : Promise.resolve();
     this.prefetched.add(url);
-    void this.request(url, fileKey(kind, id), { build: this.o.build, kind, id });
+    return this.request(url, fileKey(kind, id), { build: this.o.build, kind, id }).then(() => {});
   }
 
   isFailed(kind: OutlineKind, id: string): boolean {

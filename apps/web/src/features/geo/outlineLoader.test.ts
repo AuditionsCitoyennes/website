@@ -367,13 +367,16 @@ test("(9) the give-up timer: at 1200 ms, armed once per request, not after a lan
 test("(10) a prefetch joins the click's request and never writes", async () => {
   const t = setup({ "k/fr_dep_69": ["late"] });
   await t.boot();
-  t.loader.prefetch("k", "fr:dep:69");
+  let settled = false;
+  void t.loader.prefetch("k", "fr:dep:69").then(() => (settled = true));
   await t.tick(5);
   const click = t.loader.ensureBundle("fr:dep:69");
   await t.tick(4);
   assert.equal(t.writes.length, 0);
+  assert.equal(settled, false); // settles with its request
   await t.tick(1);
   assert.equal(await click, "loaded");
+  assert.equal(settled, true);
   assert.equal(t.requests.length, 1);
   assert.equal(t.writes.length, 1);
 
