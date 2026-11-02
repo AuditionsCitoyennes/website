@@ -4,7 +4,8 @@
 // browser, never in a headless preview, so diagnosing "the map looks
 // low-detail" needs a way to read the live state from the console) and
 // `__acFrame` (the frame bus, DEV). Testing tools only (__TEST_TOOLS__): the
-// map's idleness check, `__acPerf.rendersIn(ms)`.
+// map's idleness check, `__acPerf.rendersIn(ms)`, and the plateau mesh's
+// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest).
 
 import type mapboxgl from "mapbox-gl";
 import type { usePlateauFrames } from "../composables/usePlateauFrames";
@@ -18,6 +19,7 @@ type Probes = {
   __acPlateau?: () => unknown;
   __acFrame?: () => unknown;
   __acPerf?: Record<string, unknown>;
+  __acMeshHash?: (opts?: { globe?: boolean }) => unknown;
 };
 
 /** Idleness check: request one repaint, then count the map's `render` events over
@@ -55,11 +57,20 @@ export interface ProbeSources {
   plateau: Pick<ReturnType<typeof usePlateau>, "probe">;
   lid: Pick<ReturnType<typeof usePlateauLid>, "probe">;
   slabs: Pick<ReturnType<typeof usePlateauSlabs>, "probe">;
+  /** The plateau mesh's fingerprint (testing tools; null without them). */
+  meshDigest: ((opts?: { globe?: boolean }) => unknown) | null;
 }
 
 /** Install the probes; returns what unmount calls (the frame and idleness probes are removed,
  *  the others stay, as before). */
-export function installProbes({ getMap, frames, plateau, lid, slabs }: ProbeSources): () => void {
+export function installProbes({
+  getMap,
+  frames,
+  plateau,
+  lid,
+  slabs,
+  meshDigest,
+}: ProbeSources): () => void {
   const w = window as unknown as Probes;
   const map = getMap();
   if (import.meta.env.DEV && map) w.__acMap = map;
@@ -81,8 +92,10 @@ export function installProbes({ getMap, frames, plateau, lid, slabs }: ProbeSour
   if (import.meta.env.DEV) w.__acFrame = frames.probe;
   const rendersInProbe = __TEST_TOOLS__ ? (ms = 1000) => rendersIn(getMap(), ms) : null;
   if (rendersInProbe && w.__acPerf) w.__acPerf.rendersIn = rendersInProbe;
+  if (__TEST_TOOLS__ && meshDigest) w.__acMeshHash = meshDigest;
   return () => {
     if (import.meta.env.DEV && w.__acFrame === frames.probe) delete w.__acFrame;
     if (__TEST_TOOLS__ && w.__acPerf?.rendersIn === rendersInProbe) delete w.__acPerf.rendersIn;
+    if (__TEST_TOOLS__ && meshDigest && w.__acMeshHash === meshDigest) delete w.__acMeshHash;
   };
 }

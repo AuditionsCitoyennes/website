@@ -10,6 +10,7 @@
 import mapboxgl from "mapbox-gl";
 import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { Snapshot } from "../plateau/mapSnapshot";
+import { meshMode } from "../plateau/meshSwitch";
 import { pieceOutline, ringSectorArcs, slabPointPx, type PieceBox, type SlabRect } from "../lib";
 import type { OutlineFC, SlabSpec, SlabThemesSpec } from "../types";
 import { boundsIntersect, polysOf, ringBounds } from "../lib/polygon";
@@ -40,6 +41,8 @@ import {
   pushPieceVert,
   pushWallRing,
 } from "./mesh";
+import { concatGroups } from "./meshConcat";
+import { digestParts } from "./meshDigest";
 import {
   FILL_FS,
   FILL_VS,
@@ -305,6 +308,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  last setGeometry had them: the slabs glow alike (0: no plateau). */
   private haloW = 0;
   private haloCos = 1;
+  /** The testing tools' count of setGeometry calls and the last call's input,
+   *  for meshDigest (declared only: a build without them has no field). */
+  declare private meshProbe?: { calls: number; input: OutlineFC["features"][] };
   // ---- the analyses' SLABS: pieces raised beside the territory (see setSlabs).
   // Their own small mesh — never part of setGeometry, whose rebuild is the
   // map's costliest step — at the plateau's lid height, rising with it
@@ -807,18 +813,44 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     const lineVerts: number[] = [];
     const gLine: number[] = [];
     this.lineGroups = [];
-    for (const grp of lineGroupMap.values()) {
-      const count = grp.verts.length / 8;
-      if (!count) continue;
-      this.lineGroups.push({
-        width: grp.width,
-        alpha: grp.alpha,
-        raised: grp.raised,
-        start: lineVerts.length / 8,
-        count,
+    // ac:mesh=concat (plateau/meshSwitch.ts): the same non-empty groups in the
+    // same order, each copied ONCE into one Float32Array per regime (the globe
+    // set has the same vertex ranges, 20 floats a vertex).
+    const fast = meshMode !== "ancien";
+    let packed: { lines: Float32Array<ArrayBuffer>; gLines: Float32Array<ArrayBuffer> } | null =
+      null;
+    if (fast) {
+      const groups: LineGroup[] = [];
+      for (const grp of lineGroupMap.values()) {
+        const count = grp.verts.length / 8;
+        if (!count) continue;
+        groups.push(grp);
+      }
+      const lines = concatGroups(groups.map((grp) => grp.verts));
+      groups.forEach((grp, i) => {
+        this.lineGroups.push({
+          width: grp.width,
+          alpha: grp.alpha,
+          raised: grp.raised,
+          start: lines.starts[i] / 8,
+          count: grp.verts.length / 8,
+        });
       });
-      for (const v of grp.verts) lineVerts.push(v);
-      for (const v of grp.gVerts) gLine.push(v);
+      packed = { lines: lines.array, gLines: concatGroups(groups.map((grp) => grp.gVerts)).array };
+    } else {
+      for (const grp of lineGroupMap.values()) {
+        const count = grp.verts.length / 8;
+        if (!count) continue;
+        this.lineGroups.push({
+          width: grp.width,
+          alpha: grp.alpha,
+          raised: grp.raised,
+          start: lineVerts.length / 8,
+          count,
+        });
+        for (const v of grp.verts) lineVerts.push(v);
+        for (const v of grp.gVerts) gLine.push(v);
+      }
     }
     // Hover fills: opaque violet sweep that FILLS FROM THE BOUNDARY INWARD. Each
     // unit's polygon is earcut then refined (edge ≤ ~span/9) so vertices exist in
@@ -923,11 +955,20 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.vertexCount = verts.length / 3;
     this.lidPositions = new Float32Array(lidVerts);
     this.lidVertexCount = lidVerts.length / 3;
-    this.linePositions = new Float32Array(lineVerts);
-    this.lineVertexCount = lineVerts.length / 8;
+    if (packed) {
+      this.linePositions = packed.lines;
+      this.lineVertexCount = packed.lines.length / 8;
+    } else {
+      this.linePositions = new Float32Array(lineVerts);
+      this.lineVertexCount = lineVerts.length / 8;
+    }
     this.gWallPositions = new Float32Array(gWall);
     this.gLidPositions = new Float32Array(gLid);
-    this.gLinePositions = new Float32Array(gLine);
+    if (packed) {
+      this.gLinePositions = packed.gLines;
+    } else {
+      this.gLinePositions = new Float32Array(gLine);
+    }
     this.origin = origin ?? [0, 0];
     this.dirty = true;
     this.lidDirty = true;
@@ -941,9 +982,88 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         lid: this.lidVertexCount,
         lines: this.lineVertexCount,
         halo: this.haloVertexCount,
+        mesh: meshMode,
       });
     }
+    if (__TEST_TOOLS__) {
+      const probe = (this.meshProbe ??= { calls: 0, input: [] });
+      probe.calls++;
+      probe.input = [features, focus, context];
+      // The hash walks' every-call mode (meshDigest): set by the harness.
+      const w = window as unknown as {
+        __acMeshHashEvery?: boolean;
+        __acMeshHashes?: { call: number; scopeId: string; digest: unknown }[];
+      };
+      if (w.__acMeshHashEvery === true) {
+        (w.__acMeshHashes ??= []).push({
+          call: probe.calls,
+          scopeId: this.scopeId,
+          digest: this.meshDigest(),
+        });
+      }
+    }
     this.map?.triggerRepaint();
+  }
+
+  /** The testing tools' fingerprint of the mesh setGeometry last built
+   *  (`__acMeshHash`, dev/probes.ts): one hash per buffer it fills — every
+   *  array but the hover and retract ones, built lazily on hover — plus the
+   *  rim and the state the draws read, every vertex count, the number of
+   *  setGeometry calls and the last call's input (ids, ring and vertex
+   *  counts), so two runs are compared only on the same input. `globe` is
+   *  for the mesh modes to come (ignored here). Null without the tools. */
+  meshDigest(opts?: { globe?: boolean }) {
+    if (!__TEST_TOOLS__) return null;
+    void opts;
+    const { total, parts } = digestParts([
+      ["positions", this.positions],
+      ["lidPositions", this.lidPositions],
+      ["linePositions", this.linePositions],
+      ["haloPositions", this.haloPositions],
+      ["gWallPositions", this.gWallPositions],
+      ["gLidPositions", this.gLidPositions],
+      ["gLinePositions", this.gLinePositions],
+      ["gHaloPositions", this.gHaloPositions],
+      ["rim", this.rim],
+      [
+        "state",
+        JSON.stringify({
+          rimCount: this.rimCount,
+          heightM: this.heightM,
+          haloW: this.haloW,
+          haloCos: this.haloCos,
+          origin: this.origin,
+          lineGroups: this.lineGroups,
+          scopeId: this.scopeId,
+        }),
+      ],
+    ]);
+    const sigOf = (fs: OutlineFC["features"]) =>
+      fs.map((f) => {
+        const polys = polysOf((f.geometry ?? {}) as { type?: string; coordinates?: unknown });
+        let rings = 0;
+        let vertices = 0;
+        for (const poly of polys) {
+          rings += poly.length;
+          for (const ring of poly) vertices += ring.length;
+        }
+        return `${String(f.properties?.id ?? "")}:${rings}:${vertices}`;
+      });
+    const [features = [], focus = [], context = []] = this.meshProbe?.input ?? [];
+    return {
+      total,
+      parts,
+      counts: {
+        walls: this.vertexCount,
+        lid: this.lidVertexCount,
+        lines: this.lineVertexCount,
+        halo: this.haloVertexCount,
+        rim: this.rimCount,
+      },
+      scopeId: this.scopeId,
+      setGeometryCalls: this.meshProbe?.calls ?? 0,
+      inputSig: { scope: sigOf(features), focus: sigOf(focus), context: sigOf(context) },
+    };
   }
 
   /** Provide/replace the lid's map texture (a hidden-map snapshot). Uploaded on

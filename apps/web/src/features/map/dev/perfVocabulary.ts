@@ -27,6 +27,9 @@
 // Reserved for the phases to come, so their tables share one vocabulary:
 // dem.key, plateau.meshBuild, plateau.globeBuild, plateau.globeLate,
 // mesh.roundTrip, outline.fetch, outline.decode, outline.fallback.
+// plateau.setGeometry's detail names the mesh mode that built it (`mesh`:
+// ac:mesh, plateau/meshSwitch.ts); its output's fingerprint is
+// `__acMeshHash()` (dev/probes.ts), once per call with `__acMeshHashEvery`.
 //
 // Requests: `net` sees the main thread's fetches only (Resource Timing), and
 // reads no bytes cross-origin. Bytes, and what Mapbox's or our workers fetch,
