@@ -66,11 +66,11 @@ class FakeMap implements DemSlotMap {
   }
 }
 
-function setup() {
+function setup(onDrop?: (id: DemSlot) => void) {
   mock.timers.enable({ apis: ["setTimeout"] });
   const map = new FakeMap();
   const state: { map: FakeMap | null; src: DemSlot } = { map, src: A };
-  const slots = createDemSlots({ getMap: () => state.map, terrainSrc: () => state.src });
+  const slots = createDemSlots({ getMap: () => state.map, terrainSrc: () => state.src, onDrop });
   /** usePlateau's swap: the spare slot added, the terrain moved onto it, the old one dropped. */
   const swap = () => {
     const old = state.src;
@@ -304,4 +304,20 @@ test("the spare slot's wait: none for the first swap's never-added slot", (t) =>
   swap(); // a (never added) → b, no frame yet
   assert.equal(slots.spareNeedsFrame(map, A), false);
   assert.equal(slots.spareNeedsFrame(map, B), false);
+});
+
+test("onDrop hears each slot a drop removed, and only those", (t) => {
+  t.after(() => mock.timers.reset());
+  const dropped: DemSlot[] = [];
+  const { map, state, swap } = setup((id) => dropped.push(id));
+  swap(); // a (never added) → b
+  swap(); // b → a
+  map.render();
+  mock.timers.tick(DROP_FLOOR_MS);
+  assert.deepEqual(dropped, [B]);
+  swap(); // a → b
+  state.map = null; // unmounted before the floor: nothing removed, nothing heard
+  map.render();
+  mock.timers.tick(DROP_FLOOR_MS);
+  assert.deepEqual(dropped, [B]);
 });

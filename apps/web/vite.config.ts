@@ -34,6 +34,10 @@ export default defineConfig(({ command, mode }) => ({
     ),
     __OUTLINES_BUILD__: JSON.stringify(outlinesBuild()),
   },
+  // The app's Web Workers are modules (`new Worker(url, { type: "module" })`,
+  // map/relief/demClient.ts): their bundles must be ES too (Vite's default is
+  // iife). Only a build that emits a worker sees it.
+  worker: { format: "es" },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
