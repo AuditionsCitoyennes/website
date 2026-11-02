@@ -102,6 +102,31 @@ test("no crypto.subtle: the page-local f-key; a hit keeps the first height", asy
   assert.deepEqual(w.c.keys(), [key]);
 });
 
+test("a constant tile whose encode failed is not memoised: the next one encodes again", async () => {
+  const w = core();
+  const polys = [square(2, 45, 4)];
+  w.send(set(polys, 40));
+  await w.until(1);
+  const key = w.replies[0].key!;
+  const real = globalThis.CompressionStream;
+  globalThis.CompressionStream = class {
+    constructor() {
+      throw new Error("deflate down");
+    }
+  } as unknown as typeof CompressionStream;
+  try {
+    w.send({ t: "tile", key, z: 10, x: 0, y: 0 }); // far from the square: the ground constant
+    await w.until(2);
+  } finally {
+    globalThis.CompressionStream = real;
+  }
+  assert.ok(w.replies[1].error);
+  w.send({ t: "tile", key, z: 10, x: 0, y: 0 });
+  await w.until(3);
+  assert.equal(w.replies[2].kind, "raster-ground");
+  assert.equal(w.replies[2].error, undefined);
+});
+
 test("store: 40 versions, never a pinned key nor the one just set; and a vertex cap", async () => {
   const w = core(null);
   w.send(set([square(0, 0, 0.5)], 40));

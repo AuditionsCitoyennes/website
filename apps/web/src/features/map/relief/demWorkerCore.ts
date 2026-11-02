@@ -69,8 +69,13 @@ export function createDemWorkerCore(
   function constantUrl(h: number): Promise<string> {
     let p = constants.get(h);
     if (!p) {
-      p = encodePNG(constantRgb(h), SIZE, SIZE).then(pngDataUrl);
-      constants.set(h, p);
+      const mine = encodePNG(constantRgb(h), SIZE, SIZE).then(pngDataUrl);
+      constants.set(h, mine);
+      // A failed encode is not memoised: the next constant tile tries again.
+      mine.catch(() => {
+        if (constants.get(h) === mine) constants.delete(h);
+      });
+      p = mine;
     }
     return p;
   }
