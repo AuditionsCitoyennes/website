@@ -243,6 +243,8 @@ onMounted(() => {
       trackResize: false,
       // Ours instead, with the boundaries' credits (`attribution`, below).
       attributionControl: false,
+      // Its « i », compact at every width (below): a French label.
+      locale: { "AttributionControl.ToggleAttribution": "Afficher les crédits" },
       // The style's "globe" projection applies as-is: the plateau layer is
       // globe-native (dual mercator/ECEF programs morphed onto the sphere below
       // z6 via the experimental custom-layer API), so no projection juggling.

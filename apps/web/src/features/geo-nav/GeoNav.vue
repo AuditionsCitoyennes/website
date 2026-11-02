@@ -973,6 +973,13 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
   color: rgb(0 0 0 / 0.75);
 }
 
+/* Opened in the narrow strip left of a wide panel (900-1000 px), the credit is
+   a tall column: past the site header's edge, it scrolls instead. */
+.geo-map :deep(.mapboxgl-ctrl-attrib-inner) {
+  max-height: calc(100dvh - var(--header-space) - 3rem);
+  overflow-y: auto;
+}
+
 @media (min-width: 900px) {
   /* The panel is painted over the map's right edge: the attribution, in the
      bottom-right corner, is moved clear of it, with the panel's slide. */
