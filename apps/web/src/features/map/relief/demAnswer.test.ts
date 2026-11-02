@@ -136,8 +136,9 @@ test("ground and malformed: a non-touching tile is cached, malformed and orphans
   await answered(r, url(key, 5, 0, 0));
   assert.equal(await answered(r, "ac-dem://x/1/9/9"), "G");
   assert.equal(await answered(r, url("f00", 1, 0, 0)), "G");
+  assert.equal(await answered(r, url("f00", 1, 0, 0)), "G"); // asked again: not a cache hit
   const s = r.a.stats()!;
-  assert.deepEqual([s.ground, s.cached, s.malformed, s.orphan], [1, 1, 1, 1]);
+  assert.deepEqual([s.ground, s.cached, s.malformed, s.orphan], [1, 1, 1, 2]);
   assert.equal(r.tiles().length, 0);
 });
 
