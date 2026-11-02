@@ -68,3 +68,4 @@ export {
   type RootV1,
   type UFileV1,
 } from "./outlines";
+export { OUTLINE_WAIT_MS, OutlineLoader } from "./outlineLoader";
