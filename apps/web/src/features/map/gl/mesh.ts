@@ -4,7 +4,7 @@
 // the wall's overshoot over the plateau (WALL_OVERSHOOT: its only home) and
 // the violet.
 
-import { baseOf, type PBase } from "../lib/projection";
+import { baseOf, type PBase } from "../lib/mercator";
 
 export const WALL_OVERSHOOT = 1.02; // top slightly above the plateau: no smeared sliver
 

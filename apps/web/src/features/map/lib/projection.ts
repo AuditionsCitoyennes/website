@@ -1,13 +1,16 @@
 // The per-geometry projection caches the plateau is built from — every
 // boundary vertex projected ONCE (mercator and ECEF, both linear in altitude,
-// see PBase) —, the rim packed for the frame bus (STRIDE: its only home), the
-// lid and hover-fill meshes, and the hull a fit frames.
+// see PBase, ./mercator) —, the rim packed for the frame bus (STRIDE: its only
+// home), the lid and hover-fill meshes, and the hull a fit frames. Pure: no
+// mapbox-gl, no page (lib/corePurity.test.ts); the two cache misses report to
+// the probe the page installs (setProjectionProbe), none without it.
 
-import mapboxgl from "mapbox-gl";
 import earcut, { flatten } from "earcut";
-import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
+import { baseOf, type PBase } from "./mercator";
 import { polysOf } from "./polygon";
+
+export { baseOf, type PBase } from "./mercator";
 
 // ---- Per-geometry projection caches ----------------------------------------
 // setGeometry used to re-project every boundary vertex (2× Mercator + 2× ECEF
@@ -18,33 +21,16 @@ import { polysOf } from "./polygon";
 // per-vertex — and every derived mesh — is cacheable per GEOMETRY OBJECT
 // (boundary FCs and markRaw'd commune entries are identity-stable) with the
 // height applied as a multiply-add at assembly time.
-export interface PBase {
-  lng: number;
-  lat: number;
-  x: number; // mercator at ground
-  y: number;
-  zPerM: number; // mercator z per metre of altitude
-  lo: [number, number, number]; // ecef at ground
-  d: [number, number, number]; // ecef delta per metre of altitude
-}
 
-export function baseOf(lng: number, lat: number): PBase {
-  const m0 = mapboxgl.MercatorCoordinate.fromLngLat({ lng, lat }, 0);
-  const m1 = mapboxgl.MercatorCoordinate.fromLngLat({ lng, lat }, 1);
-  const ll = new mapboxgl.LngLat(lng, lat) as mapboxgl.LngLat & {
-    toEcef(altM: number): [number, number, number];
-  };
-  const lo = ll.toEcef(0);
-  const e1 = ll.toEcef(1);
-  return {
-    lng,
-    lat,
-    x: m0.x,
-    y: m0.y,
-    zPerM: m1.z,
-    lo,
-    d: [e1[0] - lo[0], e1[1] - lo[1], e1[2] - lo[2]],
-  };
+/** What a cache miss reports to (its span's end, or null: not measured). The
+ *  page installs one (PlateauWallLayer, under the perf tools); this module
+ *  never imports them, so a worker can load it. */
+export type ProjectionProbe = (
+  name: "projection.ringBases" | "projection.lidBases",
+) => ((detail: { vertices: number }) => void) | null;
+let probe: ProjectionProbe | null = null;
+export function setProjectionProbe(p: ProjectionProbe | null) {
+  probe = p;
 }
 
 /** Ring vertices, projected once per geometry (walls, lines, halo, fill rings). */
@@ -52,7 +38,7 @@ const ringBaseCache = new WeakMap<object, PBase[][][]>();
 export function ringBasesOf(g: { type?: string; coordinates?: unknown }): PBase[][][] {
   let c = ringBaseCache.get(g as object);
   if (!c) {
-    const end = perfOn ? perfSpan("projection.ringBases") : null;
+    const end = probe ? probe("projection.ringBases") : null;
     c = polysOf(g).map((poly) => poly.map((ring) => ring.map(([lng, lat]) => baseOf(lng, lat))));
     ringBaseCache.set(g as object, c);
     if (end)
@@ -188,7 +174,7 @@ const lidBaseCache = new WeakMap<object, PBase[][]>();
 export function lidBasesOf(g: { type?: string; coordinates?: unknown }): PBase[][] {
   let cached = lidBaseCache.get(g as object);
   if (cached) return cached;
-  const end = perfOn ? perfSpan("projection.lidBases") : null;
+  const end = probe ? probe("projection.lidBases") : null;
   const ringBases = ringBasesOf(g);
   cached = ringBases.map((rings) => {
     const out: PBase[] = [];
