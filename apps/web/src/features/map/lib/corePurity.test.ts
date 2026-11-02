@@ -15,7 +15,14 @@ import { fileURLToPath } from "node:url";
 const MAP = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** The core's entry files, relative to features/map. */
-const CORE = ["lib/mercator.ts", "lib/projection.ts", "lib/polygon.ts", "gl/mesh.ts"];
+const CORE = [
+  "lib/mercator.ts",
+  "lib/projection.ts",
+  "lib/polygon.ts",
+  "gl/mesh.ts",
+  "gl/meshBuild.ts",
+  "gl/meshConcat.ts",
+];
 
 const FORBIDDEN = (spec: string) =>
   spec === "mapbox-gl" || spec.startsWith("mapbox-gl/") || spec === "vue" || spec.startsWith("@/");
