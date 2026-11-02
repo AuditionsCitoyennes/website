@@ -7,13 +7,14 @@
 
 import type mapboxgl from "mapbox-gl";
 import type { Bounds, HeightClass } from "@/features/geo";
+import { apiBase } from "@/shared/absoluteUrl";
 import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import type { OutlineFC } from "../types";
 import type { usePlateauLid } from "./usePlateauLid";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API_BASE = apiBase(import.meta.env.VITE_API_URL, location.origin);
 
 export interface PlateauInputs {
   getMap: () => mapboxgl.Map | null;
@@ -106,6 +107,64 @@ export function usePlateau({
         /* leave it resident — retried implicitly on the next swap into this slot */
       }
     }, 500);
+  }
+
+  // The `dem.tilesReady` probe (testing tools only): a DEM slot's addSource →
+  // the first of its tile events after which the source is loaded. Not its
+  // first `sourcedata`: the `metadata` event already reads loaded with no tile
+  // in. Errored tiles count apart: mapbox reports a 404 tile as `sourcedata`
+  // (`sourceDataType: "error"`) but any other failure only as a map `error`
+  // carrying the tile, so both are heard (GeoDrillMap already listens to
+  // `error`: one more listener changes no console output). Such a failure
+  // also makes mapbox read the source loaded for good, so the span ends on it:
+  // with errTiles > 0 it is no ready time, only a flag. One pair of
+  // listeners at a time, on the map it was put on: a newer slot's addSource
+  // drops it (that span is superseded and never ends), and so does abort(). A
+  // plain run of the watcher on the same version keeps it — the same source is
+  // still loading.
+  let offTilesReady: (() => void) | null = null;
+  const demReady = { started: 0, ended: 0 };
+  function stopTilesReady() {
+    offTilesReady?.();
+    offTilesReady = null;
+  }
+  function watchTilesReady(map: mapboxgl.Map, id: string, scope: string) {
+    stopTilesReady();
+    const end = perfSpan("dem.tilesReady", { scope, route: "serveur" });
+    demReady.started++;
+    let tiles = 0;
+    let errTiles = 0;
+    const onTile = (e: mapboxgl.MapSourceDataEvent) => {
+      if (e.sourceId !== id || !e.tile) return;
+      if (e.sourceDataType === "error") errTiles++;
+      else tiles++;
+      endIfLoaded();
+    };
+    const onTileError = (e: { error?: unknown; sourceId?: string; tile?: unknown }) => {
+      if (e.sourceId !== id || !e.tile) return;
+      errTiles++;
+      endIfLoaded();
+    };
+    const endIfLoaded = () => {
+      // isSourceLoaded on a missing id fires a map `error`: ask only while it stands.
+      if (!map.getSource(id)) return;
+      let loaded = false;
+      try {
+        loaded = map.isSourceLoaded(id);
+      } catch {
+        return;
+      }
+      if (!loaded) return;
+      stopTilesReady();
+      demReady.ended++;
+      end({ tiles, errTiles });
+    };
+    map.on("sourcedata", onTile);
+    map.on("error", onTileError);
+    offTilesReady = () => {
+      map.off("sourcedata", onTile);
+      map.off("error", onTileError);
+    };
   }
 
   // The plateau rises/sinks by animating the terrain EXAGGERATION (0 → 1 → 0): the
@@ -350,6 +409,9 @@ export function usePlateau({
         maxzoom: zCanon,
         encoding: "mapbox",
       });
+      // ---- perf probe: dem.tilesReady, this slot's tiles from here (testing tools only) ----
+      if (perfOn) watchTilesReady(map, next, scopeId);
+      // ---- end perf probe ----
       map.addLayer({
         id: "plateau-prefetch",
         type: "hillshade",
@@ -461,6 +523,7 @@ export function usePlateau({
   /** Unmount: any in-flight ensurePlateau run is superseded. */
   function abort() {
     plateauSeq++;
+    if (perfOn) stopTilesReady();
   }
 
   /** The plateau's share of the __acPlateau probe. */
@@ -471,6 +534,8 @@ export function usePlateau({
       scope: plateauScopeId,
       demSource: terrainSrc,
       demMaxzoom: (map?.getStyle().sources?.[terrainSrc] as { maxzoom?: number })?.maxzoom,
+      // The dem.tilesReady spans begun and ended, and the listener up (≤ 1).
+      ...(perfOn ? { demReady: { ...demReady, live: offTilesReady ? 1 : 0 } } : {}),
     };
   }
 

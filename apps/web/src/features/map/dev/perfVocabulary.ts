@@ -13,23 +13,27 @@
 // Spans: dem.post, plateau.rise, plateau.setGeometry, projection.ringBases,
 // projection.lidBases, tint.setSelection, mask.setData, mask.drapedIndexed, outline.setData,
 // lid.capture, slabs.sync, pins.buildMarkers, vue.hierarchy, vue.outline,
-// vue.mapUnits, vue.deriveScope, pmtiles.firstTiles.
+// vue.mapUnits, vue.deriveScope, pmtiles.firstTiles, and
+//   camera.fit        a fit's camera, computed (useMapCamera.runCamera →
+//                     fitCamera; detail: shape, hull points)
+//   outline.change    a note (0 ms) per run of GeoDrillMap's outline watcher
+//                     (detail: features, pending)
+//   dem.tilesReady    a DEM slot's addSource → the first tile event after
+//                     which its tiles are all loaded (usePlateau; detail:
+//                     scope, route, tiles, errTiles — a 404 comes as
+//                     `sourcedata`, any other failure as a map `error`, after
+//                     which mapbox reads the source loaded: errTiles > 0 is
+//                     no ready time)
+// Reserved for the phases to come, so their tables share one vocabulary:
+// dem.key, plateau.meshBuild, plateau.globeBuild, plateau.globeLate,
+// mesh.roundTrip, outline.fetch, outline.decode, outline.fallback.
+//
+// Requests: `net` sees the main thread's fetches only (Resource Timing), and
+// reads no bytes cross-origin. Bytes, and what Mapbox's or our workers fetch,
+// need a CDP trace with the workers attached.
 
 import { perfOn, perfVocabulary } from "@/shared/perf/perf";
-
-/** What a main-thread request fetched, from its URL. */
-function netKind(url: string): string | null {
-  if (/\/api\/dem\/[^/]+\/\d+\/\d+\/\d+/.test(url)) return "dem.tiles";
-  if (/\/api\/dem\/?(\?|$)/.test(url)) return "dem.post";
-  if (url.includes("/api/boundaries/departement/")) return "boundaries.departement";
-  if (url.includes("/api/boundaries/communes")) return "boundaries.communes";
-  if (url.includes("/api/boundaries/")) return "boundaries.levels";
-  if (url.includes("/api/map")) return "api.map";
-  if (url.includes("/api/")) return "api.other";
-  if (/mapbox\.com/.test(url)) return "mapbox";
-  if (/\.pmtiles(\?|$)/.test(url)) return "pmtiles";
-  return null;
-}
+import { netKind } from "./netKind";
 
 /** Register the map's vocabulary (once; a no-op without the testing tools). */
 export function installPerfVocabulary() {
