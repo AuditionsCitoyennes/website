@@ -18,8 +18,10 @@
 // 4. Refinement: the neighbours drawn at a coarser tier than their self, and
 //    the départements of other régions on screen, get their selves in ONE
 //    batch after the scope's bundle, nearest first, capped (REFINE_CAPS).
-// 5. The session's fallback is decided at boot (useOutlineFiles): in it,
-//    every answer is the API's (outlineRules).
+// 5. The session falls back at boot (root.json, k/FR, the 6 s cap), or on a
+//    release skew of any later file (useOutlineFiles): from then on every
+//    answer is the API's (outlineRules). A later file failing is its unit's
+//    alone (known absent; on the network, asked again by a later ensure).
 // 6. The chain: a scope's bundles, root first (bundlesFor), loaded in turn.
 import type { Bounds, GeoUnit } from "@/features/geo";
 

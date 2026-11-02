@@ -82,7 +82,8 @@ const analyses = defineModel<boolean>("analyses", { default: false });
 // Or the static outline files (ac:contours=fichiers, data/useOutlineFiles):
 // under the server's tree only, whose unit ids are the files' (the corpus'
 // are paths); then the API's boundaries are asked for only if the session
-// falls back at boot (model/outlineRules).
+// falls back: at boot (root.json, k/FR, the 6 s cap), or on a release skew
+// of any later file (model/outlineRules).
 const outlines =
   contoursMode === "fichiers" && unitTree && !props.comparing ? useOutlineFiles() : null;
 if (contoursMode === "fichiers" && !outlines && import.meta.env.DEV)
