@@ -309,7 +309,7 @@ test("(6) a release skew on any file: confirmed past the cache once, then fallba
   }
 });
 
-test("(7) a missing file fails at once, a 503 after exactly one retry; both final", async () => {
+test("(7) a missing file fails at once, a 503 after exactly one retry; both failed then", async () => {
   const t = setup({ "k/fr_reg_84": [404], "u/fr_dep_69": [503] });
   await t.boot();
   assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
@@ -419,15 +419,40 @@ test("(13) bootMs: a stalled root falls back at the deadline; a boot in time dis
   const r = t.loader.ensureRoot();
   await t.tick(5999);
   assert.deepEqual([t.loader.mode, t.loader.ready], ["fichiers", "loading"]);
+  const waiting = t.loader.ensureBundle("fr:reg:84"); // waits for the boot
   await t.tick(1);
   assert.deepEqual(t.modes, [["fallback", "fallback", { reason: "network", key: "root" }]]);
-  assert.equal(await t.loader.ensureBundle("fr:reg:84"), "fallback");
-  await t.tick(20_000); // the hung request times out: no retry, the session is over
-  assert.equal(await r, "fallback");
+  // The hung request is aborted at the deadline: the boot and its waiters settle now.
+  assert.equal(t.requests[0].signal.aborted, true);
+  assert.deepEqual(await Promise.all([r, waiting]), ["fallback", "fallback"]);
+  await t.tick(20_000); // no retry: the session is over
   assert.equal(t.requests.length, 1);
 
   const ok = setup({}, { bootMs: 6000 });
   await ok.boot();
   await ok.tick(10_000);
   assert.deepEqual(ok.modes, [["fichiers", "ok", undefined]]);
+});
+
+test("(14) a network failure is asked again by the next ensure after failedMs; a missing file never", async () => {
+  const t = setup({ "k/fr_dep_69": ["reject", "reject", "json"], "k/fr_reg_84": [404, "json"] });
+  await t.boot();
+  const first = t.loader.ensureBundle("fr:dep:69");
+  await t.tick(1_000); // the one retry
+  assert.equal(await first, "failed");
+  assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
+  assert.equal(t.requests.length, 3);
+  await t.tick(4_999);
+  assert.equal(await t.loader.ensureBundle("fr:dep:69"), "failed"); // not yet
+  await t.tick(1);
+  assert.equal(t.requests.length, 3); // nothing asked by the clock alone
+  const sets = t.sets();
+  const again = t.loader.ensureBundle("fr:dep:69");
+  await t.tick(0);
+  assert.equal(t.sets(), sets + 1); // left `failed` before its request
+  assert.equal(await again, "loaded");
+  assert.ok(t.store.bundleLoaded("fr:dep:69") && !t.loader.isFailed("k", "fr:dep:69"));
+  assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
+  assert.equal(t.requests.length, 4);
+  assert.equal(t.loader.mode, "fichiers");
 });

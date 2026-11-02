@@ -10,9 +10,10 @@
 // end the session on the API's outlines; so does a release skew on any file
 // (the host holds another build, or none: a tab opened before a deploy), once
 // a refetch past the HTTP cache confirms it (after the network retry too); a
-// network failure is retried once, then final; a missing or malformed file is
-// final at once. Once the session fell back, nothing is requested any more,
-// not even the next attempt of a request under way.
+// network failure is retried once, then failed, until the next ensure after
+// `failedMs` asks again; a missing or malformed file is final at once. Once
+// the session fell back, nothing is requested any more, not even the next
+// attempt of a request under way.
 
 import {
   checkResponse,
@@ -74,9 +75,13 @@ export interface OutlineLoaderOptions {
   waitMs?: number;
   timeoutMs?: number;
   retryMs?: number;
-  /** ensureRoot gives up after this long (none: it waits for its requests):
-   *  a stalled boot must not keep the page waiting for files that may not come. */
+  /** ensureRoot gives up after this long (none: it waits for its requests),
+   *  its requests aborted: a stalled boot must not keep the page waiting for
+   *  files that may not come. */
   bootMs?: number;
+  /** A file failed on the network is asked again by the first ensure this
+   *  long after (not before: a dead network is not asked on every move). */
+  failedMs?: number;
 }
 
 type Expect = { build: string; kind: "root" } | { build: string; kind: OutlineKind; id: string };
@@ -93,6 +98,9 @@ export class OutlineLoader {
   private readonly inflight = new Map<string, Promise<Checked<unknown>>>();
   private readonly prefetched = new Set<string>();
   private readonly waiting = new Set<string>();
+  /** Network failures past their failedMs: the next ensure asks again. */
+  private readonly retryable = new Set<string>();
+  private readonly live = new Set<AbortController>();
   private root?: Promise<OutlineStatus>;
 
   constructor(options: OutlineLoaderOptions) {
@@ -117,7 +125,10 @@ export class OutlineLoader {
       return "loaded";
     })();
     if (first && this.o.bootMs !== undefined) {
-      const late = this.o.setTimer(() => this.fallback("network", "root"), this.o.bootMs);
+      const late = this.o.setTimer(() => {
+        this.fallback("network", "root");
+        for (const abort of this.live) abort.abort(); // the boot's: it settles now
+      }, this.o.bootMs);
       void this.root.finally(() => this.o.clearTimer(late));
     }
     return this.root;
@@ -213,7 +224,7 @@ export class OutlineLoader {
   /** One file: requested, then written (or its failure recorded). */
   private async load(kind: OutlineKind, id: string, root = false): Promise<OutlineStatus> {
     const key = fileKey(kind, id);
-    if (this.failed.has(key)) return "failed";
+    if (this.failed.has(key) && !this.retry(key)) return "failed";
     const { base, build } = this.o;
     const r = await this.request(fileUrl(base, build, kind, id), key, { build, kind, id });
     if (this.off()) return "fallback";
@@ -233,7 +244,7 @@ export class OutlineLoader {
       const kind = want(id);
       if (kind === "loaded" || !kind) return { status: kind ? "loaded" : "absent" };
       const key = fileKey(kind, id);
-      if (this.failed.has(key)) return { status: "failed" };
+      if (this.failed.has(key) && !this.retry(key)) return { status: "failed" };
       if (!jobs.has(key)) {
         const stop = kind === "g" ? () => {} : this.waitFor(key);
         jobs.set(
@@ -276,7 +287,19 @@ export class OutlineLoader {
     if (root || isReleaseSkew(reason)) return this.fallback(reason, key);
     this.failed = new Set(this.failed).add(key);
     this.o.onSets();
+    if (reason === "network")
+      this.o.setTimer(() => this.retryable.add(key), this.o.failedMs ?? 5_000);
     return "failed";
+  }
+
+  /** A network failure past its failedMs leaves `failed`: asked again now. */
+  private retry(key: string): boolean {
+    if (!this.retryable.delete(key)) return false;
+    const failed = new Set(this.failed);
+    failed.delete(key);
+    this.failed = failed;
+    this.o.onSets();
+    return true;
   }
 
   /** The session goes back to the API's outlines: files from this build must
@@ -339,6 +362,7 @@ export class OutlineLoader {
     const abort = new AbortController();
     // Not AbortSignal.timeout: missing on iOS < 16.
     const timer = this.o.setTimer(() => abort.abort(), this.o.timeoutMs ?? 15_000);
+    this.live.add(abort);
     try {
       const fetched = span?.("outline.fetch", { key });
       let text: string;
@@ -371,6 +395,7 @@ export class OutlineLoader {
       return r;
     } finally {
       this.o.clearTimer(timer);
+      this.live.delete(abort);
     }
   }
 }
