@@ -74,6 +74,9 @@ export interface OutlineLoaderOptions {
   waitMs?: number;
   timeoutMs?: number;
   retryMs?: number;
+  /** ensureRoot gives up after this long (none: it waits for its requests):
+   *  a stalled boot must not keep the page waiting for files that may not come. */
+  bootMs?: number;
 }
 
 type Expect = { build: string; kind: "root" } | { build: string; kind: OutlineKind; id: string };
@@ -96,8 +99,10 @@ export class OutlineLoader {
     this.o = options;
   }
 
-  /** root.json then k/FR; any failure of either ends the session on the API. */
+  /** root.json then k/FR; any failure of either, or `bootMs` passing first,
+   *  ends the session on the API. */
   ensureRoot(): Promise<OutlineStatus> {
+    const first = !this.root;
     this.root ??= (async () => {
       const { base, build } = this.o;
       const r = await this.request(rootUrl(base, build), "root", { build, kind: "root" });
@@ -111,6 +116,10 @@ export class OutlineLoader {
       this.set("fichiers", "ok");
       return "loaded";
     })();
+    if (first && this.o.bootMs !== undefined) {
+      const late = this.o.setTimer(() => this.fallback("network", "root"), this.o.bootMs);
+      void this.root.finally(() => this.o.clearTimer(late));
+    }
     return this.root;
   }
 

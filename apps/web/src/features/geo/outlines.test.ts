@@ -202,6 +202,21 @@ test("identity: one object per id@tier, the entry IS the self below the région"
   assert.deepEqual([s.stats().dedupeHits, s.stats().conflicts], [3, 0]);
 });
 
+test("unitsOf: a loaded bundle's entries by id, the stored objects, gone with the file", () => {
+  const s = new OutlineStore({ capVertices: 20 });
+  s.putRoot(ROOT());
+  assert.equal(s.unitsOf("fr:reg:84"), undefined);
+  s.put(uFile("fr:dep:69", "e50"), raw); // its self, from another file first
+  s.put(kFile("fr:reg:84", "e50", [entry("fr:dep:01", "dep"), entry("fr:dep:69", "dep")]), raw);
+  const units = s.unitsOf("fr:reg:84");
+  assert.deepEqual([...(units?.keys() ?? [])], ["fr:dep:01", "fr:dep:69"]);
+  assert.equal(units?.get("fr:dep:69"), s.selfOf("fr:dep:69")); // the object already stored
+  assert.equal(s.unitsOf("fr:dep:69"), undefined); // a u/ file has no entries
+  s.put(kFile("fr:reg:11", "e50", [entry("fr:dep:75", "dep", 30)]), raw); // evicts the older files
+  assert.equal(s.unitsOf("fr:reg:84"), undefined);
+  assert.ok(s.unitsOf("fr:reg:11")?.get("fr:dep:75"));
+});
+
 test("writes: one version bump per call that changed something, atomic", () => {
   const s = new OutlineStore();
   s.putRoot(ROOT());

@@ -2,7 +2,9 @@
 // with (scope, focus, context), whether that outline is still on its way, the
 // units pinned on the map (the scope's children, its neighbours — across a
 // région border too —, every lieu in sight deep in the lieu zone), and the
-// contours fetched ahead for what is shown.
+// contours fetched ahead for what is shown: the API's, or, with the outline
+// files read (`outlines`, outlineRules.ts), the scope's chain of bundles and
+// its neighbours' selves.
 import { computed, watch, type ComputedRef } from "vue";
 import {
   type Bounds,
@@ -19,7 +21,9 @@ import type { NavState } from "../navState";
 import type { BoundaryQueries } from "../data/useBoundaryQueries";
 import type { CommuneGeoStore } from "../data/useCommuneGeo";
 import type { DepFineStore } from "../data/useDepFine";
+import type { OutlineFiles } from "../data/useOutlineFiles";
 import type { GeoHierarchy } from "./useGeoHierarchy";
+import { bundlesFor, outlineReadyFiles, refinementBatch, scopePendingFiles } from "./outlineRules";
 
 export interface MapFeedInputs {
   nav: NavState;
@@ -29,6 +33,8 @@ export interface MapFeedInputs {
   deps: DepFineStore;
   panelUnits: ComputedRef<GeoUnit[]>;
   selectedPlace: ComputedRef<GeoUnit | null>;
+  /** The outline files (GeoNav: the server's tree with ac:contours=fichiers). */
+  outlines?: OutlineFiles | null;
 }
 
 export function useMapFeed(inputs: MapFeedInputs) {
@@ -43,7 +49,11 @@ export function useMapFeed(inputs: MapFeedInputs) {
     raisedOutlineDue,
     allPlaceUnits,
     serverTree,
+    filesActive,
+    outlineView,
+    chainOf,
   } = geo;
+  const outlines = inputs.outlines ?? null;
   const { regionsQuery, depsQuery, metroQuery } = boundaries;
   const { communeGeo, failedInsee, ensureGeo } = communes;
   const { depFine, depGaveUp, fetchDepFine, addDepFine, ensureDepFine } = deps;
@@ -110,6 +120,10 @@ export function useMapFeed(inputs: MapFeedInputs) {
   // (cold cache: commune contours / région outlines still streaming in). The map
   // holds the current plateau instead of tearing it down for a transient blank.
   const scopePending = computed(() => {
+    // The outline files: while the scope's self is due, or none is in and its
+    // chain may still bring one (outlineRules, rule 2) — no query to wait on.
+    if (filesActive())
+      return scopePendingFiles(outlineView!, chainOf(currentScope.value), inMicroZone.value);
     // Micropin zone → the map clears, it must never HOLD a plateau.
     if (inMicroZone.value) return false;
     const s = currentScope.value;
@@ -137,6 +151,9 @@ export function useMapFeed(inputs: MapFeedInputs) {
    *  "drill → boundaries ready", shared/perf; a neighbouring département's own
    *  outline, which refines a line already drawn, is not waited for). */
   const outlineReady = computed(() => {
+    // The files: not pending, and every bundle of the scope's chain settled.
+    if (filesActive())
+      return outlineReadyFiles(outlineView!, chainOf(currentScope.value), inMicroZone.value);
     if (inMicroZone.value) return true;
     if (scopePending.value) return false;
     const geo = communeGeo.value;
@@ -309,14 +326,18 @@ export function useMapFeed(inputs: MapFeedInputs) {
     scopeSiblings.value.forEach(add); // surrounding sibling villes/arrondissements
     return codes;
   });
+  // These three ask the API: with the outline files read, their sources say
+  // "nothing to do", and a fallback of the session starts them.
   watch(
-    () => [...visibleInsee.value].sort().join(","),
-    () => ensureGeo(visibleInsee.value),
+    () => (filesActive() ? "" : [...visibleInsee.value].sort().join(",")),
+    () => {
+      if (!filesActive()) void ensureGeo(visibleInsee.value);
+    },
     { immediate: true },
   );
   // …and the scope's own outline, a département reached by panning (see depFine).
   watch(
-    () => depCodeOf(currentScope.value),
+    () => (filesActive() ? undefined : depCodeOf(currentScope.value)),
     (code) => void ensureDepFine(code),
     { immediate: true },
   );
@@ -324,6 +345,7 @@ export function useMapFeed(inputs: MapFeedInputs) {
   // meeting its own): drawn and hit beside its raised edge, they meet it there.
   watch(
     () => {
+      if (filesActive()) return "";
       const s = currentScope.value;
       const code = depCodeOf(s);
       if (!code || !depFine.value[code]) return "";
@@ -345,6 +367,68 @@ export function useMapFeed(inputs: MapFeedInputs) {
       void Promise.all(codes.split(",").map(fetchDepFine)).then(addDepFine);
     },
   );
+
+  if (outlines) {
+    const files = outlines;
+    const view = outlineView!;
+    // The scope's chain (rule 6): its bundles root first, each awaited — a
+    // commune's row comes with its département's bundle, an arrondissement's
+    // with its ville's. A newer scope runs its own chain: this one stops at
+    // its next step. A self due from the start is waited for OUTLINE_WAIT_MS.
+    watch(
+      () => currentScope.value.id,
+      async (id) => {
+        if (!filesActive()) return;
+        const scope = currentScope.value;
+        if (raisedOutlineDue(scope)) files.holdSelf(id);
+        for (const b of bundlesFor(view, chainOf(scope))) {
+          await files.ensureBundle(b);
+          if (currentScope.value.id !== id) return;
+        }
+      },
+      { immediate: true },
+    );
+    // The neighbours' selves (rule 4), in ONE write once the scope's bundle
+    // has settled: régions beside a région (none for now: REFINE_CAPS), and,
+    // once the flight has landed (mapView is the view left until then), the
+    // départements of other régions on screen. Not waited for: they refine
+    // lines already drawn, or draw lines that had none.
+    watch(
+      () => {
+        if (!filesActive()) return "";
+        void mapView.value; // a landing re-reads the pin below
+        const s = currentScope.value;
+        const cross = crossRegionDeps.value;
+        if (view.bundleState(s.id) === "loading") return "";
+        const parent = s.parentId ? index.value.get(s.parentId) : undefined;
+        const landed = !nav.scopePinned.value;
+        return refinementBatch(view, s, parent?.children ?? [], landed ? cross : []).join(",");
+      },
+      (ids) => {
+        if (ids) void files.batchSelf(ids.split(","));
+      },
+    );
+    // Every file the outline draws from stays in the store (an evicted line
+    // would vanish and be fetched again): the chain, the scope, its children,
+    // its neighbours — pinned again as each file lands.
+    watch(
+      () => {
+        if (!filesActive()) return "";
+        const s = currentScope.value;
+        const ids = [
+          ...bundlesFor(view, chainOf(s)),
+          s.id,
+          ...panelUnits.value.map((u) => u.id),
+          ...scopeSiblings.value.map((u) => u.id),
+        ];
+        return `${files.version.value} ${ids.join(",")}`;
+      },
+      (key) => {
+        if (key) files.pin(key.slice(key.indexOf(" ") + 1).split(","));
+      },
+      { immediate: true },
+    );
+  }
 
   return { outline, scopePending, outlineReady, mapUnits };
 }

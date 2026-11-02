@@ -116,6 +116,7 @@ watch(
       :theme-filter="topics"
       :preview="preview"
       :unit-tree="unitTree"
+      :comparing="comparing"
     >
       <template #head-actions>
         <div class="head-actions">
