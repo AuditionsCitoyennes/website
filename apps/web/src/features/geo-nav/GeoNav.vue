@@ -21,6 +21,8 @@ import { useCommuneGeo } from "./data/useCommuneGeo";
 import { useDepFine } from "./data/useDepFine";
 import { contoursMode } from "./data/contoursSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
+import { hoverPrefetch } from "./data/hoverPrefetch";
+import { liftCheck } from "./model/outlineCheck";
 import { useGeoHierarchy } from "./model/useGeoHierarchy";
 import { useScope } from "./model/useScope";
 import { useMapFeed } from "./model/useMapFeed";
@@ -208,6 +210,24 @@ watch(panelUnits, (units) => {
     hoveredPanelId.value = null;
   }
 });
+
+// Under the files, a row held under the pointer asks for its unit's bundle
+// before the click (data/hoverPrefetch; a région's self is in it). Not on a
+// touch screen (a tap hovers the row it opens) nor under Save-Data. The
+// map's own hover is not emitted: a pin gets none.
+if (outlines) {
+  const rowHover = hoverPrefetch({
+    prefetch: (id) => outlines.prefetch("k", id),
+    allowed: () =>
+      outlines.mode.value === "fichiers" &&
+      window.matchMedia("(hover: hover)").matches &&
+      !(navigator as { connection?: { saveData?: boolean } }).connection?.saveData,
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimer: (timer) => window.clearTimeout(timer as number),
+  });
+  watch(hoveredPanelId, (id) => rowHover.hover(id));
+  onBeforeUnmount(rowHover.stop);
+}
 
 // ---- Filtered: every matching audition in ONE list ---------------------------
 // With filters on, what the reader wants is the answer to them — not a drill
@@ -553,8 +573,11 @@ if (__TEST_TOOLS__) {
     { flush: "sync" },
   );
   // `window.__acOutlineCheck()`: the store writes so far, the vertices of the
-  // outline handed to the map, by kind, and the commune the scope walk finds
-  // at a point. Reads the outline and the hierarchy only.
+  // outline handed to the map, by kind, the commune the scope walk finds at a
+  // point, and whether the lines lifted onto the lid lie on its edge
+  // (model/outlineCheck; null while the outline has no scope feature: the
+  // map lifts them only once the plateau rises). Reads the outline and the
+  // hierarchy only.
   const outlineCheck = () => {
     const vertices: Record<string, number> = {};
     for (const f of outline.value.features) {
@@ -563,10 +586,41 @@ if (__TEST_TOOLS__) {
       const kind = String(f.properties.kind);
       vertices[kind] = (vertices[kind] ?? 0) + n;
     }
+    // The lift check walks every vertex: only when one of its fields is read.
+    const fc = outline.value;
+    const of = (kind: string) =>
+      fc.features
+        .filter((f) => f.properties.kind === kind)
+        .map((f) => f.geometry as { type: string; coordinates: unknown });
+    let lift: ReturnType<typeof liftCheck> | null = null;
+    let checked = false;
+    const check = () => {
+      if (!checked) {
+        const [scopeSelf] = of("scope");
+        lift = scopeSelf ? liftCheck(scopeSelf, of("focus")) : null;
+        checked = true;
+      }
+      return lift;
+    };
     return {
       writes: outlines?.version.value ?? null,
       vertices,
       finest: (lat: number, lng: number) => geo.finestAt(lat, lng)?.id ?? null,
+      get offLid() {
+        return check()?.offLid ?? null;
+      },
+      get nearMiss() {
+        return check()?.nearMiss ?? null;
+      },
+      get liftedShare() {
+        return check()?.liftedShare ?? null;
+      },
+      get lifted() {
+        return check()?.lifted ?? null;
+      },
+      get boundaryM() {
+        return check()?.boundaryM ?? null;
+      },
     };
   };
   const wc = window as unknown as { __acOutlineCheck?: typeof outlineCheck };
