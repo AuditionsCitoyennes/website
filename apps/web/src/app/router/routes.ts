@@ -6,6 +6,7 @@ import { AuthPage, ResetPasswordPage } from "@/features/auth";
 import { AdminPage } from "@/features/admin";
 import { VerifyTestimonyPage } from "@/features/testify";
 import { StagePage } from "@/features/map-stage";
+import { SupportPage } from "@/features/support";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -59,6 +60,7 @@ export const routes: RouteRecordRaw[] = [
     name: ROUTE.resetPassword.name,
     component: ResetPasswordPage,
   },
+  { path: ROUTE.support.path, name: ROUTE.support.name, component: SupportPage },
   {
     path: ROUTE.notFound.path,
     name: ROUTE.notFound.name,
