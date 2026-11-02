@@ -18,9 +18,13 @@
 //   - else the worker renders it, after the record's `set` settled; aborted
 //     before posting -> ground, not cached. `unknown` (the worker lost the key)
 //     -> the `set` again with the first height, awaited, then the tile once
-//     more. Still no tile -> the main-thread renderer once (not cached); that
-//     failing too -> ground, not cached, `onClientLost`. Ground answers a
-//     tile that touches the selection only on that last line.
+//     more. Still no tile -> the main-thread renderer once (not cached; not
+//     again if that tile was already rendered there); that failing too ->
+//     ground, not cached, `onClientLost`. Ground answers a tile that touches
+//     the selection only on that last line.
+// Requests for one tile share one job through the cache, and the abort is
+// the first one's: an aborted job is dropped, its aborted callers take
+// ground and its live ones ask again.
 // Every request resolves exactly once and nothing rejects: a hung promise
 // keeps the source loading. Answers go back through the frame budget.
 //
@@ -47,7 +51,7 @@ export interface DemRecord {
   height: number;
   bbox: Bbox;
   vertices: number;
-  /** Settles (never rejects) once the worker holds the key again. */
+  /** Settles (never rejects) once the latest re-sent `set` has been answered, successfully or not. */
   setP: Promise<void>;
   /** Bumped by every re-sent `set`: one re-send per loss, however many tiles saw it. */
   gen: number;
@@ -70,6 +74,10 @@ export interface DemAnswerPort {
 }
 
 type Feature = { geometry?: unknown; type?: string; coordinates?: unknown };
+/** A reply, `main` when the main thread produced it. */
+type Reply = DemReply & { main?: true };
+/** A job skipped on abort: never handed to Mapbox. */
+const ABORTED = "aborted:";
 type Unsent = Omit<DemSetJob, "id"> | Omit<DemTileJob, "id">;
 interface MemoNode {
   next: WeakMap<object, MemoNode>;
@@ -117,20 +125,21 @@ export function createDemAnswer(port: DemAnswerPort) {
   const slots = new Map<string, string>();
   const memo: MemoNode = { next: new WeakMap() };
 
-  async function mainCall(msg: DemJob, rec?: DemRecord): Promise<DemReply> {
+  async function mainCall(msg: DemJob, rec?: DemRecord): Promise<Reply> {
     try {
       if (msg.t === "set") {
         if (!port.mainSet) throw new Error("no main-thread renderer");
         return { id: msg.id, ...(await port.mainSet(msg.json, msg.height)) };
       }
       if (!rec || !port.mainRender) throw new Error("no main-thread renderer");
-      return { id: msg.id, url: await port.mainRender(rec, msg.z, msg.x, msg.y), kind: "raster" };
+      const url = await port.mainRender(rec, msg.z, msg.x, msg.y);
+      return { id: msg.id, url, kind: "raster", main: true };
     } catch (e) {
-      return { id: msg.id, error: String(e) };
+      return { id: msg.id, error: String(e), main: msg.t === "tile" || undefined };
     }
   }
 
-  function call(m: Unsent, rec?: DemRecord): Promise<DemReply> {
+  function call(m: Unsent, rec?: DemRecord): Promise<Reply> {
     const msg = { ...m, id: nextId++ } as DemJob;
     if (mode === "main") return mainCall(msg, rec);
     return new Promise((settle) => {
@@ -216,17 +225,20 @@ export function createDemAnswer(port: DemAnswerPort) {
     { z, x, y }: DemTileId,
     signal?: AbortSignal,
   ): Promise<{ url: string; keep: boolean }> {
+    let triedMain = false;
     try {
       await rec.setP;
-      if (signal?.aborted) return { url: port.ground, keep: false };
+      if (signal?.aborted) return { url: ABORTED, keep: false };
       const gen = rec.gen;
       const t0 = now();
       let r = await call({ t: "tile", key: rec.key, z, x, y }, rec);
       if (r.kind === "unknown") {
         if (rec.gen === gen) resend(rec);
         await rec.setP;
+        if (signal?.aborted) return { url: ABORTED, keep: false };
         r = await call({ t: "tile", key: rec.key, z, x, y }, rec);
       }
+      triedMain = !!r.main;
       if (st && r.ms !== undefined) {
         st.workerMs += r.ms;
         st.workerMax = Math.max(st.workerMax, r.ms);
@@ -237,7 +249,9 @@ export function createDemAnswer(port: DemAnswerPort) {
       // the main thread, below
     }
     try {
-      if (port.mainRender) return { url: await port.mainRender(rec, z, x, y), keep: false };
+      if (port.mainRender && !triedMain) {
+        return { url: await port.mainRender(rec, z, x, y), keep: false };
+      }
     } catch {
       // ground, below
     }
@@ -260,6 +274,35 @@ export function createDemAnswer(port: DemAnswerPort) {
     return { url };
   }
 
+  /** One tile's answer, before the budget. */
+  function pick(id: DemTileId, signal?: AbortSignal): Promise<string> {
+    const ck = `${id.key}/${id.z}/${id.x}/${id.y}`;
+    const hit = cache.get(ck);
+    const rec = records.get(id.key);
+    let p: Promise<string>;
+    if (hit) {
+      if (st) st.cached++;
+      p = hit;
+    } else if (!rec) {
+      if (st) st.orphan++;
+      return Promise.resolve(port.ground);
+    } else if (!tileTouches(rec.bbox, id.z, id.x, id.y)) {
+      if (st) st.ground++;
+      p = Promise.resolve(port.ground);
+      cache.set(ck, p);
+    } else {
+      if (st) st.rasterised++;
+      const job: Promise<string> = render(rec, id, signal).then((r) => {
+        if (!r.keep) cache.delete(ck, job);
+        return r.url;
+      });
+      p = job;
+      cache.set(ck, job);
+    }
+    // The job was skipped for its first caller's abort (and already evicted).
+    return p.then((u) => (u !== ABORTED ? u : signal?.aborted ? port.ground : pick(id, signal)));
+  }
+
   function answer(url: string, opts?: { signal?: AbortSignal }): Promise<{ url: string }> {
     const t0 = now();
     if (st) st.calls++;
@@ -270,28 +313,7 @@ export function createDemAnswer(port: DemAnswerPort) {
       p = Promise.resolve(port.ground);
     } else {
       if (st) st.byZ[id.z] = (st.byZ[id.z] ?? 0) + 1;
-      const ck = `${id.key}/${id.z}/${id.x}/${id.y}`;
-      const hit = cache.get(ck);
-      const rec = records.get(id.key);
-      if (hit) {
-        if (st) st.cached++;
-        p = hit;
-      } else if (!rec) {
-        if (st) st.orphan++;
-        p = Promise.resolve(port.ground);
-      } else if (!tileTouches(rec.bbox, id.z, id.x, id.y)) {
-        if (st) st.ground++;
-        p = Promise.resolve(port.ground);
-        cache.set(ck, p);
-      } else {
-        if (st) st.rasterised++;
-        const job: Promise<string> = render(rec, id, opts?.signal).then((r) => {
-          if (!r.keep) cache.delete(ck, job);
-          return r.url;
-        });
-        p = job;
-        cache.set(ck, job);
-      }
+      p = pick(id, opts?.signal);
     }
     if (st) {
       const dt = now() - t0;

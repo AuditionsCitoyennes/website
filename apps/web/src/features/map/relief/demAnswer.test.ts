@@ -33,6 +33,11 @@ const worker: Handler = (m) => {
   return { key: "f" + fnv1a64(m.json), bbox: makeSelection(polys, m.height).bbox, vertices: 5 };
 };
 
+const mainSet: DemAnswerPort["mainSet"] = async (json, height) => {
+  const { polys } = JSON.parse(json) as { polys: Polygon[] };
+  return { key: "f" + fnv1a64(json), bbox: makeSelection(polys, height).bbox, vertices: 5 };
+};
+
 function rig(over: Partial<DemAnswerPort> = {}) {
   const sent: DemJob[] = [];
   const queue: DemJob[] = [];
@@ -192,14 +197,44 @@ test("an aborted request is not posted and not cached", async () => {
   assert.equal(await answered(r, url(key, 0, 0, 0)), `w:${key}/0/0/0`);
 });
 
+test("an aborted request's job: a live request sharing it still gets the worker render", async () => {
+  const r = rig();
+  const key = await registered(r, [rect(2, 45, 3, 46)]);
+  const ac = new AbortController();
+  const first = r.a.answer(url(key, 0, 0, 0), { signal: ac.signal });
+  ac.abort();
+  const live = r.a.answer(url(key, 0, 0, 0)); // a cache hit on the first one's job
+  await r.drain();
+  assert.equal((await first).url, "G");
+  assert.equal((await live).url, `w:${key}/0/0/0`);
+  assert.equal(r.tiles().length, 1);
+});
+
+test("an abort while the lost key's set is re-sent skips the retried tile", async () => {
+  const r = rig();
+  const key = await registered(r, [rect(2, 45, 3, 46)]);
+  const ac = new AbortController();
+  const p = r.a.answer(url(key, 0, 0, 0), { signal: ac.signal });
+  await flush();
+  const [tile] = r.queue.splice(0);
+  r.a.receive({ id: tile.id, kind: "unknown", ms: 0 });
+  await flush();
+  assert.deepEqual(
+    r.queue.map((m) => m.t),
+    ["set"],
+  );
+  ac.abort();
+  await r.drain();
+  assert.equal((await p).url, "G");
+  assert.deepEqual(
+    r.sent.map((m) => m.t),
+    ["set", "tile", "set"],
+  );
+  assert.equal(await answered(r, url(key, 0, 0, 0)), `w:${key}/0/0/0`); // not cached
+});
+
 test("failover: every pending call resolves on the main thread, late replies are dropped", async () => {
-  const r = rig({
-    mainSet: async (json, height) => {
-      const { polys } = JSON.parse(json) as { polys: Polygon[] };
-      return { key: "f" + fnv1a64(json), bbox: makeSelection(polys, height).bbox, vertices: 5 };
-    },
-    mainRender: async (rec, z, x, y) => `m:${rec.key}/${z}/${x}/${y}`,
-  });
+  const r = rig({ mainSet, mainRender: async (rec, z, x, y) => `m:${rec.key}/${z}/${x}/${y}` });
   const key = await registered(r, [rect(2, 45, 3, 46)]);
   const tile = r.a.answer(url(key, 0, 0, 0));
   const reg = r.a.registerSelection([rect(5, 45, 6, 46)], 40);
@@ -214,6 +249,25 @@ test("failover: every pending call resolves on the main thread, late replies are
   for (const m of stuck) r.a.receive({ id: m.id, ...worker(m) });
   assert.equal(r.a.stats()!.late, 2);
   assert.equal(r.queue.length, 0); // nothing posted after the failover
+});
+
+test("main mode: a tile failing on the main thread is not rendered there twice", async () => {
+  const lost: string[] = [];
+  let renders = 0;
+  const r = rig({
+    mainSet,
+    mainRender: async () => {
+      renders++;
+      throw new Error("no renderer");
+    },
+    onClientLost: () => lost.push("lost"),
+  });
+  r.a.failover();
+  const { key } = await r.a.registerSelection([rect(2, 45, 3, 46)], 40);
+  assert.equal((await r.a.answer(url(key, 0, 0, 0))).url, "G");
+  assert.equal(renders, 1);
+  assert.deepEqual(lost, ["lost"]);
+  assert.equal(r.sent.length, 0);
 });
 
 test("SelectionTooLarge above MAX_SELECTION_VERTICES, nothing posted", async () => {
