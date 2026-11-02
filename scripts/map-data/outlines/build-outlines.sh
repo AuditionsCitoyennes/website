@@ -17,12 +17,16 @@
 #   simplify  mapshaper: k/FR's tier, the régions' dissolves, the families
 #             over the self budget (simplify.sh)
 #   pack      the files of format v1 into <out>/<build>/ (pack.ts)
+#   check     the gates; a failed gate fails the build (check.ts)
+#   release   outlines-<build>.tar.gz beside the build, its sha256, the lock
+#             JSON for apps/web/outlines.lock.json (no GitHub release here)
 #
-# Tools: Node (npx tsx), mapshaper-xl (MAPSHAPER=/path/to/mapshaper-xl to
-# override).
+# Tools: Node (npx tsx), duckdb with its spatial extension (brew install
+# duckdb), mapshaper-xl (MAPSHAPER=/path/to/mapshaper-xl to override).
 # Usage:
 #   scripts/map-data/outlines/build-outlines.sh [--out DIR] [--build o20261102-1]
-#     [--raw DIR] [--fr-tier 1000|300] [--etalab-year 2026] [--steps prep,simplify,pack] [--force]
+#     [--raw DIR] [--fr-tier 1000|300] [--etalab-year 2026]
+#     [--steps prep,simplify,pack,check,release] [--force]
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +35,7 @@ RAW="$HOME/.cache/ac-map-data/raw"
 BUILD="o$(date +%Y%m%d)-1"
 FR_TIER=1000
 ETALAB_YEAR=2026
-STEPS="prep,simplify,pack"
+STEPS="prep,simplify,pack,check,release"
 FORCE=0
 export MAPSHAPER="${MAPSHAPER:-$HOME/.cache/ac-map-data/tools/node_modules/.bin/mapshaper-xl}"
 
@@ -55,6 +59,7 @@ if [ ! -x "$MAPSHAPER" ]; then
   echo "mapshaper-xl not found at $MAPSHAPER — npm install mapshaper, then MAPSHAPER=<path>/mapshaper-xl" >&2
   exit 1
 fi
+command -v duckdb > /dev/null || { echo "missing tool: duckdb — brew install duckdb" >&2; exit 1; }
 for f in regions departements communes; do
   [ -s "$RAW/etalab-$f-50m.geojson" ] || {
     echo "missing $RAW/etalab-$f-50m.geojson — scripts/map-data/build-boundaries.sh --steps etalab" >&2
@@ -67,7 +72,7 @@ OUT="$(cd "$OUT" && pwd)"
 RAW="$(cd "$RAW" && pwd)"
 WORK="$OUT/.work/$BUILD"
 mkdir -p "$WORK"
-ORDER="prep simplify pack"
+ORDER="prep simplify pack check release"
 PARAMS="fr-tier=$FR_TIER etalab-year=$ETALAB_YEAR raw=$RAW"
 if [ -f "$WORK/params" ] && [ "$(cat "$WORK/params")" != "$PARAMS" ]; then
   if [ "$FORCE" = 0 ]; then
@@ -109,7 +114,25 @@ step() { # name command...
   return 0
 }
 
+release() {
+  local tarball="$OUT/outlines-$BUILD.tar.gz"
+  # macOS bsdtar adds AppleDouble ._* entries without these two.
+  COPYFILE_DISABLE=1 tar --no-xattrs -czf "$tarball" -C "$OUT" "$BUILD"
+  local entries expected sha
+  entries="$(tar -tzf "$tarball" | grep -vc '/$')"
+  expected="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).files)' "$OUT/$BUILD/manifest.json")"
+  if [ "$entries" != "$expected" ]; then
+    echo "release: the tarball holds $entries files, the manifest says $expected" >&2
+    exit 1
+  fi
+  sha="$(shasum -a 256 "$tarball" | cut -d' ' -f1)"
+  printf '{"build":"%s","asset":"%s","sha256":"%s"}\n' "$BUILD" "$(basename "$tarball")" "$sha" \
+    | tee "$OUT/outlines-$BUILD.lock.json"
+}
+
 step prep tsx prep.ts "$RAW" "$WORK"
 step simplify "$HERE/simplify.sh" "$WORK" "$FR_TIER"
 step pack tsx pack.ts "$WORK" "$OUT" "$BUILD" "$FR_TIER" "$ETALAB_YEAR" "$("$MAPSHAPER" -v)"
+step check tsx check.ts "$WORK" "$OUT" "$BUILD"
+step release release
 log "done: $OUT/$BUILD"
