@@ -1,15 +1,25 @@
 <script setup lang="ts">
 // The Témoignages page's data switches (dataSource.ts, analyses/devSwitch.ts),
 // map phase 1: "Données" (corpus, serveur, comparer — the page loads again),
-// "Analyses en attente", "Arbre des lieux" and "Couvercle" (the plateau's
-// lid, map/plateau/lidSwitch — the page loads again); in comparer mode a badge
-// counting the differences (compare.ts: window.__acCompare, the tree's, and
-// window.__acCompareLists, the lists'). The testing tools
-// only: the explorer loads it behind `__TEST_TOOLS__`. Folded by default, at
-// the map's bottom-left corner above mapbox's logo (a phone: bottom-right,
-// above the attribution button and the sheet).
+// "Analyses en attente", "Arbre des lieux", "Couvercle" (the plateau's lid,
+// map/plateau/lidSwitch — the page loads again), "Maillage" (how the plateau's
+// mesh is assembled, map/plateau/meshSwitch — the page loads again) and
+// "Contours" (the outlines' source, geo-nav/data/contoursSwitch — the page loads
+// again); in comparer mode a badge counting the differences (compare.ts:
+// window.__acCompare, the tree's, and window.__acCompareLists, the lists'). The
+// testing tools only: the explorer loads it behind `__TEST_TOOLS__`. Folded by
+// default, at the map's bottom-left corner above mapbox's logo (a phone:
+// bottom-right, above the attribution button and the sheet).
 import { pendingAnalysesMode, setPendingAnalysesMode } from "@/features/analyses";
-import { lidMode, setLidMode, type LidMode } from "@/features/map";
+import {
+  lidMode,
+  meshMode,
+  setLidMode,
+  setMeshMode,
+  type LidMode,
+  type MeshMode,
+} from "@/features/map";
+import { contoursMode, setContoursMode, type ContoursMode } from "@/features/geo-nav";
 import {
   dataSource,
   placeTreeMode,
@@ -37,6 +47,14 @@ const LIDS: readonly { id: LidMode; label: string }[] = [
   { id: "ecran", label: "Écran" },
   { id: "ancien", label: "Ancien" },
   { id: "aucun", label: "Aucun" },
+];
+const MESHES: readonly { id: MeshMode; label: string }[] = [
+  { id: "ancien", label: "Ancien" },
+  { id: "concat", label: "Concat" },
+];
+const CONTOURS: readonly { id: ContoursMode; label: string }[] = [
+  { id: "api", label: "API" },
+  { id: "fichiers", label: "Fichiers" },
 ];
 
 function showReport() {
@@ -109,6 +127,32 @@ function showReport() {
           class="seg-btn"
           :aria-pressed="lidMode === m.id"
           @click="setLidMode(m.id)"
+        >
+          {{ m.label }}
+        </button>
+      </div>
+      <div class="seg" role="group" aria-label="Maillage">
+        <span class="seg-label">Maillage</span>
+        <button
+          v-for="m in MESHES"
+          :key="m.id"
+          type="button"
+          class="seg-btn"
+          :aria-pressed="meshMode === m.id"
+          @click="setMeshMode(m.id)"
+        >
+          {{ m.label }}
+        </button>
+      </div>
+      <div class="seg" role="group" aria-label="Contours">
+        <span class="seg-label">Contours</span>
+        <button
+          v-for="m in CONTOURS"
+          :key="m.id"
+          type="button"
+          class="seg-btn"
+          :aria-pressed="contoursMode === m.id"
+          @click="setContoursMode(m.id)"
         >
           {{ m.label }}
         </button>

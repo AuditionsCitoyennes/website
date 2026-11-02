@@ -1,6 +1,24 @@
 import { defineConfig, loadEnv } from "vite";
 import vue from "@vitejs/plugin-vue";
+import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
+
+// The outline build the site reads (features/geo-nav/data/useOutlineFiles):
+// the lock's, read once at start, so a lock bump needs a dev-server restart.
+// An unreadable lock gives "", and the page falls back to the API's outlines
+// rather than the build breaking.
+function outlinesBuild(): string {
+  try {
+    const lock = readFileSync(
+      fileURLToPath(new URL("./outlines.lock.json", import.meta.url)),
+      "utf8",
+    );
+    const build = (JSON.parse(lock) as { build?: unknown }).build;
+    return typeof build === "string" ? build : "";
+  } catch {
+    return "";
+  }
+}
 
 export default defineConfig(({ command, mode }) => ({
   plugins: [vue()],
@@ -14,6 +32,7 @@ export default defineConfig(({ command, mode }) => ({
     __TEST_TOOLS__: JSON.stringify(
       command === "serve" || loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging",
     ),
+    __OUTLINES_BUILD__: JSON.stringify(outlinesBuild()),
   },
   resolve: {
     alias: {
