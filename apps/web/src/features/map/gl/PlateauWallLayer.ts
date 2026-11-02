@@ -22,6 +22,7 @@ import {
   packBase,
   ringBasesOf,
   sampleRim,
+  setProjectionProbe,
   type PBase,
 } from "../lib/projection";
 import {
@@ -64,6 +65,11 @@ import {
   WALL_FS,
   WALL_VS,
 } from "./plateauShaders";
+
+// The projection caches' misses as spans (projection.ringBases / lidBases):
+// lib/projection.ts is pure and reports to the probe given here, installed
+// with this module, before any mesh is built.
+if (perfOn) setProjectionProbe((name) => perfSpan(name));
 
 // ---- The plateau's violet wall: a custom WebGL layer ---------------------------
 // Zero-thickness vertical quads standing EXACTLY on the selection's vector
