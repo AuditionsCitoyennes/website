@@ -8,6 +8,7 @@ import { ancestorsOf, type Bounds, depCodeOf, type GeoUnit, SPAN_DESCEND } from 
 import type { CameraCmd } from "@/features/map";
 import { frameFill } from "@/features/analyses";
 import type { NavState } from "../navState";
+import type { OutlineFiles } from "../data/useOutlineFiles";
 import { resultBounds } from "./auditions";
 
 /** What the camera needs of the map component (GeoDrillMap's exposed API). */
@@ -23,6 +24,8 @@ export interface CameraInputs {
   containsPoint: (u: GeoUnit, lat: number, lng: number) => boolean;
   allPlaceUnits: ComputedRef<GeoUnit[]>;
   ensureDepFine: (code: string | undefined) => Promise<void>;
+  /** The outline files (GeoNav: the server's tree with ac:contours=fichiers). */
+  outlines?: OutlineFiles | null;
   mapCmp: Ref<MapHandle | null>;
   listMode: ComputedRef<boolean>;
   /**
@@ -42,6 +45,7 @@ export function useCamera(inputs: CameraInputs) {
   const { nav, index, raisedGeometryFor, containsPoint, allPlaceUnits, ensureDepFine, mapCmp } =
     inputs;
   const { listMode, resultsFrame, resultsBounds } = inputs;
+  const outlines = inputs.outlines ?? null;
   const { currentScope, inMicroZone, openAuditions } = nav;
 
   const camera = ref<CameraCmd | null>(null);
@@ -124,8 +128,11 @@ export function useCamera(inputs: CameraInputs) {
       };
     } else {
       // A département rises with its own outline (depFine): ask for it now, the
-      // frame takes it if it is already in.
-      void ensureDepFine(depCodeOf(unit));
+      // frame takes it if it is already in. With the outline files, the unit's
+      // bundle (its self and its children's lines; nothing while its row is
+      // not known), the same request as the scope's chain will make.
+      if (outlines?.mode.value === "fichiers") void outlines.ensureBundle(unit.id);
+      else void ensureDepFine(depCodeOf(unit));
       const geometry = byBox ? undefined : raisedGeometryFor(unit);
       // markRaw: the command lives in a deep ref, and the geometry must never be
       // proxied (see communeGeo's note).

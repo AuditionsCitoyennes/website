@@ -245,6 +245,8 @@ interface Held {
 interface Loaded {
   /** The `id@tier` of every object it holds. */
   keys: string[];
+  /** A k file's entries, by id: the stored objects. */
+  units?: Map<string, OutlineGeometry>;
   used: number;
 }
 
@@ -338,9 +340,11 @@ export class OutlineStore {
         keys.push(key);
       };
       hold(f.self);
+      const units = f.kind === "k" ? new Map<string, OutlineGeometry>() : undefined;
       if (f.kind === "k") {
         for (const e of f.units) {
           hold(e);
+          units!.set(e.id, this.objects.get(`${e.id}@${f.tier}`)!.g);
           this.entryTier.set(e.id, f.tier);
           // An entry never changes a row: k/FR's fr1000 entry of a région
           // leaves its root row's st at e50.
@@ -363,7 +367,7 @@ export class OutlineStore {
         }
       }
       if (f.kind === "g") this.globeTier.set(f.id, f.tier);
-      this.files.set(fk, { keys, used: ++this.clock });
+      this.files.set(fk, { keys, units, used: ++this.clock });
       added.add(fk);
     }
     const evicted = added.size ? this.evict(added) : 0;
@@ -410,6 +414,11 @@ export class OutlineStore {
   }
   globeOf(id: string): OutlineGeometry | undefined {
     return this.at(id, this.globeTier.get(id));
+  }
+  /** The entries of its loaded bundle, by id (undefined until k/<id> is in):
+   *  its children's geometries, cut by the same run as its self. */
+  unitsOf(id: string): ReadonlyMap<string, OutlineGeometry> | undefined {
+    return this.files.get(fileKey("k", id))?.units;
   }
   has(id: string, tier: string): boolean {
     return this.objects.has(`${id}@${tier}`);

@@ -87,6 +87,10 @@ export interface BoundaryLookups {
   byInsee?: Map<string, UnitGeo>;
   /** The départements' own outlines (depFine), by code: they win over france-geojson's. */
   byDep?: Map<string, UnitGeo>;
+  /** The outline files' rows, by unit id (ac:contours=fichiers): they win
+   *  for régions, départements and communes — never for the country, which
+   *  keeps its constant frame, nor for the world. */
+  byId?: Map<string, UnitGeo>;
 }
 
 /**
@@ -101,7 +105,7 @@ export interface BoundaryLookups {
  * view to hold, and the scope stopped at France.
  */
 export function applyBoundaries(index: Map<string, GeoUnit>, lookups: BoundaryLookups): void {
-  const { regions, departements, byInsee, byDep } = lookups;
+  const { regions, departements, byInsee, byDep, byId } = lookups;
   const placed = new Set<GeoUnit>();
   for (const u of index.values()) {
     // Places keep their exact point coords — only ville/arrondissement units take
@@ -109,11 +113,13 @@ export function applyBoundaries(index: Map<string, GeoUnit>, lookups: BoundaryLo
     // The country keeps its constant frame.
     const src = outlineSourceOf(u);
     let geo: UnitGeo | undefined;
-    if (src?.kind === "regions") geo = lookUp(regions, src);
+    if (src?.kind === "regions") geo = byId?.get(u.id) ?? lookUp(regions, src);
     else if (src?.kind === "departements") {
       geo =
-        (src.code !== undefined ? byDep?.get(src.code) : undefined) ?? lookUp(departements, src);
-    } else if (src?.kind === "commune") geo = byInsee?.get(src.insee);
+        byId?.get(u.id) ??
+        (src.code !== undefined ? byDep?.get(src.code) : undefined) ??
+        lookUp(departements, src);
+    } else if (src?.kind === "commune") geo = byId?.get(u.id) ?? byInsee?.get(src.insee);
     if (geo) {
       u.center = geo.center;
       u.bounds = geo.bounds;

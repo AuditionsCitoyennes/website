@@ -28,8 +28,11 @@
 //                     after the map's idle (PlateauWallLayer; detail: scope)
 //   plateau.globeLate the same set built by the first globe frame drawn
 //                     before that, or by `__acMeshHash({ globe: true })`
+//   dem.key           ac:relief=client: a selection's version key from the
+//                     relief worker, in place of dem.post (usePlateau; detail:
+//                     scope)
 // Reserved for the phases to come, so their tables share one vocabulary:
-// dem.key, plateau.meshBuild, mesh.roundTrip, outline.fetch, outline.decode,
+// plateau.meshBuild, mesh.roundTrip, outline.fetch, outline.decode,
 // outline.fallback.
 // plateau.setGeometry's detail names the mesh mode that built it (`mesh`:
 // ac:mesh, plateau/meshSwitch.ts) and, with merc, its globe set's mode and

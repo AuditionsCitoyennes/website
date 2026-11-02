@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { OutlineLoader, type OutlineResponse } from "./outlineLoader";
+import { OutlineLoader, type OutlineLoaderOptions, type OutlineResponse } from "./outlineLoader";
 import {
   OutlineStore,
   type FileEntryV1,
@@ -77,7 +77,7 @@ const BUNDLES: Record<string, OutlineFileV1> = {
 type Reply = number | "html" | "hang" | "late" | "reject" | "json" | { body: unknown };
 
 /** A scripted host (each URL's replies in turn, the last one repeats) and a fake clock. */
-function setup(script: Record<string, Reply[]> = {}) {
+function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoaderOptions> = {}) {
   const requests: { url: string; cache?: string; signal: AbortSignal }[] = [];
   const timers = new Map<number, { at: number; fn: () => void; ms: number }>();
   const armed: number[] = [];
@@ -135,6 +135,7 @@ function setup(script: Record<string, Reply[]> = {}) {
       spans.push(s);
       return (more) => void Object.assign(s, more);
     },
+    ...more,
   });
   const flush = () => new Promise((done) => setImmediate(done));
   /** Moves the clock, firing the timers due on the way. */
@@ -308,7 +309,7 @@ test("(6) a release skew on any file: confirmed past the cache once, then fallba
   }
 });
 
-test("(7) a missing file fails at once, a 503 after exactly one retry; both final", async () => {
+test("(7) a missing file fails at once, a 503 after exactly one retry; both failed then", async () => {
   const t = setup({ "k/fr_reg_84": [404], "u/fr_dep_69": [503] });
   await t.boot();
   assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
@@ -411,4 +412,47 @@ test("(12) once the session fell back, a request under way makes no further atte
   assert.deepEqual(await both, ["fallback", "fallback"]);
   assert.equal(t.requests.length, 3);
   assert.equal(t.modes.length, 2);
+});
+
+test("(13) bootMs: a stalled root falls back at the deadline; a boot in time disarms it", async () => {
+  const t = setup({ root: ["hang"] }, { bootMs: 6000 });
+  const r = t.loader.ensureRoot();
+  await t.tick(5999);
+  assert.deepEqual([t.loader.mode, t.loader.ready], ["fichiers", "loading"]);
+  const waiting = t.loader.ensureBundle("fr:reg:84"); // waits for the boot
+  await t.tick(1);
+  assert.deepEqual(t.modes, [["fallback", "fallback", { reason: "network", key: "root" }]]);
+  // The hung request is aborted at the deadline: the boot and its waiters settle now.
+  assert.equal(t.requests[0].signal.aborted, true);
+  assert.deepEqual(await Promise.all([r, waiting]), ["fallback", "fallback"]);
+  await t.tick(20_000); // no retry: the session is over
+  assert.equal(t.requests.length, 1);
+
+  const ok = setup({}, { bootMs: 6000 });
+  await ok.boot();
+  await ok.tick(10_000);
+  assert.deepEqual(ok.modes, [["fichiers", "ok", undefined]]);
+});
+
+test("(14) a network failure is asked again by the next ensure after failedMs; a missing file never", async () => {
+  const t = setup({ "k/fr_dep_69": ["reject", "reject", "json"], "k/fr_reg_84": [404, "json"] });
+  await t.boot();
+  const first = t.loader.ensureBundle("fr:dep:69");
+  await t.tick(1_000); // the one retry
+  assert.equal(await first, "failed");
+  assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
+  assert.equal(t.requests.length, 3);
+  await t.tick(4_999);
+  assert.equal(await t.loader.ensureBundle("fr:dep:69"), "failed"); // not yet
+  await t.tick(1);
+  assert.equal(t.requests.length, 3); // nothing asked by the clock alone
+  const sets = t.sets();
+  const again = t.loader.ensureBundle("fr:dep:69");
+  await t.tick(0);
+  assert.equal(t.sets(), sets + 1); // left `failed` before its request
+  assert.equal(await again, "loaded");
+  assert.ok(t.store.bundleLoaded("fr:dep:69") && !t.loader.isFailed("k", "fr:dep:69"));
+  assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
+  assert.equal(t.requests.length, 4);
+  assert.equal(t.loader.mode, "fichiers");
 });

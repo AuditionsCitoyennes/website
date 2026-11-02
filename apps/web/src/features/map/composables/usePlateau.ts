@@ -1,5 +1,6 @@
 // The plateau: the selected unit's real map raised as a flat-topped plateau on
-// a custom DEM (the API's), the terrain exaggeration animated for the rise and
+// a custom DEM (the API's, or the page's with ac:relief=client:
+// relief/reliefSwitch.ts), the terrain exaggeration animated for the rise and
 // the sink, the DEM source double-buffered so a new selection's tiles prefetch
 // while the old plateau sinks, and the ensurePlateau state machine (its run
 // counter `plateauSeq` aborts superseded runs). Owns `plateauActive`, exposed
@@ -14,6 +15,10 @@ import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, type DemSlot } from "../plateau/demSlots";
+import { SelectionTooLarge } from "../relief/demGeometry";
+import { loadReliefClient } from "../relief/demHook";
+import { demTemplate } from "../relief/demTiles";
+import { demoteRelief, reliefRoute, type ReliefMode } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
 import { meshMode } from "../plateau/meshSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
@@ -45,7 +50,15 @@ export interface PlateauInputs {
   clearSlabs: () => void;
   /** A new unit: the DEV "Carte" lid must not take the old unit's slabs in (usePlateauSlabs). */
   forgetLidExtra: () => void;
+  /** The scope's geometry objects change only with its shape (the `stableOutline`
+   *  prop): a run on the same objects at the same height reuses the last POST. */
+  stableGeometry?: () => boolean;
 }
+
+/** How long a DEM POST's answer is reused (`stableGeometry`): the API keeps the
+ *  last 40 selections of every visitor, so a later run posts again, which also
+ *  keeps the selection there. The re-runs of one drill come within seconds. */
+const POST_REUSE_MS = 30_000;
 
 /** The plateau's rise and sink, ms (the slabs ride them too). */
 export const RISE_MS = 300;
@@ -64,6 +77,7 @@ export function usePlateau({
   syncSlabs,
   clearSlabs,
   forgetLidExtra,
+  stableGeometry,
 }: PlateauInputs) {
   // Whether a plateau is currently standing — the draped hover-fill fallback only
   // applies when none stands or is coming (the world, or a scope with no boundary
@@ -71,10 +85,21 @@ export function usePlateau({
   // highlight.
   let plateauActive = false;
   // ---- Plateau elevation: raise the SELECTED area's real map as a flat-topped
-  // plateau (custom DEM served by the API). The camera tilts so the relief reads. ----
+  // plateau (custom DEM: the API's, or the page's with ac:relief=client). The
+  // camera tilts so the relief reads. ----
+  // `${route}:${key}`: the relief's route and the DEM's version key, so a
+  // change of route alone (the client lost) re-runs as a new version.
   let plateauVersion = "";
   let plateauScopeId = ""; // selection identity — detects a change before any network
   let plateauSeq = 0; // guards overlapping ensurePlateau runs (fast drills)
+  // The last DEM POST under `stableGeometry`: each outline write re-runs
+  // ensurePlateau, and the same scope objects would post the same body again.
+  let lastPost: {
+    geoms: unknown[];
+    heightM: number;
+    version: Promise<string>;
+    at: number;
+  } | null = null;
   // Double-buffered DEM source slots: the NEW selection's tiles prefetch in the spare
   // slot while the old plateau is still sinking, so the rise starts without waiting.
   let terrainSrc: DemSlot = "plateau-dem-a";
@@ -96,7 +121,14 @@ export function usePlateau({
   // LATER, once a frame has rendered since the swap. The prefetch's removal of
   // the SPARE slot stays synchronous (no terrain mutation in that tick, and the
   // slot must be free for addSource), after one frame on a fast drill.
-  const slots = createDemSlots({ getMap, terrainSrc: () => terrainSrc });
+  const slots = createDemSlots({
+    getMap,
+    terrainSrc: () => terrainSrc,
+    onDrop: (id) => relief?.releaseSlot(id),
+  });
+  // ac:relief=client: the client relief, once a run has loaded it. It holds
+  // each standing slot's key.
+  let relief: Awaited<ReturnType<typeof loadReliefClient>> | null = null;
 
   // The `dem.tilesReady` probe (testing tools only): a DEM slot's addSource →
   // the first of its tile events after which the source is loaded. Not its
@@ -117,9 +149,9 @@ export function usePlateau({
     offTilesReady?.();
     offTilesReady = null;
   }
-  function watchTilesReady(map: mapboxgl.Map, id: string, scope: string) {
+  function watchTilesReady(map: mapboxgl.Map, id: string, scope: string, route: ReliefMode) {
     stopTilesReady();
-    const end = perfSpan("dem.tilesReady", { scope, route: "serveur" });
+    const end = perfSpan("dem.tilesReady", { scope, route });
     demReady.started++;
     let tiles = 0;
     let errTiles = 0;
@@ -259,7 +291,7 @@ export function usePlateau({
   // Warm EVERY DEM level the camera can touch (coarse flight levels → the canonical
   // zoom) into the browser HTTP cache, so the terrain never materialises in visible
   // chunks mid-rise. Tiles are tiny and the responses are Cache-Control: public.
-  function warmDemTiles(version: string, b: Bounds, zCanon: number) {
+  function warmDemTiles(key: string, b: Bounds, zCanon: number) {
     const urls: string[] = [];
     for (let z = zCanon; z >= 4 && urls.length < 80; z--) {
       const n = Math.pow(2, z);
@@ -274,11 +306,44 @@ export function usePlateau({
       const y1 = ty(b.minLat);
       for (let x = x0; x <= x1 && urls.length < 80; x++) {
         for (let y = y0; y <= y1 && urls.length < 80; y++) {
-          urls.push(`${API_BASE}/api/dem/${version}/${z}/${x}/${y}`);
+          urls.push(`${API_BASE}/api/dem/${key}/${z}/${x}/${y}`);
         }
       }
     }
     for (const u of urls) void fetch(u).catch(() => {});
+  }
+
+  /** The DEM version of the raised geometry (the POST), or the last POST's
+   *  answer for the same objects and height (`stableGeometry`; joined while
+   *  in flight, never dropped by a superseded run, forgotten if it failed). */
+  function postDem(raised: OutlineFC["features"], heightM: number, scopeId: string) {
+    const geoms = raised.map((f) => f.geometry);
+    const stable = !!stableGeometry?.();
+    const m = lastPost;
+    const same = (prev: unknown[]) =>
+      prev.length === geoms.length && prev.every((g, i) => g === geoms[i]);
+    const fresh = m && performance.now() - m.at < POST_REUSE_MS;
+    if (stable && fresh && m.heightM === heightM && same(m.geoms)) return m.version;
+    const version = (async () => {
+      const endPost = perfOn ? perfSpan("dem.post", { scope: scopeId }) : null;
+      const res = await fetch(`${API_BASE}/api/dem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ features: raised, height: heightM }),
+      });
+      if (!res.ok) throw new Error(`dem POST ${res.status}`);
+      const { version } = (await res.json()) as { version?: string };
+      if (endPost) endPost({ status: res.status });
+      if (!version) throw new Error("dem POST returned no version");
+      return version;
+    })();
+    if (stable) {
+      const entry = (lastPost = { geoms, heightM, version, at: performance.now() });
+      version.catch(() => {
+        if (lastPost === entry) lastPost = null;
+      });
+    }
+    return version;
   }
 
   // Build/refresh the plateau for the current selection. The transition is fully
@@ -293,6 +358,8 @@ export function usePlateau({
     let map = getMap();
     if (!map || !mapReady() || introPending()) return;
     const seq = ++plateauSeq;
+    // The relief's route for THIS run, read once: a demotion meanwhile is the next run's.
+    let route: ReliefMode = __TEST_TOOLS__ ? reliefRoute() : "serveur";
     // The raised plateau is the SELECTED unit itself (the "scope" feature), not its
     // children — so drilling to a région lifts that whole région.
     const raised = (outline()?.features ?? []).filter((f) => f.properties?.kind === "scope");
@@ -360,16 +427,27 @@ export function usePlateau({
         ? animateTerrain(0, SINK_MS)
         : Promise.resolve();
     try {
-      const endPost = perfOn ? perfSpan("dem.post", { scope: scopeId }) : null;
-      const res = await fetch(`${API_BASE}/api/dem`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ features: raised, height: heightM }),
-      });
-      if (!res.ok) throw new Error(`dem POST ${res.status}`);
-      const { version } = (await res.json()) as { version?: string };
-      if (endPost) endPost({ status: res.status });
-      if (!version) throw new Error("dem POST returned no version");
+      let key: string | undefined;
+      if (__TEST_TOOLS__ && route === "client") {
+        // The version key from the relief worker, no request: the same geometry
+        // objects the wall meshes, at this height. The worker keeps the selection.
+        try {
+          const endKey = perfOn ? perfSpan("dem.key", { scope: scopeId }) : null;
+          const c = await loadReliefClient();
+          relief = c;
+          c.onReliefLost(() => void ensurePlateau());
+          ({ key } = await c.registerSelection(raised, heightM));
+          if (endKey) endKey();
+        } catch (err) {
+          // Too large fails on both routes (the server's 413), as before.
+          if (err instanceof SelectionTooLarge) throw err;
+          demoteRelief("register");
+          route = "serveur";
+        }
+      }
+      if (route === "serveur") key = await postDem(raised, heightM, scopeId);
+      if (!key) throw new Error("dem POST returned no version");
+      const version = `${route}:${key}`;
       map = getMap();
       if (seq !== plateauSeq || !map) return; // superseded by a newer selection
       // ac:mesh=merc (plateau/meshSwitch.ts): the canonical zoom first — with the
@@ -397,7 +475,7 @@ export function usePlateau({
       // stand the new DEM up in the spare slot while the old one sinks (the invisible
       // hillshade forces Mapbox to start fetching current-viewport tiles now).
       const { wb, zCanon } = early ?? canonicalOf(raised);
-      if (wb) warmDemTiles(version, wb, zCanon);
+      if (wb && route === "serveur") warmDemTiles(key, wb, zCanon);
       const next: DemSlot = terrainSrc === "plateau-dem-a" ? "plateau-dem-b" : "plateau-dem-a";
       // A fast drill: the last swap left `next` and no frame has rendered since,
       // so mapbox's evaluated terrain may still name it — one frame first (≤ 1 s).
@@ -407,9 +485,15 @@ export function usePlateau({
         if (seq !== plateauSeq || !map) return;
       }
       if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
+      // The spare slot's source is replaced: its key is no longer held.
+      relief?.releaseSlot(next);
       slots.addDemSlot(map, next, {
         type: "raster-dem",
-        tiles: [`${API_BASE}/api/dem/${version}/{z}/{x}/{y}`],
+        tiles: [
+          __TEST_TOOLS__ && route === "client"
+            ? demTemplate(key)
+            : `${API_BASE}/api/dem/${key}/{z}/{x}/{y}`,
+        ],
         tileSize: 256,
         // Capped at the selection's canonical zoom: zooming/flying past it overzooms
         // the SAME tiles instead of fetching new pyramids — no mid-rise tile pops.
@@ -418,8 +502,9 @@ export function usePlateau({
         maxzoom: zCanon,
         encoding: "mapbox",
       });
+      if (__TEST_TOOLS__ && route === "client") relief?.holdSlot(next, key);
       // ---- perf probe: dem.tilesReady, this slot's tiles from here (testing tools only) ----
-      if (perfOn) watchTilesReady(map, next, scopeId);
+      if (perfOn) watchTilesReady(map, next, scopeId, route);
       // ---- end perf probe ----
       map.addLayer({
         id: "plateau-prefetch",
@@ -429,9 +514,10 @@ export function usePlateau({
       });
       if (!changed && plateauVersion && map.getTerrain()) {
         // SAME unit, new version → its geometry was merely REFINED (boundary data
-        // arrived after a cold load). QUIET swap at the current height: wait for the
-        // new tiles (old plateau stays up meanwhile), reshape in place — no
-        // sink/rise theatrics for a shape refinement.
+        // arrived after a cold load), or its relief route changed (the client lost:
+        // the `serveur:` tag). QUIET swap at the current height: wait for the new
+        // tiles (old plateau stays up meanwhile), reshape in place — no sink/rise
+        // theatrics for a shape refinement.
         const t0 = performance.now();
         for (;;) {
           map = getMap();
@@ -536,6 +622,8 @@ export function usePlateau({
     plateauSeq++;
     if (perfOn) stopTilesReady();
     slots.abort();
+    relief?.releaseSlot("plateau-dem-a");
+    relief?.releaseSlot("plateau-dem-b");
   }
 
   /** The plateau's share of the __acPlateau probe. */
