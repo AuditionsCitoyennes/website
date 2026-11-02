@@ -18,7 +18,7 @@ import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlot
 import { SelectionTooLarge } from "../relief/demGeometry";
 import { loadReliefClient } from "../relief/demHook";
 import { demTemplate } from "../relief/demTiles";
-import { planPrefetch } from "../relief/prefetchPlan";
+import { planPrefetch, type PrefetchPlan } from "../relief/prefetchPlan";
 import { demoteRelief, reliefPrefetch, reliefRoute, type ReliefMode } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
 import { meshMode } from "../plateau/meshSwitch";
@@ -507,23 +507,32 @@ export function usePlateau({
       // that is the terrain (a superseded terrain0 run's) is re-pointed or kept,
       // never removed; its template and maxzoom read from serialize(), the
       // source's options as last set (`tiles` lands only with the TileJSON, a
-      // frame later).
+      // frame later). Without the testing tools the route is "serveur" and the
+      // prefetch the hillshade: only the guard ships, re-pointing at zCanon.
       const quiet = !changed && !!plateauVersion && !!map.getTerrain();
       const spare = map.getSource(next) as
         { serialize?(): { tiles?: string[]; maxzoom?: number } } | undefined;
-      const spec = spare?.serialize?.();
-      const plan = planPrefetch({
-        prefetch: reliefPrefetch,
-        route,
-        standing: !!plateauVersion,
-        quiet,
-        nextIsTerrain: map.getTerrain()?.source === next,
-        nextExists: !!spare,
-        nextTemplate: spec?.tiles?.[0],
-        nextMaxzoom: spec?.maxzoom,
-        template,
-        zCanon,
-      });
+      const nextIsTerrain = map.getTerrain()?.source === next;
+      const spec = __TEST_TOOLS__ ? spare?.serialize?.() : undefined;
+      const plan: PrefetchPlan = __TEST_TOOLS__
+        ? planPrefetch({
+            prefetch: reliefPrefetch,
+            route,
+            standing: !!plateauVersion,
+            quiet,
+            nextIsTerrain,
+            nextExists: !!spare,
+            nextTemplate: spec?.tiles?.[0],
+            nextMaxzoom: spec?.maxzoom,
+            template,
+            zCanon,
+          })
+        : {
+            slot: spare && nextIsTerrain ? "repoint" : "add",
+            setMaxzoom: true,
+            hillshade: true,
+            earlyTerrain: false,
+          };
       if (plan.slot === "add") {
         // The spare slot's source is replaced: its key is no longer held.
         relief?.releaseSlot(next);
@@ -558,11 +567,16 @@ export function usePlateau({
           paint: { "hillshade-exaggeration": 0 },
         });
       } else if (plan.earlyTerrain) {
-        // terrain0, nothing of ours standing: the slot is the root terrain at 0
-        // now, which starts its tiles. Tracked as a swap (no drop before a
-        // frame); no generation bump, addDemSlot just made one. Superseded by a
-        // NEW selection, it stays the terrain at 0 until that run re-points or
-        // keeps it (an elevated root terrain keeps the import's relief hidden).
+        // terrain0, nothing of ours standing: the slot is made the root terrain
+        // at 0 at once. It starts no tile by itself: with nothing standing the
+        // sink is already resolved, so the commit's swap below follows in this
+        // same task (one microtask), before any frame — every terrain0 run
+        // starts its tiles at the swap. It only shapes the state a run
+        // superseded inside that microtask leaves. Tracked as a swap (no drop
+        // before a frame); no generation bump, addDemSlot just made one.
+        // Superseded by a NEW selection, it stays the terrain at 0 until that
+        // run re-points or keeps it (an elevated root terrain keeps the
+        // import's relief hidden).
         terrainExag = 0;
         earlyTerrainSlot = next;
         setTerrainRaw(next, 0);
