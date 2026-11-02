@@ -50,6 +50,11 @@ export interface PlateauInputs {
   stableGeometry?: () => boolean;
 }
 
+/** How long a DEM POST's answer is reused (`stableGeometry`): the API keeps the
+ *  last 40 selections of every visitor, so a later run posts again, which also
+ *  keeps the selection there. The re-runs of one drill come within seconds. */
+const POST_REUSE_MS = 30_000;
+
 /** The plateau's rise and sink, ms (the slabs ride them too). */
 export const RISE_MS = 300;
 export const SINK_MS = 150;
@@ -81,7 +86,12 @@ export function usePlateau({
   let plateauSeq = 0; // guards overlapping ensurePlateau runs (fast drills)
   // The last DEM POST under `stableGeometry`: each outline write re-runs
   // ensurePlateau, and the same scope objects would post the same body again.
-  let lastPost: { geoms: unknown[]; heightM: number; version: Promise<string> } | null = null;
+  let lastPost: {
+    geoms: unknown[];
+    heightM: number;
+    version: Promise<string>;
+    at: number;
+  } | null = null;
   // Double-buffered DEM source slots: the NEW selection's tiles prefetch in the spare
   // slot while the old plateau is still sinking, so the rise starts without waiting.
   let terrainSrc: DemSlot = "plateau-dem-a";
@@ -297,7 +307,8 @@ export function usePlateau({
     const m = lastPost;
     const same = (prev: unknown[]) =>
       prev.length === geoms.length && prev.every((g, i) => g === geoms[i]);
-    if (stable && m && m.heightM === heightM && same(m.geoms)) return m.version;
+    const fresh = m && performance.now() - m.at < POST_REUSE_MS;
+    if (stable && fresh && m.heightM === heightM && same(m.geoms)) return m.version;
     const version = (async () => {
       const endPost = perfOn ? perfSpan("dem.post", { scope: scopeId }) : null;
       const res = await fetch(`${API_BASE}/api/dem`, {
@@ -312,7 +323,7 @@ export function usePlateau({
       return version;
     })();
     if (stable) {
-      const entry = (lastPost = { geoms, heightM, version });
+      const entry = (lastPost = { geoms, heightM, version, at: performance.now() });
       version.catch(() => {
         if (lastPost === entry) lastPost = null;
       });
