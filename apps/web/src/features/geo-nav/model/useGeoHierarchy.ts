@@ -29,6 +29,7 @@ import type { DepFineStore } from "../data/useDepFine";
 import type { UnitTree } from "../data/useUnitTree";
 import type { OutlineFiles } from "../data/useOutlineFiles";
 import {
+  containsPointIn,
   finestAtIn,
   geometryFor as filesGeometryFor,
   outlineRules,
@@ -182,14 +183,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   // outline files' levels are cut from one Etalab run and meet exactly, so
   // there the rule changes nothing, and it stays.
   function containsPoint(u: GeoUnit, lat: number, lng: number): boolean {
-    if (u.levelKey === "country" || u.levelKey === "region" || u.levelKey === "dep") {
-      const hit = finestAt(lat, lng);
-      if (hit) return hit.ancestors.includes(u.id);
-    }
-    const b = u.bounds;
-    if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) return false;
-    const g = raisedGeometryFor(u);
-    return g ? geometryContains(g, lat, lng) : false;
+    return containsPointIn(u, finestAt, raisedGeometryFor, geometryContains, lat, lng);
   }
   /** Villes and arrondissements that can have a contour. */
   const communeUnits = computed(() =>

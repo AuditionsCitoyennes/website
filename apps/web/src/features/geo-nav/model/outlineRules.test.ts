@@ -196,19 +196,37 @@ test("refinement: tier-differing siblings meeting the scope, nearest first, capp
   assert.deepEqual(refinementBatch(t.v, LYON, [VILLEURBANNE], []), []);
 });
 
-test("finestAtIn: Saint-Mandé stays in Val-de-Marne, whatever a coarse Paris holds", () => {
+test("finestAtIn + containsPointIn: Saint-Mandé stays in Val-de-Marne, whatever a coarse Paris holds", () => {
   type Sq = { lat: number; lng: number; r: number };
   const holds = (g: unknown, lat: number, lng: number) => {
     const s = g as Sq;
     return Math.abs(lat - s.lat) <= s.r && Math.abs(lng - s.lng) <= s.r;
   };
-  const saintMande = unit("fr:com:94067", "fr:dep:94", "city", 48.842, 2.419, 0.01);
-  const paris12 = unit("fr:com:75112", "fr:com:75056", "arr", 48.835, 2.4, 0.015);
+  const withAncestors = (u: ReturnType<typeof unit>, ...ancestors: string[]) => ({
+    ...u,
+    ancestors,
+  });
+  const paris = withAncestors(unit("fr:dep:75", "fr:reg:11", "dep", 48.86, 2.35, 0.1), "fr:reg:11");
+  const vdm = withAncestors(unit("fr:dep:94", "fr:reg:11", "dep", 48.78, 2.47, 0.12), "fr:reg:11");
+  const saintMande = withAncestors(
+    unit("fr:com:94067", vdm.id, "city", 48.842, 2.419, 0.01),
+    "fr:reg:11",
+    vdm.id,
+  );
+  const paris12 = withAncestors(
+    unit("fr:com:75112", "fr:com:75056", "arr", 48.835, 2.4, 0.015),
+    "fr:reg:11",
+    paris.id,
+    "fr:com:75056",
+  );
   const geometry = new Map<string, Sq>([
+    // Coarse départements: Paris' square reaches over Saint-Mandé, Val-de-Marne's stops short of it.
+    [paris.id, { lat: 48.86, lng: 2.35, r: 0.08 }],
+    [vdm.id, { lat: 48.76, lng: 2.47, r: 0.07 }],
     [saintMande.id, { lat: 48.842, lng: 2.419, r: 0.008 }],
     [paris12.id, { lat: 48.835, lng: 2.395, r: 0.012 }],
   ]);
-  const at = (lat: number, lng: number) =>
+  const finest = (lat: number, lng: number) =>
     rules.finestAtIn(
       [paris12, saintMande],
       (u) => geometry.get(u.id),
@@ -216,11 +234,17 @@ test("finestAtIn: Saint-Mandé stays in Val-de-Marne, whatever a coarse Paris ho
       holds,
       lat,
       lng,
-    )?.id;
+    );
+  const inside = (u: typeof paris, lat: number, lng: number) =>
+    rules.containsPointIn(u, finest, (d) => geometry.get(d.id), holds, lat, lng);
+  const [lat, lng] = [48.842, 2.419];
+  assert.ok(holds(geometry.get(paris.id), lat, lng) && !holds(geometry.get(vdm.id), lat, lng));
   assert.deepEqual(
-    [at(48.842, 2.419), at(48.835, 2.395), at(48.9, 2.3)],
-    [saintMande.id, paris12.id, undefined],
+    [finest(lat, lng)?.id, inside(vdm, lat, lng), inside(paris, lat, lng)],
+    [saintMande.id, true, false],
   );
-  geometry.delete(saintMande.id); // not loaded: no line, no hit
-  assert.equal(at(48.842, 2.419), undefined);
+  // Paris 12e holds its own point: Paris, not Val-de-Marne.
+  assert.deepEqual([inside(paris, 48.835, 2.395), inside(vdm, 48.835, 2.395)], [true, false]);
+  geometry.delete(saintMande.id); // not loaded: no hit, the départements' own outlines answer
+  assert.deepEqual([finest(lat, lng), inside(paris, lat, lng)], [null, true]);
 });

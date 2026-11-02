@@ -166,6 +166,27 @@ export function finestAtIn<U extends RuleUnit>(
   return hit;
 }
 
+/** Above the commune, a unit holds a point exactly when the deepest loaded
+ *  commune or arrondissement holding it (`finest`) is its own; only where none
+ *  does is its own outline asked, inside its box (useGeoHierarchy says why). */
+export function containsPointIn<U extends RuleUnit & { ancestors: readonly string[] }>(
+  u: U,
+  finest: (lat: number, lng: number) => U | null,
+  own: (u: U) => unknown,
+  contains: (geometry: unknown, lat: number, lng: number) => boolean,
+  lat: number,
+  lng: number,
+): boolean {
+  if (u.levelKey === "country" || u.levelKey === "region" || u.levelKey === "dep") {
+    const hit = finest(lat, lng);
+    if (hit) return hit.ancestors.includes(u.id);
+  }
+  const b = u.bounds;
+  if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) return false;
+  const g = own(u);
+  return g ? contains(g, lat, lng) : false;
+}
+
 /** What the explorer asks of a unit's outline. */
 export interface OutlineAnswers<U> {
   geometryFor(u: U): unknown;
