@@ -6,11 +6,12 @@
 // mesh is assembled, map/plateau/meshSwitch — the page loads again),
 // "Contours" (the outlines' source, geo-nav/data/contoursSwitch — the page loads
 // again) and "Relief" (where the plateau's DEM tiles are rendered,
-// map/relief/reliefSwitch — the page loads again); in comparer mode a badge counting the differences (compare.ts:
-// window.__acCompare, the tree's, and window.__acCompareLists, the lists'). The
-// testing tools only: the explorer loads it behind `__TEST_TOOLS__`. Folded by
-// default, at the map's bottom-left corner above mapbox's logo (a phone:
-// bottom-right, above the attribution button and the sheet).
+// map/relief/reliefSwitch — the page loads again); in comparer mode a badge
+// counting the differences (compare.ts: window.__acCompare, the tree's, and
+// window.__acCompareLists, the lists'). The testing tools only: the explorer
+// loads it behind `__TEST_TOOLS__`. Folded by default, at the map's bottom-left
+// corner above mapbox's logo (a phone: bottom-right, above the attribution
+// button and the sheet).
 import { pendingAnalysesMode, setPendingAnalysesMode } from "@/features/analyses";
 import {
   lidMode,

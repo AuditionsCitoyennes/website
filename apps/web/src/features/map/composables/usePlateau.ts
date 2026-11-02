@@ -76,7 +76,8 @@ export function usePlateau({
   // highlight.
   let plateauActive = false;
   // ---- Plateau elevation: raise the SELECTED area's real map as a flat-topped
-  // plateau (custom DEM served by the API). The camera tilts so the relief reads. ----
+  // plateau (custom DEM: the API's, or the page's with ac:relief=client). The
+  // camera tilts so the relief reads. ----
   // `${route}:${key}`: the relief's route and the DEM's version key, so a
   // change of route alone (the client lost) re-runs as a new version.
   let plateauVersion = "";
@@ -473,9 +474,10 @@ export function usePlateau({
       });
       if (!changed && plateauVersion && map.getTerrain()) {
         // SAME unit, new version → its geometry was merely REFINED (boundary data
-        // arrived after a cold load). QUIET swap at the current height: wait for the
-        // new tiles (old plateau stays up meanwhile), reshape in place — no
-        // sink/rise theatrics for a shape refinement.
+        // arrived after a cold load), or its relief route changed (the client lost:
+        // the `serveur:` tag). QUIET swap at the current height: wait for the new
+        // tiles (old plateau stays up meanwhile), reshape in place — no sink/rise
+        // theatrics for a shape refinement.
         const t0 = performance.now();
         for (;;) {
           map = getMap();
