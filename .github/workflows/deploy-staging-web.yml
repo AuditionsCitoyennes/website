@@ -244,10 +244,16 @@ jobs:
             echo "| Missing file \`k/fr_dep_zz.json\` | Status | Content-Type | Cache-Control |"
             echo "|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
-          for mode in plain cors; do
+          # cors is what the app's fetch() sends, navigate what a page load
+          # sends. Cloudflare documents the app's page for navigations only
+          # (anything else runs the Worker: the API's answer), and wrangler
+          # dev takes every request as one: these rows show which it is.
+          for mode in plain cors navigate; do
             extra=()
-            # What the app's fetch() sends.
-            if [ "$mode" = cors ]; then extra=(-H 'Sec-Fetch-Mode: cors' -H 'Sec-Fetch-Dest: empty'); fi
+            case $mode in
+              cors) extra=(-H 'Sec-Fetch-Mode: cors' -H 'Sec-Fetch-Dest: empty') ;;
+              navigate) extra=(-H 'Sec-Fetch-Mode: navigate' -H 'Sec-Fetch-Dest: document') ;;
+            esac
             missing=$(get -s --max-time 20 -o /dev/null -D - "${extra[@]}" "$base/k/fr_dep_zz.json" || true)
             row="| $mode | $(status <<<"$missing") | $(header content-type <<<"$missing") | $(header cache-control <<<"$missing") |"
             echo "$row"

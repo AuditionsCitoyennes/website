@@ -383,13 +383,19 @@ visibility).
 ### Previous build: not hosted
 
 One build per deploy. After a lock bump, a tab still open on the previous
-deploy asks for `/map-data/outlines/<old>/…`, gets the app's page (200, HTML)
-and falls back to the API for its session (the outline store's HTML guard),
-until it reloads. Fine while `/api/boundaries` exists. Once the web's API
-outlines are removed, that fallback is gone: before that, either the previous
-build is hosted too (a `previous` key in the lock: +277 files for
-`o20261101-1`, about 830 for France and the countries) or one degraded session
-per open tab is accepted.
+deploy asks for `/map-data/outlines/<old>/…`, which the new deploy does not
+hold. What it gets is the missing-file answer below, not verified on
+Cloudflare yet. If it is the app's page (200, HTML: what `wrangler dev`
+gives), the outline store takes it as a release skew and the tab falls back
+to the API for its session until it reloads. If it is the API's 404 (what
+Cloudflare most likely gives the app's `fetch`, see below), the file is
+`missing`: a missing `root.json` or `k/FR.json` still ends the session on
+the API, but any other file fails alone and the session stays on the files,
+with that unit missing. Fine while `/api/boundaries` exists. Once the web's API outlines are
+removed, that fallback is gone: before that, either the previous build is
+hosted too (a `previous` key in the lock: +277 files for `o20261101-1`, about
+830 for France and the countries) or one degraded session per open tab is
+accepted.
 
 ### Limits and what a deploy uses
 
@@ -404,7 +410,7 @@ Accepted, measured on a local dry run (2026-11-02, `o20261101-1`, the built
 site), the largest outline file `k/fr_dep_62.json`, 1,158,428 B; `_headers`
 holds 2 rules. Wrangler's "Uploaded N of M assets" line of a real deploy is in
 its run's log (the preview path prints it; the push path is `wrangler deploy`'s
-own output).
+own output); this PR's preview run puts its line here before it merges.
 
 File budget against the Free plan's 20,000: France 277 + the countries 543
 (`o20261101-2`: 820 in all) + the planned gazetteer (2 × at most 9,000) + the
@@ -412,9 +418,9 @@ site (about 60) ≈ 18,900 with one outline build; hosting the previous build to
 adds up to 820 more, 19,700. Close to the ceiling: the gazetteer's plan, or
 the Paid plan, decides it before both land.
 
-Compression and the missing file, on `wrangler dev --local` (Wrangler
-4.152.0, 2026-11-02; the deploy's summary is the authority for Cloudflare
-itself):
+Compression and the missing file, on `wrangler dev --local` only (Wrangler
+4.152.0, 2026-11-02). The deploy's summary is the authority for Cloudflare
+itself: the preview run's values replace these before this lands.
 
 | file | content-encoding | wire bytes gzip / identity | ratio |
 |---|---|---|---|
@@ -422,15 +428,26 @@ itself):
 | `k/fr_dep_69.json` (Rhône) | gzip | 119,503 / 402,292 | 3.37x |
 | `k/fr_dep_62.json` (the largest) | gzip | 357,734 / 1,158,428 | 3.24x |
 
-A missing file (`k/fr_dep_zz.json`), with or without `Sec-Fetch-Mode: cors`:
-200, `text/html; charset=utf-8`, `Cache-Control: public, max-age=31536000,
-immutable`. The app's page answers it under the `/map-data/*` rule: a browser
-keeps that HTML for a year under that URL. Harmless for a URL that names its
-build (the app and its files ship in one Worker version, so the app never asks
-for a file its build lacks), and the loader asks once more past the HTTP cache
+A missing file (`k/fr_dep_zz.json`), on `wrangler dev --local`: 200,
+`text/html; charset=utf-8`, `Cache-Control: public, max-age=31536000,
+immutable`, with no `Sec-Fetch-Mode`, with `cors` and with `navigate` alike.
+That says nothing of the app's `fetch` on Cloudflare: wrangler logged every
+one of them as a navigation ("`Sec-Fetch-Mode: navigate` header present -
+using `not_found_handling` behavior"). Expected on Cloudflare, not verified
+until the preview run (its `plain`, `cors` and `navigate` rows): a navigation
+gets the app's page under the `/map-data/*` rule; any other request runs the
+Worker (`main` in `wrangler.jsonc`), which forwards every path to the API, so
+the app's `fetch` gets the API's 404 JSON, outside `_headers`' rules, and the
+outline store takes that file as `missing` (final for that file), not as a
+release skew.
+
+If the cors row turns out to be the immutable HTML: a browser keeps that HTML
+for a year under that URL. Harmless for a URL that names its build (the app
+and its files ship in one Worker version, so the app never asks for a file
+its build lacks), and the loader asks once more past the HTTP cache
 (`cache: "reload"`) before it takes an HTML answer as a release skew
-(`features/geo/outlineLoader.ts`), so a cached page never ends a session on its
-own. No narrower rule helps: every pattern also matches a missing file.
+(`features/geo/outlineLoader.ts`), so a cached page never ends a session on
+its own. No narrower rule helps: every pattern also matches a missing file.
 
 ## Not here
 
