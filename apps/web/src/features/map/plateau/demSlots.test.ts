@@ -7,6 +7,7 @@ import { mock, test } from "node:test";
 import {
   createDemSlots,
   DROP_FLOOR_MS,
+  repointDemSlot,
   SPARE_WAIT_CAP_MS,
   type DemSlot,
   type DemSlotMap,
@@ -320,4 +321,27 @@ test("onDrop hears each slot a drop removed, and only those", (t) => {
   map.render();
   mock.timers.tick(DROP_FLOOR_MS);
   assert.deepEqual(dropped, [B]);
+});
+
+test("repointDemSlot: new tiles on the same source, its maxzoom written first when given", () => {
+  const calls: string[] = [];
+  const src = {
+    _options: { tiles: ["ac-dem://old/{z}/{x}/{y}"], maxzoom: 9 },
+    setTiles(tiles: string[]) {
+      calls.push(`setTiles ${tiles[0]} maxzoom ${this._options.maxzoom}`);
+      this._options.tiles = tiles;
+    },
+  };
+  const map = {
+    getSource: (id: string) => (id === A ? src : undefined),
+    addSource: () => calls.push("addSource"),
+    removeSource: () => calls.push("removeSource"),
+  } as unknown as DemSlotMap;
+  repointDemSlot(map, A, "ac-dem://new/{z}/{x}/{y}", 11);
+  repointDemSlot(map, A, "ac-dem://newer/{z}/{x}/{y}");
+  repointDemSlot(map, B, "ac-dem://none/{z}/{x}/{y}"); // not a source: nothing
+  assert.deepEqual(calls, [
+    "setTiles ac-dem://new/{z}/{x}/{y} maxzoom 11",
+    "setTiles ac-dem://newer/{z}/{x}/{y} maxzoom 11",
+  ]);
 });
