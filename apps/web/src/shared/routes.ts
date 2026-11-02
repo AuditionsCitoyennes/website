@@ -10,5 +10,6 @@ export const ROUTE = {
   admin: { name: "admin", path: "/admin" },
   verifyTestimony: { name: "verify-testimony", path: "/verifier/:token" },
   resetPassword: { name: "reset-password", path: "/reset-password" },
+  support: { name: "support", path: "/soutenir" },
   notFound: { name: "not-found", path: "/:pathMatch(.*)*" },
 } as const;

@@ -114,6 +114,7 @@ export default defineConfigWithVueTs(
     outbox: ["auth"],
     home: ["map-stage", "auth", "testify"],
     admin: ["auth", "filters"],
+    support: ["testify"],
   }),
   // Désactive les règles de mise en forme qui entrent en conflit avec Prettier
   skipFormatting,
