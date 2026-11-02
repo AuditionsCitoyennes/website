@@ -707,6 +707,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       :padding="mapPadding"
       :view-padding="mapViewPadding"
       :scope-pending="scopePending"
+      :stable-outline="outlines?.mode.value === 'fichiers'"
       :hovered-id="hoveredPanelId"
       :active-id="selectedPlaceId"
       :slabs="slabSpec"
