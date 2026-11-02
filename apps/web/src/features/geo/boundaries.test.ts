@@ -233,3 +233,24 @@ test("applyBoundaries matches by code, else by name, and French units only", () 
   });
   assert.deepEqual(own.center, [46, 46]);
 });
+
+test("applyBoundaries: the outline files' rows (byId) win below the country, never for it", () => {
+  const dep = unit("dep", { country: "FR", level: "county", code: "69", nom: "Rhône" });
+  const region = unit("region", { country: "FR", level: "region", code: "84", nom: "ARA" });
+  const city = unit("city", { country: "FR", level: "locality", code: "1" }, { insee: "1" });
+  applyBoundaries(new Map([dep, region, city].map((u) => [u.id, u])), {
+    regions: lookup([["84", "ARA", geoAt(44)]]),
+    departements: lookup([["69", "Rhône", geoAt(45)]]),
+    byDep: new Map([["69", geoAt(46)]]),
+    byInsee: new Map([["1", geoAt(47)]]),
+    byId: new Map([dep, region, city].map((u, i) => [u.id, geoAt(50 + i)])),
+  });
+  assert.deepEqual([dep.center[0], region.center[0], city.center[0]], [50, 51, 52]);
+
+  // France keeps its constant frame, whatever the rows say.
+  const h = buildGeoHierarchy([LYON_7]);
+  const fr = unitAt(h.index, "country", "France");
+  const before = { center: [...fr.center], bounds: { ...fr.bounds } };
+  applyBoundaries(h.index, { byId: new Map([[fr.id, geoAt(10)]]) });
+  assert.deepEqual({ center: fr.center, bounds: fr.bounds }, before);
+});

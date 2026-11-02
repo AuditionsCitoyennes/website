@@ -19,6 +19,8 @@ import { createNavState } from "./navState";
 import { useBoundaryQueries } from "./data/useBoundaryQueries";
 import { useCommuneGeo } from "./data/useCommuneGeo";
 import { useDepFine } from "./data/useDepFine";
+import { contoursMode } from "./data/contoursSwitch";
+import { useOutlineFiles } from "./data/useOutlineFiles";
 import { useGeoHierarchy } from "./model/useGeoHierarchy";
 import { useScope } from "./model/useScope";
 import { useMapFeed } from "./model/useMapFeed";
@@ -64,6 +66,9 @@ const props = defineProps<{
    * change under a mounted page.
    */
   unitTree?: UnitTree | null;
+  /** The comparer is on (testing tools): its report reads the API's
+   *  boundaries beside the tree, so the outline files are not read. */
+  comparing?: boolean;
 }>();
 
 /** The server's tree, when it is the source (fixed for this instance). */
@@ -74,7 +79,19 @@ const unitTree = props.unitTree ?? null;
 const analyses = defineModel<boolean>("analyses", { default: false });
 
 // ---- Data: the boundaries, the communes' contours, the raised départements' own ----
-const boundaries = useBoundaryQueries();
+// Or the static outline files (ac:contours=fichiers, data/useOutlineFiles):
+// under the server's tree only, whose unit ids are the files' (the corpus'
+// are paths); then the API's boundaries are asked for only if the session
+// falls back: at boot (root.json, k/FR, the 6 s cap), or on a release skew
+// of any later file (model/outlineRules).
+const outlines =
+  contoursMode === "fichiers" && unitTree && !props.comparing ? useOutlineFiles() : null;
+if (contoursMode === "fichiers" && !outlines && import.meta.env.DEV)
+  console.warn("[outlines] ac:contours=fichiers is read under the server source only: api here");
+if (outlines) void outlines.ensureRoot();
+const boundaries = useBoundaryQueries(
+  outlines ? () => outlines.mode.value === "fallback" : undefined,
+);
 const { regionsQuery, metroQuery } = boundaries;
 const communes = useCommuneGeo();
 const deps = useDepFine();
@@ -87,6 +104,7 @@ const geo = useGeoHierarchy({
   communes,
   deps,
   unitTree,
+  outlines,
 });
 const {
   root,
@@ -139,14 +157,19 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 // testimonies, and the two boundary sets that view is drawn from — régions and
 // the country contour. Départements and commune contours are fetched on demand
 // when drilling, so waiting on them here would just hold the screen longer.
+// With the outline files: their boot (root.json, k/FR), and, if the session
+// fell back there, the API's two sets.
 const mapPresentable = ref(false);
 const booting = ref(true);
 watch(
   () =>
     !mapPresentable.value ||
     props.loading ||
-    metroQuery.isLoading.value ||
-    regionsQuery.isLoading.value,
+    (outlines
+      ? outlines.ready.value === "loading" ||
+        (outlines.ready.value === "fallback" &&
+          (metroQuery.isPending.value || regionsQuery.isPending.value))
+      : metroQuery.isLoading.value || regionsQuery.isLoading.value),
   (busy) => {
     if (!busy) booting.value = false;
   },
@@ -227,6 +250,7 @@ const cam = useCamera({
   containsPoint,
   allPlaceUnits,
   ensureDepFine,
+  outlines,
   mapCmp,
   listMode,
   // The server's lists: the results are framed on their frame, once the
@@ -275,6 +299,7 @@ const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
   deps,
   panelUnits,
   selectedPlace,
+  outlines,
 });
 
 /** The page the map fills (`.geo-page`), GeoNav's own element. */
@@ -527,6 +552,28 @@ if (__TEST_TOOLS__) {
     },
     { flush: "sync" },
   );
+  // `window.__acOutlineCheck()`: the store writes so far, the vertices of the
+  // outline handed to the map, by kind, and the commune the scope walk finds
+  // at a point. Reads the outline and the hierarchy only.
+  const outlineCheck = () => {
+    const vertices: Record<string, number> = {};
+    for (const f of outline.value.features) {
+      const g = f.geometry as { type: string; coordinates: unknown[] };
+      const n = g.coordinates.flat(g.type === "Polygon" ? 1 : 2).length; // positions
+      const kind = String(f.properties.kind);
+      vertices[kind] = (vertices[kind] ?? 0) + n;
+    }
+    return {
+      writes: outlines?.version.value ?? null,
+      vertices,
+      finest: (lat: number, lng: number) => geo.finestAt(lat, lng)?.id ?? null,
+    };
+  };
+  const wc = window as unknown as { __acOutlineCheck?: typeof outlineCheck };
+  wc.__acOutlineCheck = outlineCheck;
+  onBeforeUnmount(() => {
+    if (wc.__acOutlineCheck === outlineCheck) delete wc.__acOutlineCheck;
+  });
 }
 
 // The map changing places (MapStage moves it between the home page's card and
@@ -661,6 +708,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       :padding="mapPadding"
       :view-padding="mapViewPadding"
       :scope-pending="scopePending"
+      :stable-outline="outlines?.mode.value === 'fichiers'"
       :hovered-id="hoveredPanelId"
       :active-id="selectedPlaceId"
       :slabs="slabSpec"

@@ -50,7 +50,15 @@ export interface PlateauInputs {
   clearSlabs: () => void;
   /** A new unit: the DEV "Carte" lid must not take the old unit's slabs in (usePlateauSlabs). */
   forgetLidExtra: () => void;
+  /** The scope's geometry objects change only with its shape (the `stableOutline`
+   *  prop): a run on the same objects at the same height reuses the last POST. */
+  stableGeometry?: () => boolean;
 }
+
+/** How long a DEM POST's answer is reused (`stableGeometry`): the API keeps the
+ *  last 40 selections of every visitor, so a later run posts again, which also
+ *  keeps the selection there. The re-runs of one drill come within seconds. */
+const POST_REUSE_MS = 30_000;
 
 /** The plateau's rise and sink, ms (the slabs ride them too). */
 export const RISE_MS = 300;
@@ -69,6 +77,7 @@ export function usePlateau({
   syncSlabs,
   clearSlabs,
   forgetLidExtra,
+  stableGeometry,
 }: PlateauInputs) {
   // Whether a plateau is currently standing — the draped hover-fill fallback only
   // applies when none stands or is coming (the world, or a scope with no boundary
@@ -83,6 +92,14 @@ export function usePlateau({
   let plateauVersion = "";
   let plateauScopeId = ""; // selection identity — detects a change before any network
   let plateauSeq = 0; // guards overlapping ensurePlateau runs (fast drills)
+  // The last DEM POST under `stableGeometry`: each outline write re-runs
+  // ensurePlateau, and the same scope objects would post the same body again.
+  let lastPost: {
+    geoms: unknown[];
+    heightM: number;
+    version: Promise<string>;
+    at: number;
+  } | null = null;
   // Double-buffered DEM source slots: the NEW selection's tiles prefetch in the spare
   // slot while the old plateau is still sinking, so the rise starts without waiting.
   let terrainSrc: DemSlot = "plateau-dem-a";
@@ -296,6 +313,39 @@ export function usePlateau({
     for (const u of urls) void fetch(u).catch(() => {});
   }
 
+  /** The DEM version of the raised geometry (the POST), or the last POST's
+   *  answer for the same objects and height (`stableGeometry`; joined while
+   *  in flight, never dropped by a superseded run, forgotten if it failed). */
+  function postDem(raised: OutlineFC["features"], heightM: number, scopeId: string) {
+    const geoms = raised.map((f) => f.geometry);
+    const stable = !!stableGeometry?.();
+    const m = lastPost;
+    const same = (prev: unknown[]) =>
+      prev.length === geoms.length && prev.every((g, i) => g === geoms[i]);
+    const fresh = m && performance.now() - m.at < POST_REUSE_MS;
+    if (stable && fresh && m.heightM === heightM && same(m.geoms)) return m.version;
+    const version = (async () => {
+      const endPost = perfOn ? perfSpan("dem.post", { scope: scopeId }) : null;
+      const res = await fetch(`${API_BASE}/api/dem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ features: raised, height: heightM }),
+      });
+      if (!res.ok) throw new Error(`dem POST ${res.status}`);
+      const { version } = (await res.json()) as { version?: string };
+      if (endPost) endPost({ status: res.status });
+      if (!version) throw new Error("dem POST returned no version");
+      return version;
+    })();
+    if (stable) {
+      const entry = (lastPost = { geoms, heightM, version, at: performance.now() });
+      version.catch(() => {
+        if (lastPost === entry) lastPost = null;
+      });
+    }
+    return version;
+  }
+
   // Build/refresh the plateau for the current selection. The transition is fully
   // overlapped so there's no dead time: on a selection change the OLD plateau starts
   // sinking immediately (in parallel with the DEM POST), the NEW selection's tiles
@@ -395,17 +445,7 @@ export function usePlateau({
           route = "serveur";
         }
       }
-      if (route === "serveur") {
-        const endPost = perfOn ? perfSpan("dem.post", { scope: scopeId }) : null;
-        const res = await fetch(`${API_BASE}/api/dem`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ features: raised, height: heightM }),
-        });
-        if (!res.ok) throw new Error(`dem POST ${res.status}`);
-        ({ version: key } = (await res.json()) as { version?: string });
-        if (endPost) endPost({ status: res.status });
-      }
+      if (route === "serveur") key = await postDem(raised, heightM, scopeId);
       if (!key) throw new Error("dem POST returned no version");
       const version = `${route}:${key}`;
       map = getMap();

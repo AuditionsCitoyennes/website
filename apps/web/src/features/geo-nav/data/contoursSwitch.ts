@@ -5,8 +5,9 @@
 //
 // - "api" (the default): the API's boundaries, as before.
 // - "fichiers": the static outline files of one build (useOutlineFiles.ts, the
-//   build named by apps/web/outlines.lock.json). Nothing reads them yet: only
-//   the testing tools' `__acOutlines()` probe fetches a file.
+//   build named by apps/web/outlines.lock.json), read by the explorer (GeoNav,
+//   through useOutlineFiles and model/outlineRules.ts) under the server source;
+//   the corpus source and the comparer stay on the API's.
 //
 // Read once per page load: switching reloads the page (the outlines' source
 // is decided once for the session). Production has neither key nor switch:

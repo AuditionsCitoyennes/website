@@ -2,7 +2,8 @@
 // centroids) and the metropolitan-France contour, each one vue-query query
 // kept for the session, plus the code and nom → centre/bounds lookups the
 // hierarchy is enriched with. Called synchronously in setup, like every
-// vue-query call.
+// vue-query call. `enabled` (the outline files read, ac:contours=fichiers):
+// asked for only while it answers true — once the session fell back.
 import { computed } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { api } from "@/shared/api/client";
@@ -18,8 +19,10 @@ export interface BoundaryFC {
   features: BoundaryFeature[];
 }
 
-export function useBoundaryQueries() {
+export function useBoundaryQueries(enabled?: () => boolean) {
+  const on = enabled ? { enabled } : {};
   const regionsQuery = useQuery({
+    ...on,
     queryKey: ["boundaries", "regions"],
     queryFn: () => api.get<BoundaryFC>("/api/boundaries/regions"),
     staleTime: Infinity,
@@ -28,6 +31,7 @@ export function useBoundaryQueries() {
     shallow: true,
   });
   const depsQuery = useQuery({
+    ...on,
     queryKey: ["boundaries", "departements"],
     queryFn: () => api.get<BoundaryFC>("/api/boundaries/departements"),
     staleTime: Infinity,
@@ -36,6 +40,7 @@ export function useBoundaryQueries() {
   // Metropolitan-France contour: the country is a selectable scope like any other
   // unit (its own plateau at world view).
   const metroQuery = useQuery({
+    ...on,
     queryKey: ["boundaries", "metropole"],
     queryFn: () => api.get<BoundaryFC>("/api/boundaries/metropole"),
     staleTime: Infinity,

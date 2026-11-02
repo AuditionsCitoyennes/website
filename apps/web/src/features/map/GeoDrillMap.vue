@@ -53,6 +53,9 @@ const props = defineProps<{
   activeId?: string | null;
   /** The analyses' slabs on the raised unit (see SlabSpec); null: none. */
   slabs?: SlabSpec | null;
+  /** The outline's geometry objects change only with their shape (the outline
+   *  files): the plateau posts a scope's DEM once, not on every outline. */
+  stableOutline?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -179,6 +182,7 @@ const plateau = usePlateau({
   syncSlabs: (atSwap) => slabs.syncSlabs(atSwap),
   clearSlabs: () => slabs.clearSlabs(),
   forgetLidExtra: () => slabs.forgetLidExtra(),
+  stableGeometry: () => !!props.stableOutline,
 });
 const slabs = usePlateauSlabs({
   getMap,

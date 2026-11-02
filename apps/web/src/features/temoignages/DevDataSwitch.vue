@@ -5,13 +5,14 @@
 // map/plateau/lidSwitch — the page loads again), "Maillage" (how the plateau's
 // mesh is assembled, map/plateau/meshSwitch — the page loads again),
 // "Contours" (the outlines' source, geo-nav/data/contoursSwitch — the page loads
-// again) and "Relief" (where the plateau's DEM tiles are rendered,
-// map/relief/reliefSwitch — the page loads again); in comparer mode a badge
-// counting the differences (compare.ts: window.__acCompare, the tree's, and
-// window.__acCompareLists, the lists'). The testing tools only: the explorer
-// loads it behind `__TEST_TOOLS__`. Folded by default, at the map's bottom-left
-// corner above mapbox's logo (a phone: bottom-right, above the attribution
-// button and the sheet).
+// again; the files are read under the "serveur" source only) and "Relief"
+// (where the plateau's DEM tiles are rendered, map/relief/reliefSwitch — the
+// page loads again); in comparer mode a badge counting the differences
+// (compare.ts: window.__acCompare, the tree's, and window.__acCompareLists, the
+// lists'). The testing tools only: the explorer loads it behind
+// `__TEST_TOOLS__`. Folded by default, at the map's bottom-left corner above
+// mapbox's logo (a phone: bottom-right, above the attribution button and the
+// sheet).
 import { pendingAnalysesMode, setPendingAnalysesMode } from "@/features/analyses";
 import {
   lidMode,
@@ -60,7 +61,10 @@ const MESHES: readonly { id: MeshMode; label: string }[] = [
 ];
 const CONTOURS: readonly { id: ContoursMode; label: string }[] = [
   { id: "api", label: "API" },
-  { id: "fichiers", label: "Fichiers" },
+  {
+    id: "fichiers",
+    label: dataSource === "serveur" ? "Fichiers" : "Fichiers (source serveur seulement)",
+  },
 ];
 const RELIEFS: readonly { id: ReliefMode; label: string }[] = [
   { id: "serveur", label: "Serveur" },
