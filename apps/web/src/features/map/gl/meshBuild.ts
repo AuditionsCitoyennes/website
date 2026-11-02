@@ -99,9 +99,9 @@ export function buildPlateauMesh(
   let origin: [number, number] | null = null;
   const h = heightM * WALL_OVERSHOOT;
   // Per-vertex projections come from the per-geometry caches (PBase): both the
-  // Mercator z and the experimental LngLat.toEcef are LINEAR in altitude, so a
-  // cached ground point + per-metre delta reconstructs any height with a
-  // multiply-add — no re-projection on rebuild.
+  // Mercator z and the ECEF (lib/mercator.ts, mapbox's toEcef replayed) are
+  // LINEAR in altitude, so a cached ground point + per-metre delta reconstructs
+  // any height with a multiply-add — no re-projection on rebuild.
   for (const f of features) {
     const g = f.geometry as { type?: string; coordinates?: unknown } | undefined;
     if (!g?.type) continue;
@@ -249,13 +249,7 @@ export function buildPlateauMesh(
   for (const f of context) addLineFeature(f, GROUND_ALT, 0.85, false);
   const lineVerts: number[] = [];
   const gLine: number[] = [];
-  const lineGroups: {
-    width: number;
-    alpha: number;
-    raised: boolean;
-    start: number;
-    count: number;
-  }[] = [];
+  const lineGroups: LineRange[] = [];
   // ac:mesh=concat and merc (plateau/meshSwitch.ts): the same non-empty
   // groups in the same order, each copied ONCE into one Float32Array per
   // regime (the globe set has the same vertex ranges, 20 floats a vertex).

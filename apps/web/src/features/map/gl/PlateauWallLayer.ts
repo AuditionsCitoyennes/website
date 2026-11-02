@@ -41,7 +41,13 @@ import {
   pushWallRing,
 } from "./mesh";
 import { GLOBE_PASS_DELAY_MS, createGlobeDeferral, type GlobeSetMode } from "./globeDeferral";
-import { buildPlateauMesh, fillsFromRecords, type MeshOut, type PendingFill } from "./meshBuild";
+import {
+  buildPlateauMesh,
+  fillsFromRecords,
+  type LineRange,
+  type MeshOut,
+  type PendingFill,
+} from "./meshBuild";
 import { digestParts } from "./meshDigest";
 import {
   FILL_FS,
@@ -195,13 +201,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // at lid height while ground groups draw at a fixed few metres. One
   // concatenated buffer per regime; each group is a vertex RANGE drawn with its
   // own uniforms.
-  private lineGroups: {
-    width: number;
-    alpha: number;
-    raised: boolean;
-    start: number;
-    count: number;
-  }[] = [];
+  private lineGroups: LineRange[] = [];
   // ---- GLOBE regime (zoom < 6, experimental custom-layer API) ----
   // Below the globe→mercator transition, mapbox calls render() with extra args
   // (projection, globeToMercMatrix, transition t, centerInMercator, pxPerMeterRatio)
