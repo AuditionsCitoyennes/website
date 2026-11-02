@@ -63,9 +63,10 @@ export {
   type KFileV1,
   type OutlineFileV1,
   type OutlineGeometry,
+  type OutlineKind,
   type OutlineRow,
   type RootRowV1,
   type RootV1,
   type UFileV1,
 } from "./outlines";
-export { OUTLINE_WAIT_MS, OutlineLoader } from "./outlineLoader";
+export { OUTLINE_WAIT_MS, OutlineLoader, type OutlineStatus } from "./outlineLoader";
