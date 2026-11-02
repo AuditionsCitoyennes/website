@@ -8,9 +8,11 @@
 // The store is a plain class: `version` is the reactive handle on it, and
 // every accessor reads `version.value` first, so a computed reading a
 // geometry re-runs at the next write — one write per file or batch, which is
-// what each consumer's rebuild costs. Every stored geometry went through
-// markRaw and never goes into a reactive container: geometry must stay a
-// plain, identity-stable object (the WeakMap caches are keyed on it).
+// what each consumer's rebuild costs. selfSettled also reads `mode`: once the
+// session falls back every self counts as settled, and that changes no set.
+// Every stored geometry went through markRaw and never goes into a reactive
+// container: geometry must stay a plain, identity-stable object (the WeakMap
+// caches are keyed on it).
 //
 // Under ac:contours=api (production's only mode) the instance is inert: no
 // loader, every ensure* answers "api", nothing is fetched.
@@ -63,8 +65,9 @@ export interface OutlineFiles {
   /** For the probe: the store's counters and its loaded files. */
   stats(): ReturnType<OutlineStore["stats"]>;
   loadedKeys(): string[];
-  /** For the probe (testing tools): every geometry handed to the store. */
-  wrapped(): readonly object[];
+  /** For the probe (testing tools): every geometry handed to the store and
+   * still alive (an evicted one drops out once collected). */
+  wrapped(): object[];
 }
 
 let instance: OutlineFiles | undefined;
@@ -85,10 +88,11 @@ function createOutlineFiles(): OutlineFiles {
   const version = shallowRef(0);
   const failed = shallowRef<ReadonlySet<string>>(new Set());
   const gaveUp = shallowRef<ReadonlySet<string>>(new Set());
-  // The probe's rawCheck reads them; a DEV-only list (it keeps evicted ones).
-  const seen: object[] = [];
+  // The probe's rawCheck reads them; testing tools only (dev and staging).
+  // Weak, so an evicted geometry is still collected and the LRU stays real.
+  const seen: WeakRef<object>[] = [];
   const wrap = <T extends object>(o: T): T => {
-    if (__TEST_TOOLS__) seen.push(o);
+    if (__TEST_TOOLS__) seen.push(new WeakRef(o));
     return markRaw(o);
   };
   const store = on ? new OutlineStore() : null;
@@ -150,6 +154,7 @@ function createOutlineFiles(): OutlineFiles {
       return loader?.isGaveUp(kind, id) ?? false;
     },
     selfSettled: (id) => {
+      void mode.value;
       void version.value;
       void failed.value;
       void gaveUp.value;
@@ -178,6 +183,6 @@ function createOutlineFiles(): OutlineFiles {
         evicted: 0,
       }),
     loadedKeys: () => read((s) => s.loadedKeys(), []),
-    wrapped: () => seen,
+    wrapped: () => seen.flatMap((r) => r.deref() ?? []),
   };
 }
