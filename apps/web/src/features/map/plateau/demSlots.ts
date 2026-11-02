@@ -43,9 +43,11 @@ export interface DemSlotsInputs<Spec> {
   getMap: () => DemSlotMap<Spec> | null;
   /** The slot the terrain is on (usePlateau's `terrainSrc`). */
   terrainSrc: () => DemSlot;
+  /** A slot the swap left, removed by its drop (the client relief lets its key go). */
+  onDrop?: (id: DemSlot) => void;
 }
 
-export function createDemSlots<Spec>({ getMap, terrainSrc }: DemSlotsInputs<Spec>) {
+export function createDemSlots<Spec>({ getMap, terrainSrc, onDrop }: DemSlotsInputs<Spec>) {
   // Bumped each time a slot is (re-)added: a drop scheduled for an older
   // generation of that slot is void.
   const slotGen: Record<DemSlot, number> = { "plateau-dem-a": 0, "plateau-dem-b": 0 };
@@ -146,6 +148,7 @@ export function createDemSlots<Spec>({ getMap, terrainSrc }: DemSlotsInputs<Spec
         }
         if (terrainSrc() !== id && map.getTerrain()?.source !== id && map.getSource(id)) {
           map.removeSource(id);
+          onDrop?.(id);
         }
       } catch {
         /* leave it resident — retried implicitly on the next swap into this slot */
