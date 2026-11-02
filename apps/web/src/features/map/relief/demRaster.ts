@@ -12,14 +12,22 @@
 // module. On other engines the same algorithm may differ by single edge
 // texels if `Math.sin`/`Math.log` differ by an ulp.
 
-export const SIZE = 256;
-export const ERODE_TEXELS = 2.5;
-export const PAD = Math.ceil(ERODE_TEXELS) + 2;
-/** The server's RENDER_REV (service.ts), folded into the version key: both bump together. */
-export const RENDER_REV = 1;
+import { ERODE_TEXELS, PAD, SIZE, type Polygon } from "./demGeometry";
 
-export type Ring = [number, number][];
-export type Polygon = Ring[]; // [exterior, ...holes]
+// The light half lives in demGeometry.ts (the main thread imports it without
+// the renderer); re-exported so the renderer's callers need one module.
+export {
+  ERODE_TEXELS,
+  PAD,
+  RENDER_REV,
+  SIZE,
+  demKey,
+  keyJson,
+  polysOf,
+  tileTouches,
+  type Polygon,
+  type Ring,
+} from "./demGeometry";
 
 /** A selection held for rendering: its rings projected once to unit Web Mercator. */
 export interface DemSelection {
@@ -31,45 +39,6 @@ export interface DemSelection {
   bbox: [number, number, number, number];
   /** Metres, unrounded: the server encodes the first-posted height as sent. */
   height: number;
-}
-
-/** The polygons the server keeps of the POSTed features (setSelection). */
-export function polysOf(
-  features: readonly { geometry?: unknown; type?: string; coordinates?: unknown }[],
-): Polygon[] {
-  const polys: Polygon[] = [];
-  for (const f of features) {
-    const g = (f.geometry ?? f) as { type?: string; coordinates?: unknown };
-    if (!g?.type) continue;
-    const list = (
-      g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []
-    ) as Polygon[];
-    for (const poly of list) polys.push(poly);
-  }
-  return polys;
-}
-
-/** The string the server hashes for the version key, after its RENDER_REV line. */
-export function keyJson(polys: Polygon[], height: number): string {
-  return JSON.stringify({ polys, height: Math.round(height) });
-}
-
-/**
- * The server's version key for a selection: the first 32 hex digits of the
- * SHA-1 of `RENDER_REV + "\n" + keyJson`. Same polygons and same rounded
- * height, same key, whoever renders.
- */
-export async function demKey(
-  polys: Polygon[],
-  height: number,
-  digest: (bytes: Uint8Array<ArrayBuffer>) => Promise<ArrayBuffer> = (b) =>
-    crypto.subtle.digest("SHA-1", b),
-): Promise<string> {
-  const bytes = new TextEncoder().encode(`${RENDER_REV}\n${keyJson(polys, height)}`);
-  const hash = new Uint8Array(await digest(bytes));
-  let hex = "";
-  for (const b of hash) hex += b.toString(16).padStart(2, "0");
-  return hex.slice(0, 32);
 }
 
 /** Project once. A tile's pixel is then u * worldSize, bit-identical to the
@@ -115,21 +84,6 @@ export function makeSelection(polys: Polygon[], height: number): DemSelection {
     by1 = Math.max(by1, y1);
   });
   return { polys: out, pboxes, bbox: [bx0, by0, bx1, by1], height };
-}
-
-/** Whether tile z/x/y, with its PAD and one texel more, can hold a plateau texel at all. */
-export function tileTouches(
-  bbox: readonly [number, number, number, number],
-  z: number,
-  x: number,
-  y: number,
-): boolean {
-  const ws = SIZE * Math.pow(2, z);
-  const ox = x * SIZE - PAD - 1;
-  const oy = y * SIZE - PAD - 1;
-  const ex = (x + 1) * SIZE + PAD + 1;
-  const ey = (y + 1) * SIZE + PAD + 1;
-  return bbox[2] * ws >= ox && bbox[0] * ws <= ex && bbox[3] * ws >= oy && bbox[1] * ws <= ey;
 }
 
 // Mapbox terrain-RGB encoding: height = -10000 + (R*65536 + G*256 + B) * 0.1.
