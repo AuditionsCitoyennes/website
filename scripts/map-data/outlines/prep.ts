@@ -3,12 +3,24 @@
 // unit ids (fr:reg:84, fr:dep:69, fr:com:69123; an arrondissement's parent is
 // its commune), every coordinate through clean5. Also writes the sha256 of
 // each input and the French families too heavy for the 20,000-vertex self
-// budget, with their inputs for one joint mapshaper run (gate 3).
+// budget, with their inputs for one joint mapshaper run (gate 3). Overture's
+// countries and dependencies go to world.ndjson under their ISO code, with an
+// index of their names, Overture levels and unwrapped diagonals (world.json).
 //   npx tsx prep.ts <raw-dir> <work-dir>
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { MAX_SELF_VERTICES, clean5, vertexCount, type Geometry, type Level } from "./lib";
+import {
+  MAX_SELF_VERTICES,
+  bboxOf,
+  clean5,
+  diagM,
+  ringsOf,
+  unwrap,
+  vertexCount,
+  type Geometry,
+  type Level,
+} from "./lib";
 
 export interface PrepFeature {
   type: "Feature";
@@ -20,7 +32,19 @@ interface EtalabFeature {
   geometry: Geometry;
 }
 
-export const INPUTS = ["regions", "departements", "communes"].map((l) => `etalab-${l}-50m.geojson`);
+/** One country of world.json: what the tier pick and the report need. */
+export interface WorldEntry {
+  id: string;
+  name: string;
+  overture: "country" | "dependency";
+  /** The bbox diagonal of the unwrapped delivered outline, metres. */
+  diagM: number;
+}
+
+export const INPUTS = [
+  ...["regions", "departements", "communes"].map((l) => `etalab-${l}-50m.geojson`),
+  "country/world.geojson",
+];
 export const readNdjson = (file: string): PrepFeature[] =>
   fs
     .readFileSync(file, "utf8")
@@ -33,7 +57,7 @@ export const writeNdjson = (file: string, feats: PrepFeature[]): void =>
 function main(raw: string, work: string): void {
   const read = (f: string): EtalabFeature[] =>
     JSON.parse(fs.readFileSync(path.join(raw, f), "utf8")).features;
-  const [regions, deps, communes] = INPUTS.map(read);
+  const [regions, deps, communes, countries] = INPUTS.map(read);
   const feat = (id: string, name: string, level: Level, parent: string, f: EtalabFeature) => {
     const geometry = clean5(f.geometry);
     if (!geometry) throw new Error(`${id} collapses at 5 decimals`);
@@ -81,6 +105,31 @@ function main(raw: string, work: string): void {
     families.push(r.properties.code);
   }
   fs.writeFileSync(path.join(work, "prep", "families.txt"), families.join("\n") + "\n");
+
+  // Countries: one feature per ISO code; no ring crosses ±180 (unwrap relies on it).
+  const world: PrepFeature[] = [];
+  const index: WorldEntry[] = [];
+  const codes = new Set<string>();
+  for (const f of countries) {
+    const [id, name, overture] = [p(f, "country"), p(f, "name"), p(f, "level")];
+    if (!/^[A-Z]{2}$/.test(id) || codes.has(id))
+      throw new Error(`country code ${id} twice or not ISO`);
+    if (overture !== "country" && overture !== "dependency")
+      throw new Error(`${id}: Overture level ${overture}`);
+    if (ringsOf(f.geometry).some((r) => r.some((q, i) => i && Math.abs(q[0] - r[i - 1][0]) > 180)))
+      throw new Error(`${id}: a ring crosses ±180`);
+    const geometry = clean5(f.geometry);
+    if (!geometry) throw new Error(`${id} collapses at 5 decimals`);
+    codes.add(id);
+    world.push({
+      type: "Feature",
+      properties: { id, name, level: "country", parent: "", code: id },
+      geometry,
+    });
+    index.push({ id, name, overture, diagM: Math.round(diagM(bboxOf(unwrap(geometry).g))) });
+  }
+  writeNdjson(path.join(work, "prep", "world.ndjson"), world);
+  fs.writeFileSync(path.join(work, "prep", "world.json"), JSON.stringify(index));
   const sha = (f: string) =>
     createHash("sha256")
       .update(fs.readFileSync(path.join(raw, f)))
@@ -90,6 +139,7 @@ function main(raw: string, work: string): void {
     JSON.stringify(Object.fromEntries(INPUTS.map((f) => [f, sha(f)]))),
   );
   const counts = Object.fromEntries(Object.entries(out).map(([k, v]) => [k, v.length]));
+  counts.countries = world.length;
   console.log(
     `prep: ${JSON.stringify(counts)}, families to rebuild: ${families.join(" ") || "none"}`,
   );
