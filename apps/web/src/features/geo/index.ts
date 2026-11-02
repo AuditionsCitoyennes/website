@@ -48,3 +48,23 @@ export {
 } from "./boundaries";
 export { scopeForView, SPAN_DESCEND } from "./scope";
 export { abbrevCount } from "./labels";
+export {
+  checkResponse,
+  fileKey,
+  fileUrl,
+  isReleaseSkew,
+  keyOf,
+  OutlineStore,
+  rootUrl,
+  validateBody,
+  type FileEntryV1,
+  type FileSelfV1,
+  type GFileV1,
+  type KFileV1,
+  type OutlineFileV1,
+  type OutlineGeometry,
+  type OutlineRow,
+  type RootRowV1,
+  type RootV1,
+  type UFileV1,
+} from "./outlines";

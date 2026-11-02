@@ -9,4 +9,4 @@ supabase
 .boundaries-cache/
 apps/api/data/france-geojson/*.geojson
 scripts/parity/fixtures/dem/
-scripts/parity/demRelief.golden.json
+apps/web/src/features/geo/__fixtures__/outlines/
