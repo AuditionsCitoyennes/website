@@ -17,6 +17,11 @@ export const LAZY_GLOBE_MIN_ZCANON = 8;
  *  margin over the globe regime (< 6). */
 export const LAZY_GLOBE_MIN_ZOOM = 6.5;
 
+/** The deferred pass waits this long after the map's next idle: that idle
+ *  comes as the rise's last frame ends, and the half second after the rise is
+ *  kept clear of a 15-40 ms build (100 ms at a 4x slower CPU). */
+export const GLOBE_PASS_DELAY_MS = 500;
+
 export type GlobeSetMode = "eager" | "lazy";
 
 /** The globe set built with the mercator one ("eager"), or later ("lazy"). */
@@ -25,10 +30,10 @@ export function globeSetMode(zCanon: number, zoomNow: number): GlobeSetMode {
 }
 
 /** The deferred builds' generations: every setGeometry (eager ones and
- *  teardowns included) and the layer's removal begins a new one, so a build
- *  held for an older one never lands over a newer mesh; the inputs a lazy one
- *  stored are claimed once, by whichever of the idle pass and the first globe
- *  frame comes first. */
+ *  teardowns included) begins a new one, so a build held for an older one
+ *  never lands over a newer mesh, and the layer's removal cancels what is
+ *  held; the inputs a lazy one stored are claimed once, by whichever of the
+ *  idle pass and the first globe frame comes first. */
 export interface GlobeDeferral<T> {
   /** A new generation, holding `inputs` for a later build (null: nothing to build). */
   begin(inputs?: T | null): number;

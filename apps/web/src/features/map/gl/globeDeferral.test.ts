@@ -6,15 +6,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  GLOBE_PASS_DELAY_MS,
   LAZY_GLOBE_MIN_ZCANON,
   LAZY_GLOBE_MIN_ZOOM,
   createGlobeDeferral,
   globeSetMode,
 } from "./globeDeferral";
 
-test("the constants: a canonical zoom of 8 (a flat fit zoom of 7), a camera at 6.5", () => {
+test("the constants: a canonical zoom of 8 (a flat fit zoom of 7), a camera at 6.5, half a second after idle", () => {
   assert.equal(LAZY_GLOBE_MIN_ZCANON, 8);
   assert.equal(LAZY_GLOBE_MIN_ZOOM, 6.5);
+  assert.equal(GLOBE_PASS_DELAY_MS, 500);
 });
 
 test("lazy only for a deep fit applied with the camera clear of the globe", () => {

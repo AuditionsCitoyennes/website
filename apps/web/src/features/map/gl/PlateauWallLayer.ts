@@ -41,7 +41,7 @@ import {
   pushPieceVert,
   pushWallRing,
 } from "./mesh";
-import { createGlobeDeferral, type GlobeSetMode } from "./globeDeferral";
+import { GLOBE_PASS_DELAY_MS, createGlobeDeferral, type GlobeSetMode } from "./globeDeferral";
 import { concatGroups } from "./meshConcat";
 import { digestParts } from "./meshDigest";
 import {
@@ -1119,9 +1119,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     return { merc, globe, origin, lineGroups, fills, haloW, haloCos };
   }
 
-  /** A lazy setGeometry's globe set (ac:mesh=merc), built after the map's next
-   *  idle, then in the browser's next idle time (≤ 1 s; Safari has none: the
-   *  next task) — out of the click, the rise and the flight. */
+  /** A lazy setGeometry's globe set (ac:mesh=merc), built GLOBE_PASS_DELAY_MS
+   *  after the map's next idle (it comes as the rise's last frame ends), then
+   *  in the browser's next idle time (≤ 1 s; Safari has none: at once) — out
+   *  of the click, the rise, the half second after it and the flight. */
   private scheduleGlobePass(gen: number) {
     const map = this.map;
     if (!map) return; // not on a map yet: the first globe frame builds it
@@ -1132,11 +1133,14 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       this.globePass(gen);
     };
     const onIdle = () => {
-      if (typeof requestIdleCallback === "function") {
-        idle = requestIdleCallback(pass, { timeout: 1000 });
-      } else {
-        timer = window.setTimeout(pass, 0);
-      }
+      timer = window.setTimeout(() => {
+        timer = 0;
+        if (typeof requestIdleCallback === "function") {
+          idle = requestIdleCallback(pass, { timeout: 1000 });
+        } else {
+          pass();
+        }
+      }, GLOBE_PASS_DELAY_MS);
     };
     map.once("idle", onIdle);
     this.globeTask = {
@@ -1553,9 +1557,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
 
   onRemove(_map: mapboxgl.Map, gl: WebGL2RenderingContext) {
     if (meshMode === "merc") {
-      // A new generation: a pass held for this mesh never lands after it.
+      // The held inputs dropped: a pass held for this mesh never lands after it.
       this.cancelGlobePass();
-      this.globeDefer.begin();
+      this.globeDefer.cancel();
     }
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
