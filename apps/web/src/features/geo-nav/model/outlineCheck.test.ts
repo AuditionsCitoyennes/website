@@ -84,6 +84,48 @@ test("a cut leaving a lid vertex at 30° to the edge is not along it", () => {
   assert.equal(r.liftedShare, 1);
 });
 
+test("a cut leaving a lid vertex at 5° into the lid, with or without the child beyond it", () => {
+  // The cut leaves the bottom edge at (5.1, 45) at 5°, to P 437 m up, then meets the top at (5.2, 45.1).
+  const p = [5.1 + lngM(5000), 45 + latM(5000 * Math.tan((5 * Math.PI) / 180))];
+  const scope = poly([5, 45], [5.1, 45], [5.3, 45], [5.3, 45.1], [5.2, 45.1], [5, 45.1]);
+  const west = poly([5, 45], [5.1, 45], p, [5.2, 45.1], [5, 45.1]);
+  const east = poly([5.1, 45], [5.3, 45], [5.3, 45.1], [5.2, 45.1], p);
+  for (const focus of [[west, east], [west], [east]]) {
+    const r = liftCheck(scope, focus);
+    assert.equal(r.offLid, 0, `${focus.length} lifted`);
+    assert.equal(r.liftedShare, 1, `${focus.length} lifted`);
+  }
+});
+
+test("a cut 10 m beside the edge between two lifted children is not along it", () => {
+  // A 10 m sliver along the bottom edge of the east half, from (5.1, 45) to (5.2, 45 + 10 m).
+  const e = latM(10);
+  const scope = poly(
+    [5, 45],
+    [5.1, 45],
+    [5.2, 45],
+    [5.2, 45 + e],
+    [5.2, 45.1],
+    [5.1, 45.1],
+    [5, 45.1],
+  );
+  const sliver = poly([5.1, 45], [5.2, 45], [5.2, 45 + e]);
+  const east = poly([5.1, 45], [5.2, 45 + e], [5.2, 45.1], [5.1, 45.1]);
+  const r = liftCheck(scope, [WEST, sliver, east]);
+  assert.equal(r.offLid, 0);
+  assert.equal(r.liftedShare, 1);
+});
+
+test("a vertex between two cuts 0.3 m from the edge is inside the lid", () => {
+  // The cut runs from (5.1, 45) to Q, 0.3 m under the top edge, and on to (5.1, 45.1).
+  const q = [5.12, 45.1 - latM(0.3)];
+  const west = poly([5, 45], [5.1, 45], q, [5.1, 45.1], [5, 45.1]);
+  const east = poly([5.1, 45], [5.2, 45], [5.2, 45.1], [5.1, 45.1], q);
+  const r = liftCheck(SCOPE, [west, east]);
+  assert.equal(r.offLid, 0);
+  assert.equal(r.liftedShare, 1);
+});
+
 test("a focus line whose box misses the lid's is not lifted, so not checked", () => {
   const far = poly([7, 45], [7.1 + lngM(2), 45], [7.1, 45.1], [7, 45.1]);
   const r = liftCheck(SCOPE, [far]);

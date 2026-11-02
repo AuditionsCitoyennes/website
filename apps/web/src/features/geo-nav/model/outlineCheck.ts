@@ -10,14 +10,20 @@
 // bundle, cut by the same run as its self (outlineRules, rule 3), so every
 // such vertex is one of the self's.
 //
-// A lifted segment runs along the boundary when it lies on it (both ends and
-// the middle within NEAR_M), when it runs beside it (both ends and the middle
-// within BESIDE_M, in the direction of the boundary segment nearest its
-// middle: a line displaced metres off the edge), or when it leaves a scope
-// vertex in the direction of one of the boundary segments there without
-// lying on it (a line bulging off the edge between two lid vertices, or
-// running on past the lid's corner). A cut between two children, leaving
-// the boundary steeply, does none of these.
+// A segment two lifted rings carry, one each way, is a cut between two
+// children: it has a child on either side, so it is inside the lid, never on
+// its edge, and it is left out, and so is a vertex between two such cuts,
+// however near the edge. Any other lifted segment runs along the boundary
+// when it lies on it (both ends and the middle within NEAR_M), when it runs
+// beside it (both ends and the middle within BESIDE_M, in the direction of
+// the boundary segment nearest its middle: a line displaced metres off the
+// edge), or when it leaves a scope vertex in the direction of one of the
+// boundary segments there without lying on it and its far end
+// (its middle, when both ends are scope vertices) is still within BESIDE_M of
+// the boundary or outside the scope (a line bulging off the edge between two
+// lid vertices, or running on past the lid's corner). A cut to a child left
+// out of the focus lines, leaving the boundary steeply or heading into the
+// lid, does none of these.
 //
 // - offLid: the vertices of lifted focus rings within NEAR_M of the scope's
 //   boundary or at an end of a segment running along it that are not (to 5
@@ -31,8 +37,11 @@
 // Only over the focus lines handed in (the panel's units, not every commune):
 // how much of the boundary they cover is not asked. Not seen: a stretch of
 // line farther than BESIDE_M off the edge whose ends leave the lid's
-// vertices steeply (more than 15° off the edge), and a ring with no lid
-// vertex at all (it reads null, which fails the gate).
+// vertices steeply (more than 15° off the edge) or bulge into the lid, and a
+// ring with no lid vertex at all (it reads null, which fails the gate). Read
+// as off the edge although it is not: a cut running within BESIDE_M of the
+// edge, nearly along it, to a child left out of the focus lines (it looks
+// like the edge moved inward).
 
 interface Geom {
   type?: string;
@@ -130,6 +139,21 @@ function sameWay(a: readonly number[], b: readonly number[], c: readonly number[
   return n > 0 && ux * vx + uy * vy >= COS_ALONG * n;
 }
 
+/** Ray-cast point-in-polygon (boundaries.ts' geometryContains, copied: this
+ *  module imports nothing). */
+function holds(polys: readonly Ring[][], p: readonly number[]): boolean {
+  let inside = false;
+  for (const poly of polys)
+    for (const ring of poly)
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi)
+          inside = !inside;
+      }
+  return inside;
+}
+
 /** The scope's boundary segments in a grid of CELL degrees. */
 class Segments {
   private readonly cells = new Map<string, number[]>();
@@ -190,54 +214,77 @@ export function liftCheck(scopeSelf: Geom, focus: readonly Geom[]): LiftCheck {
   // a→b leaves the scope vertex a in the direction of the boundary there.
   const leavesAlong = (a: readonly number[], b: readonly number[]) =>
     (next.get(keyOf(a)) ?? []).some((c) => sameWay(a, b, c));
+  const liftedPolys = focus
+    .map(polysOf)
+    .filter((polys) => polys.some((p) => p[0] && lidBoxes.some((l) => meets(boxOf(p[0]), l))));
+  const rings = liftedPolys.flat(2).map((ring) => ({
+    ring,
+    keys: ring.map(keyOf),
+    near: ring.map((p) => boundary.near(p)),
+  }));
+  /** The lifted segments with an end within BESIDE_M of the boundary (the
+   *  only ones that can run along it), as "from>to" keys. */
+  const carried = new Set<string>();
+  for (const { keys, near } of rings)
+    for (let i = 0; i + 1 < keys.length; i++)
+      if (Math.min(near[i].seg, near[i + 1].seg) <= BESIDE_M)
+        carried.add(`${keys[i]}>${keys[i + 1]}`);
   let offLid = 0;
   let nearMiss = 0;
-  let lifted = 0;
   let alongM = 0;
   let sharedM = 0;
-  for (const g of focus) {
-    const polys = polysOf(g);
-    if (!polys.some((p) => p[0] && lidBoxes.some((l) => meets(boxOf(p[0]), l)))) continue;
-    lifted++;
-    for (const poly of polys)
-      for (const ring of poly) {
-        const n = ring.length;
-        const closed = n > 1 && keyOf(ring[0]) === keyOf(ring[n - 1]);
-        const near = ring.map((p) => boundary.near(p));
-        const isKey = ring.map((p) => next.has(keyOf(p)));
-        const along = ring.map((_, i) => near[i].seg <= NEAR_M);
-        for (let i = 0; i + 1 < n; i++) {
-          const a = ring[i];
-          const b = ring[i + 1];
-          const mid = boundary.near([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
-          const on = along[i] && along[i + 1] && mid.seg <= NEAR_M;
-          const beside =
-            near[i].seg <= BESIDE_M &&
-            near[i + 1].seg <= BESIDE_M &&
-            mid.at !== null &&
-            mid.seg <= BESIDE_M &&
-            parallel(a, b, mid.at[0], mid.at[1]);
-          const leaves =
-            !on && ((isKey[i] && leavesAlong(a, b)) || (isKey[i + 1] && leavesAlong(b, a)));
-          if (!on && !beside && !leaves) continue;
-          along[i] = along[i + 1] = true;
-          const m = metres(a, b);
-          alongM += m;
-          if (on && isKey[i] && isKey[i + 1]) sharedM += m;
-        }
-        if (closed) along[0] ||= along[n - 1];
-        for (let i = 0; i < (closed ? n - 1 : n); i++) {
-          if (!along[i] || isKey[i]) continue;
-          offLid++;
-          if (near[i].vertex <= NEAR_M) nearMiss++;
-        }
-      }
+  for (const { ring, keys, near } of rings) {
+    const n = ring.length;
+    const closed = n > 1 && keys[0] === keys[n - 1];
+    const isKey = keys.map((k) => next.has(k));
+    /** Segment i (from vertex i) is a cut between two children. */
+    const cut = keys.map(
+      (k, i) =>
+        i + 1 < n &&
+        Math.min(near[i].seg, near[i + 1].seg) <= BESIDE_M &&
+        carried.has(`${keys[i + 1]}>${k}`),
+    );
+    const cutBefore = (i: number) => (i > 0 ? cut[i - 1] : closed && cut[n - 2]);
+    const cutAfter = (i: number) => (i + 1 < n ? cut[i] : closed && cut[0]);
+    // A vertex between two cuts has children all round: inside the lid, however near its edge.
+    const along = ring.map((_, i) => near[i].seg <= NEAR_M && !(cutBefore(i) && cutAfter(i)));
+    for (let i = 0; i + 1 < n; i++) {
+      if (cut[i]) continue;
+      const a = ring[i];
+      const b = ring[i + 1];
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const mid = boundary.near(m);
+      const on = along[i] && along[i + 1] && mid.seg <= NEAR_M;
+      const beside =
+        near[i].seg <= BESIDE_M &&
+        near[i + 1].seg <= BESIDE_M &&
+        mid.at !== null &&
+        mid.seg <= BESIDE_M &&
+        parallel(a, b, mid.at[0], mid.at[1]);
+      // The far end, or the middle of a chord between two scope vertices.
+      const [far, farAt] = !isKey[i + 1] ? [b, near[i + 1]] : !isKey[i] ? [a, near[i]] : [m, mid];
+      const leaves =
+        !on &&
+        ((isKey[i] && leavesAlong(a, b)) || (isKey[i + 1] && leavesAlong(b, a))) &&
+        (farAt.seg <= BESIDE_M || !holds(scopePolys, far));
+      if (!on && !beside && !leaves) continue;
+      along[i] = along[i + 1] = true;
+      const len = metres(a, b);
+      alongM += len;
+      if (on && isKey[i] && isKey[i + 1]) sharedM += len;
+    }
+    if (closed) along[0] ||= along[n - 1];
+    for (let i = 0; i < (closed ? n - 1 : n); i++) {
+      if (!along[i] || isKey[i]) continue;
+      offLid++;
+      if (near[i].vertex <= NEAR_M) nearMiss++;
+    }
   }
   return {
     offLid,
     nearMiss,
     liftedShare: alongM > 0 ? sharedM / alongM : null,
-    lifted,
+    lifted: liftedPolys.length,
     boundaryM: Math.round(alongM),
   };
 }
