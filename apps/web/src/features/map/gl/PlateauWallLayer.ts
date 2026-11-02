@@ -8,7 +8,7 @@
 // caches), ./mesh (the pieces), ./program, ./plateauShaders.
 
 import mapboxgl from "mapbox-gl";
-import { perfOn, perfSpan } from "@/shared/perf/perf";
+import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { Snapshot } from "../plateau/mapSnapshot";
 import { meshMode } from "../plateau/meshSwitch";
 import { pieceOutline, ringSectorArcs, slabPointPx, type PieceBox, type SlabRect } from "../lib";
@@ -41,6 +41,7 @@ import {
   pushPieceVert,
   pushWallRing,
 } from "./mesh";
+import { createGlobeDeferral, type GlobeSetMode } from "./globeDeferral";
 import { concatGroups } from "./meshConcat";
 import { digestParts } from "./meshDigest";
 import {
@@ -91,6 +92,17 @@ export interface SlabRingState {
   hovered: string | null;
 }
 export const NO_RING: SlabRingState = { picked: null, hovered: null };
+
+/** A unit a hover may fill: its geometry, at `altM`, raised or on the ground. */
+type PendingFill = { g: { type?: string; coordinates?: unknown }; altM: number; raised: boolean };
+
+/** setGeometry's deferred globe set's inputs (ac:mesh=merc, globeDeferral.ts). */
+type GlobeInputs = {
+  features: OutlineFC["features"];
+  heightM: number;
+  focus: OutlineFC["features"];
+  context: OutlineFC["features"];
+};
 
 /** Which of the slabs a mercator draw takes (drawSlabsMercator). */
 type SlabPass = "all" | "parts" | "boxes" | "over";
@@ -202,9 +214,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private gWallBuffer: WebGLBuffer | null = null;
   private gLidBuffer: WebGLBuffer | null = null;
   private gLineBuffer: WebGLBuffer | null = null;
-  private gWallPositions = new Float32Array(0);
-  private gLidPositions = new Float32Array(0);
-  private gLinePositions = new Float32Array(0);
+  // Null: the globe set not built yet (ac:mesh=merc, see ensureGlobe).
+  private gWallPositions: Float32Array<ArrayBuffer> | null = new Float32Array(0);
+  private gLidPositions: Float32Array<ArrayBuffer> | null = new Float32Array(0);
+  private gLinePositions: Float32Array<ArrayBuffer> | null = new Float32Array(0);
   private gWallDirty = false;
   private gLidDirty = false;
   private gLineDirty = false;
@@ -223,10 +236,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private fillRanges = new Map<string, { start: number; count: number; raised: boolean }>();
   // Units whose hover fill COULD be needed, and the origin their mesh must be
   // relative to. The mesh itself is built on first hover (see ensureFill).
-  private pendingFills = new Map<
-    string,
-    { g: { type?: string; coordinates?: unknown }; altM: number; raised: boolean }
-  >();
+  private pendingFills = new Map<string, PendingFill>();
   private fillOrigin: [number, number] | null = null;
 
   /**
@@ -295,7 +305,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // Halo on the SELECTED scope's boundary: a static glow band from the wall
   // base outward.
   private haloPositions = new Float32Array(0);
-  private gHaloPositions = new Float32Array(0);
+  private gHaloPositions: Float32Array<ArrayBuffer> | null = new Float32Array(0); // null: as above
   private haloBuffer: WebGLBuffer | null = null;
   private gHaloBuffer: WebGLBuffer | null = null;
   private haloVertexCount = 0;
@@ -308,6 +318,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  last setGeometry had them: the slabs glow alike (0: no plateau). */
   private haloW = 0;
   private haloCos = 1;
+  /** ac:mesh=merc: the globe set's generations (globeDeferral.ts) and the
+   *  idle pass scheduled for a lazy one (its cancel: off the map's idle,
+   *  cancelIdleCallback / clearTimeout). */
+  private globeDefer = createGlobeDeferral<GlobeInputs>();
+  private globeTask: { cancel: () => void } | null = null;
   /** The testing tools' count of setGeometry calls and the last call's input,
    *  for meshDigest (declared only: a build without them has no field). */
   declare private meshProbe?: { calls: number; input: OutlineFC["features"][] };
@@ -644,12 +659,17 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   /** Rebuild the wall mesh: one quad (two triangles) per boundary edge. Vertex
    *  coords are Mercator, relative to the first vertex (float32 keeps precision
    *  on small offsets; the origin is re-added into the matrix each frame in
-   *  float64). z holds the FULL wall height — uScale animates it. */
+   *  float64). z holds the FULL wall height — uScale animates it.
+   *  `opts.globe` (ac:mesh=merc only, plateau/meshSwitch.ts): "lazy" builds the
+   *  mercator set alone, the globe set following after the map's next idle or
+   *  on the first globe frame before that (gl/globeDeferral.ts); absent, both
+   *  now. `zCanon` and `zoom`, what the mode was chosen from, go to the span. */
   setGeometry(
     features: OutlineFC["features"],
     heightM: number,
     focus: OutlineFC["features"] = [],
     context: OutlineFC["features"] = [],
+    opts?: { globe?: GlobeSetMode; zCanon?: number; zoom?: number },
   ) {
     // NOTE: do NOT early-exit on "identical inputs". onAdd() allocates fresh GL
     // buffers and the render path only uploads while the *Dirty flags are set, so
@@ -660,12 +680,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     const endSpan = perfOn
       ? perfSpan("plateau.setGeometry", { scope: features[0]?.properties?.id })
       : null;
-    const verts: number[] = [];
-    const lidVerts: number[] = [];
-    const gWall: number[] = [];
-    const gLid: number[] = [];
-    let origin: [number, number] | null = null;
-    const h = heightM * WALL_OVERSHOOT;
     // The frame bus follows the raised unit's rim (sampled from the same cached
     // bases the walls stand on). A teardown, with no features, empties it.
     const rim = sampleRim(features);
@@ -674,6 +688,134 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.rim = rim.pack;
     this.rimCount = rim.count;
     this.rimVersion++;
+    // ac:mesh=merc: every call is a new generation of the deferred globe set
+    // (gl/globeDeferral.ts), so a pass held for an older one never lands here.
+    const lazy = meshMode === "merc" && opts?.globe === "lazy";
+    let gen = 0;
+    if (meshMode === "merc") {
+      this.cancelGlobePass();
+      gen = this.globeDefer.begin(lazy ? { features, heightM, focus, context } : null);
+    }
+    const built = this.buildArrays(features, heightM, focus, context, {
+      merc: true,
+      globe: !lazy,
+    });
+    const merc = built.merc!; // asked for
+    const { origin } = built;
+    this.lineGroups = built.lineGroups;
+    // The hover fills (see buildArrays): what COULD be filled, relative to the
+    // origin, each unit's mesh built on its first hover (ensureFill).
+    this.fillRanges.clear();
+    this.pendingFills.clear();
+    this.fillOrigin = origin;
+    this.hovPositions = new Float32Array(0);
+    this.gHovPositions = new Float32Array(0);
+    this.hovDirty = true;
+    this.gHovDirty = true;
+    for (const [id, spec] of built.fills) this.pendingFills.set(id, spec);
+    // fillRanges was just cleared, but hoveredFillId still points at the unit
+    // under the cursor — the render pass would look up a range that no longer
+    // exists and silently drop the highlight, with setHover/setHovered's
+    // early-returns making it unrecoverable until the cursor left and re-entered.
+    // Re-arm it (rebuilds the discarded mesh; skips nothing load-bearing).
+    const stillHovered = this.hoveredFillId;
+    if (stillHovered) {
+      this.hoveredFillId = "";
+      this.setHovered(stillHovered);
+    }
+    // Kept for the analyses' slabs: their glow is the plateau's.
+    if (built.haloW !== null) {
+      this.haloW = built.haloW;
+      this.haloCos = built.haloCos;
+    }
+    this.haloPositions = merc.haloPositions;
+    this.haloVertexCount = merc.haloPositions.length / 4;
+    this.haloDirty = true;
+
+    this.positions = merc.positions;
+    this.vertexCount = merc.positions.length / 3;
+    this.lidPositions = merc.lidPositions;
+    this.lidVertexCount = merc.lidPositions.length / 3;
+    this.linePositions = merc.linePositions;
+    this.lineVertexCount = merc.linePositions.length / 8;
+    if (built.globe) {
+      this.gWallPositions = built.globe.gWallPositions;
+      this.gLidPositions = built.globe.gLidPositions;
+      this.gLinePositions = built.globe.gLinePositions;
+      this.gHaloPositions = built.globe.gHaloPositions;
+      this.gWallDirty = true;
+      this.gLidDirty = true;
+      this.gLineDirty = true;
+      this.gHaloDirty = true;
+    } else {
+      // Lazy: no globe set yet (null: not built, see ensureGlobe), and its
+      // flags down — an older build's pending upload would hand bufferData null.
+      this.gWallPositions = null;
+      this.gLidPositions = null;
+      this.gLinePositions = null;
+      this.gHaloPositions = null;
+      this.gWallDirty = false;
+      this.gLidDirty = false;
+      this.gLineDirty = false;
+      this.gHaloDirty = false;
+    }
+    this.origin = origin ?? [0, 0];
+    this.dirty = true;
+    this.lidDirty = true;
+    this.lineDirty = true;
+    if (endSpan) {
+      endSpan({
+        walls: this.vertexCount,
+        lid: this.lidVertexCount,
+        lines: this.lineVertexCount,
+        halo: this.haloVertexCount,
+        mesh: meshMode,
+        globe: opts?.globe,
+        zCanon: opts?.zCanon,
+        zoom: opts?.zoom,
+      });
+    }
+    if (__TEST_TOOLS__) {
+      const probe = (this.meshProbe ??= { calls: 0, input: [] });
+      probe.calls++;
+      probe.input = [features, focus, context];
+      // The hash walks' every-call mode (meshDigest): set by the harness.
+      const w = window as unknown as {
+        __acMeshHashEvery?: boolean;
+        __acMeshHashes?: { call: number; scopeId: string; digest: unknown }[];
+      };
+      if (w.__acMeshHashEvery === true) {
+        (w.__acMeshHashes ??= []).push({
+          call: probe.calls,
+          scopeId: this.scopeId,
+          digest: this.meshDigest(),
+        });
+      }
+    }
+    if (lazy) this.scheduleGlobePass(gen);
+    this.map?.triggerRepaint();
+  }
+
+  /** The arrays of setGeometry's mesh: the mercator set (`want.merc`) and the
+   *  globe set (`want.globe`), each null when not asked for, and what goes
+   *  with them (the origin, the line groups' draw ranges, the units a hover
+   *  may fill, the halo's width; null: untouched). Writes nothing to the layer:
+   *  setGeometry assigns it all in one block, the deferred globe pass
+   *  (ac:mesh=merc) the globe set alone. The ranges, the fills and the origin
+   *  come from the rings, so both passes agree on them. */
+  private buildArrays(
+    features: OutlineFC["features"],
+    heightM: number,
+    focus: OutlineFC["features"],
+    context: OutlineFC["features"],
+    want: { merc: boolean; globe: boolean },
+  ) {
+    const verts: number[] | null = want.merc ? [] : null;
+    const lidVerts: number[] | null = want.merc ? [] : null;
+    const gWall: number[] | null = want.globe ? [] : null;
+    const gLid: number[] | null = want.globe ? [] : null;
+    let origin: [number, number] | null = null;
+    const h = heightM * WALL_OVERSHOOT;
     // Per-vertex projections come from the per-geometry caches (PBase): both the
     // Mercator z and the experimental LngLat.toEcef are LINEAR in altitude, so a
     // cached ground point + per-metre delta reconstructs any height with a
@@ -691,7 +833,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         }
         if (origin) {
           for (const p of lids[pi]) {
-            lidVerts.push(p.x - origin[0], p.y - origin[1], h * p.zPerM);
+            lidVerts?.push(p.x - origin[0], p.y - origin[1], h * p.zPerM);
             pushGlobeVert(gLid, p, h);
           }
         }
@@ -719,8 +861,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       width: number;
       alpha: number;
       raised: boolean;
-      verts: number[];
-      gVerts: number[];
+      /** Its vertices, 6 a segment, counted from the rings: its draw range
+       *  and whether it is drawn at all, whichever sets are built. */
+      n: number;
+      verts: number[] | null;
+      gVerts: number[] | null;
     };
     const lineGroupMap = new Map<string, LineGroup>();
     const addLineFeature = (
@@ -739,7 +884,14 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       const key = `${width}|${alpha}|${raised}`;
       let grp = lineGroupMap.get(key);
       if (!grp) {
-        grp = { width, alpha, raised, verts: [], gVerts: [] };
+        grp = {
+          width,
+          alpha,
+          raised,
+          n: 0,
+          verts: want.merc ? [] : null,
+          gVerts: want.globe ? [] : null,
+        };
         lineGroupMap.set(key, grp);
       }
       // Globe line vertex: self + other endpoint (each merc + ECEF pair) + offset
@@ -749,11 +901,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       // reusing `side` there makes the feather cross zero mid-segment and hit ±1
       // at every join, which beads dense contours into near-invisibility.
       const pushGL = (p: PBase, o: PBase, side: number, geomSide: number) => {
-        grp!.gVerts.push(p.x, p.y, alt * p.zPerM, p.lo[0], p.lo[1], p.lo[2]);
-        grp!.gVerts.push(p.lo[0] + alt * p.d[0], p.lo[1] + alt * p.d[1], p.lo[2] + alt * p.d[2]);
-        grp!.gVerts.push(o.x, o.y, alt * o.zPerM, o.lo[0], o.lo[1], o.lo[2]);
-        grp!.gVerts.push(o.lo[0] + alt * o.d[0], o.lo[1] + alt * o.d[1], o.lo[2] + alt * o.d[2]);
-        grp!.gVerts.push(side, geomSide);
+        const gv = grp!.gVerts;
+        if (!gv) return;
+        gv.push(p.x, p.y, alt * p.zPerM, p.lo[0], p.lo[1], p.lo[2]);
+        gv.push(p.lo[0] + alt * p.d[0], p.lo[1] + alt * p.d[1], p.lo[2] + alt * p.d[2]);
+        gv.push(o.x, o.y, alt * o.zPerM, o.lo[0], o.lo[1], o.lo[2]);
+        gv.push(o.lo[0] + alt * o.d[0], o.lo[1] + alt * o.d[1], o.lo[2] + alt * o.d[2]);
+        gv.push(side, geomSide);
       };
       for (const rings of ringBasesOf(g)) {
         for (const pts of rings) {
@@ -770,12 +924,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
             const bz = alt * b.zPerM;
             // Quad corners A+ B+ B- A- as two triangles (last two floats:
             // offset side, geometric side).
-            grp!.verts.push(ax, ay, az, bx, by, bz, +1, +1); // A+
-            grp!.verts.push(bx, by, bz, ax, ay, az, -1, +1); // B+
-            grp!.verts.push(bx, by, bz, ax, ay, az, +1, -1); // B-
-            grp!.verts.push(ax, ay, az, bx, by, bz, +1, +1); // A+
-            grp!.verts.push(bx, by, bz, ax, ay, az, +1, -1); // B-
-            grp!.verts.push(ax, ay, az, bx, by, bz, -1, -1); // A-
+            grp!.n += 6;
+            grp!.verts?.push(ax, ay, az, bx, by, bz, +1, +1); // A+
+            grp!.verts?.push(bx, by, bz, ax, ay, az, -1, +1); // B+
+            grp!.verts?.push(bx, by, bz, ax, ay, az, +1, -1); // B-
+            grp!.verts?.push(ax, ay, az, bx, by, bz, +1, +1); // A+
+            grp!.verts?.push(bx, by, bz, ax, ay, az, +1, -1); // B-
+            grp!.verts?.push(ax, ay, az, bx, by, bz, -1, -1); // A-
             pushGL(a, b, +1, +1);
             pushGL(b, a, -1, +1);
             pushGL(b, a, +1, -1);
@@ -812,44 +967,56 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     for (const f of context) addLineFeature(f, GROUND_ALT, 0.85, false);
     const lineVerts: number[] = [];
     const gLine: number[] = [];
-    this.lineGroups = [];
-    // ac:mesh=concat (plateau/meshSwitch.ts): the same non-empty groups in the
-    // same order, each copied ONCE into one Float32Array per regime (the globe
-    // set has the same vertex ranges, 20 floats a vertex).
+    const lineGroups: {
+      width: number;
+      alpha: number;
+      raised: boolean;
+      start: number;
+      count: number;
+    }[] = [];
+    // ac:mesh=concat and merc (plateau/meshSwitch.ts): the same non-empty
+    // groups in the same order, each copied ONCE into one Float32Array per
+    // regime (the globe set has the same vertex ranges, 20 floats a vertex).
     const fast = meshMode !== "ancien";
-    let packed: { lines: Float32Array<ArrayBuffer>; gLines: Float32Array<ArrayBuffer> } | null =
-      null;
+    let packed: {
+      lines: Float32Array<ArrayBuffer> | null;
+      gLines: Float32Array<ArrayBuffer> | null;
+    } | null = null;
     if (fast) {
       const groups: LineGroup[] = [];
       for (const grp of lineGroupMap.values()) {
-        const count = grp.verts.length / 8;
+        const count = grp.n;
         if (!count) continue;
         groups.push(grp);
       }
-      const lines = concatGroups(groups.map((grp) => grp.verts));
-      groups.forEach((grp, i) => {
-        this.lineGroups.push({
+      let start = 0;
+      for (const grp of groups) {
+        lineGroups.push({
           width: grp.width,
           alpha: grp.alpha,
           raised: grp.raised,
-          start: lines.starts[i] / 8,
-          count: grp.verts.length / 8,
+          start,
+          count: grp.n,
         });
-      });
-      packed = { lines: lines.array, gLines: concatGroups(groups.map((grp) => grp.gVerts)).array };
+        start += grp.n;
+      }
+      packed = {
+        lines: want.merc ? concatGroups(groups.map((grp) => grp.verts ?? [])).array : null,
+        gLines: want.globe ? concatGroups(groups.map((grp) => grp.gVerts ?? [])).array : null,
+      };
     } else {
       for (const grp of lineGroupMap.values()) {
-        const count = grp.verts.length / 8;
+        const count = grp.n;
         if (!count) continue;
-        this.lineGroups.push({
+        lineGroups.push({
           width: grp.width,
           alpha: grp.alpha,
           raised: grp.raised,
           start: lineVerts.length / 8,
           count,
         });
-        for (const v of grp.verts) lineVerts.push(v);
-        for (const v of grp.gVerts) gLine.push(v);
+        for (const v of grp.verts ?? []) lineVerts.push(v);
+        for (const v of grp.gVerts ?? []) gLine.push(v);
       }
     }
     // Hover fills: opaque violet sweep that FILLS FROM THE BOUNDARY INWARD. Each
@@ -864,13 +1031,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // vertices and ~159M distance-field ops per drill — measured at ~985 ms, the
     // single biggest cost on the map. Record what COULD be filled and build the
     // one unit on demand in ensureFill().
-    this.fillRanges.clear();
-    this.pendingFills.clear();
-    this.fillOrigin = origin;
-    this.hovPositions = new Float32Array(0);
-    this.gHovPositions = new Float32Array(0);
-    this.hovDirty = true;
-    this.gHovDirty = true;
+    const fills: [string, PendingFill][] = [];
     // No plateau (world scope) → skip: the GL sweep only runs with a plateau up
     // (the draped scope-hover-fill is the fallback there), so the refined fill
     // meshes would be dead weight.
@@ -878,7 +1039,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       const record = (f: OutlineFC["features"][number], altM: number, raised: boolean) => {
         const g = f.geometry as { type?: string; coordinates?: unknown } | undefined;
         if (!g?.type) return;
-        this.pendingFills.set(String(f.properties?.id ?? ""), { g, altM, raised });
+        fills.push([String(f.properties?.id ?? ""), { g, altM, raised }]);
       };
       // Above the lid (h), below the lines — on the ground, a child left there.
       for (const f of focus) {
@@ -889,16 +1050,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       // lines (their fill must hide behind the raised plateau too).
       for (const f of context) record(f, GROUND_ALT, false);
     }
-    // fillRanges was just cleared, but hoveredFillId still points at the unit
-    // under the cursor — the render pass would look up a range that no longer
-    // exists and silently drop the highlight, with setHover/setHovered's
-    // early-returns making it unrecoverable until the cursor left and re-entered.
-    // Re-arm it (rebuilds the discarded mesh; skips nothing load-bearing).
-    const stillHovered = this.hoveredFillId;
-    if (stillHovered) {
-      this.hoveredFillId = "";
-      this.setHovered(stillHovered);
-    }
     // Halo: a CONTINUOUS ribbon hugging the scope boundary — the ring is first
     // SIMPLIFIED to segments comparable to the band width (per-segment screen
     // quads on a jagged boundary read as separate spikes), then each kept vertex
@@ -906,8 +1057,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // Inner edge d=0 sits at the wall base, outer edge d=1. Layouts match the
     // fill meshes ([pos, d]) so the programs stay simple. 12 m off the ground:
     // outside the plateau the DEM is flat 0, and the offset avoids drape z-fight.
-    const haloVerts: number[] = []; // [x, y, z, d]
-    const gHalo: number[] = []; // [merc3, lo3, hi3, d]
+    const haloVerts: number[] | null = want.merc ? [] : null; // [x, y, z, d]
+    const gHalo: number[] | null = want.globe ? [] : null; // [merc3, lo3, hi3, d]
+    let haloW: number | null = null; // null: untouched (no origin)
+    let haloCos = 1;
     if (origin) {
       const HALO_ALT = 12;
       // Band width in degrees, proportional to the selection's own span.
@@ -933,8 +1086,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       const spanH = Math.max(mxLa - mnLa, (mxLo - mnLo) * cosH);
       const W = Math.max(spanH / 95, 0.003); // ° of latitude-equivalent
       // Kept for the analyses' slabs: their glow is the plateau's.
-      this.haloW = features.length ? W : 0;
-      this.haloCos = cosH;
+      haloW = features.length ? W : 0;
+      haloCos = cosH;
       const pushHV = (b: PBase, d: number) =>
         pushHaloVert(haloVerts, gHalo, b, d, origin!, HALO_ALT);
       for (const f of features) {
@@ -945,64 +1098,111 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         }
       }
     }
-    this.haloPositions = new Float32Array(haloVerts);
-    this.gHaloPositions = new Float32Array(gHalo);
-    this.haloVertexCount = haloVerts.length / 4;
-    this.haloDirty = true;
-    this.gHaloDirty = true;
+    const merc =
+      verts && lidVerts && haloVerts
+        ? {
+            positions: new Float32Array(verts),
+            lidPositions: new Float32Array(lidVerts),
+            linePositions: packed?.lines ?? new Float32Array(lineVerts),
+            haloPositions: new Float32Array(haloVerts),
+          }
+        : null;
+    const globe =
+      gWall && gLid && gHalo
+        ? {
+            gWallPositions: new Float32Array(gWall),
+            gLidPositions: new Float32Array(gLid),
+            gLinePositions: packed?.gLines ?? new Float32Array(gLine),
+            gHaloPositions: new Float32Array(gHalo),
+          }
+        : null;
+    return { merc, globe, origin, lineGroups, fills, haloW, haloCos };
+  }
 
-    this.positions = new Float32Array(verts);
-    this.vertexCount = verts.length / 3;
-    this.lidPositions = new Float32Array(lidVerts);
-    this.lidVertexCount = lidVerts.length / 3;
-    if (packed) {
-      this.linePositions = packed.lines;
-      this.lineVertexCount = packed.lines.length / 8;
-    } else {
-      this.linePositions = new Float32Array(lineVerts);
-      this.lineVertexCount = lineVerts.length / 8;
-    }
-    this.gWallPositions = new Float32Array(gWall);
-    this.gLidPositions = new Float32Array(gLid);
-    if (packed) {
-      this.gLinePositions = packed.gLines;
-    } else {
-      this.gLinePositions = new Float32Array(gLine);
-    }
-    this.origin = origin ?? [0, 0];
-    this.dirty = true;
-    this.lidDirty = true;
-    this.lineDirty = true;
+  /** A lazy setGeometry's globe set (ac:mesh=merc), built after the map's next
+   *  idle, then in the browser's next idle time (≤ 1 s; Safari has none: the
+   *  next task) — out of the click, the rise and the flight. */
+  private scheduleGlobePass(gen: number) {
+    const map = this.map;
+    if (!map) return; // not on a map yet: the first globe frame builds it
+    let idle = 0;
+    let timer = 0;
+    const pass = () => {
+      this.globeTask = null;
+      this.globePass(gen);
+    };
+    const onIdle = () => {
+      if (typeof requestIdleCallback === "function") {
+        idle = requestIdleCallback(pass, { timeout: 1000 });
+      } else {
+        timer = window.setTimeout(pass, 0);
+      }
+    };
+    map.once("idle", onIdle);
+    this.globeTask = {
+      cancel: () => {
+        map.off("idle", onIdle);
+        if (idle) cancelIdleCallback(idle);
+        if (timer) clearTimeout(timer);
+      },
+    };
+  }
+
+  private cancelGlobePass() {
+    this.globeTask?.cancel();
+    this.globeTask = null;
+  }
+
+  private globePass(gen: number) {
+    // The testing tools' forced late path: the pass held, the first globe
+    // frame builds the set (ensureGlobe).
+    if (__TEST_TOOLS__ && (window as { __acMeshIdle?: string }).__acMeshIdle === "hold") return;
+    if (!this.buildGlobe(gen, false)) return;
+    // Only the globe frames read it: in mercator a repaint is a wasted frame.
+    const map = this.map;
+    if (map && map.getZoom() < 6) map.triggerRepaint();
+  }
+
+  /** Generation `gen`'s deferred globe set, built now and handed to the next
+   *  globe frame: only the four globe arrays and their flags are written (the
+   *  rest of the mesh is setGeometry's). `late`: by a globe frame (the span
+   *  plateau.globeLate), else by the idle pass (plateau.globeBuild). Null:
+   *  stale, built or cancelled. */
+  private buildGlobe(gen: number, late: boolean) {
+    const inputs = this.globeDefer.claim(gen);
+    if (!inputs) return null;
+    const t0 = perfOn ? performance.now() : 0;
+    const { features, heightM, focus, context } = inputs;
+    const globe = this.buildArrays(features, heightM, focus, context, {
+      merc: false,
+      globe: true,
+    }).globe;
+    if (!globe) return null;
+    this.gWallPositions = globe.gWallPositions;
+    this.gLidPositions = globe.gLidPositions;
+    this.gLinePositions = globe.gLinePositions;
+    this.gHaloPositions = globe.gHaloPositions;
     this.gWallDirty = true;
     this.gLidDirty = true;
     this.gLineDirty = true;
-    if (endSpan) {
-      endSpan({
-        walls: this.vertexCount,
-        lid: this.lidVertexCount,
-        lines: this.lineVertexCount,
-        halo: this.haloVertexCount,
-        mesh: meshMode,
-      });
+    this.gHaloDirty = true;
+    this.globeDefer.markBuilt(gen);
+    if (perfOn) {
+      const span = late ? "plateau.globeLate" : "plateau.globeBuild";
+      perfNote(span, performance.now() - t0, { scope: this.scopeId });
     }
-    if (__TEST_TOOLS__) {
-      const probe = (this.meshProbe ??= { calls: 0, input: [] });
-      probe.calls++;
-      probe.input = [features, focus, context];
-      // The hash walks' every-call mode (meshDigest): set by the harness.
-      const w = window as unknown as {
-        __acMeshHashEvery?: boolean;
-        __acMeshHashes?: { call: number; scopeId: string; digest: unknown }[];
-      };
-      if (w.__acMeshHashEvery === true) {
-        (w.__acMeshHashes ??= []).push({
-          call: probe.calls,
-          scopeId: this.scopeId,
-          digest: this.meshDigest(),
-        });
-      }
+    return globe;
+  }
+
+  /** The globe set a globe frame draws: built now, synchronously, when it is
+   *  still deferred (ac:mesh=merc: a zoom-out before the idle pass ran). Null:
+   *  none to draw (the layer re-added before its next setGeometry). */
+  private ensureGlobe() {
+    const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = this;
+    if (gWallPositions && gLidPositions && gLinePositions && gHaloPositions) {
+      return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions };
     }
-    this.map?.triggerRepaint();
+    return this.buildGlobe(this.globeDefer.current, true);
   }
 
   /** The testing tools' fingerprint of the mesh setGeometry last built
@@ -1010,11 +1210,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  array but the hover and retract ones, built lazily on hover — plus the
    *  rim and the state the draws read, every vertex count, the number of
    *  setGeometry calls and the last call's input (ids, ring and vertex
-   *  counts), so two runs are compared only on the same input. `globe` is
-   *  for the mesh modes to come (ignored here). Null without the tools. */
+   *  counts), so two runs are compared only on the same input. A globe set
+   *  still deferred (ac:mesh=merc) hashes as absent; `globe` builds it first
+   *  (as a globe frame would: a `plateau.globeLate` span). Null without the
+   *  tools. */
   meshDigest(opts?: { globe?: boolean }) {
     if (!__TEST_TOOLS__) return null;
-    void opts;
+    if (opts?.globe) this.ensureGlobe();
     const { total, parts } = digestParts([
       ["positions", this.positions],
       ["lidPositions", this.lidPositions],
@@ -1350,6 +1552,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   }
 
   onRemove(_map: mapboxgl.Map, gl: WebGL2RenderingContext) {
+    if (meshMode === "merc") {
+      // A new generation: a pass held for this mesh never lands after it.
+      this.cancelGlobePass();
+      this.globeDefer.begin();
+    }
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
     if (this.lidProgram) gl.deleteProgram(this.lidProgram);
@@ -1909,6 +2116,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     center: number[],
     pxRatio: number,
   ) {
+    // The globe set first, before anything is bound: a deferred one is built
+    // now (ac:mesh=merc); none at all, nothing to draw.
+    const globe = this.ensureGlobe();
+    if (!globe) return;
     // NO depth test on the globe: mapbox draws the sphere/terrain through an
     // infinite-far projection while custom layers get the finite-far matrix — the
     // depth values aren't comparable and the mismatch (~1e-3) dwarfs the plateau's
@@ -1973,7 +2184,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       setCommon(this.gLineProg);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.gLineBuffer);
       if (this.gLineDirty) {
-        gl.bufferData(gl.ARRAY_BUFFER, this.gLinePositions, gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, globe.gLinePositions, gl.STATIC_DRAW);
         this.gLineDirty = false;
       }
       const p = this.gLineProg;
@@ -2007,7 +2218,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       setCommon(this.gWallProg);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.gWallBuffer);
       if (this.gWallDirty) {
-        gl.bufferData(gl.ARRAY_BUFFER, this.gWallPositions, gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, globe.gWallPositions, gl.STATIC_DRAW);
         this.gWallDirty = false;
       }
       bindTriple(this.gWallProg, 36);
@@ -2025,7 +2236,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       setCommon(this.gLidProg);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.gLidBuffer);
       if (this.gLidDirty) {
-        gl.bufferData(gl.ARRAY_BUFFER, this.gLidPositions, gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, globe.gLidPositions, gl.STATIC_DRAW);
         this.gLidDirty = false;
       }
       // Globe attrs are ABSOLUTE mercator → unshifted texture origin.
@@ -2047,7 +2258,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       setCommon(hp);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.gHaloBuffer);
       if (this.gHaloDirty) {
-        gl.bufferData(gl.ARRAY_BUFFER, this.gHaloPositions, gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, globe.gHaloPositions, gl.STATIC_DRAW);
         this.gHaloDirty = false;
       }
       bindTriple(hp, 40);

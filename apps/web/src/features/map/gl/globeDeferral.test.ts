@@ -1,0 +1,95 @@
+// The plateau's deferred globe set (globeDeferral.ts, ac:mesh=merc): which
+// builds may wait, and the generations that keep a held build from landing
+// over a newer mesh. Run with `node --import tsx --test` (root
+// "test:scripts"). Pure: no DOM, no alias at run time.
+
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  LAZY_GLOBE_MIN_ZCANON,
+  LAZY_GLOBE_MIN_ZOOM,
+  createGlobeDeferral,
+  globeSetMode,
+} from "./globeDeferral";
+
+test("the constants: a canonical zoom of 8 (a flat fit zoom of 7), a camera at 6.5", () => {
+  assert.equal(LAZY_GLOBE_MIN_ZCANON, 8);
+  assert.equal(LAZY_GLOBE_MIN_ZOOM, 6.5);
+});
+
+test("lazy only for a deep fit applied with the camera clear of the globe", () => {
+  // [zCanon, zoom at the build, mode]
+  const table: [number, number, "eager" | "lazy"][] = [
+    [5, 4.8, "eager"], // France
+    [7, 6.25, "eager"], // Auvergne-Rhône-Alpes
+    [7, 9, "eager"], // a canonical zoom of 7 waits for nothing, wherever the camera is
+    [8, 6.49, "eager"], // just under the camera's bar
+    [8, 6.5, "lazy"], // on it
+    [8, 6.79, "lazy"], // Provence-Alpes-Côte d'Azur at rest
+    [9, 6.25, "eager"], // Auvergne-Rhône-Alpes → Rhône: built while the camera leaves 6.25
+    [9, 4.8, "eager"], // France → anything
+    [9, 8.71, "lazy"], // Rhône at rest
+    [13, 12, "lazy"], // a commune
+  ];
+  for (const [zCanon, zoom, mode] of table) {
+    assert.equal(globeSetMode(zCanon, zoom), mode, `zCanon ${zCanon}, zoom ${zoom}`);
+  }
+});
+
+test("a lazy build's inputs are claimed by its own generation only", () => {
+  const d = createGlobeDeferral<string>();
+  const g = d.begin("rhone");
+  assert.equal(d.current, g);
+  assert.equal(d.claim(g - 1), null);
+  assert.equal(d.claim(g), "rhone");
+  assert.equal(d.claim(g), "rhone", "a claim alone does not consume them");
+});
+
+test("a newer setGeometry invalidates a pending build", () => {
+  const d = createGlobeDeferral<string>();
+  const g1 = d.begin("rhone");
+  const g2 = d.begin("lyon");
+  assert.equal(d.claim(g1), null);
+  assert.equal(d.claim(g2), "lyon");
+});
+
+test("a teardown (an eager call with nothing held) invalidates a pending build", () => {
+  const d = createGlobeDeferral<string>();
+  const g = d.begin("rhone");
+  const teardown = d.begin();
+  assert.equal(d.claim(g), null);
+  assert.equal(d.claim(teardown), null);
+});
+
+test("an eager call after a lazy one cancels it", () => {
+  const d = createGlobeDeferral<string>();
+  const lazy = d.begin("paca");
+  const eager = d.begin(null);
+  assert.equal(d.claim(lazy), null);
+  assert.equal(d.claim(eager), null);
+});
+
+test("a late build (the first globe frame) marks the generation built: the idle pass then no-ops", () => {
+  const d = createGlobeDeferral<string>();
+  const g = d.begin("rhone");
+  assert.equal(d.claim(g), "rhone"); // renderGlobe's ensureGlobe
+  d.markBuilt(g);
+  assert.equal(d.claim(g), null); // the idle pass, later
+});
+
+test("markBuilt of a stale generation leaves the newer one held", () => {
+  const d = createGlobeDeferral<string>();
+  const g1 = d.begin("rhone");
+  const g2 = d.begin("lyon");
+  d.markBuilt(g1);
+  assert.equal(d.claim(g2), "lyon");
+});
+
+test("cancel (the layer removed) drops what is held", () => {
+  const d = createGlobeDeferral<string>();
+  const g = d.begin("bdr");
+  d.cancel();
+  assert.equal(d.claim(g), null);
+  const g2 = d.begin("bdr");
+  assert.equal(d.claim(g2), "bdr", "a later lazy call holds again");
+});

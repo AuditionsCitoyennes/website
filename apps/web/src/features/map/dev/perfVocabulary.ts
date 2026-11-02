@@ -24,11 +24,16 @@
 //                     `sourcedata`, any other failure as a map `error`, after
 //                     which mapbox reads the source loaded: errTiles > 0 is
 //                     no ready time)
+//   plateau.globeBuild  ac:mesh=merc: a lazy setGeometry's globe set, built
+//                     after the map's idle (PlateauWallLayer; detail: scope)
+//   plateau.globeLate the same set built by the first globe frame drawn
+//                     before that, or by `__acMeshHash({ globe: true })`
 // Reserved for the phases to come, so their tables share one vocabulary:
-// dem.key, plateau.meshBuild, plateau.globeBuild, plateau.globeLate,
-// mesh.roundTrip, outline.fetch, outline.decode, outline.fallback.
+// dem.key, plateau.meshBuild, mesh.roundTrip, outline.fetch, outline.decode,
+// outline.fallback.
 // plateau.setGeometry's detail names the mesh mode that built it (`mesh`:
-// ac:mesh, plateau/meshSwitch.ts); its output's fingerprint is
+// ac:mesh, plateau/meshSwitch.ts) and, with merc, its globe set's mode and
+// what chose it (`globe`, `zCanon`, `zoom`); its output's fingerprint is
 // `__acMeshHash()` (dev/probes.ts), once per call with `__acMeshHashEvery`.
 //
 // Requests: `net` sees the main thread's fetches only (Resource Timing), and
