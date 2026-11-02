@@ -14,11 +14,12 @@ import { globeSetMode } from "../gl/globeDeferral";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
-import { createDemSlots, type DemSlot } from "../plateau/demSlots";
+import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
 import { SelectionTooLarge } from "../relief/demGeometry";
 import { loadReliefClient } from "../relief/demHook";
 import { demTemplate } from "../relief/demTiles";
-import { demoteRelief, reliefRoute, type ReliefMode } from "../relief/reliefSwitch";
+import { planPrefetch, type PrefetchPlan } from "../relief/prefetchPlan";
+import { demoteRelief, reliefPrefetch, reliefRoute, type ReliefMode } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
 import { meshMode } from "../plateau/meshSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
@@ -129,6 +130,12 @@ export function usePlateau({
   // ac:relief=client: the client relief, once a run has loaded it. It holds
   // each standing slot's key.
   let relief: Awaited<ReturnType<typeof loadReliefClient>> | null = null;
+  // ac:relief-prefetch=terrain0 (relief/reliefSwitch.ts): the spare slot a run
+  // made the root terrain at exaggeration 0 before its swap, until a plateau
+  // commits or the map is cleared; and (testing tools) how often the spare
+  // slot was re-pointed or kept instead of added, and how many early terrains.
+  let earlyTerrainSlot: DemSlot | null = null;
+  const prefetchRuns = { repoints: 0, keeps: 0, earlyTerrains: 0 };
 
   // The `dem.tilesReady` probe (testing tools only): a DEM slot's addSource →
   // the first of its tile events after which the source is loaded. Not its
@@ -375,12 +382,19 @@ export function usePlateau({
       // Nothing selected (world level, or the micropin zone) → sink, then clear the
       // plateau; the outline's own lines (e.g. the country boundary at world
       // scope) stay, grounded.
-      if (plateauVersion && map.getTerrain()) {
+      // A terrain0 run superseded by this clear left its slot as the terrain at
+      // 0: cleared too, as a hillshade prefetch leaves no terrain.
+      const earlyStands =
+        __TEST_TOOLS__ &&
+        earlyTerrainSlot !== null &&
+        map.getTerrain()?.source === earlyTerrainSlot;
+      if ((plateauVersion || earlyStands) && map.getTerrain()) {
         await animateTerrain(0, SINK_MS);
         map = getMap();
         if (seq !== plateauSeq || !map) return;
         map.setTerrain(null);
       }
+      earlyTerrainSlot = null;
       plateauWall.setGeometry([], 0, focus, context);
       plateauRaised = [];
       plateauBbox = null;
@@ -485,34 +499,91 @@ export function usePlateau({
         if (seq !== plateauSeq || !map) return;
       }
       if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
-      // The spare slot's source is replaced: its key is no longer held.
-      relief?.releaseSlot(next);
-      slots.addDemSlot(map, next, {
-        type: "raster-dem",
-        tiles: [
-          __TEST_TOOLS__ && route === "client"
-            ? demTemplate(key)
-            : `${API_BASE}/api/dem/${key}/{z}/{x}/{y}`,
-        ],
-        tileSize: 256,
-        // Capped at the selection's canonical zoom: zooming/flying past it overzooms
-        // the SAME tiles instead of fetching new pyramids — no mid-rise tile pops.
-        // The visible wall edge is our vector geometry, so the overzoom slope on the
-        // (eroded, hidden) raster edge doesn't matter.
-        maxzoom: zCanon,
-        encoding: "mapbox",
-      });
-      if (__TEST_TOOLS__ && route === "client") relief?.holdSlot(next, key);
-      // ---- perf probe: dem.tilesReady, this slot's tiles from here (testing tools only) ----
-      if (perfOn) watchTilesReady(map, next, scopeId, route);
-      // ---- end perf probe ----
-      map.addLayer({
-        id: "plateau-prefetch",
-        type: "hillshade",
-        source: next,
-        paint: { "hillshade-exaggeration": 0 },
-      });
-      if (!changed && plateauVersion && map.getTerrain()) {
+      const template =
+        __TEST_TOOLS__ && route === "client"
+          ? demTemplate(key)
+          : `${API_BASE}/api/dem/${key}/{z}/{x}/{y}`;
+      // The spare slot and its prefetch (relief/prefetchPlan.ts): a spare slot
+      // that is the terrain (a superseded terrain0 run's) is re-pointed or kept,
+      // never removed; its template and maxzoom read from serialize(), the
+      // source's options as last set (`tiles` lands only with the TileJSON, a
+      // frame later). Without the testing tools the route is "serveur" and the
+      // prefetch the hillshade: only the guard ships, re-pointing at zCanon.
+      const quiet = !changed && !!plateauVersion && !!map.getTerrain();
+      const spare = map.getSource(next) as
+        { serialize?(): { tiles?: string[]; maxzoom?: number } } | undefined;
+      const nextIsTerrain = map.getTerrain()?.source === next;
+      const spec = __TEST_TOOLS__ ? spare?.serialize?.() : undefined;
+      const plan: PrefetchPlan = __TEST_TOOLS__
+        ? planPrefetch({
+            prefetch: reliefPrefetch,
+            route,
+            standing: !!plateauVersion,
+            quiet,
+            nextIsTerrain,
+            nextExists: !!spare,
+            nextTemplate: spec?.tiles?.[0],
+            nextMaxzoom: spec?.maxzoom,
+            template,
+            zCanon,
+          })
+        : {
+            slot: spare && nextIsTerrain ? "repoint" : "add",
+            setMaxzoom: true,
+            hillshade: true,
+            earlyTerrain: false,
+          };
+      if (plan.slot === "add") {
+        // The spare slot's source is replaced: its key is no longer held.
+        relief?.releaseSlot(next);
+        slots.addDemSlot(map, next, {
+          type: "raster-dem",
+          tiles: [template],
+          tileSize: 256,
+          // Capped at the selection's canonical zoom: zooming/flying past it overzooms
+          // the SAME tiles instead of fetching new pyramids — no mid-rise tile pops.
+          // The visible wall edge is our vector geometry, so the overzoom slope on the
+          // (eroded, hidden) raster edge doesn't matter.
+          maxzoom: zCanon,
+          encoding: "mapbox",
+        });
+        if (__TEST_TOOLS__ && route === "client") relief?.holdSlot(next, key);
+        // ---- perf probe: dem.tilesReady, this slot's tiles from here (testing tools only) ----
+        if (perfOn) watchTilesReady(map, next, scopeId, route);
+        // ---- end perf probe ----
+      } else if (plan.slot === "repoint") {
+        // The live terrain's source: new tiles in place (no dem.tilesReady
+        // span: the probe counts the run apart).
+        relief?.releaseSlot(next);
+        repointDemSlot(map, next, template, plan.setMaxzoom ? zCanon : undefined);
+        if (__TEST_TOOLS__ && route === "client") relief?.holdSlot(next, key);
+        if (perfOn) prefetchRuns.repoints++;
+      } else if (perfOn) prefetchRuns.keeps++;
+      if (!__TEST_TOOLS__ || plan.hillshade) {
+        map.addLayer({
+          id: "plateau-prefetch",
+          type: "hillshade",
+          source: next,
+          paint: { "hillshade-exaggeration": 0 },
+        });
+      } else if (plan.earlyTerrain) {
+        // terrain0, nothing of ours standing: the slot is made the root terrain
+        // at 0 at once. It starts no tile by itself: with nothing standing the
+        // sink is already resolved, so the commit's swap below follows in this
+        // same task (one microtask), before any frame — every terrain0 run
+        // starts its tiles at the swap. It only shapes the state a run
+        // superseded inside that microtask leaves. Tracked as a swap (no drop
+        // before a frame); no generation bump, addDemSlot just made one.
+        // Superseded by a NEW selection, it stays the terrain at 0 until that
+        // run re-points or keeps it (an elevated root terrain keeps the
+        // import's relief hidden).
+        terrainExag = 0;
+        earlyTerrainSlot = next;
+        setTerrainRaw(next, 0);
+        slots.swapped(map, terrainSrc);
+        if (perfOn) prefetchRuns.earlyTerrains++;
+      }
+      if (quiet) {
         // SAME unit, new version → its geometry was merely REFINED (boundary data
         // arrived after a cold load), or its relief route changed (the client lost:
         // the `serveur:` tag). QUIET swap at the current height: wait for the new
@@ -535,6 +606,7 @@ export function usePlateau({
         if (seq !== plateauSeq || !map) return;
         plateauVersion = version;
         plateauScopeId = scopeId;
+        earlyTerrainSlot = null;
         const oldSrc = terrainSrc;
         terrainSrc = next;
         setTerrainRaw(next, terrainExag);
@@ -559,6 +631,7 @@ export function usePlateau({
       // updateTerrain on globe ("Cannot read properties of undefined").
       plateauVersion = version;
       plateauScopeId = scopeId;
+      earlyTerrainSlot = null;
       const old = terrainSrc;
       terrainSrc = next;
       if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
@@ -636,6 +709,8 @@ export function usePlateau({
       demMaxzoom: (map?.getStyle().sources?.[terrainSrc] as { maxzoom?: number })?.maxzoom,
       // The dem.tilesReady spans begun and ended, and the listener up (≤ 1).
       ...(perfOn ? { demReady: { ...demReady, live: offTilesReady ? 1 : 0 } } : {}),
+      // The spare slot's path (ac:relief-prefetch): re-points, keeps, early terrains.
+      ...(perfOn ? { prefetch: { mode: reliefPrefetch, ...prefetchRuns } } : {}),
     };
   }
 

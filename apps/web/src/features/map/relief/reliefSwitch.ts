@@ -18,6 +18,21 @@
 // The session's route (`reliefRoute`) starts at the mode and changes once at
 // most: a "client" page whose client failed (demoteRelief) takes "serveur" for
 // the rest of the session.
+//
+// How a "client" run prefetches the new slot's tiles (`ac:relief-prefetch`, the
+// "Préchargement" row, shown under "Client" only):
+//
+// - "hillshade" (the default): as today — an invisible hillshade on the spare
+//   slot makes mapbox fetch its tiles while the old plateau sinks.
+// - "terrain0": no hillshade, so every run starts its tiles at the swap (the
+//   rise plays on unloaded tiles). A run with nothing of ours standing makes the
+//   new slot the root terrain at exaggeration 0 at once, but the swap follows it
+//   in the same task: that only matters to a run superseded in between. The
+//   quiet swap keeps the hillshade (its wait needs the tiles).
+//
+// It acts only on a run whose route is "client"; inert under "serveur". Read
+// once per page load: switching reloads the page. Production has neither key
+// nor switch: DEFAULT_RELIEF_PREFETCH.
 
 export type ReliefMode = "serveur" | "client";
 
@@ -34,6 +49,25 @@ function storedReliefMode(): ReliefMode {
       : DEFAULT_RELIEF_MODE;
   } catch {
     return DEFAULT_RELIEF_MODE;
+  }
+}
+
+export type ReliefPrefetch = "hillshade" | "terrain0";
+
+/** The prefetch of a build without the testing tools, and the switch's default. */
+export const DEFAULT_RELIEF_PREFETCH: ReliefPrefetch = "hillshade";
+
+export const RELIEF_PREFETCHES: readonly ReliefPrefetch[] = ["hillshade", "terrain0"];
+
+/** The kept prefetch, else the default (garbage or blocked storage too). */
+export function storedReliefPrefetch(): ReliefPrefetch {
+  try {
+    const raw = localStorage.getItem("ac:relief-prefetch");
+    return (RELIEF_PREFETCHES as readonly string[]).includes(raw ?? "")
+      ? (raw as ReliefPrefetch)
+      : DEFAULT_RELIEF_PREFETCH;
+  } catch {
+    return DEFAULT_RELIEF_PREFETCH;
   }
 }
 
@@ -57,11 +91,27 @@ export const reliefBudget: number = __TEST_TOOLS__ ? storedCount("ac:relief-budg
 /** "client": ms waited before each answer (`ac:relief-delay`, a measurement arm). */
 export const reliefDelay: number = __TEST_TOOLS__ ? storedCount("ac:relief-delay", 0) : 0;
 
+/** This page load's prefetch (a "client" run's only). */
+export const reliefPrefetch: ReliefPrefetch = __TEST_TOOLS__
+  ? storedReliefPrefetch()
+  : DEFAULT_RELIEF_PREFETCH;
+
 /** Another mode: kept, and the page loaded again with it. */
 export function setReliefMode(mode: ReliefMode) {
   if (!__TEST_TOOLS__ || mode === reliefMode) return;
   try {
     localStorage.setItem("ac:relief", mode);
+  } catch {
+    /* storage blocked (a private window): the choice lasts for this page */
+  }
+  window.location.reload();
+}
+
+/** Another prefetch: kept, and the page loaded again with it. */
+export function setReliefPrefetch(prefetch: ReliefPrefetch) {
+  if (!__TEST_TOOLS__ || prefetch === reliefPrefetch) return;
+  try {
+    localStorage.setItem("ac:relief-prefetch", prefetch);
   } catch {
     /* storage blocked (a private window): the choice lasts for this page */
   }
