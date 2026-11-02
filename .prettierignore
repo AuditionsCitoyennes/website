@@ -10,3 +10,4 @@ supabase
 apps/api/data/france-geojson/*.geojson
 scripts/parity/fixtures/dem/
 apps/web/src/features/geo/__fixtures__/outlines/
+scripts/parity/demRelief.golden.json
