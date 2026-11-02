@@ -6,6 +6,7 @@ import { useTheme } from "@/shared/ui/theme/useTheme";
 import { ROUTE } from "@/shared/routes";
 import { useCreateAudition } from "@/features/admin";
 import { useSubmitTestimony } from "@/features/testify";
+import { DONATION_URL } from "@/features/support";
 import HeaderMobileMenu from "./HeaderMobileMenu.vue";
 import { useHeaderTuck } from "./useHeaderTuck";
 
@@ -25,9 +26,11 @@ const immersive = computed(() => route.path === ROUTE.temoignages.path);
 // back as soon as it goes up — or near the top, where they cover nothing.
 const { tucked } = useHeaderTuck({ immersive, menuOpen: mobileOpen });
 
+// "Soutenir" only once there is a donation link to give (features/support).
 const links = [
   { to: ROUTE.home.path, label: "Accueil" },
   { to: ROUTE.temoignages.path, label: "Témoignages" },
+  ...(DONATION_URL ? [{ to: ROUTE.support.path, label: "Soutenir" }] : []),
 ];
 
 function closeMobile() {

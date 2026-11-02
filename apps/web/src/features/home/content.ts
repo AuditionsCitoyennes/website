@@ -10,7 +10,7 @@ export const STEPS = [
   },
   {
     title: "On prend note",
-    text: "À l'écrit ou avec un micro, on note vos réponses en entier : rien n'est coupé.",
+    text: "À l'écrit ou avec un micro, on note vos réponses en entier : tout est retranscrit au plus proche.",
   },
   {
     title: "On publie",

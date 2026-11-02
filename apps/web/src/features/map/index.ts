@@ -11,3 +11,4 @@ export { lidMode, setLidMode, type LidMode } from "./plateau/lidSwitch";
 export { meshMode, setMeshMode, type MeshMode } from "./plateau/meshSwitch";
 // Where the plateau's relief is rendered: its DEV switch (the Témoignages page draws it).
 export { reliefMode, setReliefMode, type ReliefMode } from "./relief/reliefSwitch";
+export { reliefPrefetch, setReliefPrefetch, type ReliefPrefetch } from "./relief/reliefSwitch";
