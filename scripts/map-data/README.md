@@ -35,12 +35,15 @@ GeoDrillMap adds the archive as a vector source and draws its levels as lines
 ## outlines/
 
 The static outline files of docs/map-outlines.md (map item 3): one file per
-French parent holding its own outline and its children's from one cut.
+French parent holding its own outline and its children's from one cut, with the
+gates that prove they coincide, and every country at a tier fitted to its size.
 `outlines/build-outlines.sh --help` lists the options; it reads the Etalab files
-the `etalab` step above downloads and writes `~/.cache/ac-map-data/outlines/<build>/`.
+the `etalab` step above downloads and the `chunks` step's `raw/country/` and writes
+`~/.cache/ac-map-data/outlines/<build>/` and a release tarball beside it.
 
-- `prep.ts`, `simplify.sh`, `pack.ts` — the steps (ids, mapshaper runs, the
-  files of format v1).
+- `prep.ts`, `simplify.sh`, `pack.ts`, `check.ts` — the steps (ids, mapshaper
+  runs, the files of format v1, the gates).
 - `lib.ts` — the pure part: format v1 and `validateFileV1`, `clean5`,
-  `enrich` (the API's centre and extent), segment sets, the coincidence metric.
+  `enrich` (the API's centre and extent), segment sets, the coincidence metric,
+  the country tier ladder and `unwrap` (±180).
 - `lib.test.ts`, `outlines.fixture.test.ts` — in `npm run test:scripts`.
