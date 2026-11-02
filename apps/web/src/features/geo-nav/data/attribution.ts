@@ -29,7 +29,9 @@ import type { ContoursMode } from "./contoursSwitch";
  *  when the explorer reads no files at all. */
 export type OutlineSession = "idle" | "loading" | "ok" | "fallback" | null;
 
-const LO = "https://www.etalab.gouv.fr/licence-ouverte-open-licence/";
+// Licence Ouverte 2.0 on data.gouv.fr: Etalab's own licence page now
+// redirects to the data.gouv.fr home page.
+const LO = "https://www.data.gouv.fr/pages/legal/licences/etalab-2-0";
 const OSM = "https://www.openstreetmap.org/copyright";
 const ODBL = "https://opendatacommons.org/licenses/odbl/1-0/";
 
@@ -37,12 +39,15 @@ const ODBL = "https://opendatacommons.org/licenses/odbl/1-0/";
  *  from the territories' own datasets, in the Géo API's answers and in the
  *  outline files alike. */
 const PF_NC =
-  'Polynésie française : <a href="https://www.data.gouv.fr/datasets/geographie-administrative-de-la-polynesie-francaise">Section Cadastre-Topographie</a>, CC BY ; ' +
+  'Polynésie française : <a href="https://www.data.gouv.fr/datasets/geographie-administrative-de-la-polynesie-francaise">Section Cadastre-Topographie</a>, <a href="https://opendefinition.org/licenses/cc-by/">CC BY</a> ; ' +
   `Nouvelle-Calédonie : DITTT, Gouvernement de la Nouvelle-Calédonie, <a href="${LO}">Licence Ouverte</a>`;
 
+// The Géo API's communes are the outline files' dataset (Etalab's
+// contours-administratifs): the same licences on both lines, Admin Express's
+// Licence Ouverte and the dataset's ODbL. data.gouv.fr gives CC BY no version.
 const API_STRINGS: readonly string[] = Object.freeze([
   `Source : IGN — Admin Express COG 2018, via france-geojson (Grégoire David) — <a href="${LO}">Licence Ouverte</a>`,
-  `Communes : <a href="https://geo.api.gouv.fr">API Géo</a> (IGN – Admin Express et <a href="${OSM}">© les contributeurs OpenStreetMap</a> pour les collectivités d'outre-mer), <a href="${ODBL}">ODbL</a>`,
+  `Communes : <a href="https://geo.api.gouv.fr">API Géo</a> (IGN – Admin Express et <a href="${OSM}">© les contributeurs OpenStreetMap</a> pour les collectivités d'outre-mer) — <a href="${LO}">Licence Ouverte</a>, <a href="${ODBL}">ODbL</a>`,
   PF_NC,
 ]);
 
