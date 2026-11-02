@@ -12,9 +12,9 @@
   "dependencies": {
     "@ac/shared": "*",
     "@supabase/supabase-js": "^2.118.0",
-    "@tanstack/vue-query": "^5.104.5",
+    "@tanstack/vue-query": "^5.105.0",
     "earcut": "^3.2.4",
-    "mapbox-gl": "^3.33.0",
+    "mapbox-gl": "^3.34.1",
     "pinia": "^2.2.6",
     "vue": "^3.5.44",
     "vue-router": "^4.4.5",
