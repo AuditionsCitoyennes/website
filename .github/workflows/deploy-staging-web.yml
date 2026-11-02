@@ -14,6 +14,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy-staging-web.yml"
+      - "scripts/deploy/outlines.sh"
   pull_request:
     paths:
       - "apps/web/**"
@@ -21,6 +22,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy-staging-web.yml"
+      - "scripts/deploy/outlines.sh"
   workflow_dispatch:
 
 # A newer push to the same pull request (or to dev) replaces the running one.
@@ -68,6 +70,15 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      # The outline build apps/web/outlines.lock.json names, from its GitHub
+      # release (docs/map-outlines.md "Hosting"): fetched before the build, so
+      # a build not released fails the deploy in seconds. No skip: a deploy
+      # without the files would fall back to the API without a word.
+      - name: Fetch the outline build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/deploy/outlines.sh fetch
+
       # Public values only: what the browser gets anyway.
       - name: Build
         env:
@@ -83,6 +94,12 @@ jobs:
           # Staging is not for search engines.
           printf '/*\n  X-Robots-Tag: noindex, nofollow\n' > apps/web/dist/_headers
           printf 'User-agent: *\nDisallow: /\n' > apps/web/dist/robots.txt
+
+      # Same origin: the app reads /map-data/outlines/<build>/ (VITE_MAP_DATA_BASE
+      # unset), from the same lock the build just baked in.
+      - name: Add the outline build
+        id: outlines
+        run: scripts/deploy/outlines.sh install
 
       - name: Deploy
         id: deploy
@@ -125,6 +142,8 @@ jobs:
       - name: Check the site
         env:
           URL: ${{ steps.deploy.outputs.url }}
+          BUILD: ${{ steps.outlines.outputs.build }}
+          LARGEST: ${{ steps.outlines.outputs.largest }}
           # The deploy's own pass through the gate (Cloudflare Access): a
           # service token, allowed by the gate's "Service Auth" policy.
           ACCESS_ID: ${{ secrets.STAGING_ACCESS_CLIENT_ID }}
@@ -181,6 +200,59 @@ jobs:
             echo "| API version | \`$(jq -r .version <<<"$health")\` |"
             echo "| Visitor's address, as Cloudflare and the API see it | \`$api\` |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # The outline build (scripts/deploy/outlines.sh): its root.json is
+          # that build's, as JSON, immutable. A path that is no file answers
+          # the app's page with a 200 too, so the body is read, not the status.
+          base="$URL/map-data/outlines/$BUILD"
+          root=$(get -sSf --max-time 20 -D "$RUNNER_TEMP/root.headers" "$base/root.json" || true)
+          if ! jq -e --arg b "$BUILD" '.v == 1 and .build == $b' <<<"$root" >/dev/null 2>&1 ||
+            ! grep -qi '^content-type: application/json' "$RUNNER_TEMP/root.headers" ||
+            ! grep -qi '^cache-control:.*immutable' "$RUNNER_TEMP/root.headers"; then
+            echo "::error::outline build $BUILD not served: see docs/map-outlines.md \"Hosting\""
+            exit 1
+          fi
+          # Evidence only (docs/map-outlines.md "Hosting"): the bytes on the
+          # wire with and without compression (curl decodes nothing without
+          # --compressed), and what a file that is not there gets.
+          header() { # NAME, the response's headers on stdin
+            { grep -i "^$1:" || true; } | head -1 | cut -d: -f2- | tr -d '\r' | sed 's/^ *//'
+          }
+          status() { head -1 | awk '{print $2}'; }
+          bytes() { sed -n 's/^size_download=//p'; }
+          {
+            echo ""
+            echo "### Outline build \`$BUILD\` on the site"
+            echo ""
+            echo "| File | Status | Content-Type | Cache-Control | Content-Encoding | Bytes (gzip, br) | Bytes (identity) | Ratio |"
+            echo "|---|---|---|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in root.json k/fr_dep_69.json "$LARGEST"; do
+            zipped=$(get -s --max-time 30 -o /dev/null -D - -w 'size_download=%{size_download}\n' \
+              -H 'Accept-Encoding: gzip, br' "$base/$f" || true)
+            plain=$(get -s --max-time 30 -o /dev/null -D - -w 'size_download=%{size_download}\n' \
+              -H 'Accept-Encoding: identity' "$base/$f" || true)
+            zb=$(bytes <<<"$zipped")
+            pb=$(bytes <<<"$plain")
+            ratio=$(awk -v z="${zb:-0}" -v p="${pb:-0}" 'BEGIN { if (z > 0) printf "%.2fx", p / z; else print "-" }')
+            row="| \`$f\` | $(status <<<"$zipped") | $(header content-type <<<"$zipped") | $(header cache-control <<<"$zipped") | $(header content-encoding <<<"$zipped") | $zb | $pb | $ratio |"
+            echo "$row"
+            echo "$row" >> "$GITHUB_STEP_SUMMARY"
+          done
+          {
+            echo ""
+            echo "| Missing file \`k/fr_dep_zz.json\` | Status | Content-Type | Cache-Control |"
+            echo "|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for mode in plain cors; do
+            extra=()
+            # What the app's fetch() sends.
+            if [ "$mode" = cors ]; then extra=(-H 'Sec-Fetch-Mode: cors' -H 'Sec-Fetch-Dest: empty'); fi
+            missing=$(get -s --max-time 20 -o /dev/null -D - "${extra[@]}" "$base/k/fr_dep_zz.json" || true)
+            row="| $mode | $(status <<<"$missing") | $(header content-type <<<"$missing") | $(header cache-control <<<"$missing") |"
+            echo "$row"
+            echo "$row" >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Link the preview from the pull request
         if: github.event_name == 'pull_request'
