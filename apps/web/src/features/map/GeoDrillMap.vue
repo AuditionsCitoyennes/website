@@ -10,6 +10,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import mapboxgl from "mapbox-gl";
 import { FRANCE_CENTER } from "@ac/shared";
+import { perfNote, perfOn } from "@/shared/perf/perf";
 import { toLngLat } from "./lib/polygon";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import { useMapView, type MapView } from "./composables/useMapView";
@@ -412,6 +413,12 @@ watch(
   // ensurePlateau's hold/teardown decision must re-run when that happens.
   () => [props.outline, props.scopePending] as const,
   () => {
+    if (perfOn) {
+      perfNote("outline.change", 0, {
+        features: props.outline?.features.length ?? 0,
+        pending: props.scopePending,
+      });
+    }
     mask.applyOutline();
     mask.applyMask(); // the hole is cut from props.outline — follow it immediately
     void plateau.ensurePlateau(); // selection changed → re-raise the new area
