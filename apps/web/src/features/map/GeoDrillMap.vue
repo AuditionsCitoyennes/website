@@ -543,7 +543,8 @@ watch(
 // The credits changed (the outline files' session fell back to the API's
 // boundaries, say): a new control with the new text — mapbox has no setter.
 // On the joined text, so a fresh array with the same strings does nothing.
-// An expanded « i » closes again: at most once a session.
+// An expanded « i » closes again: at most twice a session (the files' boot,
+// under the curtain, then a fallback).
 watch(
   () => props.attribution?.join("\n") ?? "",
   () => {

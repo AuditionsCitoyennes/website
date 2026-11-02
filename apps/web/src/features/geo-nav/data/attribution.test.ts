@@ -60,7 +60,7 @@ test("every string non-empty, French, and only https anchors as markup", () => {
   for (const s of new Set([...api, ...files, ...world])) {
     assert.ok(text(s).trim().length > 0);
     // French: the credits read « contributeurs », « Licence », « Communes »…
-    assert.ok(!/\b(contributors|License|Source:)\b/.test(text(s)), s);
+    assert.ok(!/\b(?:contributors|License)\b|\bSource:/.test(text(s)), s);
     const rest = s.replace(/<a href="https:\/\/[^"<>&\s]+">([^<>&]+)<\/a>/g, "$1");
     assert.ok(!/[<>&]/.test(rest), `raw markup outside an anchor: ${s}`);
   }
