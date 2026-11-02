@@ -575,8 +575,9 @@ if (__TEST_TOOLS__) {
   // `window.__acOutlineCheck()`: the store writes so far, the vertices of the
   // outline handed to the map, by kind, the commune the scope walk finds at a
   // point, and whether the lines lifted onto the lid lie on its edge
-  // (model/outlineCheck; null while no plateau stands). Reads the outline and
-  // the hierarchy only.
+  // (model/outlineCheck; null while the outline has no scope feature: the
+  // map lifts them only once the plateau rises). Reads the outline and the
+  // hierarchy only.
   const outlineCheck = () => {
     const vertices: Record<string, number> = {};
     for (const f of outline.value.features) {
@@ -591,10 +592,15 @@ if (__TEST_TOOLS__) {
       fc.features
         .filter((f) => f.properties.kind === kind)
         .map((f) => f.geometry as { type: string; coordinates: unknown });
-    let lift: ReturnType<typeof liftCheck> | null | undefined;
+    let lift: ReturnType<typeof liftCheck> | null = null;
+    let checked = false;
     const check = () => {
-      const [scopeSelf] = of("scope");
-      return (lift ??= scopeSelf ? liftCheck(scopeSelf, of("focus")) : null);
+      if (!checked) {
+        const [scopeSelf] = of("scope");
+        lift = scopeSelf ? liftCheck(scopeSelf, of("focus")) : null;
+        checked = true;
+      }
+      return lift;
     };
     return {
       writes: outlines?.version.value ?? null,
