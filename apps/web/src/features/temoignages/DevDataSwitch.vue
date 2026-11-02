@@ -5,9 +5,10 @@
 // map/plateau/lidSwitch — the page loads again), "Maillage" (how the plateau's
 // mesh is assembled, map/plateau/meshSwitch — the page loads again),
 // "Contours" (the outlines' source, geo-nav/data/contoursSwitch — the page loads
-// again; the files are read under the "serveur" source only) and "Relief"
+// again; the files are read under the "serveur" source only), "Relief"
 // (where the plateau's DEM tiles are rendered, map/relief/reliefSwitch — the
-// page loads again); in comparer mode a badge counting the differences
+// page loads again) and, under "Client" only, "Préchargement" (how a new slot's
+// tiles start, the same module — the page loads again); in comparer mode a badge counting the differences
 // (compare.ts: window.__acCompare, the tree's, and window.__acCompareLists, the
 // lists'). The testing tools only: the explorer loads it behind
 // `__TEST_TOOLS__`. Folded by default, at the map's bottom-left corner above
@@ -18,12 +19,15 @@ import {
   lidMode,
   meshMode,
   reliefMode,
+  reliefPrefetch,
   setLidMode,
   setMeshMode,
   setReliefMode,
+  setReliefPrefetch,
   type LidMode,
   type MeshMode,
   type ReliefMode,
+  type ReliefPrefetch,
 } from "@/features/map";
 import { contoursMode, setContoursMode, type ContoursMode } from "@/features/geo-nav";
 import {
@@ -69,6 +73,10 @@ const CONTOURS: readonly { id: ContoursMode; label: string }[] = [
 const RELIEFS: readonly { id: ReliefMode; label: string }[] = [
   { id: "serveur", label: "Serveur" },
   { id: "client", label: "Client" },
+];
+const PREFETCHES: readonly { id: ReliefPrefetch; label: string }[] = [
+  { id: "hillshade", label: "Ombrage" },
+  { id: "terrain0", label: "Terrain 0" },
 ];
 
 function showReport() {
@@ -180,6 +188,19 @@ function showReport() {
           class="seg-btn"
           :aria-pressed="reliefMode === m.id"
           @click="setReliefMode(m.id)"
+        >
+          {{ m.label }}
+        </button>
+      </div>
+      <div v-if="reliefMode === 'client'" class="seg" role="group" aria-label="Préchargement">
+        <span class="seg-label">Préchargement</span>
+        <button
+          v-for="m in PREFETCHES"
+          :key="m.id"
+          type="button"
+          class="seg-btn"
+          :aria-pressed="reliefPrefetch === m.id"
+          @click="setReliefPrefetch(m.id)"
         >
           {{ m.label }}
         </button>
