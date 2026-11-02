@@ -8,3 +8,4 @@ supabase
 .boundaries-cache.json
 .boundaries-cache/
 apps/api/data/france-geojson/*.geojson
+apps/web/src/features/geo/__fixtures__/outlines/

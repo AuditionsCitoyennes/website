@@ -88,3 +88,57 @@ test("validateFileV1 accepts the three kinds and names what is wrong", () => {
   bad({ ...head, kind: "x" }, 'kind "x"');
   bad({ ...head, kind: "k" }, "missing key units");
 });
+
+test("pickTier: the largest rung under diag / 4000, 15 m at least, raised by the vertex budget", () => {
+  const fits = () => 100;
+  const monaco = lib.diagM([7.40903, 43.72475, 7.43968, 43.75197]); // about 3.8 km
+  assert.ok(monaco > 3_500 && monaco < 4_500, String(monaco));
+  assert.equal(lib.pickTier(monaco, fits), 15);
+  assert.equal(lib.pickTier(1_000_000, fits), 100); // 250 m by the diagonal
+  const russia = lib.diagM([19.6387, 41.1851, 190.99232, 81.85905]); // unwrapped, about 10,150 km
+  assert.equal(lib.pickTier(russia, fits), 1000);
+  assert.equal(lib.pickTier(lib.diagM([-180, -85.0511, 180, -60.5]), fits), 3000); // Antarctica
+  const heavy = (m: number) => (m < 3000 ? 25_000 : 7_000);
+  assert.equal(lib.pickTier(russia, heavy), 3000);
+  assert.equal(
+    lib.pickTier(monaco, () => 20_001),
+    null,
+  );
+});
+
+test("unwrap moves polygons across ±180 next to the largest one, re-rounded", () => {
+  const big = square(177, -18, 2); // 177..179: the largest, the anchor
+  const east = square(-179.12345, -17, 0.5);
+  const fiji: Geometry = { type: "MultiPolygon", coordinates: [[big], [east]] };
+  const { g, wrap } = lib.unwrap(fiji);
+  assert.ok(wrap);
+  const moved = ring(
+    180.87655,
+    -17,
+    181.37655,
+    -17,
+    181.37655,
+    -16.5,
+    180.87655,
+    -16.5,
+    180.87655,
+    -17,
+  );
+  assert.deepEqual(g.coordinates[1], [moved]);
+  assert.deepEqual(lib.bboxOf(g), [177, -18, 181.37655, -16]);
+  // Toward the anchor's side, whichever it is: an Aleutian-like island west of -180.
+  const us = lib.unwrap({
+    type: "MultiPolygon",
+    coordinates: [[square(-100, 35, 10)], [square(175, 52, 1)]],
+  });
+  assert.deepEqual(lib.bboxOf(us.g), [-185, 35, -90, 53]);
+  const spain: Geometry = {
+    type: "MultiPolygon",
+    coordinates: [[square(-4, 40, 2)], [square(-18, 28, 1)]],
+  };
+  assert.deepEqual(lib.unwrap(spain), { g: spain, wrap: false });
+  // Antarctica: its largest polygon spans -180..180 already; kept as delivered, flagged.
+  const aq = ring(-180, -85.0511, 180, -85.0511, 180, -70, -180, -70, -180, -85.0511);
+  const antarctica: Geometry = { type: "MultiPolygon", coordinates: [[aq], [square(170, -68)]] };
+  assert.deepEqual(lib.unwrap(antarctica), { g: antarctica, wrap: true });
+});
