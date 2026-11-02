@@ -31,3 +31,16 @@ requests and CORS (any static server does; `npx serve --cors <dir>`), run the
 dev server and open `/temoignages?pmtiles=http://127.0.0.1:<port>/boundaries.pmtiles`:
 GeoDrillMap adds the archive as a vector source and draws its levels as lines
 (the builds with the testing tools: the dev server and staging, `__TEST_TOOLS__`).
+
+## outlines/
+
+The static outline files of docs/map-outlines.md (map item 3): one file per
+French parent holding its own outline and its children's from one cut.
+`outlines/build-outlines.sh --help` lists the options; it reads the Etalab files
+the `etalab` step above downloads and writes `~/.cache/ac-map-data/outlines/<build>/`.
+
+- `prep.ts`, `simplify.sh`, `pack.ts` — the steps (ids, mapshaper runs, the
+  files of format v1).
+- `lib.ts` — the pure part: format v1 and `validateFileV1`, `clean5`,
+  `enrich` (the API's centre and extent), segment sets, the coincidence metric.
+- `lib.test.ts`, `outlines.fixture.test.ts` — in `npm run test:scripts`.
