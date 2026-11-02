@@ -79,7 +79,8 @@ export interface OutlineFiles {
   ensureSelf(id: string): Promise<OutlineFilesStatus>;
   ensureGlobe(ids: string[]): Promise<OutlineFilesStatus[]>;
   batchSelf(ids: string[]): Promise<OutlineFilesStatus[]>;
-  prefetch(kind: OutlineKind, id: string): void;
+  /** Settles with its request (at once when nothing is asked). */
+  prefetch(kind: OutlineKind, id: string): Promise<void>;
   /** For the probe: the store's counters and its loaded files. */
   stats(): ReturnType<OutlineStore["stats"]>;
   loadedKeys(): string[];
@@ -212,7 +213,7 @@ function createOutlineFiles(): OutlineFiles {
     ensureSelf: (id) => loader?.ensureSelf(id) ?? api,
     ensureGlobe: (ids) => loader?.ensureGlobe(ids) ?? apis(ids),
     batchSelf: (ids) => loader?.batchSelf(ids) ?? apis(ids),
-    prefetch: (kind, id) => loader?.prefetch(kind, id),
+    prefetch: (kind, id) => loader?.prefetch(kind, id) ?? Promise.resolve(),
     stats: () =>
       read((s) => s.stats(), {
         files: 0,

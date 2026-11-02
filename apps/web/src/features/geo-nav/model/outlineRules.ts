@@ -23,6 +23,8 @@
 //    answer is the API's (outlineRules). A later file failing is its unit's
 //    alone (known absent; on the network, asked again by a later ensure).
 // 6. The chain: a scope's bundles, root first (bundlesFor), loaded in turn.
+// 7. A panel row held under the pointer asks for its unit's bundle before the
+//    click (data/hoverPrefetch, GeoNav): a région's self is in it.
 import type { Bounds, GeoUnit } from "@/features/geo";
 
 export type RuleUnit = Pick<
