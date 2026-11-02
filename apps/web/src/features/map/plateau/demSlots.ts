@@ -49,9 +49,9 @@ export interface DemSlotsInputs<Spec> {
 
 /** The slot `id`, the terrain itself, given new tiles in place (never removed:
  *  no generation bump either). `maxzoom` given: written into the source's
- *  options first — INTERNAL to mapbox-gl 3.33: setTiles only replaces
- *  `_options.tiles` and its reload re-reads `_options`, so the old maxzoom
- *  would stay. */
+ *  options first — INTERNAL to mapbox-gl 3.34 (checked on 3.34.1, the range is
+ *  ^3.34.1; re-check on upgrade): setTiles only replaces `_options.tiles` and
+ *  its reload re-reads `_options`, so the old maxzoom would stay. */
 export function repointDemSlot(map: DemSlotMap, id: DemSlot, template: string, maxzoom?: number) {
   const src = map.getSource(id) as
     { _options?: { maxzoom?: number }; setTiles?(tiles: string[]): unknown } | undefined;

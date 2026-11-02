@@ -11,7 +11,8 @@
 //
 // The prefetch: the invisible hillshade (today), unless a "client" run's
 // prefetch is terrain0 — then no hillshade, and the new slot becomes the root
-// terrain at exaggeration 0 at once when nothing of ours stands. The QUIET swap
+// terrain at exaggeration 0 at once when nothing of ours stands (no tile from
+// that alone: the commit's swap follows in the same task). The QUIET swap
 // keeps the hillshade: its wait for the new tiles only ends on tiles if
 // something makes the spare slot request them (a raster-dem source with no
 // layer that is not the terrain reads loaded with none).

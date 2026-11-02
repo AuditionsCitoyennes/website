@@ -24,10 +24,11 @@
 //
 // - "hillshade" (the default): as today — an invisible hillshade on the spare
 //   slot makes mapbox fetch its tiles while the old plateau sinks.
-// - "terrain0": no hillshade. Only a run with nothing of ours standing makes
-//   the new slot the root terrain at exaggeration 0 at once; every drill with a
-//   plateau standing starts its tiles at the swap (the rise plays on unloaded
-//   tiles). The quiet swap keeps the hillshade (its wait needs the tiles).
+// - "terrain0": no hillshade, so every run starts its tiles at the swap (the
+//   rise plays on unloaded tiles). A run with nothing of ours standing makes the
+//   new slot the root terrain at exaggeration 0 at once, but the swap follows it
+//   in the same task: that only matters to a run superseded in between. The
+//   quiet swap keeps the hillshade (its wait needs the tiles).
 //
 // It acts only on a run whose route is "client"; inert under "serveur". Read
 // once per page load: switching reloads the page. Production has neither key
