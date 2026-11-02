@@ -51,6 +51,7 @@ const LIDS: readonly { id: LidMode; label: string }[] = [
 const MESHES: readonly { id: MeshMode; label: string }[] = [
   { id: "ancien", label: "Ancien" },
   { id: "concat", label: "Concat" },
+  { id: "merc", label: "Merc" },
 ];
 const CONTOURS: readonly { id: ContoursMode; label: string }[] = [
   { id: "api", label: "API" },

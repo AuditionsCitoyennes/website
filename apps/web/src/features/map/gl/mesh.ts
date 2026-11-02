@@ -14,8 +14,10 @@ export const VIOLET = [0.486, 0.361, 1.0] as const;
 // ---- Mesh pieces shared by the plateau and the analyses' slabs -------------------
 
 /** A globe vertex: absolute mercator (z at FULL altitude; 0 for a wall's foot)
- *  and the ECEF ground/full pair — 9 floats. */
-export function pushGlobeVert(arr: number[], b: PBase, alt: number, bottom = false) {
+ *  and the ECEF ground/full pair — 9 floats. A null `arr`: no globe set is
+ *  built (the plateau's mercator-first build, ac:mesh=merc). */
+export function pushGlobeVert(arr: number[] | null, b: PBase, alt: number, bottom = false) {
+  if (!arr) return;
   arr.push(b.x, b.y, bottom ? 0 : alt * b.zPerM, b.lo[0], b.lo[1], b.lo[2]);
   if (bottom) arr.push(b.lo[0], b.lo[1], b.lo[2]);
   else arr.push(b.lo[0] + alt * b.d[0], b.lo[1] + alt * b.d[1], b.lo[2] + alt * b.d[2]);
@@ -23,21 +25,22 @@ export function pushGlobeVert(arr: number[], b: PBase, alt: number, bottom = fal
 
 /** One ring's wall: a quad (two triangles) per edge, ground → `h`, mercator
  *  relative to `origin` (3 floats a vertex) and the globe's (9) — each with
- *  `rgb` after it, when given (the slabs' pieces: 6 and 12). */
+ *  `rgb` after it, when given (the slabs' pieces: 6 and 12). A null sink is
+ *  a set not built (the plateau's, ac:mesh=merc; the slabs pass both). */
 export function pushWallRing(
   ring: PBase[],
   origin: [number, number],
   h: number,
-  verts: number[],
-  gWall: number[],
+  verts: number[] | null,
+  gWall: number[] | null,
   rgb?: readonly number[],
 ) {
   const put = (b: PBase, top: boolean) => {
-    verts.push(b.x - origin[0], b.y - origin[1], top ? h * b.zPerM : 0);
+    verts?.push(b.x - origin[0], b.y - origin[1], top ? h * b.zPerM : 0);
     pushGlobeVert(gWall, b, h, !top);
     if (rgb) {
-      verts.push(rgb[0], rgb[1], rgb[2]);
-      gWall.push(rgb[0], rgb[1], rgb[2]);
+      verts?.push(rgb[0], rgb[1], rgb[2]);
+      gWall?.push(rgb[0], rgb[1], rgb[2]);
     }
   };
   for (let i = 0; i + 1 < ring.length; i++) {
@@ -68,17 +71,18 @@ export function pushPieceVert(
 }
 
 /** A halo vertex at `alt` m: mercator [x, y, z, d] relative to `origin`, and
- *  the globe's [merc3, lo3, hi3, d]. */
+ *  the globe's [merc3, lo3, hi3, d]. A null sink: that set is not built. */
 export function pushHaloVert(
-  verts: number[],
-  gVerts: number[],
+  verts: number[] | null,
+  gVerts: number[] | null,
   b: PBase,
   d: number,
   origin: [number, number],
   alt: number,
 ) {
   const z = alt * b.zPerM;
-  verts.push(b.x - origin[0], b.y - origin[1], z, d);
+  verts?.push(b.x - origin[0], b.y - origin[1], z, d);
+  if (!gVerts) return;
   gVerts.push(b.x, b.y, z, b.lo[0], b.lo[1], b.lo[2]);
   gVerts.push(b.lo[0] + alt * b.d[0], b.lo[1] + alt * b.d[1], b.lo[2] + alt * b.d[2], d);
 }

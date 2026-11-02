@@ -8,17 +8,21 @@
 //   pushed value by value into one number[], then copied into a Float32Array.
 // - "concat": the same groups, each copied once into one Float32Array
 //   (TypedArray.set, gl/meshConcat.ts): the same values, the same draw ranges.
+// - "merc": "concat", the mercator set first — a plateau fitted past the globe
+//   regime and built with the camera clear of it gets its globe set after the
+//   map's next idle, or on the first globe frame before that
+//   (gl/globeDeferral.ts); any other build has both at once.
 //
-// "merc" (the mercator set first, the globe set later) and "worker" (the mesh
-// built in a Web Worker) will come. Read once per page load: switching reloads
-// the page. Production has neither key nor switch: DEFAULT_MESH_MODE.
+// "worker" (the mesh built in a Web Worker) will come. Read once per page
+// load: switching reloads the page. Production has neither key nor switch:
+// DEFAULT_MESH_MODE.
 
-export type MeshMode = "ancien" | "concat";
+export type MeshMode = "ancien" | "concat" | "merc";
 
 /** The mode of a build without the testing tools, and the switch's default. */
 export const DEFAULT_MESH_MODE: MeshMode = "ancien";
 
-export const MESH_MODES: readonly MeshMode[] = ["ancien", "concat"];
+export const MESH_MODES: readonly MeshMode[] = ["ancien", "concat", "merc"];
 
 function storedMeshMode(): MeshMode {
   try {

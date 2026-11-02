@@ -9,11 +9,13 @@ import type mapboxgl from "mapbox-gl";
 import type { Bounds, HeightClass } from "@/features/geo";
 import { apiBase } from "@/shared/absoluteUrl";
 import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
+import { globeSetMode } from "../gl/globeDeferral";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, type DemSlot } from "../plateau/demSlots";
 import type { OutlineFC } from "../types";
+import { meshMode } from "../plateau/meshSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
 
 const API_BASE = apiBase(import.meta.env.VITE_API_URL, location.origin);
@@ -248,6 +250,12 @@ export function usePlateau({
     return Math.min(15, Math.max(4, Math.floor((cam?.zoom ?? 8) + 1)));
   }
 
+  /** The raised unit's box and its canonical zoom (12 without a box). */
+  function canonicalOf(raised: OutlineFC["features"]) {
+    const wb = boundsOfFeatures(raised);
+    return { wb, zCanon: wb ? canonicalDemZoom(wb) : 12 };
+  }
+
   // Warm EVERY DEM level the camera can touch (coarse flight levels → the canonical
   // zoom) into the browser HTTP cache, so the terrain never materialises in visible
   // chunks mid-rise. Tiles are tiny and the responses are Cache-Control: public.
@@ -364,9 +372,18 @@ export function usePlateau({
       if (!version) throw new Error("dem POST returned no version");
       map = getMap();
       if (seq !== plateauSeq || !map) return; // superseded by a newer selection
+      // ac:mesh=merc (plateau/meshSwitch.ts): the canonical zoom first — with the
+      // camera at each setGeometry below, it says whether the globe set can wait
+      // (gl/globeDeferral.ts). The other modes pass nothing and compute it below.
+      const early = meshMode === "merc" ? canonicalOf(raised) : null;
+      const globeOpts = () => {
+        if (!early) return undefined;
+        const zoom = getMap()?.getZoom() ?? 0;
+        return { globe: globeSetMode(early.zCanon, zoom), zCanon: early.zCanon, zoom };
+      };
       if (version === plateauVersion && map.getSource(terrainSrc)) {
         // Same selection → just make sure it's up (e.g. after an interrupted sink).
-        plateauWall.setGeometry(raised, heightM, focus, context);
+        plateauWall.setGeometry(raised, heightM, focus, context, globeOpts());
         plateauRaised = raised;
         plateauBbox = boundsOfFeatures(raised);
         syncSlabs();
@@ -379,8 +396,7 @@ export function usePlateau({
       // PREFETCH: warm every DEM level the flight can touch into the HTTP cache, and
       // stand the new DEM up in the spare slot while the old one sinks (the invisible
       // hillshade forces Mapbox to start fetching current-viewport tiles now).
-      const wb = boundsOfFeatures(raised);
-      const zCanon = wb ? canonicalDemZoom(wb) : 12;
+      const { wb, zCanon } = early ?? canonicalOf(raised);
       if (wb) warmDemTiles(version, wb, zCanon);
       const next: DemSlot = terrainSrc === "plateau-dem-a" ? "plateau-dem-b" : "plateau-dem-a";
       // A fast drill: the last swap left `next` and no frame has rendered since,
@@ -439,7 +455,7 @@ export function usePlateau({
         slots.swapped(map, oldSrc);
         if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
         if (oldSrc !== next) slots.dropDemSourceSoon(map, oldSrc);
-        plateauWall.setGeometry(raised, heightM, focus, context);
+        plateauWall.setGeometry(raised, heightM, focus, context, globeOpts());
         plateauRaised = raised;
         plateauBbox = boundsOfFeatures(raised);
         syncSlabs();
@@ -464,7 +480,7 @@ export function usePlateau({
       // intentionally KEPT until the new snapshot (capturing since the top of this
       // run) lands: where old/new areas overlap, slightly-stale imagery covers the
       // rim gap; elsewhere the UV discard hides it.
-      plateauWall.setGeometry(raised, heightM, focus, context);
+      plateauWall.setGeometry(raised, heightM, focus, context, globeOpts());
       plateauRaised = raised;
       plateauBbox = boundsOfFeatures(raised);
       // Its slabs (the analyses on) rise with it, from 0.
