@@ -12,10 +12,12 @@ import {
   MAX_FILES,
   MAX_FILE_BYTES,
   MAX_SELF_VERTICES,
+  bboxOf,
   coincidence,
   isSubset,
   keyOf,
   polygonsOf,
+  ringArea,
   ringProblems,
   segmentKeys,
   setDiff,
@@ -28,12 +30,21 @@ import {
   type OutlineFileV1,
   type RootV1,
 } from "./lib";
+import type { WorldEntry } from "./prep";
 
 export interface CheckOptions {
   /** Each région's reference outline at its tier (Etalab's, or its family run's). */
   regionRefs: Map<string, Geometry>;
-  /** The site's ids (gate 4): FR_REGIONS names, FR_DEPARTMENTS codes, seed fixture commune ids. */
-  expected?: { regionNames: string[]; depCodes: string[]; fixtureIds: string[] };
+  /**
+   * The ids the build must hold (gate 4): FR_REGIONS names, FR_DEPARTMENTS
+   * codes, seed fixture commune ids, and the ISO codes of the world input.
+   */
+  expected?: {
+    regionNames: string[];
+    depCodes: string[];
+    fixtureIds: string[];
+    countryIds?: string[];
+  };
   /** Files in the build, NOTICE and manifest included (default: the outline files). */
   fileCount?: number;
 }
@@ -57,6 +68,8 @@ export interface CheckResult {
 }
 
 const ZERO_M = 0.001;
+/** The overseas codes whose top polygons Overture files apart from France (build-boundaries.sh). */
+const FR_OVERSEAS = ["GP", "MQ", "GF", "RE", "YT", "PM", "BL", "MF", "WF", "PF", "NC", "TF", "CP"];
 const ringCounts = (g: Geometry) => {
   const polys = polygonsOf(g);
   return `${polys.length} polygons, ${polys.reduce((n, p) => n + p.length - 1, 0)} holes`;
@@ -147,6 +160,12 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
     same(f.id, f.tier, f.self.g, `${p} self`);
     if (f.kind === "k") for (const u of f.units) same(u.id, f.tier, u.g, `${p} entry`);
   }
+  // c3000 and w3000 are the same world run.
+  for (const [p, f] of outlines) {
+    const g = f.tier === "c3000" && outlines.get(`g/${keyOf(f.id)}.json`);
+    if (g && JSON.stringify(g.self.g) !== JSON.stringify(f.self.g))
+      g2.push(`${f.id}: ${p} at c3000 differs from its g/ at w3000`);
+  }
   gate("2 identity", g2);
 
   // 3. Budgets.
@@ -207,10 +226,13 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
     const fine = (p: string) => p.startsWith("k/fr_dep_") || p.startsWith("k/fr_com_");
     for (const id of opts.expected.fixtureIds)
       if (!fine(entryIn.get(id) ?? "")) g4.push(`fixture unit ${id} absent`);
+    for (const id of opts.expected.countryIds ?? [])
+      if (rowOf.get(id)?.level !== "country" || !rowOf.get(id)?.g) g4.push(`country ${id} absent`);
   }
   gate("4 ids", g4);
 
-  // 5. Closure: every flag has its file, every file a flag; rows match their self files.
+  // 5. Closure: every flag has its file, every file a flag; rows match their self
+  // files (u/, else k/), and a file has wrap when its own geometry needs it.
   const g5: string[] = [...shape];
   const declared = new Set<string>();
   const flag = (what: string, id: string, kind: "k" | "u" | "g", on: 0 | 1 | undefined) => {
@@ -223,12 +245,19 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
   };
   for (const r of root.units) {
     (["k", "u", "g"] as const).forEach((kind) => flag("row", r.id, kind, r[kind]));
-    const s = outlines.get(`u/${keyOf(r.id)}.json`) ?? outlines.get(`k/${keyOf(r.id)}.json`);
+    const kind = outlines.has(`u/${keyOf(r.id)}.json`) ? "u" : "k";
+    const s = outlines.get(`${kind}/${keyOf(r.id)}.json`);
     if (s && (s.tier !== r.st || JSON.stringify(s.self.bbox) !== JSON.stringify(r.bbox)))
       g5.push(`row ${r.id}: st ${r.st} / bbox against ${s.tier} / ${JSON.stringify(s.self.bbox)}`);
+    // A g/ is another run: a polygon its u/ moved may be gone there (UM at 3000 m).
+    if (s && (s.wrap === 1) !== (r.wrap === 1))
+      g5.push(`row ${r.id}: wrap ${r.wrap ?? 0} but ${kind}/ has ${s.wrap ?? 0}`);
   }
   for (const [p, f] of outlines) {
     if (f.self.n !== vertexCount(f.self.g)) g5.push(`${p}: self.n ${f.self.n}`);
+    const needs = needsWrap(f.self.g);
+    if ((f.wrap === 1) !== needs)
+      g5.push(`${p}: wrap ${f.wrap ?? 0} but its geometry needs ${needs ? 1 : 0}`);
     if (f.kind !== "k") continue;
     for (const u of f.units) {
       flag(`entry of ${p}`, u.id, "k", u.k);
@@ -258,6 +287,20 @@ export function check(files: Map<string, unknown>, opts: CheckOptions): CheckRes
   }
   gate("6 validity", g6);
   return { gates, warnings, parents, heaviest: { self: top(selfN), bundle: top(bundleN) } };
+}
+
+/**
+ * What `wrap` says of a geometry (unwrap() in lib.ts): a longitude past ±180,
+ * or a largest polygon that spans the antimeridian itself (Antarctica).
+ */
+function needsWrap(g: Geometry): boolean {
+  const [w, , e] = bboxOf(g);
+  if (w < -180 || e > 180) return true;
+  const largest = polygonsOf(g).reduce((a, p) =>
+    Math.abs(ringArea(p[0])) > Math.abs(ringArea(a[0])) ? p : a,
+  );
+  const [lo, , hi] = bboxOf({ type: "Polygon", coordinates: [largest[0]] });
+  return hi - lo > 180;
 }
 
 // ---- CLI ------------------------------------------------------------------------
@@ -290,6 +333,20 @@ function duckdbInvalid(work: string, outlines: Map<string, unknown>): string[] {
   return rows.map((r) => `${r.key}: ${r.reason}`);
 }
 
+/** The km² two geometries share (DuckDB's spheroid area); null when DuckDB fails. */
+function duckdbOverlapKm2(work: string, a: Geometry, b: Geometry): number | null {
+  const file = path.join(work, "overlap.ndjson");
+  const lines = [a, b].map((g, i) => JSON.stringify({ key: `${i}`, g: JSON.stringify(g) }));
+  fs.writeFileSync(file, lines.join("\n") + "\n");
+  const sql = `LOAD spatial; SET geometry_always_xy = true; WITH t AS (SELECT key, ST_GeomFromGeoJSON(g) AS geom FROM read_json('${file}', format = 'newline_delimited', columns = {key: 'VARCHAR', g: 'VARCHAR'})) SELECT ST_Area_Spheroid(ST_Intersection(a.geom, b.geom)) / 1e6 AS km2 FROM t a, t b WHERE a.key = '0' AND b.key = '1';`;
+  try {
+    const res = execFileSync("duckdb", ["-no-agent", "-json", "-c", sql], { encoding: "utf8" });
+    return (JSON.parse(res) as { km2: number }[])[0].km2;
+  } catch {
+    return null; // gate 7 never fails the build
+  }
+}
+
 async function main(work: string, out: string, build: string) {
   const dir = path.join(out, build);
   const files = new Map<string, unknown>();
@@ -307,6 +364,9 @@ async function main(work: string, out: string, build: string) {
     .filter(Boolean);
   const { FR_DEPARTMENTS, FR_REGIONS } =
     await import("../../../apps/api/src/modules/geo/frDepartments");
+  const world: WorldEntry[] = JSON.parse(
+    fs.readFileSync(path.join(work, "prep", "world.json"), "utf8"),
+  );
   const fixture: { id: string }[] = JSON.parse(
     fs.readFileSync(new URL("../../seed/fixtures/fr-units.json", import.meta.url), "utf8"),
   );
@@ -317,6 +377,7 @@ async function main(work: string, out: string, build: string) {
       regionNames: Object.keys(FR_REGIONS),
       depCodes: Object.keys(FR_DEPARTMENTS),
       fixtureIds: fixture.map((u) => u.id).filter((id) => id.startsWith("fr:com:")),
+      countryIds: world.map((c) => c.id),
     },
     fileCount: all.length,
   });
@@ -330,6 +391,30 @@ async function main(work: string, out: string, build: string) {
     for (const o of g.offenders.slice(0, 25)) console.log(`    ${o}`);
   }
   for (const w of res.warnings) console.log(`check: warning: ${w}`);
+  // Gate 7: known oddities, listed, never failures.
+  const root = files.get("root.json") as RootV1;
+  const overseas = world.filter((c) => FR_OVERSEAS.includes(c.id));
+  const oddities = [
+    ...world.filter((c) => c.id === "MF").map((c) => `MF ${c.name}: Overture level ${c.overture}`),
+    `${overseas.length} French overseas codes are rows of their own: ${overseas.map((c) => c.id).join(" ")}`,
+    ...root.units
+      .filter((r) => r.wrap && r.bbox[2] - r.bbox[0] >= 359)
+      .map((r) => `${r.id}: its largest polygon spans ±180, kept as delivered (wrap, 360°)`),
+    `unwrapped (wrap): ${root.units
+      .filter((r) => r.wrap && r.bbox[2] - r.bbox[0] < 359)
+      .map((r) => r.id)
+      .join(" ")}`,
+  ];
+  const [taaf, aq] = ["k/fr_reg_984.json", "u/AQ.json"].map(
+    (p) => (files.get(p) as OutlineFileV1 | undefined)?.self,
+  );
+  if (taaf && aq) {
+    const km2 = duckdbOverlapKm2(work, taaf.g, aq.g);
+    oddities.push(
+      `${taaf.id} (TAAF, Adélie Land) overlaps AQ over ${km2 === null ? "an area DuckDB could not measure" : `${Math.round(km2).toLocaleString("en")} km²`}`,
+    );
+  }
+  for (const o of oddities) console.log(`check: oddity: ${o}`);
   const exact = res.parents.filter((r) => r.segmentsEqual && r.sharedPct === 100).length;
   console.log(
     `check: ${res.parents.length} parents, ${exact} exact; heaviest selves: ${res.heaviest.self.join(", ")}`,

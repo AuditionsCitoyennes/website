@@ -11,6 +11,11 @@
 # - fam<m>: a family prep.ts listed (région + départements + communes), one
 #   joint run with combine-files (shared arcs across the three levels) at
 #   each tolerance of 30, 50, 100, 300 m; pack.ts keeps the smallest that fits.
+# - w<m>: the six world runs, one per rung of the country tier ladder (15, 30,
+#   100, 300, 1000, 3000 m), each ONE run over every country (shared borders
+#   stay shared). -clean allow-overlaps mends most rings keep-shapes leaves
+#   crossed and keeps the countries' overlapping claims as delivered; pack.ts
+#   repairs what is still invalid once unwrapped.
 set -euo pipefail
 WORK="$1"
 FR_TIER="$2"
@@ -39,3 +44,8 @@ while IFS= read -r r; do
     "$MAPSHAPER" -i "$d/deps.ndjson" -dissolve parent -o "$d/region-selves.ndjson" "${OUT[@]}"
   done
 done < "$P/families.txt"
+
+for m in 15 30 100 300 1000 3000; do
+  "$MAPSHAPER" -i "$P/world.ndjson" -simplify dp interval="$m" keep-shapes -clean allow-overlaps \
+    -o "$S/w$m.ndjson" "${OUT[@]}"
+done

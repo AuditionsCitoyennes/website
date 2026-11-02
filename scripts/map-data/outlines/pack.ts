@@ -2,16 +2,21 @@
 // the files of format v1 (docs/map-outlines.md). `pack()` is pure (the
 // fixture test runs it); the CLI reads <work>, writes <out>/<build>/ and the
 // references check.ts compares the régions with.
-//   npx tsx pack.ts <work-dir> <out-dir> <build> <fr-tier-metres> <etalab-year> <mapshaper-version>
+//   npx tsx pack.ts <work-dir> <out-dir> <build> <fr-tier-metres> <etalab-year> <overture-release> <mapshaper-version>
+//     <duckdb-version> <spatial-version>
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import {
   MAX_SELF_VERTICES,
+  WORLD_RUNGS,
   clean5,
   enrich,
   keyOf,
+  pickTier,
   rewind,
+  unwrap,
   vertexCount,
   type Geometry,
   type Level,
@@ -21,7 +26,7 @@ import {
   type RootRow,
   type RootV1,
 } from "./lib";
-import { readNdjson, type PrepFeature } from "./prep";
+import { readNdjson, type PrepFeature, type WorldEntry } from "./prep";
 
 export interface PackUnit {
   id: string;
@@ -38,6 +43,16 @@ export interface FamilyRun {
   deps: PackUnit[];
   communes: PackUnit[];
 }
+/** A country of the six world runs (prep.ts, simplify.sh), unwrapped and repaired. */
+export interface CountryInput {
+  /** ISO 3166-1 alpha-2. */
+  id: string;
+  name: string;
+  /** The bbox diagonal of its unwrapped delivered outline, metres (the tier pick). */
+  diagM: number;
+  /** Per rung of WORLD_RUNGS: its outline in that run, and whether it was unwrapped. */
+  runs: Map<number, { g: Geometry; wrap: boolean }>;
+}
 export interface PackInput {
   build: string;
   /** k/FR: the 26 régions of one run at `tolM`, France's outline dissolved from it. */
@@ -50,6 +65,8 @@ export interface PackInput {
   arrondissements: PackUnit[];
   /** Per family région id, its runs by ascending tolerance. */
   families: Map<string, FamilyRun[]>;
+  /** Overture's countries and dependencies, France included (its g/ only). */
+  countries?: CountryInput[];
 }
 export interface PackOutput {
   files: Map<string, OutlineFileV1 | RootV1>;
@@ -84,8 +101,16 @@ export function pack(input: PackInput): PackOutput {
     const { bbox, center, n, g } = selfOf(u.id, u.g);
     return { id: u.id, name: u.name, level: u.level, k, u: uu, bbox, center, n, g };
   };
-  const put = (kind: "k" | "u", self: OutlineSelf, tier: string, units?: OutlineEntry[]) => {
-    const head = { v: 1 as const, build, kind, id: self.id, tier, tolM: tiers[tier].tolM, self };
+  const put = (
+    kind: "k" | "u" | "g",
+    self: OutlineSelf,
+    tier: string,
+    units?: OutlineEntry[],
+    wrap = false,
+  ) => {
+    const { tolM } = tiers[tier];
+    const head = { v: 1 as const, build, kind, id: self.id, tier, tolM, self };
+    if (wrap) Object.assign(head, { wrap: 1 });
     files.set(
       `${kind}/${keyOf(self.id)}.json`,
       kind === "k" ? { ...head, kind, units: units ?? [] } : { ...head, kind },
@@ -96,6 +121,7 @@ export function pack(input: PackInput): PackOutput {
     s: OutlineSelf,
     st: string,
     uu: 0 | 1,
+    more: Partial<Pick<RootRow, "k" | "g" | "wrap">> = {},
   ) =>
     rows.push({
       id: u.id,
@@ -108,6 +134,7 @@ export function pack(input: PackInput): PackOutput {
       k: 1,
       u: uu,
       g: 0,
+      ...more,
     });
 
   // France: its own outline and the 26 régions of the same run.
@@ -177,6 +204,46 @@ export function pack(input: PackInput): PackOutput {
       }
     }
   }
+
+  // Countries: g/ from the 3000 m run (the globe draws them all), u/ at the
+  // country's own tier (its plateau). France keeps k/FR and its row.
+  const over: string[] = [];
+  const used = new Set<number>();
+  if (input.countries?.length) tiers.w3000 = { tolM: 3000, source: "overture" };
+  for (const c of [...(input.countries ?? [])].sort(byId)) {
+    const at = (m: number) => {
+      const r = c.runs.get(m);
+      if (!r) throw new Error(`${c.id}: no ${m} m world run`);
+      return r;
+    };
+    const w = at(3000);
+    put("g", selfOf(c.id, w.g), "w3000", undefined, w.wrap);
+    if (c.id === "FR") {
+      rows.find((r) => r.id === "FR")!.g = 1;
+      continue;
+    }
+    const tolM = pickTier(c.diagM, (m) => vertexCount(at(m).g));
+    if (tolM === null) {
+      over.push(`${c.id} (${vertexCount(w.g)} at 3000 m)`);
+      continue;
+    }
+    const byDiag = pickTier(c.diagM, () => 0)!; // the rung before the budget's say
+    if (tolM !== byDiag)
+      escalations.push(`${c.id} c${byDiag} → c${tolM} (${vertexCount(at(byDiag).g)} vertices)`);
+    used.add(tolM);
+    tiers[`c${tolM}`] = { tolM, source: "overture" };
+    const run = at(tolM);
+    const s = selfOf(c.id, run.g);
+    put("u", s, `c${tolM}`, undefined, run.wrap);
+    const country = { id: c.id, name: c.name, level: "country" as const, parent: null };
+    row(country, s, `c${tolM}`, 1, { k: 0, g: 1, ...(run.wrap ? { wrap: 1 as const } : {}) });
+  }
+  if (over.length)
+    throw new Error(`countries over ${MAX_SELF_VERTICES} vertices at 3000 m: ${over.join(", ")}`);
+  for (const m of WORLD_RUNGS.filter((x) => used.has(x))) {
+    delete tiers[`c${m}`]; // again, in ladder order
+    tiers[`c${m}`] = { tolM: m, source: "overture" };
+  }
   files.set("root.json", { v: 1, build, tiers, units: rows });
   return { files, regionRefs, escalations };
 }
@@ -198,13 +265,42 @@ const geometries = (file: string): { props: Record<string, string>; g: Geometry 
     return { props: o.properties ?? {}, g };
   });
 
+/**
+ * The geometries DuckDB finds invalid, made valid on the 5-decimal grid: the
+ * polygons of ST_MakeValid, snap-rounded by ST_ReducePrecision. -clean leaves
+ * a few rings keep-shapes crossed, and a country unwrapped from pieces that
+ * met on ±180 (Russia, Fiji) has polygons sharing that edge: this merges them.
+ */
+function repairInvalid(work: string, geoms: Map<string, Geometry>): Map<string, Geometry> {
+  const file = path.join(work, "repair.ndjson");
+  const lines = [...geoms].map(([key, g]) => JSON.stringify({ key, g: JSON.stringify(g) }));
+  fs.writeFileSync(file, lines.join("\n") + "\n");
+  const fixed = `ST_ReducePrecision(ST_CollectionExtract(ST_MakeValid(geom), 3), 0.00001)`;
+  const sql = `LOAD spatial; SELECT key, ST_AsGeoJSON(${fixed})::VARCHAR AS g FROM (SELECT key, ST_GeomFromGeoJSON(g) AS geom FROM read_json('${file}', format = 'newline_delimited', maximum_object_size = 268435456, columns = {key: 'VARCHAR', g: 'VARCHAR'})) WHERE NOT ST_IsValid(geom);`;
+  const res = execFileSync("duckdb", ["-no-agent", "-json", "-c", sql], {
+    encoding: "utf8",
+    maxBuffer: 1 << 30,
+  }).trim();
+  const rows: { key: string; g: string }[] = res ? JSON.parse(res) : [];
+  return new Map(
+    rows.map((r) => {
+      const g = clean5(JSON.parse(r.g));
+      if (!g) throw new Error(`${r.key}: nothing left once repaired`);
+      return [r.key, g];
+    }),
+  );
+}
+
 function main(
   work: string,
   out: string,
   build: string,
   frTolM: number,
   etalabYear: string,
+  overture: string,
   mapshaper: string,
+  duckdb: string,
+  spatial: string,
 ) {
   const P = (f: string) => path.join(work, "prep", f);
   const S = (f: string) => path.join(work, "simp", f);
@@ -224,6 +320,23 @@ function main(
     });
     families.set(`fr:reg:${code}`, runs);
   }
+  // Each country of each world run, unwrapped, then repaired where invalid.
+  const world: WorldEntry[] = JSON.parse(fs.readFileSync(P("world.json"), "utf8"));
+  const runs = new Map<string, { g: Geometry; wrap: boolean }>();
+  for (const m of WORLD_RUNGS)
+    for (const { props, g } of geometries(S(`w${m}.ndjson`)))
+      runs.set(`${m} ${props.id}`, unwrap(g));
+  const repaired = repairInvalid(work, new Map([...runs].map(([key, r]) => [key, r.g])));
+  for (const [key, g] of repaired) runs.get(key)!.g = g;
+  const countries = world.map((c) => ({
+    ...c,
+    runs: new Map(
+      WORLD_RUNGS.flatMap((m) => {
+        const r = runs.get(`${m} ${c.id}`);
+        return r ? [[m, r] as const] : [];
+      }),
+    ),
+  }));
   const { files, regionRefs, escalations } = pack({
     build,
     fr: {
@@ -239,11 +352,12 @@ function main(
     communes: units(P("communes.ndjson")),
     arrondissements: units(P("arr.ndjson")),
     families,
+    countries,
   });
 
   const dir = path.join(out, build);
   fs.rmSync(dir, { recursive: true, force: true });
-  for (const sub of ["k", "u"]) fs.mkdirSync(path.join(dir, sub), { recursive: true });
+  for (const sub of ["k", "u", "g"]) fs.mkdirSync(path.join(dir, sub), { recursive: true });
   const bytes: Record<string, { files: number; raw: number; gz: number }> = {};
   for (const [name, body] of files) {
     const buf = Buffer.from(JSON.stringify(body));
@@ -265,6 +379,20 @@ function main(
       "under the Licence Ouverte / Open Licence 2.0 (https://www.etalab.gouv.fr/licence-ouverte-open-licence/).",
       "Derived work: coordinates rounded to 5 decimals; France's outline, the",
       "régions' outlines and the coarser tiers simplified and dissolved with mapshaper.",
+      "Etalab takes the communes of the collectivités d'outre-mer (975, 977, 978, 986)",
+      "from OpenStreetMap: their files (fr_reg_ and fr_dep_ 975, 977, 978, 986) are",
+      "© OpenStreetMap contributors, under the Open Database License 1.0 as below.",
+      "",
+      "Countries and dependencies (g/<ISO>.json, u/<ISO>.json and the country rows of root.json):",
+      `Overture Maps Foundation, divisions theme, release ${overture} (https://overturemaps.org),`,
+      "which holds data from OpenStreetMap: © OpenStreetMap contributors",
+      "(https://www.openstreetmap.org/copyright).",
+      "These files are a Derivative Database of it under the Open Database License 1.0",
+      "(https://opendatacommons.org/licenses/odbl/1-0/) and are made available under",
+      "the same licence: keep this notice with them, and offer a database adapted",
+      "from them under the ODbL too. Derived work: coordinates rounded to 5 decimals,",
+      "simplified with mapshaper (Douglas-Peucker, 15 to 3000 m), invalid rings",
+      "repaired, and a country on both sides of ±180 moved into one longitude range.",
       "",
     ].join("\n"),
   );
@@ -277,14 +405,29 @@ function main(
     v: 1,
     build,
     created: new Date().toISOString(),
-    sources: { etalab: `${etalabYear}/50m` },
+    sources: { etalab: `${etalabYear}/50m`, overture },
     inputs: JSON.parse(fs.readFileSync(P("inputs.json"), "utf8")),
     mapshaper,
+    // The DuckDB repair reshapes a few country geometries (GEOS in spatial).
+    duckdb,
+    spatial,
     counts: {
       rows: { country: level("country"), region: level("region"), dep: level("dep") },
       entries: k.reduce((n, f) => n + f.units.length, 0),
       tiers: Object.keys(root.tiers),
       escalations,
+      countries: {
+        overture: Object.fromEntries(
+          ["country", "dependency"].map((l) => [l, world.filter((c) => c.overture === l).length]),
+        ),
+        tiers: Object.fromEntries(
+          Object.keys(root.tiers)
+            .filter((t) => t.startsWith("c"))
+            .map((t) => [t, root.units.filter((r) => r.st === t).length]),
+        ),
+        wrap: root.units.filter((r) => r.wrap).map((r) => r.id),
+        repaired: [...repaired.keys()],
+      },
     },
     bytes,
     files: files.size + 2, // + NOTICE.txt and manifest.json
@@ -300,6 +443,7 @@ function main(
 }
 
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
-  const [work, out, build, frTolM, etalabYear, mapshaper] = process.argv.slice(2);
-  main(work, out, build, Number(frTolM), etalabYear, mapshaper);
+  const [work, out, build, frTolM, etalabYear, overture, mapshaper, duckdb, spatial] =
+    process.argv.slice(2);
+  main(work, out, build, Number(frTolM), etalabYear, overture, mapshaper, duckdb, spatial);
 }
