@@ -3,13 +3,12 @@
 // map phase 1: "Données" (corpus, serveur, comparer — the page loads again),
 // "Analyses en attente", "Arbre des lieux", "Couvercle" (the plateau's lid,
 // map/plateau/lidSwitch — the page loads again) and "Maillage" (how the
-// plateau's mesh is assembled, map/plateau/meshSwitch — the page loads
-// again); in comparer mode a badge
-// counting the differences (compare.ts: window.__acCompare, the tree's, and
-// window.__acCompareLists, the lists'). The testing tools
-// only: the explorer loads it behind `__TEST_TOOLS__`. Folded by default, at
-// the map's bottom-left corner above mapbox's logo (a phone: bottom-right,
-// above the attribution button and the sheet).
+// plateau's mesh is assembled, map/plateau/meshSwitch — the page loads again);
+// in comparer mode a badge counting the differences (compare.ts:
+// window.__acCompare, the tree's, and window.__acCompareLists, the lists'). The
+// testing tools only: the explorer loads it behind `__TEST_TOOLS__`. Folded by
+// default, at the map's bottom-left corner above mapbox's logo (a phone:
+// bottom-right, above the attribution button and the sheet).
 import { pendingAnalysesMode, setPendingAnalysesMode } from "@/features/analyses";
 import {
   lidMode,
