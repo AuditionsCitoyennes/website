@@ -307,8 +307,8 @@ The build step `release` does the first three:
 2. assert the tarball's file entries = the manifest's `files`;
 3. `shasum -a 256` and the lock JSON `{build, asset, sha256}` (printed and
    written to `<out>/outlines-<build>.lock.json`);
-4. the owner publishes it: `gh release create outlines-<build> <out>/outlines-<build>.tar.gz`
-   (never from a build script or an agent without his yes);
+4. the owner publishes it, with the command under Hosting (never from a build
+   script or an agent without his yes);
 5. bump `apps/web/outlines.lock.json` (created by the outline-store PR) to the
    lock JSON, in a PR of its own.
 
@@ -319,6 +319,129 @@ file, tarball 31,678,383 B):
 `{"build":"o20261101-2","asset":"outlines-o20261101-2.tar.gz","sha256":"4aa259c3801d5966098b1da8938f6e88a5a3df43d1ba9353d7c968eef7b55dbf"}`.
 Its NOTICE.txt carries the ODbL notice the country files need: publish it with
 the release (`--notes-file`).
+
+## Hosting
+
+Staging and every pull request's preview serve the locked build themselves,
+same origin, at `/map-data/outlines/<build>/` (the web's default base:
+`VITE_MAP_DATA_BASE` unset). `.github/workflows/deploy-staging-web.yml` runs
+`scripts/deploy/outlines.sh`:
+
+- `fetch`, before the web build: reads `apps/web/outlines.lock.json` (`build`
+  `o<YYYYMMDD>-<n>`, `asset` `outlines-<build>.tar.gz`, `sha256` 64 hex
+  digits), downloads the asset of the release `outlines-<build>` with `gh`,
+  checks its sha256 and its layout (one top directory `<build>/`, no `..`, no
+  `._*`, files and directories only);
+- `install`, after it: unpacks it into `apps/web/dist/map-data/outlines/`,
+  checks `root.json` and `manifest.json` (`v` 1, the lock's build) and the file
+  count against the manifest's `files`, and adds to `dist/_headers`
+  `/map-data/*  Cache-Control: public, max-age=31536000, immutable` (a URL
+  names its build: a file never changes under it);
+- "Check the site", after the deploy: `root.json` must come back as that
+  build's JSON, `application/json`, immutable, or the deploy fails; it then
+  records compression and the missing-file answer in the run's summary.
+
+Every miss fails the deploy: a lock missing or malformed, a release or asset
+missing (or GitHub unreachable: the same error), a hash or layout mismatch, a
+manifest that is not the lock's build, a file count off. There is no skip: a
+deploy without the files would fall back to the API without a word. Nothing
+builds outlines in CI.
+
+**Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
+Its deploy must run the same script, or set `VITE_MAP_DATA_BASE` to a host
+serving the locked build; without the files a production page falls back to
+the API's outlines, by design. R2 only when world subdivisions or tiles arrive.
+
+### Lock bump: release first, lock bump second
+
+Every lock bump (France now, France and the countries next, the yearly
+rebuild) needs `outlines-<build>` released BEFORE the bump merges: a lock on
+`dev` pointing at a build not released turns every web deploy red, `dev`'s
+pushes and every pull request's preview alike (the lock is under
+`apps/web/**`). A lock-bump PR's own preview stays red until the release
+exists: that red is the gate. Never delete a release a lock on `dev`, or an
+open PR, still points at.
+
+The owner's release, from the build's directory:
+
+```bash
+cd ~/.cache/ac-map-data/outlines
+shasum -a 256 outlines-<build>.tar.gz      # must equal "sha256" in apps/web/outlines.lock.json
+gh release create outlines-<build> outlines-<build>.tar.gz --repo AuditionsCitoyennes/website \
+  --title "Outline build <build>" --notes-file <build>/NOTICE.txt --latest=false --target dev
+```
+
+The tarball must be the very file the lock was written from: gzip is not
+reproducible, so it is never cut again after the lock bump (if it was, run the
+build's `release` step again and bump the lock again). It is the only asset
+(the lock holds the hash). `--latest=false` keeps the repository's "Latest
+release" for real releases. Before the countries are first served publicly
+(production, not staging), the owner confirms how the ODbL derived-database
+obligation is met (`NOTICE.txt` ships inside the served build; the release's
+visibility).
+
+### Previous build: not hosted
+
+One build per deploy. After a lock bump, a tab still open on the previous
+deploy asks for `/map-data/outlines/<old>/…`, which the new deploy does not
+hold. What it gets is the missing-file answer below: on Cloudflare, the app's
+page (200, HTML), for the app's `fetch` as for a navigation (the preview run
+of 2026-11-02, all three rows). The outline store takes it as a release skew
+and the tab falls back to the API for its session until it reloads. Fine
+while `/api/boundaries` exists. Once the web's API outlines are removed, that
+fallback is gone: before that, either the previous build is hosted too (a
+`previous` key in the lock: +277 files for `o20261101-1`, about 830 for
+France and the countries) or one degraded session per open tab is accepted.
+
+### Limits and what a deploy uses
+
+Documented (Cloudflare, [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
+read 2026-11-02), Workers static assets: 20,000 files per Worker version on
+the Free plan, 100,000 on Paid (Wrangler ≥ 4.34.0; the workflow pins
+4.152.0); 25 MiB per file on both; 100 `_headers` rules. The account's plan:
+to be stated by the owner.
+
+Accepted, measured on the preview run of 2026-11-02 (`o20261101-1`, run
+41465659773): 346 files in `dist` (277 outline files, 69 of the site), the
+largest outline file `k/fr_dep_62.json`, 1,158,428 B; `_headers` holds 2
+rules. Wrangler: "Found 277 new or modified static assets to upload" (the
+site's files were already held), then "Uploaded 277 of 277 assets". The push
+path prints the same lines from `wrangler deploy`.
+
+File budget against the Free plan's 20,000: France 277 + the countries 543
+(`o20261101-2`: 820 in all) + the planned gazetteer (2 × at most 9,000) + the
+site (about 60) ≈ 18,900 with one outline build; hosting the previous build too
+adds up to 820 more, 19,700. Close to the ceiling: the gazetteer's plan, or
+the Paid plan, decides it before both land.
+
+Compression and the missing file, on Cloudflare (the preview run of
+2026-11-02, Wrangler 4.152.0; every deploy's summary repeats the measurement
+for its own build). Cloudflare answers brotli to `Accept-Encoding: gzip, br`;
+`wrangler dev --local` had answered gzip at 2 to 15 % more bytes.
+
+| file | content-encoding | wire bytes br / identity | ratio |
+|---|---|---|---|
+| `root.json` | br | 6,522 / 26,735 | 4.10x |
+| `k/fr_dep_69.json` (Rhône) | br | 103,854 / 402,292 | 3.87x |
+| `k/fr_dep_62.json` (the largest) | br | 333,601 / 1,158,428 | 3.47x |
+
+A missing file (`k/fr_dep_zz.json`) on Cloudflare: 200, `text/html`,
+`Cache-Control: public, max-age=31536000, immutable`, with no
+`Sec-Fetch-Mode`, with `cors` (the app's `fetch`) and with `navigate` alike.
+So the Worker (`main` in `wrangler.jsonc`) is not reached for a path under
+`/map-data/`: the assets layer answers first and its `not_found_handling`
+serves the app's page, under the `/map-data/*` rule. The outline store takes
+that HTML as a release skew (`features/geo/outlineLoader.ts`), which ends
+the session on the API, never as a per-file `missing`.
+
+A browser keeps that HTML for a year under that URL. Harmless for a URL that
+names its build (the app and its files ship in one Worker version, so the
+app never asks for a file its build lacks), and the loader asks once more
+past the HTTP cache (`cache: "reload"`) before it takes an HTML answer as a
+release skew, so a cached page never ends a session on its own. No narrower
+`_headers` rule helps: every pattern also matches a missing file. A Worker
+that answers 404 itself for unknown `/map-data/` paths would need
+`run_worker_first` in `wrangler.jsonc`; not done here (web code).
 
 ## Not here
 

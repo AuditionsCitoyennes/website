@@ -94,6 +94,11 @@ API saw (`/api/health`).
 
 Staging pages say `noindex` and `robots.txt` turns crawlers away.
 
+Each deploy also serves the outline build `apps/web/outlines.lock.json` names,
+under `/map-data/outlines/<build>/` (`scripts/deploy/outlines.sh`, from the
+GitHub release `outlines-<build>`): a build not released fails the deploy, so a
+lock bump waits for its release. See docs/map-outlines.md "Hosting".
+
 ### Setup (once)
 
 In Cloudflare (dashboard of the account that holds `auditionscitoyennes.com`):
