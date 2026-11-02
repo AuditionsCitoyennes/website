@@ -1,8 +1,8 @@
-// How the plateau's mesh is assembled (PlateauWallLayer.setGeometry), compared
-// live in the builds with the testing tools — the dev server and staging
-// (__TEST_TOOLS__, vite.config), kept in localStorage like the plateau lid's
-// mode (lidSwitch.ts) and drawn as the Témoignages page's DEV switch's
-// "Maillage" row:
+// How the plateau's mesh is assembled (gl/meshBuild.ts buildPlateauMesh, called
+// by PlateauWallLayer.setGeometry), compared live in the builds with the
+// testing tools — the dev server and staging (__TEST_TOOLS__, vite.config),
+// kept in localStorage like the plateau lid's mode (lidSwitch.ts) and drawn as
+// the Témoignages page's DEV switch's "Maillage" row:
 //
 // - "ancien" (the default): the mesh as before — each boundary line group
 //   pushed value by value into one number[], then copied into a Float32Array.

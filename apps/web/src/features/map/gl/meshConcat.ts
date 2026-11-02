@@ -1,4 +1,4 @@
-// The plateau's boundary line groups (PlateauWallLayer.setGeometry), packed
+// The plateau's boundary line groups (gl/meshBuild.ts buildPlateauMesh), packed
 // into one buffer per regime with ac:mesh=concat (plateau/meshSwitch.ts): one
 // Float32Array of the total length, each group copied in with one
 // TypedArray.set — no push value by value into a second number[], no third
