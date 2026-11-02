@@ -1,5 +1,5 @@
 // The relief renderer's own pieces (demRaster.ts): the encoding, the tile
-// touch test, the key, the PNG writer and both of its deflates.
+// touch test, the key, the PNG writer and both of its deflates, the ground tile.
 // Run with `node --import tsx --test` (root "test:scripts"). Pure: no DOM, no
 // alias at run time. Its parity with the API's renderer is
 // scripts/parity/demRelief.test.ts.
@@ -10,6 +10,7 @@ import fs from "node:fs";
 import { test } from "node:test";
 import { crc32, inflateSync } from "node:zlib";
 import { decodeRgbPng } from "../../../../../../scripts/parity/pngRgb";
+import { GROUND_DATA_URL } from "./demGround";
 import {
   PAD,
   SIZE,
@@ -172,6 +173,14 @@ test("pngDataUrl encodes a stored-block tile whole", async () => {
   const url = pngDataUrl(png);
   assert.ok(url.startsWith("data:image/png;base64,"));
   assert.ok(Buffer.from(url.slice(22), "base64").equals(png));
+});
+
+test("GROUND_DATA_URL decodes to the ground tile", () => {
+  assert.ok(GROUND_DATA_URL.startsWith("data:image/png;base64,"));
+  const tile = decodeRgbPng(Buffer.from(GROUND_DATA_URL.slice(22), "base64"));
+  assert.equal(tile.w, SIZE);
+  assert.equal(tile.h, SIZE);
+  assert.ok(Buffer.from(tile.rgb).equals(constantRgb(0)));
 });
 
 test("a tile inside the plateau is constantRgb(height), one outside is constantRgb(0)", () => {
