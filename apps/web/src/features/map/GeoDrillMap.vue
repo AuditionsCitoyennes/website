@@ -13,6 +13,8 @@ import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
 import { toLngLat } from "./lib/polygon";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
+import type { MeshClient } from "./gl/meshClientCore";
+import { meshMode } from "./plateau/meshSwitch";
 import { useMapView, type MapView } from "./composables/useMapView";
 import { useScopeMask } from "./composables/useScopeMask";
 import { usePlateauFrames } from "./composables/usePlateauFrames";
@@ -124,6 +126,9 @@ let resizeObserver: ResizeObserver | null = null;
 // The plateau's violet wall (and the analyses' slabs' pieces): our custom
 // WebGL layer, created here, added to the style by the mask once it loads.
 const plateauWall = new PlateauWallLayer();
+// ac:mesh=worker (plateau/meshSwitch.ts): this map's own mesh worker, made at
+// its load and disposed with it. Null before then and in every other mode.
+let meshClient: MeshClient | null = null;
 
 // ---- The composables, in dependency order ----------------------------------------
 // None registers a Vue watcher (the watchers below are the shell's, in today's
@@ -201,6 +206,7 @@ const plateau = usePlateau({
   clearSlabs: () => slabs.clearSlabs(),
   forgetLidExtra: () => slabs.forgetLidExtra(),
   stableGeometry: () => !!props.stableOutline,
+  meshClient: () => meshClient,
 });
 const slabs = usePlateauSlabs({
   getMap,
@@ -288,6 +294,19 @@ onMounted(() => {
       if (__TEST_TOOLS__ && reliefMode === "client") {
         void loadReliefClient().then(
           (c) => c.warmRelief(),
+          () => {},
+        );
+      }
+      // ac:mesh=worker: the mesh worker started now (a fresh worker's first
+      // build is its slowest). Only this literal guard reaches the client: a
+      // build without the testing tools emits neither its chunk nor the worker.
+      if (__TEST_TOOLS__ && meshMode === "worker") {
+        void import("./gl/meshClient").then(
+          ({ warmMeshWorker, globeProviderOf }) => {
+            if (!map) return; // unmounted meanwhile
+            meshClient = warmMeshWorker();
+            plateauWall.setGlobeProvider(globeProviderOf(meshClient));
+          },
           () => {},
         );
       }
@@ -440,6 +459,10 @@ onBeforeUnmount(() => {
   plateau.cancelAnimation();
   slabs.dispose();
   plateau.abort(); // abort any in-flight ensurePlateau
+  // Its worker terminated, its pending meshes resolved null (and dropped).
+  meshClient?.dispose();
+  meshClient = null;
+  plateauWall.setGlobeProvider(null);
   lid.destroy();
   resizeObserver?.disconnect();
   resizeObserver = null;

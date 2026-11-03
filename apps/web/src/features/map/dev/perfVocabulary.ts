@@ -25,18 +25,33 @@
 //                     which mapbox reads the source loaded: errTiles > 0 is
 //                     no ready time)
 //   plateau.globeBuild  ac:mesh=merc: a lazy setGeometry's globe set, built
-//                     after the map's idle (PlateauWallLayer; detail: scope)
+//                     after the map's idle (PlateauWallLayer; detail: scope;
+//                     worker: the worker's build time, noted on reception,
+//                     `mesh: "worker"`)
 //   plateau.globeLate the same set built by the first globe frame drawn
 //                     before that, or by `__acMeshHash({ globe: true })`
 //   dem.key           ac:relief=client: a selection's version key from the
 //                     relief worker, in place of dem.post (usePlateau; detail:
 //                     scope)
+//   plateau.meshBuild ac:mesh=worker: a mesh's build in the worker, its own
+//                     time, noted when the reply is received, so the span
+//                     ends there, not at the worker's end (gl/meshClient.ts;
+//                     detail: scope, part, cold — the request sent geometries)
+//   mesh.roundTrip    ac:mesh=worker: a request posted → its reply received,
+//                     both on the page (detail: scope, first, puts, cloneMs —
+//                     the page's tokens, flattening and postMessage)
+//   plateau.meshWait  ac:mesh=worker: how long a run waited for its mesh
+//                     beyond its other gates (the POST/key, the tile wait;
+//                     with the sink: the mesh's time past the sink's end, 0
+//                     if it came first) (usePlateau; detail: scope, path —
+//                     same, quiet, swap —, first)
 // Reserved for the phases to come, so their tables share one vocabulary:
-// plateau.meshBuild, mesh.roundTrip, outline.fetch, outline.decode,
-// outline.fallback.
+// outline.fetch, outline.decode, outline.fallback.
 // plateau.setGeometry's detail names the mesh mode that built it (`mesh`:
 // ac:mesh, plateau/meshSwitch.ts) and, with merc, its globe set's mode and
-// what chose it (`globe`, `zCanon`, `zoom`); its output's fingerprint is
+// what chose it (`globe`, `zCanon`, `zoom`); with worker it times the apply
+// alone and adds `part` (merc, both), `start` (the mode the build was asked
+// with) and `via` (worker, main); its output's fingerprint is
 // `__acMeshHash()` (dev/probes.ts), once per call with `__acMeshHashEvery`.
 //
 // Requests: `net` sees the main thread's fetches only (Resource Timing), and

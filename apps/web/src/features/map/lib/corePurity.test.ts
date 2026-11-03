@@ -22,6 +22,10 @@ const CORE = [
   "gl/mesh.ts",
   "gl/meshBuild.ts",
   "gl/meshConcat.ts",
+  // The mesh worker's entry (ac:mesh=worker) and what it loads.
+  "gl/meshWorker.ts",
+  "gl/meshCore.ts",
+  "gl/meshFlat.ts",
 ];
 
 const FORBIDDEN = (spec: string) =>
