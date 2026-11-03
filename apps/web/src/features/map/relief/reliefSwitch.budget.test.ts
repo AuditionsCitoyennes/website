@@ -1,8 +1,8 @@
-// The client relief's answer budget arms (reliefSwitch.ts) against a stubbed
-// localStorage, run with `node --import tsx --test` (root "test:scripts"): the
-// default, the kept count with and without the testing tools, garbage and a
-// throwing storage, and the ground arm (the module read again under a fresh
-// query, as reliefSwitch.prefetch.test.ts).
+// The client relief's answer budget arms and its commit hold (reliefSwitch.ts)
+// against a stubbed localStorage, run with `node --import tsx --test` (root
+// "test:scripts"): the defaults, the kept counts with and without the testing
+// tools, garbage and a throwing storage, and the ground arm (the module read
+// again under a fresh query, as reliefSwitch.prefetch.test.ts).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -82,5 +82,25 @@ test("reliefBudgetGround: the kept value with the testing tools only", async () 
   assert.equal((await load(false)).reliefBudgetGround, "budgeted");
   throwing = true;
   assert.equal((await load(true)).reliefBudgetGround, "budgeted");
+  throwing = false;
+});
+
+test("reliefCommitHold: 60 by default and without the testing tools, a kept whole number with them", async () => {
+  stored = { "ac:relief-commit-hold": "0" };
+  let m = await load(false);
+  assert.equal(m.DEFAULT_RELIEF_COMMIT_HOLD_MS, 60);
+  assert.equal(m.reliefCommitHold, m.DEFAULT_RELIEF_COMMIT_HOLD_MS);
+  assert.equal((await load(true)).reliefCommitHold, 0);
+  stored = { "ac:relief-commit-hold": "90" };
+  assert.equal((await load(true)).reliefCommitHold, 90);
+  for (const garbage of ["-1", "2.5", "x", ""]) {
+    stored = { "ac:relief-commit-hold": garbage };
+    m = await load(true);
+    assert.equal(m.reliefCommitHold, m.DEFAULT_RELIEF_COMMIT_HOLD_MS, garbage);
+  }
+  stored = {};
+  assert.equal((await load(true)).reliefCommitHold, 60);
+  throwing = true;
+  assert.equal((await load(true)).reliefCommitHold, 60);
   throwing = false;
 });

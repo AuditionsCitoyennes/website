@@ -43,10 +43,14 @@
 // - `ac:relief-budget-ground` = "budgeted" (the default) | "exempt": answers
 //   that are the ground tile skip the budget. Kept as an arm so the phone runs
 //   of the flip can still compare it.
+// - `ac:relief-commit-hold`: ms a run with nothing standing holds its commit
+//   after the registration (usePlateau, demClient `commitHold`); 0 = no hold.
+//   The default is DEFAULT_RELIEF_COMMIT_HOLD_MS (below, with its reason).
+//   Kept as an arm so the flip's real-device runs can compare it with 0.
 //
 // They act only on a page loaded in "client". Read once per page load.
 // Production has neither key nor switch: DEFAULT_RELIEF_BUDGET,
-// DEFAULT_RELIEF_BUDGET_GROUND.
+// DEFAULT_RELIEF_BUDGET_GROUND, DEFAULT_RELIEF_COMMIT_HOLD_MS.
 
 export type ReliefMode = "serveur" | "client";
 
@@ -105,6 +109,10 @@ export const reliefMode: ReliefMode = __TEST_TOOLS__ ? storedReliefMode() : DEFA
  * keep the canonical tiles back: the terrain stood flat ~0.9 s after the swap
  * (desktop medians: first tile 909 ms, all in 1,350 ms after it, against 0 and
  * -155 at 0; ARA all in 1,767 ms after against -818; relief-france-task).
+ * Not settled on phones: on the phone profile 0's ARA TBT (median 1,684 ms)
+ * is above serveur's (1,170) and 4-with-ground-exempt's (1,148), inside rule
+ * L's band only after six rounds (it tripped at two): pr-flip-relief compares
+ * it with `ac:relief-budget-ground=exempt` at 4 on real phones.
  */
 export const DEFAULT_RELIEF_BUDGET = 0;
 
@@ -139,6 +147,30 @@ export const reliefBudgetGround: ReliefBudgetGround = __TEST_TOOLS__
 
 /** "client": ms waited before each answer (`ac:relief-delay`, a measurement arm). */
 export const reliefDelay: number = __TEST_TOOLS__ ? storedCount("ac:relief-delay", 0) : 0;
+
+/**
+ * How long a "client" run with nothing standing holds its commit after the
+ * registration, ms, in a build without the testing tools, and the arm's
+ * default. A fixed delay from the registration's end, so a slow registration
+ * (the boot run, a unit never registered) pays it in full on top. France after
+ * Monde (headless, relief-france-task): a registration answered from the memo
+ * commits in the click task, and every frame drawn before the lid shot's
+ * readback (plateau/mapSnapshot.ts, `wait(60)` then `getImageData`) is GPU
+ * work that readback waits for. Held 60 ms, the commit's timer (set as the
+ * registration ends, 12-35 ms after the click) fired, in every G run, just
+ * before the lid's settle timer (also 60 ms): the readback follows the swap at
+ * once with no frame in between. A sweep of 30-120 ms shows no knife edge; from
+ * 90 on the readback runs first and the rise waits behind it. Not the POST's
+ * timing (the swap lands ~36 ms after serveur's): coupled to that lid
+ * constant, measured only under SwiftShader, and a loaded host can still put
+ * the readback first (one D4 run of four).
+ */
+export const DEFAULT_RELIEF_COMMIT_HOLD_MS = 60;
+
+/** "client": the commit hold of a run with nothing standing (`ac:relief-commit-hold`, ms; 0 = none). */
+export const reliefCommitHold: number = __TEST_TOOLS__
+  ? storedCount("ac:relief-commit-hold", DEFAULT_RELIEF_COMMIT_HOLD_MS)
+  : DEFAULT_RELIEF_COMMIT_HOLD_MS;
 
 /** This page load's prefetch (a "client" run's only). */
 export const reliefPrefetch: ReliefPrefetch = __TEST_TOOLS__

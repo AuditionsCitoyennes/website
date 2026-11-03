@@ -33,6 +33,7 @@ import {
   demoteRelief,
   reliefBudget,
   reliefBudgetGround,
+  reliefCommitHold,
   reliefDelay,
   reliefRoute,
 } from "./reliefSwitch";
@@ -41,19 +42,6 @@ type Raster = typeof import("./demRaster");
 
 /** Nothing heard from the worker this long after the first job posted: dead (ms). */
 export const READY_TIMEOUT_MS = 10_000;
-
-/**
- * How long a run with nothing standing holds its commit after the
- * registration (usePlateau, `commitHold`), ms. On "serveur" the POST stands
- * there (`dem.post` 30-50 ms) and the swap lands ~30 ms ahead of the lid
- * shot's readback; a registration answered from the memo commits in the click
- * task, ~80 ms ahead, and every frame drawn meanwhile (the new walls, the
- * draped terrain) is GPU work that readback then waits for, as does the
- * terrain's vertex-morphing program a few frames later (France after Monde,
- * headless: ~0.75 s and ~0.6 s against serveur's ~0.5 s and, mostly, no
- * link; relief-france-task).
- */
-export const COMMIT_HOLD_MS = 60;
 
 /** Selections the main-thread renderer keeps projected. */
 const MAIN_SELECTIONS = 8;
@@ -245,9 +233,14 @@ export const registerSelection = relief.registerSelection;
 export const holdSlot = relief.holdSlot;
 export const releaseSlot = relief.releaseSlot;
 
-/** The registration's hold before a commit with nothing standing (COMMIT_HOLD_MS). */
-export function commitHold(): Promise<void> {
-  return new Promise<void>((resolve) => setTimeout(() => resolve(), COMMIT_HOLD_MS));
+/**
+ * The registration's hold before a commit with nothing standing, `ms` (the
+ * `ac:relief-commit-hold` arm, DEFAULT_RELIEF_COMMIT_HOLD_MS in reliefSwitch.ts
+ * says why); 0 resolves with no timer.
+ */
+export function commitHold(ms: number = reliefCommitHold): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise<void>((resolve) => setTimeout(() => resolve(), ms));
 }
 
 /** What to run once the client is lost: the plateau again (usePlateau's ensurePlateau). */
