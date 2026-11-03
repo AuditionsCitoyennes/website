@@ -398,10 +398,12 @@ const panelCover = computed(() => {
 // Above mapbox's own 640 px compact line, where it would have shown the full
 // credit, and with the corner in sight, the credit opens at first
 // (GeoDrillMap's `openCredit`); phones in portrait, a raised sheet and the
-// card keep mapbox's closed « i ».
+// card keep mapbox's closed « i ». The map presentable too: a curtain lifted
+// by its 10 s cap waits for the style (and mapbox's own credits) first.
 const openCredit = computed(
   () =>
     !props.preview &&
+    mapPresentable.value &&
     curtainGone.value &&
     viewportW.value > 640 &&
     (isDesktop.value || sheetLowered.value),

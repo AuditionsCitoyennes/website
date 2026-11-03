@@ -21,8 +21,10 @@
 // in the card, the sheet raised, a narrow window). A click on the « i » while
 // open is the visitor's dismiss: mapbox's toggle has closed it, nothing to write.
 //
-// Once, then never again: idle → open → done, never back. After that, and
-// after a dismiss, the visitor's clicks are mapbox's alone; the fold sets
+// Once, then never again: idle → open → done, never back. After that, after a
+// dismiss, and when the visitor opened the « i » before the arm (a phone
+// turned to landscape, a window widened), the visitor's clicks are mapbox's
+// alone; the fold sets
 // explicit states and never toggles, so that click works from whatever is shown.
 
 /** The fold comes at the latest this long after the credit opens (ms). */
@@ -42,7 +44,9 @@ export interface FoldMap {
 
 /** The compact control's container and « i » button now, or null (no control, or not compact). */
 export interface CreditBox {
-  container: { classList: { add(c: string): void; remove(c: string): void } };
+  container: {
+    classList: { add(c: string): void; remove(c: string): void; contains(c: string): boolean };
+  };
   button: {
     setAttribute(n: string, v: string): void;
     addEventListener(t: "click", fn: () => void): void;
@@ -119,6 +123,10 @@ export function creditFold(
       const b = box();
       if (!b) {
         state = "done"; // not compact: mapbox's to decide
+        return;
+      }
+      if (b.container.classList.contains(SHOW)) {
+        state = "done"; // the visitor opened it (the « i » while idle): theirs
         return;
       }
       state = "open";

@@ -47,6 +47,7 @@ class FakeBox implements CreditBox {
         this.writes++;
         this.classes.delete(c);
       },
+      contains: (c: string) => this.classes.has(c),
     },
   };
   button = {
@@ -214,6 +215,23 @@ test("no compact control at arm: done, nothing registered or written", () => {
   assert.equal(fold.state(), "done");
   assert.equal(map.count(), 0);
   assert.equal(timers.made.length, 0);
+});
+
+test("opened by the visitor before the arm (a phone turned to landscape): arm leaves it theirs", () => {
+  const { map, timers, fold, box } = setup();
+  box!.click(); // in idle: mapbox's toggle alone, the fold does not see it
+  assert.ok(box!.open);
+  assert.equal(fold.state(), "idle");
+  fold.arm();
+  assert.equal(fold.state(), "done");
+  assert.equal(box!.writes, 0);
+  assert.equal(map.count(), 0);
+  assert.equal(box!.clicks.size, 0);
+  assert.equal(timers.made.length, 0);
+  fold.fold();
+  fold.replaced();
+  assert.ok(box!.open);
+  assert.equal(box!.writes, 0);
 });
 
 test("the visitor's click while open is a dismiss: mapbox closes it, the fold ends", () => {

@@ -593,8 +593,8 @@ watch(
 // boundaries, say): a new control with the new text — mapbox has no setter.
 // On the joined text, so a fresh array with the same strings does nothing.
 // An expanded « i » closes again (unless the fold is still due,
-// controls/creditFold): at most twice a session (the files' boot, under the
-// curtain, then a fallback).
+// controls/creditFold): a few times a session (the files' boot under the
+// curtain, « Pays » once a country file is in, a fallback).
 watch(
   () => props.attribution?.join("\n") ?? "",
   () => {
