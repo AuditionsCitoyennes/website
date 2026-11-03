@@ -539,6 +539,10 @@ export function usePlateau({
           c.onReliefLost(() => void ensurePlateau());
           ({ key } = await c.registerSelection(demRaised, heightM));
           if (endKey) endKey();
+          // Nothing standing, so no sink to wait for: held as long as the POST
+          // would stand here, or the commit lands ahead of the lid shot's
+          // readback with frames of GPU work for it to wait on (COMMIT_HOLD_MS).
+          if (!plateauVersion) await c.commitHold();
         } catch (err) {
           // Too large fails on both routes (the server's 413), as before.
           if (err instanceof SelectionTooLarge) throw err;
