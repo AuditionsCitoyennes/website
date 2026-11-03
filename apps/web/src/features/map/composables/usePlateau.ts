@@ -133,7 +133,8 @@ export function usePlateau({
   // The slots' lifecycle (plateau/demSlots): the slot a swap left is dropped
   // LATER, once a frame has rendered since the swap. The prefetch's removal of
   // the SPARE slot stays synchronous (no terrain mutation in that tick, and the
-  // slot must be free for addSource), after one frame on a fast drill.
+  // slot must be free for addSource), after a rendered frame on a fast drill,
+  // however long it takes.
   const slots = createDemSlots({
     getMap,
     terrainSrc: () => terrainSrc,
@@ -607,11 +608,15 @@ export function usePlateau({
         for (const b of demBoxes(demRaised, wb)) warmDemTiles(key, b, zCanon);
       const next: DemSlot = terrainSrc === "plateau-dem-a" ? "plateau-dem-b" : "plateau-dem-a";
       // A fast drill: the last swap left `next` and no frame has rendered since,
-      // so mapbox's evaluated terrain may still name it — one frame first (≤ 1 s).
+      // so mapbox's evaluated terrain may still name it — its removal waits for
+      // that frame (no cap: removing before it is the race).
       if (slots.spareNeedsFrame(map, next)) {
-        await slots.waitForFrame(map);
+        const rendered = await slots.waitForFrame(map, next);
         map = getMap();
         if (seq !== plateauSeq || !map) return;
+        // Abandoned while this run is current (a throw from the map): never
+        // removed without a frame — the catch below clears the plateau.
+        if (!rendered) throw new Error("spare slot wait abandoned");
       }
       if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
       const template =

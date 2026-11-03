@@ -18,14 +18,17 @@
 // replaced ours. So the slot a swap left is dropped LATER, in a terrain-quiet
 // task (a timer, never inside mapbox's render handler), guarded and swallowed:
 // a stale resident source is harmless, a crashed pipeline is not. There is no
-// time cap: a hidden map that never renders keeps the old slot until it does.
+// time cap: a hidden map that never renders keeps the old slot until it does,
+// and a fast drill's spare slot waits for that frame too (its wait ends
+// without a removal on abort, on the map's `remove`, or when the slot is
+// re-added).
 
 export type DemSlot = "plateau-dem-a" | "plateau-dem-b";
 
 /** What the slots need of a mapbox map (`mapboxgl.Map` is one). */
 export interface DemSlotMap<Spec = unknown> {
-  once(type: "render", listener: () => void): unknown;
-  off(type: "render", listener: () => void): unknown;
+  once(type: "render" | "remove", listener: () => void): unknown;
+  off(type: "render" | "remove", listener: () => void): unknown;
   getSource(id: string): unknown;
   addSource(id: string, spec: Spec): unknown;
   removeSource(id: string): unknown;
@@ -35,8 +38,6 @@ export interface DemSlotMap<Spec = unknown> {
 
 /** The slot a swap left stays at least this long (ms). */
 export const DROP_FLOOR_MS = 500;
-/** The spare slot waits at most this long (ms) for the frame after a swap. */
-export const SPARE_WAIT_CAP_MS = 1000;
 
 export interface DemSlotsInputs<Spec> {
   /** The map of the moment: null once unmounted, another one after a remount. */
@@ -70,12 +71,14 @@ export function createDemSlots<Spec>({ getMap, terrainSrc, onDrop }: DemSlotsInp
   let swapLeft: DemSlot | null = null;
   let offSwapRender: (() => void) | null = null;
   // What abort() clears: one pending drop per slot (a newer drop of the same
-  // slot replaces it), and the spare slot's waits.
+  // slot replaces it), and the spare slot's waits (each one's ending, by slot).
   const drops = new Map<DemSlot, () => void>();
-  const waits = new Set<() => void>();
+  const waits = new Map<(proceed: boolean) => void, DemSlot>();
 
-  /** The one place a slot's generation moves: removed if present, then added. */
+  /** The one place a slot's generation moves: removed if present, then added.
+   *  A wait for this slot still pending is superseded: it ends, not to proceed. */
   function addDemSlot(map: DemSlotMap<Spec>, id: DemSlot, spec: Spec) {
+    for (const [end, slot] of [...waits]) if (slot === id) end(false);
     if (map.getSource(id)) map.removeSource(id);
     slotGen[id]++;
     map.addSource(id, spec);
@@ -104,27 +107,34 @@ export function createDemSlots<Spec>({ getMap, terrainSrc, onDrop }: DemSlotsInp
     return swapRenderPending && swapLeft === id && !!map.getSource(id);
   }
 
-  /** One repaint asked, then the first rendered frame or SPARE_WAIT_CAP_MS,
-   *  whichever comes first (abort() resolves it too). */
-  function waitForFrame(map: DemSlotMap<Spec>): Promise<void> {
+  /** Before the spare slot `id` is removed: one repaint asked, then `true` at
+   *  the first rendered frame, however long it takes (removing before it is the
+   *  race). `false`, not to proceed, when no frame can come for this wait:
+   *  abort(), the map's `remove`, `id` re-added, or a throw from the map. */
+  function waitForFrame(map: DemSlotMap<Spec>, id: DemSlot): Promise<boolean> {
     return new Promise((resolve) => {
-      const done = () => {
-        clearTimeout(timer);
-        waits.delete(done);
+      let settled = false;
+      const end = (proceed: boolean) => {
+        if (settled) return;
+        settled = true;
+        waits.delete(end);
         try {
-          map.off("render", done);
+          map.off("render", onRender);
+          map.off("remove", onRemove);
         } catch {
           /* a removed map */
         }
-        resolve();
+        resolve(proceed);
       };
-      const timer = setTimeout(done, SPARE_WAIT_CAP_MS);
-      waits.add(done);
+      const onRender = () => end(true);
+      const onRemove = () => end(false);
+      waits.set(end, id);
       try {
-        map.once("render", done);
+        map.once("render", onRender);
+        map.once("remove", onRemove);
         map.triggerRepaint();
       } catch {
-        done();
+        end(false);
       }
     });
   }
@@ -172,11 +182,11 @@ export function createDemSlots<Spec>({ getMap, terrainSrc, onDrop }: DemSlotsInp
     drops.set(id, cancel);
   }
 
-  /** Unmount: no timer left, no listener left, every wait resolved. */
+  /** Unmount: no timer left, no listener left, every wait ended (not to proceed). */
   function abort() {
     offSwapRender?.();
     for (const cancel of [...drops.values()]) cancel();
-    for (const done of [...waits]) done();
+    for (const end of [...waits.keys()]) end(false);
   }
 
   return { addDemSlot, swapped, spareNeedsFrame, waitForFrame, dropDemSourceSoon, abort };
