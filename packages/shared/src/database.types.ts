@@ -252,6 +252,8 @@ export type Database = {
       testimonies: {
         Row: {
           audition_id: string | null;
+          consent_certified_at: string | null;
+          consent_certified_by: string | null;
           content: string;
           created_at: string | null;
           created_by: string | null;
@@ -270,6 +272,8 @@ export type Database = {
         };
         Insert: {
           audition_id?: string | null;
+          consent_certified_at?: string | null;
+          consent_certified_by?: string | null;
           content: string;
           created_at?: string | null;
           created_by?: string | null;
@@ -288,6 +292,8 @@ export type Database = {
         };
         Update: {
           audition_id?: string | null;
+          consent_certified_at?: string | null;
+          consent_certified_by?: string | null;
           content?: string;
           created_at?: string | null;
           created_by?: string | null;

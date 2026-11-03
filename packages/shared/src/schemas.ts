@@ -27,8 +27,19 @@ export const testimonyInputSchema = z.object({
   topics: z.array(z.string()).optional().nullable(),
 });
 
+/**
+ * What a volunteer is told when sending testimonies without certifying that
+ * every witness agreed to be published (the box of WitnessConsentCheck).
+ */
+export const CONSENT_CERTIFIED_REQUIRED =
+  "Cochez la case : chaque personne doit avoir accepté que son témoignage soit publié";
+
+/** The volunteer's word, one per submission, that every witness agreed. */
+const consentCertified = z.literal(true, { error: CONSENT_CERTIFIED_REQUIRED });
+
 export const createTestimonySchema = testimonyInputSchema.extend({
   audition_id: z.string().uuid(),
+  consent_certified: consentCertified,
 });
 
 export const updateTestimonySchema = z.object({
@@ -55,23 +66,31 @@ export const placePickSchema = z.object({
   type: z.enum(BAN_PICK_TYPES),
 });
 
-export const createAuditionSchema = z.object({
-  title: z.string().trim().min(1, "Le titre est requis").max(300),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date au format AAAA-MM-JJ"),
-  location: z
-    .string()
-    .trim()
-    .min(1, "Le lieu est requis")
-    .max(300, "Le lieu est trop long (300 caractères au plus)"),
-  place: placePickSchema.optional(),
-  content: z.string().trim().default(""),
-  status: auditionStatusSchema.default("published"),
-  testimonies: z
-    .array(testimonyInputSchema)
-    .max(AUDITION_TESTIMONIES_MAX, `${AUDITION_TESTIMONIES_MAX} témoignages au plus par audition`)
-    .optional()
-    .default([]),
-});
+export const createAuditionSchema = z
+  .object({
+    title: z.string().trim().min(1, "Le titre est requis").max(300),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date au format AAAA-MM-JJ"),
+    location: z
+      .string()
+      .trim()
+      .min(1, "Le lieu est requis")
+      .max(300, "Le lieu est trop long (300 caractères au plus)"),
+    place: placePickSchema.optional(),
+    content: z.string().trim().default(""),
+    status: auditionStatusSchema.default("published"),
+    testimonies: z
+      .array(testimonyInputSchema)
+      .max(AUDITION_TESTIMONIES_MAX, `${AUDITION_TESTIMONIES_MAX} témoignages au plus par audition`)
+      .optional()
+      .default([]),
+    // One certification for all the testimonies sent with the audition; none
+    // needed for an audition sent without any.
+    consent_certified: consentCertified.optional(),
+  })
+  .refine((a) => a.testimonies.length === 0 || a.consent_certified === true, {
+    message: CONSENT_CERTIFIED_REQUIRED,
+    path: ["consent_certified"],
+  });
 
 export const updateAuditionSchema = z.object({
   title: z.string().trim().min(1).max(300).optional(),

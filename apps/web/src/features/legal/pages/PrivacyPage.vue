@@ -44,9 +44,10 @@ const privacyMail = mailto(PRIVACY_EMAIL, "Mes données personnelles");
       <h3>Si vous témoignez lors d'une audition publique</h3>
       <p>
         Un volontaire note votre nom ou pseudonyme, quelques mots sur vous si vous le souhaitez, et
-        vos réponses, avec votre accord. Si vous lui laissez votre email, vous recevez un lien pour
-        relire, modifier, valider ou supprimer votre témoignage. Base légale&nbsp;: votre
-        consentement.
+        vos réponses. C'est à lui que vous donnez votre accord pour que votre témoignage soit
+        publié&nbsp;; en l'ajoutant au site, il certifie que vous l'avez donné, et nous gardons qui
+        l'a certifié et quand. Si vous lui laissez votre email, vous recevez un lien pour relire,
+        modifier, valider ou supprimer votre témoignage. Base légale&nbsp;: votre consentement.
       </p>
 
       <h3>Si vous créez un compte de volontaire</h3>
