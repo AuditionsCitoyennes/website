@@ -10,6 +10,9 @@
 --    signed-in user about their own action, the only two ways the old app and
 --    the API write one.
 
+-- The live site reads these tables: fail fast rather than queue behind it.
+set lock_timeout = '200ms';
+
 create policy "Draft auditions are read by admins only"
   on public.auditions
   as restrictive
