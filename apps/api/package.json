@@ -2,6 +2,7 @@
   "name": "@ac/api",
   "version": "0.0.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "APP_ENV=local tsx watch src/index.ts",

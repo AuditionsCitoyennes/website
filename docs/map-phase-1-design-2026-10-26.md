@@ -3,8 +3,8 @@
 > Implements phase 1 of [the map roadmap](map-roadmap-2026-10-25.md). Written from a read-only reconnaissance of the code, three independent drafts, a judge panel and two rounds of adversarial review.
 
 > **Citations.** Repo `dev` @ 4adbcd5. File:line citations point into that tree unless a prefix says otherwise:
-> - `OLD:` the live React app, `/Users/dranak/Documents/Projects/AuditionsCitoyennes_Website/src`
-> - `WT:` PR #110's worktree, `.claude/worktrees/interesting-spence-53b0c8`
+> - `OLD:` the live React app's `src/` (the `website-legacy` repository)
+> - `WT:` PR #110's branch
 > - `B:` `supabase/migrations/20261021175021_baseline.sql`
 > - `M7:` `supabase/migrations/20261024234316_rls_initplans_and_indexes.sql`
 >

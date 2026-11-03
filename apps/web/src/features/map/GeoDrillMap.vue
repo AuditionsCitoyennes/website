@@ -58,6 +58,9 @@ const props = defineProps<{
   /** The outline's geometry objects change only with their shape (the outline
    *  files): the plateau posts a scope's DEM once, not on every outline. */
   stableOutline?: boolean;
+  /** Credits for the app's own data (the boundaries' sources), shown before
+   *  Mapbox's in the map's attribution. Mapbox HTML: http(s) anchors only. */
+  attribution?: readonly string[];
 }>();
 
 const emit = defineEmits<{
@@ -97,6 +100,18 @@ const unavailable = ref(!TOKEN);
 // hold it. Null before mount and after unmount.
 let map: mapboxgl.Map | null = null;
 const getMap = () => map;
+// The attribution control, ours (the map's own is off): mapbox reads
+// customAttribution once, at the control's creation, and has no setter, so a
+// change of `attribution` replaces it (the last watcher).
+let attrib: mapboxgl.AttributionControl | null = null;
+// Compact (mapbox's « i », opened on demand) at every width: with the
+// boundaries' credits the line is far longer than the room the zoom buttons
+// and the logo leave it.
+const newAttribution = () =>
+  new mapboxgl.AttributionControl({
+    compact: true,
+    customAttribution: [...(props.attribution ?? [])],
+  });
 // True once the style's load event fired. The plateau pipeline MUST NOT mutate
 // the style (addSource/addLayer/setTerrain) before then: pre-load mutations sit
 // in the style's change-set and permanently wedge style.loaded() → the load
@@ -232,6 +247,10 @@ onMounted(() => {
       // Its own resize watching off: ours (below) resizes, re-frames AND draws
       // at once. With both, mapbox's could clear the canvas after ours drew it.
       trackResize: false,
+      // Ours instead, with the boundaries' credits (`attribution`, below).
+      attributionControl: false,
+      // Its « i », compact at every width (below): a French label.
+      locale: { "AttributionControl.ToggleAttribution": "Afficher les crédits" },
       // The style's "globe" projection applies as-is: the plateau layer is
       // globe-native (dual mercator/ECEF programs morphed onto the sphere below
       // z6 via the experimental custom-layer API), so no projection juggling.
@@ -244,6 +263,8 @@ onMounted(() => {
           : undefined,
     });
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-left");
+    attrib = newAttribution();
+    map.addControl(attrib, "bottom-right"); // where mapbox's own goes
     uninstallProbes = installProbes({
       getMap,
       frames,
@@ -541,6 +562,22 @@ watch(
     void nextTick(() => {
       if (map && !camera.programmatic()) view.emitView();
     });
+  },
+);
+
+// The credits changed (the outline files' session fell back to the API's
+// boundaries, say): a new control with the new text — mapbox has no setter.
+// On the joined text, so a fresh array with the same strings does nothing.
+// An expanded « i » closes again: at most twice a session (the files' boot,
+// under the curtain, then a fallback).
+watch(
+  () => props.attribution?.join("\n") ?? "",
+  () => {
+    const m = getMap();
+    if (!m || !attrib) return;
+    m.removeControl(attrib);
+    attrib = newAttribution();
+    m.addControl(attrib, "bottom-right");
   },
 );
 </script>

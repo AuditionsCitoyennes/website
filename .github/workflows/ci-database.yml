@@ -1,0 +1,183 @@
+name: CI database
+
+# A blank Postgres built from supabase/ and the fake data, then the database
+# checks. It takes about 5 minutes, so it has a workflow of its own that runs
+# only when something it builds or checks changes: supabase/ (migrations,
+# seed, config), the seed generator, the db checks and parity scripts, and the
+# code they import (@ac/shared, apps/api/src). Until November 2026 it was a
+# job of ci.yml and ran on every push of every pull request, web-only ones
+# included: half of the private repository's 2,000 monthly Actions minutes.
+#
+# The root package.json is left out of the paths (most pull requests add a
+# script there): the weekly run, or a manual one (Actions → CI database → Run
+# workflow), catches what the filter misses. A pull request stacked on another
+# one waits until it targets dev, as in ci.yml.
+on:
+  pull_request:
+    branches: [dev, main]
+    types: [opened, synchronize, reopened, edited]
+    paths:
+      - "supabase/**"
+      - "scripts/db-checks/**"
+      - "scripts/parity/**"
+      - "scripts/place-backfill/**"
+      - "scripts/seed/**"
+      - "scripts/sql-gen/**"
+      - "packages/shared/**"
+      - "apps/api/src/**"
+      - "package-lock.json"
+      - ".github/workflows/ci-database.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "supabase/**"
+      - "scripts/db-checks/**"
+      - "scripts/parity/**"
+      - "scripts/place-backfill/**"
+      - "scripts/seed/**"
+      - "scripts/sql-gen/**"
+      - "packages/shared/**"
+      - "apps/api/src/**"
+      - "package-lock.json"
+      - ".github/workflows/ci-database.yml"
+  schedule:
+    - cron: "41 3 * * 1" # Mondays, 03:41 UTC
+  workflow_dispatch:
+
+# A newer push to the same branch or pull request replaces the running check.
+# An edit that leaves the base as it is gets a group of its own, so that it
+# does not cancel one.
+concurrency:
+  group: ci-database-${{ github.ref }}${{ github.event.action == 'edited' && !github.event.changes.base && format('-edit-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Database from scratch
+    # An edit that leaves the base as it is (title, description) runs nothing.
+    if: github.event.action != 'edited' || github.event.changes.base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: 2.75.0
+
+      # Both profiles, so a schema change that the fake data no longer fits
+      # fails here. French rows come placed, from committed fixtures (no
+      # network): scripts/seed/fixtures.
+      - name: Generate the fake data
+        run: npm run db:seed
+        env:
+          SEED_PROFILE: all
+
+      # Supabase's postgres image (~500 MB) is published on Docker Hub, ghcr.io
+      # and public.ecr.aws, and each of them throttles GitHub's shared runners
+      # at times ("toomanyrequests", "Data limit exceeded"). It is kept in the
+      # Actions cache between runs (one key per CLI version); when the cache is
+      # cold, the pull takes turns across the three registries, Docker keeping
+      # the layers each attempt got.
+      - name: Restore the database image
+        id: image
+        uses: actions/cache@v6
+        with:
+          path: /tmp/supabase-postgres.tar
+          key: supabase-postgres-cli-2.75.0
+
+      - name: Load the cached image
+        if: steps.image.outputs.cache-hit == 'true'
+        run: docker load --input /tmp/supabase-postgres.tar
+
+      # Builds a blank Postgres from supabase/migrations + seed.sql: a migration
+      # that does not apply on top of the others fails here, not on staging.
+      # The CLI names the image after SUPABASE_INTERNAL_IMAGE_REGISTRY (default
+      # public.ecr.aws) each time it creates the container, `db reset` included:
+      # the registry that worked is kept for the later steps, and a cached image
+      # is tried first under the registry it came from.
+      - name: Apply every migration and the fake data to a blank database
+        run: |
+          cached=$(docker images --format '{{.Repository}}' | grep -m1 'supabase/postgres$' || true)
+          case "$cached" in
+            ghcr.io/*) first=ghcr.io ;;
+            public.ecr.aws/*) first=public.ecr.aws ;;
+            supabase/postgres) first=docker.io ;;
+            *) first= ;;
+          esac
+          attempt=0
+          for registry in $first docker.io ghcr.io public.ecr.aws docker.io ghcr.io public.ecr.aws; do
+            attempt=$((attempt + 1))
+            if SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry supabase db start; then
+              echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "::warning::attempt $attempt ($registry) failed, retrying"
+            supabase stop --no-backup || true
+            sleep $((attempt * 15))
+          done
+          exit 1
+
+      - name: Keep the database image for the next runs
+        if: steps.image.outputs.cache-hit != 'true'
+        run: |
+          docker save --output /tmp/supabase-postgres.tar \
+            $(docker images --format '{{.Repository}}:{{.Tag}}' | grep 'supabase/postgres')
+
+      - name: Lint the schema
+        run: supabase db lint --level error --fail-on error
+
+      # A table without RLS is open to anyone holding the public key.
+      - name: Every public table has row level security
+        run: |
+          missing=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -tAc \
+            "select string_agg(c.relname, ', ') from pg_class c
+               join pg_namespace n on n.oid = c.relnamespace
+              where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity")
+          if [ -n "$missing" ]; then
+            echo "::error::Tables without row level security: $missing"
+            exit 1
+          fi
+
+      # Grant guard (scripts/db-checks/allowlist.json), the read RPCs (the
+      # service role's alone, bounded at 5 s), the derived testimony
+      # columns against @ac/shared over the seed and an edge corpus, writes
+      # shaped like the old app's (as authenticated and anon), rolled back,
+      # place paths against geo_units, the seed's places against its
+      # fixtures (strict here: CI=true), and the reviewed backfill's fixture
+      # test (its NOTICEs held to its table).
+      - name: Database checks
+        run: npm run db:check
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # The read RPCs against a frozen copy of the client pipeline they
+      # replace (scripts/parity/legacy), over the seed and the edge cases its
+      # setup adds: every filter of the matrix, every unit, lieu, result and
+      # testimony page, every order. Only the design's D1 and D14 may differ;
+      # the report lists them.
+      - name: Read RPCs match the client pipeline
+        run: npm run db:parity
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # Last: it resets the database (recreating its container from the image
+      # of the registry kept above) to the migrations before map phase 1,
+      # loads the seed as its rows stood then (SEED_SHAPE=legacy, written by
+      # the check itself), and applies the newer migrations on top of the
+      # seeded rows, as on staging and prod: the reviewed backfill places
+      # exactly the rows it lists, the others stay stale, and running it
+      # again changes nothing.
+      - name: Migrations on top of seeded data
+        run: npm run db:check:seeded -- --yes --workdir .
+        env:
+          SEED_PROFILE: all

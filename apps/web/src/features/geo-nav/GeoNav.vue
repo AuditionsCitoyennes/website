@@ -21,6 +21,7 @@ import { useCommuneGeo } from "./data/useCommuneGeo";
 import { useDepFine } from "./data/useDepFine";
 import { contoursMode } from "./data/contoursSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
+import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
 import { liftCheck } from "./model/outlineCheck";
 import { useGeoHierarchy } from "./model/useGeoHierarchy";
@@ -32,7 +33,7 @@ import { useCamera } from "./model/useCamera";
 import { useNavActions } from "./model/useNavActions";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
-import { usePanelLayout } from "./panel/usePanelLayout";
+import { PANEL_BASE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
 import { usePlaqueFocus } from "./ring/usePlaqueFocus";
 import type { UnitTree } from "./data/useUnitTree";
@@ -91,6 +92,16 @@ const outlines =
 if (contoursMode === "fichiers" && !outlines && import.meta.env.DEV)
   console.warn("[outlines] ac:contours=fichiers is read under the server source only: api here");
 if (outlines) void outlines.ensureRoot();
+// The boundaries' credits (data/attribution), after the data actually drawn:
+// the files' only once their session is "ok". « Pays » stays off until the
+// country files are drawn (outline-world).
+const attribution = computed(() =>
+  boundaryAttribution({
+    mode: contoursMode,
+    session: outlines ? outlines.ready.value : null,
+    countries: false,
+  }),
+);
 const boundaries = useBoundaryQueries(
   outlines ? () => outlines.mode.value === "fallback" : undefined,
 );
@@ -358,6 +369,7 @@ const {
   panelFolded,
   panelFlush,
   panelHeightPx,
+  panelPx,
   engageMap,
   returnToPanel,
   cancelHoverReturn,
@@ -368,6 +380,13 @@ const {
   onPanelPointerLeave,
   mapPadding,
 } = layout;
+// Desktop: how much of the map's right edge the panel covers, which the map's
+// bottom-right corner (the attribution) is moved clear of: the narrow width
+// when folded (the fold leaves it on screen), the wide one when open wide.
+const panelCover = computed(() => {
+  if (props.preview || !isDesktop.value) return 0;
+  return panelWide.value && !panelFolded.value ? panelPx.value : PANEL_BASE_PX;
+});
 // Back on the map (or the lieu closed): the scope, held still meanwhile,
 // catches up with wherever the view is now.
 watch(readingPlace, (reading) => {
@@ -751,7 +770,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
     class="geo-page"
     :class="{ preview }"
     :inert="preview || undefined"
-    :style="{ '--sheet-peek': `${sheetPeekPx}px` }"
+    :style="{ '--sheet-peek': `${sheetPeekPx}px`, '--panel-cover': `${panelCover}px` }"
   >
     <GeoDrillMap
       ref="mapCmp"
@@ -763,6 +782,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       :view-padding="mapViewPadding"
       :scope-pending="scopePending"
       :stable-outline="outlines?.mode.value === 'fichiers'"
+      :attribution="attribution"
       :hovered-id="hoveredPanelId"
       :active-id="selectedPlaceId"
       :slabs="slabSpec"
@@ -992,6 +1012,39 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
 
 @media (min-width: 900px) and (prefers-reduced-motion: reduce) {
   .panel-shade {
+    transition: none;
+  }
+}
+
+/* The attribution (bottom right), opened, stays clear of the zoom buttons and
+   the logo (bottom left) and of the panel; its plain text in mapbox's own
+   link colour on its light ground, not the page's. */
+.geo-map :deep(.mapboxgl-ctrl-bottom-right) {
+  max-width: calc(100% - var(--panel-cover, 0px) - 7rem);
+}
+
+.geo-map :deep(.mapboxgl-ctrl-attrib) {
+  color: rgb(0 0 0 / 0.75);
+}
+
+/* Opened in the narrow strip left of a wide panel (900-1000 px), the credit is
+   a tall column: past the site header's edge, it scrolls instead. */
+.geo-map :deep(.mapboxgl-ctrl-attrib-inner) {
+  max-height: calc(100dvh - var(--header-space) - 3rem);
+  overflow-y: auto;
+}
+
+@media (min-width: 900px) {
+  /* The panel is painted over the map's right edge: the attribution, in the
+     bottom-right corner, is moved clear of it, with the panel's slide. */
+  .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
+    right: var(--panel-cover, 0px);
+    transition: right 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (min-width: 900px) and (prefers-reduced-motion: reduce) {
+  .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
     transition: none;
   }
 }

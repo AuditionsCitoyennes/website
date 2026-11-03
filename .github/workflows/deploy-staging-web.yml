@@ -43,8 +43,12 @@ env:
 
 jobs:
   deploy:
-    # Dependabot's pull requests get no secrets: no preview for them.
-    if: github.actor != 'dependabot[bot]'
+    # Pull requests from a fork, and Dependabot's, get no secrets: no preview
+    # for them (the repository is public, so anyone may open one).
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
