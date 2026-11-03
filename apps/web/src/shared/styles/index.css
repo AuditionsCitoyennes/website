@@ -1,4 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Source+Sans+3:wght@300;400;500;600;700&display=swap");
+/* The two fonts, served by the site itself (no request to Google): each
+   subset is fetched only when the page uses its characters. */
+@import "@fontsource/bebas-neue";
+@import "@fontsource-variable/source-sans-3";
 
 /* The site's global stylesheet, in pieces: the one CSS import in main.ts.
    The order below IS the cascade order of the former global.css — keep it. The

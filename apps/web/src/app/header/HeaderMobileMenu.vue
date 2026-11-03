@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useAuthStore } from "@/features/auth";
+import { ROUTE } from "@/shared/routes";
 
 defineProps<{
   open: boolean;
@@ -12,6 +13,14 @@ const emit = defineEmits<{
 }>();
 
 const auth = useAuthStore();
+
+// The legal pages: on phones the map page has no footer, so the menu carries
+// them on every page.
+const legal = [
+  { to: ROUTE.legalNotice.path, label: "Mentions légales" },
+  { to: ROUTE.privacy.path, label: "Confidentialité" },
+  { to: ROUTE.rules.path, label: "Règles de publication" },
+];
 </script>
 
 <template>
@@ -56,6 +65,18 @@ const auth = useAuthStore();
             Connexion
           </RouterLink>
         </div>
+
+        <div class="nav-mobile-legal">
+          <RouterLink
+            v-for="link in legal"
+            :key="link.to"
+            :to="link.to"
+            class="nav-link-legal"
+            @click="emit('close')"
+          >
+            {{ link.label }}
+          </RouterLink>
+        </div>
       </nav>
     </div>
   </Teleport>
@@ -68,6 +89,27 @@ const auth = useAuthStore();
   margin-top: 0.25rem;
   padding-top: 0.25rem;
   border-top: 1px solid hsl(var(--border) / 0.5);
+}
+
+.nav-mobile-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.9rem;
+  margin-top: 0.25rem;
+  padding: 0.35rem 0.5rem 0.15rem;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+
+.nav-link-legal {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  font-size: var(--text-caption);
+  color: hsl(var(--muted-foreground));
+}
+
+.nav-link-legal.router-link-active {
+  color: hsl(var(--primary));
 }
 
 .nav-link-mobile-btn {

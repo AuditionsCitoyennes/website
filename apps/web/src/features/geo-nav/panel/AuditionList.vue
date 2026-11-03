@@ -120,6 +120,7 @@ defineExpose({ moreEl, moreTestimoniesEl });
             :key="t.id"
             :testimony="t"
             :highlight="highlight"
+            :audition-id="g.id"
             hide-audition
           />
           <!-- More testimonies than are listed (the server's pages): the next

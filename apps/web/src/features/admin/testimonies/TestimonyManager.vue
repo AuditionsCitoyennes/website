@@ -6,6 +6,7 @@ import { useToast } from "@/shared/ui/toast/useToast";
 import { useAuthStore } from "@/features/auth";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import TestimonyEditDialog from "./TestimonyEditDialog.vue";
+import WitnessConsentNote from "./WitnessConsentNote.vue";
 
 const props = defineProps<{
   auditionId: string;
@@ -193,6 +194,7 @@ async function handleAnalyze(t: Testimony) {
       @close="addDialogOpen = false"
     >
       <div class="form">
+        <WitnessConsentNote />
         <div class="grid-2">
           <div class="form-field">
             <label class="form-label" for="add-name">Nom/Prénom</label>
@@ -200,7 +202,7 @@ async function handleAnalyze(t: Testimony) {
               id="add-name"
               v-model="newTestimony.person_name"
               class="form-input"
-              placeholder="Ex: Marie"
+              placeholder="Ex: Marie, ou Anonyme"
             />
           </div>
           <div class="form-field">

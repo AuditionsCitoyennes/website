@@ -3,6 +3,8 @@ import { defineAsyncComponent, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import AppHeader from "@/app/header/AppHeader.vue";
 import AppDialogs from "@/app/AppDialogs.vue";
+import AppFooter from "@/app/AppFooter.vue";
+import { ROUTE } from "@/shared/routes";
 import { MapStage } from "@/features/map-stage";
 import ToastHost from "@/shared/ui/toast/ToastHost.vue";
 import { useAuthStore } from "@/features/auth";
@@ -24,6 +26,8 @@ onMounted(() => {
   <main class="app-main" :class="{ 'app-main--bleed': route.meta.bleed }">
     <RouterView />
   </main>
+  <!-- Not under the map page, which the map fills. -->
+  <AppFooter v-if="route.path !== ROUTE.temoignages.path" />
   <!-- The testimonies map, once for the whole site: a card on the home page,
        the whole of /temoignages (see useMapStage). -->
   <MapStage />
