@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { boundsOfFeatures, buildHitRings, hitTest, ringBounds } from "./polygon";
+import { boundsOfFeatures, buildHitRings, hitTest, ringBounds, tileX } from "./polygon";
 import type { OutlineFC } from "../types";
 
 // Chukotka-like, wholly east of 180 (Russia's unwrapped outline), and an
@@ -42,4 +42,12 @@ test("a ring wholly past ±180 gets its true box", () => {
     maxLng: 189,
   });
   assert.equal(boundsOfFeatures([]), null);
+});
+
+test("a tile column stays in range on the antimeridian", () => {
+  // The east half of Russia's canonical copy ends on 180 (cut there).
+  assert.equal(tileX(180, 64), 63);
+  assert.equal(tileX(-180, 64), 0);
+  assert.equal(tileX(179.99, 64), 63);
+  assert.equal(tileX(2.35, 64), Math.floor(((2.35 + 180) / 360) * 64));
 });

@@ -255,6 +255,11 @@ export const unionBounds = (a: Bounds, b: Bounds): Bounds => ({
 export const boundsContain = (a: Bounds, b: Bounds) =>
   b.minLat >= a.minLat && b.maxLat <= a.maxLat && b.minLng >= a.minLng && b.maxLng <= a.maxLng;
 
+/** The tile column of `lng` among `n` (2^z), kept in [0, n − 1]: a canonical
+ *  copy cut at ±180 (geo's canonicalCopies) has a box ending ON the line. */
+export const tileX = (lng: number, n: number) =>
+  Math.min(n - 1, Math.max(0, Math.floor(((lng + 180) / 360) * n)));
+
 // Plateau height for a selection: ~1.25% of the unit's own max bbox span, clamped.
 // Derived from the GEOMETRY, not the viewport, so the height is deterministic per
 // unit no matter what view it was selected from.

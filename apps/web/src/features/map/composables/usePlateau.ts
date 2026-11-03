@@ -11,7 +11,14 @@ import { canonicalCopies, type Bounds, type HeightClass, type WrapGeometry } fro
 import { apiBase } from "@/shared/absoluteUrl";
 import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import { globeSetMode } from "../gl/globeDeferral";
-import { boundsOfFeatures, plateauHeightM, polysOf, ringBounds, unionBounds } from "../lib/polygon";
+import {
+  boundsOfFeatures,
+  plateauHeightM,
+  polysOf,
+  ringBounds,
+  tileX,
+  unionBounds,
+} from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
@@ -325,7 +332,7 @@ export function usePlateau({
     const urls: string[] = [];
     for (let z = zCanon; z >= 4 && urls.length < 80; z--) {
       const n = Math.pow(2, z);
-      const tx = (lng: number) => Math.floor(((lng + 180) / 360) * n);
+      const tx = (lng: number) => tileX(lng, n);
       const ty = (lat: number) => {
         const r = (lat * Math.PI) / 180;
         return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n);
@@ -468,7 +475,8 @@ export function usePlateau({
       const demRaised = demFeatures(raised);
       if (__TEST_TOOLS__ && route === "client") {
         // The version key from the relief worker, no request: the same geometry
-        // objects the wall meshes, at this height. The worker keeps the selection.
+        // objects the wall meshes (for an outline past ±180, their canonical
+        // copy, as the POST's), at this height. The worker keeps the selection.
         try {
           const endKey = perfOn ? perfSpan("dem.key", { scope: scopeId }) : null;
           const c = await loadReliefClient();
