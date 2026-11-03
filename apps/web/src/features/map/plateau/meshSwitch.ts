@@ -15,7 +15,8 @@
 // - "worker": merc's sets, built in a Web Worker (gl/meshClient.ts), the
 //   page only applying them; its globe set, when it waits, asked of the
 //   worker at the map's next idle. Lost (it fails, or says nothing for 3 s),
-//   the session builds on the page as merc does.
+//   the session builds on the page: each mesh as its run starts, the globe
+//   sets that wait as merc's.
 //
 // Read once per page load: switching reloads the page. Production has neither
 // key nor switch: DEFAULT_MESH_MODE.

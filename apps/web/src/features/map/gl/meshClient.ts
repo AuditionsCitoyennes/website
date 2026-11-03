@@ -83,13 +83,17 @@ export function warmMeshWorker(): MeshClient {
   return client;
 }
 
-/** The layer's deferred globe set, asked of `client` (setGlobeProvider). */
+/** The layer's deferred globe set, asked of `client` (setGlobeProvider) while
+ *  its worker lives; lost, the layer builds it as merc does. */
 export function globeProviderOf(client: MeshClient): GlobeProvider {
-  return (inputs) =>
-    client.buildGlobe(inputs).then((r) => {
-      if (!r) return null;
-      const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = r.mesh;
-      if (!gWallPositions || !gLidPositions || !gLinePositions || !gHaloPositions) return null;
-      return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions, ms: r.ms };
-    });
+  return {
+    live: () => client.mode === "worker",
+    build: (inputs) =>
+      client.buildGlobe(inputs).then((r) => {
+        if (!r) return null;
+        const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = r.mesh;
+        if (!gWallPositions || !gLidPositions || !gLinePositions || !gHaloPositions) return null;
+        return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions, ms: r.ms };
+      }),
+  };
 }

@@ -543,7 +543,9 @@ export function usePlateau({
           workerApplies++;
           return;
         }
-        // Null for a current run: not by construction (superseded or disposed only).
+        // Null for a current run: not by construction (superseded or disposed
+        // only; or a geometry no builder reads, which then throws here into the
+        // catch, as in merc).
         if (client && import.meta.env.DEV) console.warn("[plateau] no worker mesh: built here");
         plateauWall.setGeometry(raised, heightM, focus, context, opts);
       };
@@ -651,9 +653,12 @@ export function usePlateau({
         // at 0 at once. It starts no tile by itself: with nothing standing the
         // sink is already resolved, so the commit's swap below follows in this
         // same task (one microtask), before any frame — every terrain0 run
-        // starts its tiles at the swap. It only shapes the state a run
-        // superseded inside that microtask leaves. Tracked as a swap (no drop
-        // before a frame); no generation bump, addDemSlot just made one.
+        // starts its tiles at the swap. Not with ac:mesh=worker: there the swap
+        // also waits for the worker's mesh, frames meanwhile drawing this slot
+        // as the terrain at 0 (terrain0 timings are not read with the worker
+        // on). It only shapes the state a run superseded inside that microtask
+        // leaves. Tracked as a swap (no drop before a frame); no generation
+        // bump, addDemSlot just made one.
         // Superseded by a NEW selection, it stays the terrain at 0 until that
         // run re-points or keeps it (an elevated root terrain keeps the
         // import's relief hidden).

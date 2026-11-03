@@ -118,8 +118,12 @@ type GlobeSet = Pick<
 >;
 
 /** ac:mesh=worker: the deferred globe set, built off the page (gl/meshClient.ts;
- *  `ms`: the build's own time). Null: none (the worker superseded it, or lost). */
-export type GlobeProvider = (inputs: GlobeInputs) => Promise<(GlobeSet & { ms: number }) | null>;
+ *  `ms`: the build's own time). Null: none (the worker superseded it, or lost).
+ *  `live()` false once the worker is lost: the layer's own pass builds it. */
+export type GlobeProvider = {
+  live(): boolean;
+  build(inputs: GlobeInputs): Promise<(GlobeSet & { ms: number }) | null>;
+};
 
 /** Which of the slabs a mercator draw takes (drawSlabsMercator). */
 type SlabPass = "all" | "parts" | "boxes" | "over";
@@ -879,22 +883,14 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  in the browser's next idle time (≤ 1 s; Safari has none: at once) — out
    *  of the click, the rise, the half second after it and the flight.
    *  ac:mesh=worker: asked of the worker at the map's next idle (it costs
-   *  the page nothing but four assignments), or at once (`atOnce`). */
+   *  the page nothing but four assignments), or at once (`atOnce`); the
+   *  worker lost (its provider no longer live), built here as merc's. */
   private scheduleGlobePass(gen: number, atOnce = false) {
     const map = this.map;
     if (!map) return; // not on a map yet: the first globe frame builds it
     const provider = meshMode === "worker" ? this.globeProvider : null;
-    if (provider) {
-      if (atOnce) {
-        this.workerGlobePass(gen, provider);
-        return;
-      }
-      const onWorkerIdle = () => {
-        this.globeTask = null;
-        this.workerGlobePass(gen, provider);
-      };
-      map.once("idle", onWorkerIdle);
-      this.globeTask = { cancel: () => map.off("idle", onWorkerIdle) };
+    if (atOnce && provider?.live()) {
+      this.workerGlobePass(gen, provider);
       return;
     }
     let idle = 0;
@@ -904,6 +900,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       this.globePass(gen);
     };
     const onIdle = () => {
+      if (provider?.live()) {
+        this.globeTask = null;
+        this.workerGlobePass(gen, provider);
+        return;
+      }
       timer = window.setTimeout(() => {
         timer = 0;
         if (typeof requestIdleCallback === "function") {
@@ -945,7 +946,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (__TEST_TOOLS__ && (window as { __acMeshIdle?: string }).__acMeshIdle === "hold") return;
     const inputs = this.globeDefer.claim(gen);
     if (!inputs) return;
-    void provider(inputs).then((g) => {
+    void provider.build(inputs).then((g) => {
       if (!g || !this.globeDefer.claim(gen)) return;
       this.applyGlobe(g);
       this.globeDefer.markBuilt(gen);
