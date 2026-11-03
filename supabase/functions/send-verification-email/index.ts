@@ -1,7 +1,21 @@
+// The verification email of testimonies that an admin of the old site has
+// just saved (edited, added, or entered with a new audition). The old site
+// calls it from the browser with the public key only, so the request is
+// trusted for nothing but its verification tokens: each one is looked up
+// among pending testimonies, and the address, the name, the audition and the
+// link all come from the database and from this function. A token that
+// matches no pending testimony sends nothing.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { Resend } from "npm:resend@2.0.0";
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
+// Where the links lead: the old site's /verifier/<token> page.
+const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://www.auditionscitoyennes.com").replace(/\/+$/, "");
+// Tests only: build the emails, send nothing, and answer with what would go.
+const DRY_RUN = Deno.env.get("EMAIL_DRY_RUN") === "1";
+// The old site sends at most one audition's witnesses at a time.
+const MAX_TOKENS = 100;
+const TOKEN = /^[A-Za-z0-9-]{8,64}$/;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,22 +23,55 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-interface Recipient {
-  email: string;
-  personName: string;
-  verificationToken: string;
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
 }
 
-interface RequestBody {
-  // Batch mode: array of recipients sharing the same audition
-  recipients?: Recipient[];
-  auditionLocation: string;
-  auditionDate: string;
-  baseUrl: string;
-  // Single mode (backwards-compatible)
-  email?: string;
-  personName?: string;
-  verificationToken?: string;
+function escapeHtml(s: string): string {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+// One line, for the subject.
+function oneLine(s: string): string {
+  return s.replace(/[\r\n]+/g, " ").trim();
+}
+
+function formatDate(date: string, monthOnly: boolean): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return date;
+  return d.toLocaleDateString("fr-FR", {
+    ...(monthOnly ? {} : { day: "numeric" }),
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+// The tokens of the request, in either of the old site's shapes: one
+// testimony (`verificationToken`) or an audition's witnesses (`recipients`).
+function requestedTokens(body: unknown): string[] {
+  if (!body || typeof body !== "object") return [];
+  const b = body as { recipients?: unknown; verificationToken?: unknown };
+  const raw = Array.isArray(b.recipients)
+    ? b.recipients.map((r) => (r && typeof r === "object" ? (r as { verificationToken?: unknown }).verificationToken : undefined))
+    : [b.verificationToken];
+  const tokens = raw.filter((t): t is string => typeof t === "string" && TOKEN.test(t));
+  return [...new Set(tokens)].slice(0, MAX_TOKENS);
+}
+
+interface PendingTestimony {
+  email: string;
+  person_name: string;
+  verification_token: string;
+  auditions: { location: string; date: string; audition_en_ligne: boolean } | null;
 }
 
 function buildHtml(personName: string, auditionLocation: string, auditionDate: string, verificationUrl: string): string {
@@ -110,80 +157,71 @@ const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return json({ error: "Method not allowed" }, 405);
+  }
 
   try {
-    const body: RequestBody = await req.json();
-    const { auditionLocation, auditionDate, baseUrl } = body;
-
-    if (!auditionLocation || !auditionDate || !baseUrl) {
-      throw new Error("Missing required fields: auditionLocation, auditionDate, or baseUrl");
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return json({ error: "Invalid JSON" }, 400);
+    }
+    const tokens = requestedTokens(body);
+    if (tokens.length === 0) {
+      return json({ error: "No verification token" }, 400);
     }
 
-    // Build list of recipients (support both single and batch)
-    const recipients: Recipient[] = body.recipients
-      ? body.recipients
-      : body.email && body.personName && body.verificationToken
-        ? [{ email: body.email, personName: body.personName, verificationToken: body.verificationToken }]
-        : [];
-
-    if (recipients.length === 0) {
-      throw new Error("No recipients provided");
+    const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data, error } = await db
+      .from("testimonies")
+      .select("email, person_name, verification_token, auditions(location, date, audition_en_ligne)")
+      .in("verification_token", tokens)
+      .eq("verification_status", "pending")
+      .not("email", "is", null);
+    if (error) throw new Error(error.message);
+    const rows = ((data ?? []) as unknown as PendingTestimony[]).filter((r) => r.email && r.auditions);
+    if (rows.length === 0) {
+      return json({ error: "No pending testimony for these tokens" }, 404);
     }
 
-    const results: { email: string; success: boolean; error?: string }[] = [];
+    const emails = rows.map((r) => {
+      const a = r.auditions!;
+      const auditionDate = formatDate(a.date, a.audition_en_ligne);
+      const verificationUrl = `${SITE_URL}/verifier/${encodeURIComponent(r.verification_token)}`;
+      return {
+        from: "Auditions Citoyennes <noreply@auditionscitoyennes.com>",
+        replyTo: "noreply@auditionscitoyennes.com",
+        to: [r.email],
+        subject: `${oneLine(r.person_name)}, validez votre témoignage`,
+        text: buildText(r.person_name, a.location, auditionDate, verificationUrl),
+        html: buildHtml(escapeHtml(r.person_name), escapeHtml(a.location), escapeHtml(auditionDate), escapeHtml(verificationUrl)),
+      };
+    });
 
-    // Use Resend batch API for multiple recipients (up to 100 per call)
-    // Process in chunks of 100
-    for (let i = 0; i < recipients.length; i += 100) {
-      const chunk = recipients.slice(i, i + 100);
-
-      const emails = chunk.map((r) => {
-        const verificationUrl = `${baseUrl}/verifier/${r.verificationToken}`;
-        return {
-          from: "Auditions Citoyennes <noreply@auditionscitoyennes.com>",
-          replyTo: "noreply@auditionscitoyennes.com",
-          to: [r.email],
-          subject: `${r.personName}, validez votre témoignage`,
-          text: buildText(r.personName, auditionLocation, auditionDate, verificationUrl),
-          html: buildHtml(r.personName, auditionLocation, auditionDate, verificationUrl),
-        };
+    if (DRY_RUN) {
+      return json({
+        success: true,
+        sent: emails.length,
+        failed: 0,
+        dryRun: emails.map((e) => ({ to: e.to, subject: e.subject, text: e.text, html: e.html })),
       });
-
-      try {
-        const batchResponse = await resend.batch.send(emails);
-        // Mark all as success
-        for (const r of chunk) {
-          results.push({ email: r.email, success: true });
-        }
-        console.log(`Batch sent ${chunk.length} emails:`, batchResponse);
-      } catch (batchError: any) {
-        console.error(`Batch send failed for chunk starting at ${i}:`, batchError);
-        // Mark all in this chunk as failed
-        for (const r of chunk) {
-          results.push({ email: r.email, success: false, error: batchError.message });
-        }
-      }
     }
 
-    const sent = results.filter((r) => r.success).length;
-    const failed = results.filter((r) => !r.success).length;
-
-    return new Response(
-      JSON.stringify({ success: failed === 0, sent, failed, results }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
-    );
-  } catch (error: any) {
+    const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
+    const { error: sendError } = await resend.batch.send(emails);
+    if (sendError) {
+      console.error("Resend refused the batch:", sendError);
+      return json({ success: false, sent: 0, failed: emails.length, error: "Email not sent" }, 502);
+    }
+    console.log(`Sent ${emails.length} verification email(s)`);
+    return json({ success: true, sent: emails.length, failed: 0 });
+  } catch (error) {
     console.error("Error in send-verification-email function:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
-    );
+    return json({ error: "Internal error" }, 500);
   }
 };
 
