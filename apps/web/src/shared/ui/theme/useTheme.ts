@@ -5,9 +5,10 @@ import { ref } from "vue";
 // the class from main.ts was racy (static imports evaluate before main.ts's
 // body, so this module used to initialize before the class was applied).
 const saved = typeof localStorage !== "undefined" ? localStorage.getItem("theme") : null;
-const initialDark = saved ? saved === "dark" : true; // dark by default
+// Dark by default. Nothing is stored until the visitor picks a theme (the
+// privacy page lists `theme` as a choice they made).
+const initialDark = saved ? saved === "dark" : true;
 if (typeof document !== "undefined") {
-  if (!saved) localStorage.setItem("theme", "dark");
   document.documentElement.classList.toggle("dark", initialDark);
 }
 

@@ -92,7 +92,13 @@ const description = computed(() =>
       <section>
         <h3 class="section-title">Témoignages</h3>
         <div v-if="testimonies.length > 0" class="testimonies">
-          <TestimonyCard v-for="t in testimonies" :key="t.id" :testimony="t" hide-audition />
+          <TestimonyCard
+            v-for="t in testimonies"
+            :key="t.id"
+            :testimony="t"
+            hide-audition
+            no-report
+          />
         </div>
         <p v-else class="none">Aucun témoignage pour cette audition.</p>
       </section>

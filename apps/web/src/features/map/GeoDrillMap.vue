@@ -271,6 +271,9 @@ onMounted(() => {
       attributionControl: false,
       // Its « i », compact at every width (below): a French label.
       locale: { "AttributionControl.ToggleAttribution": "Afficher les crédits" },
+      // No performance metrics sent to Mapbox: not needed for the map to work
+      // (the privacy page lists what Mapbox still receives).
+      performanceMetricsCollection: false,
       // The style's "globe" projection applies as-is: the plateau layer is
       // globe-native (dual mercator/ECEF programs morphed onto the sphere below
       // z6 via the experimental custom-layer API), so no projection juggling.

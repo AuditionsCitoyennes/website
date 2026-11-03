@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@ac/shared": "*",
+    "@fontsource-variable/source-sans-3": "^5.3.1",
+    "@fontsource/bebas-neue": "^5.3.0",
     "@supabase/supabase-js": "^2.118.0",
     "@tanstack/vue-query": "^5.105.0",
     "earcut": "^3.2.4",

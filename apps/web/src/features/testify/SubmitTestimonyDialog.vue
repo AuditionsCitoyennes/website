@@ -4,6 +4,7 @@ import { AUDITION_QUESTIONS, ONLINE_ANSWER_MAX, onlineTestimonySchema } from "@a
 import { api, ApiError } from "@/shared/api/client";
 import { vAutogrow } from "@/shared/ui/directives/autogrow";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
+import { ROUTE } from "@/shared/routes";
 import CommuneCombobox, { type Commune } from "./CommuneCombobox.vue";
 
 // "Témoigner": anyone — signed in or not — leaves a testimony. It joins the
@@ -227,12 +228,19 @@ async function submit() {
       <label class="consent">
         <input v-model="consent" type="checkbox" />
         <span>
-          J'accepte que mon témoignage, avec le nom et les informations que j'ai indiqués et ma
-          commune, soit publié sur ce site après sa validation par email. Mon email ne sert qu'à
-          cette validation et n'est jamais publié. Pour faire retirer un témoignage :
-          privacy@auditionscitoyennes.com.
+          J'ai 15 ans ou plus, ou l'accord d'un parent. J'accepte que mon témoignage, avec le nom et
+          les informations que j'ai indiqués et ma commune, soit publié sur ce site après sa
+          validation par email, et je sais que mes réponses peuvent révéler mes opinions, notamment
+          politiques, à tous ceux qui le liront. Mon email ne sert qu'à cette validation et n'est
+          jamais publié. Je peux retirer mon témoignage à tout moment.
         </span>
       </label>
+      <!-- New tabs: the form stays as it was filled in. -->
+      <p class="consent-links">
+        <a :href="ROUTE.privacy.path" target="_blank" rel="noopener">Vos données et vos droits</a>
+        <span aria-hidden="true">·</span>
+        <a :href="ROUTE.rules.path" target="_blank" rel="noopener">Règles de publication</a>
+      </p>
 
       <p v-if="error" class="error" role="alert">{{ error }}</p>
 
@@ -353,6 +361,23 @@ async function submit() {
   height: 1.05rem;
   margin-top: 0.1rem;
   accent-color: hsl(var(--primary));
+}
+
+/* Under the box, aligned with its text. */
+.consent-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  margin-top: -0.4rem;
+  padding-left: 1.65rem;
+  font-size: var(--text-ui);
+  color: hsl(var(--muted-foreground));
+}
+
+.consent-links a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
 .error {

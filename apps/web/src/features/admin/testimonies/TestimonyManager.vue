@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import type { Testimony } from "@ac/shared";
+import { CONSENT_CERTIFIED_REQUIRED, type Testimony } from "@ac/shared";
 import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import { useAuthStore } from "@/features/auth";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import TestimonyEditDialog from "./TestimonyEditDialog.vue";
+import WitnessConsentCheck from "./WitnessConsentCheck.vue";
 
 const props = defineProps<{
   auditionId: string;
@@ -34,6 +35,9 @@ const addDialogOpen = ref(false);
 const editDialogOpen = ref(false);
 const editingTestimony = ref<Testimony | null>(null);
 const newTestimony = ref({ person_name: "", person_info: "", content: "", email: "" });
+/** The volunteer certifies that the witness agreed. */
+const certified = ref(false);
+const addForm = ref<HTMLElement | null>(null);
 
 const isVerified = (t: Testimony) => t.verification_status === "verified";
 const isMine = (t: Testimony) => t.created_by === auth.user?.id;
@@ -76,6 +80,11 @@ async function handleAdd() {
     });
     return;
   }
+  if (!certified.value) {
+    toast({ title: "Erreur", description: CONSENT_CERTIFIED_REQUIRED, variant: "destructive" });
+    addForm.value?.querySelector<HTMLElement>("[name='consent-certified']")?.focus();
+    return;
+  }
 
   loading.value = true;
   try {
@@ -87,6 +96,7 @@ async function handleAdd() {
         person_info: newTestimony.value.person_info || null,
         content: newTestimony.value.content,
         email: newTestimony.value.email || null,
+        consent_certified: true,
       },
     );
     if (newTestimony.value.email && !result.emailSent) {
@@ -101,6 +111,7 @@ async function handleAdd() {
       toast({ title: "Succès!", description: "Témoignage ajouté" });
     }
     newTestimony.value = { person_name: "", person_info: "", content: "", email: "" };
+    certified.value = false;
     addDialogOpen.value = false;
     emit("update");
   } catch (e) {
@@ -192,7 +203,7 @@ async function handleAnalyze(t: Testimony) {
       dismissible
       @close="addDialogOpen = false"
     >
-      <div class="form">
+      <div ref="addForm" class="form">
         <div class="grid-2">
           <div class="form-field">
             <label class="form-label" for="add-name">Nom/Prénom</label>
@@ -200,7 +211,7 @@ async function handleAnalyze(t: Testimony) {
               id="add-name"
               v-model="newTestimony.person_name"
               class="form-input"
-              placeholder="Ex: Marie"
+              placeholder="Ex: Marie, ou Anonyme"
             />
           </div>
           <div class="form-field">
@@ -238,6 +249,7 @@ async function handleAnalyze(t: Testimony) {
             rows="4"
           ></textarea>
         </div>
+        <WitnessConsentCheck v-model="certified" />
         <button
           type="button"
           class="ac-btn ac-btn--primary ac-btn--block"

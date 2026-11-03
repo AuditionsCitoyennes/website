@@ -487,6 +487,9 @@ export interface NewTestimony {
   verification_status: string | null;
   verification_token: string | null;
   created_by: string;
+  /** The volunteer who certified that the witness agreed to publication, and when. */
+  consent_certified_by: string;
+  consent_certified_at: string;
 }
 
 export type CreateAuditionResult =
@@ -540,6 +543,9 @@ export async function createAudition(
   let emailReport: SendReport | null = null;
 
   const valid = testimonies.filter((t) => t.person_name && t.content);
+  // One certification covers them all: createAuditionSchema requires it with
+  // any testimony.
+  const certifiedAt = new Date().toISOString();
   const rows: NewTestimony[] = valid.map((t) => {
     const email = t.email || null;
     return {
@@ -556,6 +562,8 @@ export async function createAudition(
       verification_status: email ? "pending" : null,
       verification_token: email ? randomUUID() : null,
       created_by: actorId,
+      consent_certified_by: actorId,
+      consent_certified_at: certifiedAt,
     };
   });
 

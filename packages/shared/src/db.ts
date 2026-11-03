@@ -39,7 +39,14 @@ export type GeoUnit = Tables<"geo_units">;
  *  testimonies_derive) for its own counts and search: no app reads or writes them. */
 export type TestimonyDerivedColumn =
   "search_text" | "theme_mask" | "themes_approx" | "untagged" | "derive_version";
-export type Testimony = Omit<Tables<"testimonies">, TestimonyDerivedColumn>;
+/** Who certified that the witness agreed to publication, and when: written by
+ *  the API when a volunteer sends testimonies, read by no screen (neither the
+ *  public key nor admin_testimonies() reads them). */
+export type TestimonyConsentColumn = "consent_certified_by" | "consent_certified_at";
+export type Testimony = Omit<
+  Tables<"testimonies">,
+  TestimonyDerivedColumn | TestimonyConsentColumn
+>;
 /**
  * A testimony as the admin screens get it: email included, never the
  * verification token (only the witness's link carries it).

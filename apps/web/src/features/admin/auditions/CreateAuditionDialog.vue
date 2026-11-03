@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { testimonyInputSchema, type BanPick } from "@ac/shared";
+import { CONSENT_CERTIFIED_REQUIRED, testimonyInputSchema, type BanPick } from "@ac/shared";
 import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import LocationCombobox, { type LocationPick } from "./LocationCombobox.vue";
+import WitnessConsentCheck from "../testimonies/WitnessConsentCheck.vue";
 
 const props = defineProps<{ open: boolean }>();
 
@@ -50,6 +51,8 @@ const form = ref({
 });
 const draftTestimonies = ref<DraftTestimony[]>([]);
 let nextDraftKey = 1;
+/** The volunteer certifies that every witness agreed: one box for them all. */
+const certified = ref(false);
 
 /** The address picked for the lieu: the audition is placed there. */
 const pick = ref<BanPick | null>(null);
@@ -109,6 +112,14 @@ function problemWith(t: DraftTestimony): string | null {
     return "les informations sont trop longues (500 caractères au plus)";
   }
   return "l'adresse email n'est pas valide";
+}
+
+/** Puts the cursor on the certification box of the view being shown. */
+function focusCertification() {
+  // The visible one: the view just left may still be in the page for a frame.
+  [...(viewsEl.value?.querySelectorAll<HTMLElement>("[name='consent-certified']") ?? [])]
+    .find((f) => f.offsetParent !== null)
+    ?.focus();
 }
 
 /** Shows a view, from its top. The cursor goes in the testimony's first field
@@ -197,6 +208,11 @@ async function handleCreate() {
       return;
     }
   }
+  if (testimonies.length > 0 && !certified.value) {
+    fail(CONSENT_CERTIFIED_REQUIRED);
+    focusCertification();
+    return;
+  }
 
   loading.value = true;
   try {
@@ -206,6 +222,7 @@ async function handleCreate() {
         ...form.value,
         ...(pick.value ? { place: pick.value } : {}),
         testimonies: testimonies.map(payloadOf),
+        ...(testimonies.length > 0 ? { consent_certified: true } : {}),
       },
     );
     toast({ title: "Succès!", description: "Audition créée avec succès" });
@@ -219,6 +236,7 @@ async function handleCreate() {
     form.value = { title: "", date: "", location: "", content: "", status: "published" };
     pick.value = null;
     draftTestimonies.value = [];
+    certified.value = false;
     step.value = 0;
     emit("created");
     emit("close");
@@ -355,7 +373,7 @@ const title = computed(() => {
                 id="draft-name"
                 v-model="current.person_name"
                 class="form-input"
-                placeholder="Ex: Marie"
+                placeholder="Ex: Marie, ou Anonyme"
               />
             </div>
             <div class="form-field">
@@ -417,6 +435,8 @@ const title = computed(() => {
                 {{ isLastTestimony ? "+ Ajouter un autre témoignage" : "Témoignage suivant →" }}
               </button>
             </div>
+            <!-- For all the testimonies sent with the audition, once one is filled in. -->
+            <WitnessConsentCheck v-if="filledCount > 0" v-model="certified" />
             <button
               type="button"
               class="ac-btn ac-btn--primary ac-btn--block"
