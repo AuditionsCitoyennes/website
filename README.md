@@ -137,4 +137,4 @@ Les contributions sont les bienvenues ! Lisez le **[guide de contribution](CONTR
 
 ## Licence
 
-Distribué sous licence **[GNU AGPL v3](LICENSE)**. En contribuant, vous acceptez que votre travail soit publié sous cette licence (voir le DCO dans [CONTRIBUTING.md](CONTRIBUTING.md)).
+Distribué sous licence **[GNU AGPL v3](LICENSE) ou toute version ultérieure** (`AGPL-3.0-or-later`), avec une permission additionnelle (section 7) qui autorise son utilisation avec Mapbox GL JS, la bibliothèque de carte, qui n'est pas libre : voir [NOTICE](NOTICE). En contribuant, vous acceptez que votre travail soit publié sous cette licence et cette permission (voir le DCO dans [CONTRIBUTING.md](CONTRIBUTING.md)).
