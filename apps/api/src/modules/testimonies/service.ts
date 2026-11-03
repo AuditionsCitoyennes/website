@@ -131,6 +131,9 @@ export interface NewTestimony {
   created_by: string;
   verification_status: string | null;
   verification_token: string | null;
+  /** The volunteer who certified that the witness agreed to publication, and when. */
+  consent_certified_by: string;
+  consent_certified_at: string;
 }
 
 export type CreateTestimonyResult =
@@ -176,6 +179,9 @@ export async function createTestimony(
     // would otherwise make the row publicly updatable via the legacy
     // by-token RLS policies.
     verification_token: verificationToken,
+    // The route took the volunteer's certification (createTestimonySchema).
+    consent_certified_by: actorId,
+    consent_certified_at: new Date().toISOString(),
   };
 
   const { error } = await client.from("testimonies").insert(testimony);
