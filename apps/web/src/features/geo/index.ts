@@ -79,3 +79,4 @@ export {
   siblingSelves,
   type RoleRow,
 } from "./outlineRoles";
+export { boxesMeet, canonicalCopies, lngNear, type WrapGeometry } from "./wrap";

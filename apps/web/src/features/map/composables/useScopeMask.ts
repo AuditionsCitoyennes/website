@@ -8,7 +8,7 @@
 
 import type mapboxgl from "mapbox-gl";
 import type * as GeoJSON from "geojson";
-import type { Bounds } from "@/features/geo";
+import { canonicalCopies, type Bounds, type WrapGeometry } from "@/features/geo";
 import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
 import { nextOutlineUpload } from "../lib/outlineUpload";
@@ -153,7 +153,8 @@ export function useScopeMask({
       holes.push(rings[0]);
       for (let i = 1; i < rings.length; i++) if (rings[i]?.length) enclaves.push(rings[i]);
     };
-    for (const g of geoms) {
+    // In [-180, 180] (geo's canonicalCopies): WORLD_RECT cuts no hole past it.
+    for (const g of geoms.map((m) => canonicalCopies(m as WrapGeometry))) {
       if (g.type === "Polygon") {
         addRings(g.coordinates as [number, number][][]);
       } else if (g.type === "MultiPolygon") {

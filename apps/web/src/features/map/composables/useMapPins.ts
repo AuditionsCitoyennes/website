@@ -5,7 +5,7 @@
 // analyses' slabs. Hot paths (onMapHover, updateSticky) allocate nothing.
 
 import mapboxgl from "mapbox-gl";
-import type { Bounds } from "@/features/geo";
+import { lngNear, type Bounds } from "@/features/geo";
 import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import {
   boundsIntersect,
@@ -412,13 +412,14 @@ export function useMapPins({
     for (const s of sticky) {
       if (!s.hit || !s.bounds) continue;
       const b = s.bounds;
-      if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) continue;
+      const x = lngNear(lng, b); // a country past ±180 (geo's wrap)
+      if (lat < b.minLat || lat > b.maxLat || x < b.minLng || x > b.maxLng) continue;
       if (!smaller) {
-        if (hitTest(s.hit, lng, lat)) return s.id;
+        if (hitTest(s.hit, x, lat)) return s.id;
         continue;
       }
       const area = (b.maxLat - b.minLat) * (b.maxLng - b.minLng);
-      if (area < size && hitTest(s.hit, lng, lat)) {
+      if (area < size && hitTest(s.hit, x, lat)) {
         id = s.id;
         size = area;
       }

@@ -1,6 +1,7 @@
 // Which unit the map shows: read off the viewport (the unified scope).
 
 import type { Bounds, GeoUnit } from "./types";
+import { lngNear } from "./wrap";
 
 // ---- Unified scope derivation (map viewport → current scope) ----
 // The scope is read off the map, not chosen by click: we walk the hierarchy from
@@ -33,7 +34,8 @@ const SPAN_ASCEND = 0.5;
 const SPAN_LATERAL = 0.35;
 
 function boundsHas(b: Bounds, lat: number, lng: number): boolean {
-  return lat >= b.minLat && lat <= b.maxLat && lng >= b.minLng && lng <= b.maxLng;
+  const x = lngNear(lng, b); // a box past ±180 (wrap.ts)
+  return lat >= b.minLat && lat <= b.maxLat && x >= b.minLng && x <= b.maxLng;
 }
 
 function dist2(a: [number, number], b: [number, number]): number {

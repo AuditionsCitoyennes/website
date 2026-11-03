@@ -96,16 +96,22 @@ test("a micro-state takes its u/ in every role, in the globe batch", () => {
   assert.deepEqual(batch, { g: [], u: ["MC"] });
 });
 
-test("known absent: no row, a world-wide row, a wrapped row (this wave)", () => {
-  for (const row of [undefined, ROWS.AQ, ROWS.RU]) {
+test("known absent: no row, a world-wide row; a wrapped row is served", () => {
+  for (const row of [undefined, ROWS.AQ]) {
     assert.equal(rowKnownAbsent(row), true);
     assert.equal(selfFileOf(row), null);
     assert.equal(prefetchKind(row), null);
   }
-  assert.equal(rowKnownAbsent({ ...ROWS.AQ, wrap: false }), true); // 360° on its own
-  assert.equal(countryOutline(objects(["RU"], ["RU"]), "RU", ROWS.RU, true), undefined);
-  const countries = ["AQ", "RU", "QQ"].map((id) => ({ id, bounds: box(0, 0, 1, 1) }));
-  assert.deepEqual(globeBatch(countries, rowOf), { g: [], u: [] });
+  // Russia (unwrapped, 19.6 … 191.0): its g/ (c3000) in every role.
+  assert.equal(rowKnownAbsent(ROWS.RU), false);
+  assert.equal(countryOutline(objects(["RU"], ["RU"]), "RU", ROWS.RU, true), "g/RU");
+  const countries = ["AQ", "RU", "QQ"].map((id) => ({
+    id,
+    bounds: ROWS[id]?.bounds ?? box(0, 0, 1, 1),
+  }));
+  assert.deepEqual(globeBatch(countries, rowOf), { g: ["RU"], u: [] });
+  // Beyond the cap, a box past 180 meets a view across the antimeridian.
+  assert.deepEqual(globeBatch(countries, rowOf, box(-179, 60, -170, 70), 0), { g: ["RU"], u: [] });
   assert.equal(rowKnownAbsent(ROWS.ES), false);
 });
 

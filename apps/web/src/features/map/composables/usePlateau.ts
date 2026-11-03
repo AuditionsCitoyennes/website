@@ -7,11 +7,11 @@
 // as a getter.
 
 import type mapboxgl from "mapbox-gl";
-import type { Bounds, HeightClass } from "@/features/geo";
+import { canonicalCopies, type Bounds, type HeightClass, type WrapGeometry } from "@/features/geo";
 import { apiBase } from "@/shared/absoluteUrl";
 import { perfEnd, perfOn, perfSpan } from "@/shared/perf/perf";
 import { globeSetMode } from "../gl/globeDeferral";
-import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
+import { boundsOfFeatures, plateauHeightM, polysOf, ringBounds, unionBounds } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
@@ -289,6 +289,29 @@ export function usePlateau({
     return Math.min(15, Math.max(4, Math.floor((cam?.zoom ?? 8) + 1)));
   }
 
+  /** The raised features in [-180, 180] (geo's canonicalCopies): what the
+   *  DEM works in — the API projects linearly in lng, and mapbox asks for the
+   *  canonical world's tiles. The same features for an outline in range. */
+  const demFeatures = (raised: OutlineFC["features"]) =>
+    raised.map((f) => {
+      const g = canonicalCopies(f.geometry as WrapGeometry);
+      return g === f.geometry ? f : { ...f, geometry: g };
+    });
+
+  /** The boxes the DEM warm-up covers: the raised box, or, for an outline past
+   *  ±180, its canonical copy's west and east halves (no tile x out of range). */
+  function demBoxes(dem: OutlineFC["features"], wb: Bounds): Bounds[] {
+    if (wb.minLng >= -180 && wb.maxLng <= 180) return [wb];
+    const halves: (Bounds | null)[] = [null, null];
+    for (const f of dem)
+      for (const poly of polysOf(f.geometry as { type?: string })) {
+        const b = ringBounds(poly[0]);
+        const i = b.minLng + b.maxLng < 0 ? 0 : 1;
+        halves[i] = halves[i] ? unionBounds(halves[i]!, b) : b;
+      }
+    return halves.filter((b): b is Bounds => !!b);
+  }
+
   /** The raised unit's box and its canonical zoom (12 without a box). */
   function canonicalOf(raised: OutlineFC["features"]) {
     const wb = boundsOfFeatures(raised);
@@ -442,6 +465,7 @@ export function usePlateau({
         : Promise.resolve();
     try {
       let key: string | undefined;
+      const demRaised = demFeatures(raised);
       if (__TEST_TOOLS__ && route === "client") {
         // The version key from the relief worker, no request: the same geometry
         // objects the wall meshes, at this height. The worker keeps the selection.
@@ -450,7 +474,7 @@ export function usePlateau({
           const c = await loadReliefClient();
           relief = c;
           c.onReliefLost(() => void ensurePlateau());
-          ({ key } = await c.registerSelection(raised, heightM));
+          ({ key } = await c.registerSelection(demRaised, heightM));
           if (endKey) endKey();
         } catch (err) {
           // Too large fails on both routes (the server's 413), as before.
@@ -459,7 +483,7 @@ export function usePlateau({
           route = "serveur";
         }
       }
-      if (route === "serveur") key = await postDem(raised, heightM, scopeId);
+      if (route === "serveur") key = await postDem(demRaised, heightM, scopeId);
       if (!key) throw new Error("dem POST returned no version");
       const version = `${route}:${key}`;
       map = getMap();
@@ -489,7 +513,8 @@ export function usePlateau({
       // stand the new DEM up in the spare slot while the old one sinks (the invisible
       // hillshade forces Mapbox to start fetching current-viewport tiles now).
       const { wb, zCanon } = early ?? canonicalOf(raised);
-      if (wb && route === "serveur") warmDemTiles(key, wb, zCanon);
+      if (wb && route === "serveur")
+        for (const b of demBoxes(demRaised, wb)) warmDemTiles(key, b, zCanon);
       const next: DemSlot = terrainSrc === "plateau-dem-a" ? "plateau-dem-b" : "plateau-dem-a";
       // A fast drill: the last swap left `next` and no frame has rendered since,
       // so mapbox's evaluated terrain may still name it — one frame first (≤ 1 s).
