@@ -22,7 +22,8 @@
 //   resolve null; one started finishes and resolves (the caller's run counter
 //   drops it). Request ids are this module's bookkeeping only.
 // - Settlement. `build()` never rejects: it resolves the mesh, or null when
-//   superseded or disposed. The worker's `error` or `messageerror`, an `error`
+//   superseded or disposed. A geometry the flattening cannot read is built
+//   here (null if the builder cannot read it either). The worker's `error` or `messageerror`, an `error`
 //   reply, or no reply MESH_WATCHDOG_MS after a request (re-armed whenever
 //   the worker answers another one, and one more task when due, so replies
 //   a busy page left queued get their turn) end the worker for the
@@ -257,7 +258,16 @@ export function createMeshClient(deps: MeshClientDeps) {
     const t0 = deps.now();
     const alloc = { puts: [] as MeshPut[], used: new Set<number>() };
     const { features, heightM, focus, context } = p.inputs;
-    const sets = [features, focus, context].map((fs) => setOf(fs, alloc)!);
+    let sets: MeshSet[];
+    try {
+      sets = [features, focus, context].map((fs) => setOf(fs, alloc)!);
+    } catch {
+      // A geometry the flattening cannot read: nothing posted, the tokens it
+      // gave unsent again; built here (null if the builder cannot either).
+      forget(alloc.puts.map((x) => x.token));
+      settle(p);
+      return p.resolve(onMain(p.inputs, p.want, p.globe, p.id));
+    }
     p.tokens = [...alloc.used];
     if (!p.resent) {
       p.key = keyOf(p.want, heightM, sets);
@@ -314,6 +324,12 @@ export function createMeshClient(deps: MeshClientDeps) {
     if (m.t === "missing") {
       n.misses++;
       forget(m.tokens);
+      if (p.superseded) {
+        // An older run's: not sent again, nobody would apply it.
+        settle(p);
+        n.droppedBeforeStart++;
+        return p.resolve(null);
+      }
       if (!p.resent) {
         p.resent = true;
         n.resends++;

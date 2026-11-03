@@ -259,6 +259,57 @@ test("a miss: the geometries sent once more; a second miss builds it here", asyn
   assert.deepEqual([s.misses, s.resends, s.fallbacks, s.mode], [2, 1, 1, "worker"]);
 });
 
+test("a miss for a superseded request: not sent again, resolved null", async () => {
+  const r = rig();
+  const fx = inputs();
+  const p1 = r.client.build(fx, BOTH);
+  await r.flush();
+  await p1;
+  r.core.release([1, 2, 3]); // the worker lost them (the page did not say so)
+  const pA = r.client.build(fx, BOTH);
+  r.work(); // the worker answers A `missing`, the reply not read yet
+  const pB = r.client.build(inputs(8), BOTH);
+  await r.flush();
+  assert.equal(await pA, null);
+  assert.equal((await pB)!.mesh.scopeId, "fr:dep:8");
+  assert.deepEqual(
+    r.builds().map((b) => [b.id, b.puts.length]),
+    [
+      [1, 3],
+      [2, 0],
+      [3, 3],
+    ],
+  );
+  const s = r.client.stats();
+  assert.deepEqual([s.misses, s.resends, s.droppedBeforeStart, s.fallbacks], [1, 0, 1, 0]);
+});
+
+test("a geometry the flattening cannot read: built here, never thrown", async () => {
+  const r = rig();
+  const fx = inputs();
+  const bad = {
+    ...fx,
+    focus: [
+      ...fx.focus,
+      { type: "Feature", properties: { id: "bad" }, geometry: { type: "Polygon" } },
+    ],
+  } as MeshInputs;
+  let p!: Promise<MeshResult | null>;
+  assert.doesNotThrow(() => (p = r.client.build(bad, BOTH)));
+  // The builder cannot read it either: null, the caller builds and fails as before.
+  assert.equal(await p, null);
+  assert.equal(r.builds().length, 0);
+  let s = r.client.stats();
+  assert.deepEqual([s.liveTokens, s.liveVertices, s.pinnedVertices, s.mode], [0, 0, 0, "worker"]);
+  // The geometries it had flattened were never sent: they go with the next build.
+  const ok = r.client.build(fx, BOTH);
+  await r.flush();
+  assert.equal((await ok)!.via, "worker");
+  assert.equal(r.builds()[0].puts.length, 3);
+  s = r.client.stats();
+  assert.deepEqual([s.misses, s.liveTokens], [0, 3]);
+});
+
 test("single flight joins a build in flight only, with no new id", async () => {
   const r = rig();
   const fx = inputs();
