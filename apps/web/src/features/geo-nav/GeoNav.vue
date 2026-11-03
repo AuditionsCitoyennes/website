@@ -174,6 +174,9 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 // fell back there, the API's two sets.
 const mapPresentable = ref(false);
 const booting = ref(true);
+// The curtain's fade has ended: the map is in sight (the credit's 5 s count
+// from here).
+const curtainGone = ref(false);
 watch(
   () =>
     !mapPresentable.value ||
@@ -392,6 +395,17 @@ const panelCover = computed(() => {
   if (props.preview || !isDesktop.value) return 0;
   return panelWide.value && !panelFolded.value ? panelPx.value : PANEL_BASE_PX;
 });
+// Above mapbox's own 640 px compact line, where it would have shown the full
+// credit, and with the corner in sight, the credit opens at first
+// (GeoDrillMap's `openCredit`); phones in portrait, a raised sheet and the
+// card keep mapbox's closed « i ».
+const openCredit = computed(
+  () =>
+    !props.preview &&
+    curtainGone.value &&
+    viewportW.value > 640 &&
+    (isDesktop.value || sheetLowered.value),
+);
 // Back on the map (or the lieu closed): the scope, held still meanwhile,
 // catches up with wherever the view is now.
 watch(readingPlace, (reading) => {
@@ -788,6 +802,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       :scope-pending="scopePending"
       :stable-outline="outlines?.mode.value === 'fichiers'"
       :attribution="attribution"
+      :open-credit="openCredit"
       :hovered-id="hoveredPanelId"
       :active-id="selectedPlaceId"
       :slabs="slabSpec"
@@ -908,7 +923,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
 
     <!-- Boot curtain: covers map AND panel, so nothing half-built is on show.
          Lifts on its own (see `booting`) and is inert once gone. -->
-    <Transition name="boot">
+    <Transition name="boot" @after-leave="curtainGone = true">
       <div v-if="booting" class="boot" role="status" aria-live="polite">
         <span class="spinner spinner-lg" aria-hidden="true"></span>
         <p>Chargement de la carte…</p>

@@ -30,6 +30,7 @@ import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import { reliefMode } from "./relief/reliefSwitch";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
+import { creditFold, type CreditBox, type CreditFold } from "./controls/creditFold";
 
 const props = defineProps<{
   units: MapUnit[];
@@ -63,6 +64,12 @@ const props = defineProps<{
   /** Credits for the app's own data (the boundaries' sources), shown before
    *  Mapbox's in the map's attribution. Mapbox HTML: http(s) anchors only. */
   attribution?: readonly string[];
+  /** The credit may be shown opened now — the page (not the card), wider
+   *  than mapbox's 640 px compact line, the corner in sight, the boot curtain
+   *  gone. The first time it is true the compact « i » opens, and folds on the
+   *  user's first move, 5 s later, or when this turns false
+   *  (controls/creditFold); never again. */
+  openCredit?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -108,12 +115,22 @@ const getMap = () => map;
 let attrib: mapboxgl.AttributionControl | null = null;
 // Compact (mapbox's « i », opened on demand) at every width: with the
 // boundaries' credits the line is far longer than the room the zoom buttons
-// and the logo leave it.
+// and the logo leave it. Opened at first above 640 px, folded on the first
+// move (`openCredit`).
 const newAttribution = () =>
   new mapboxgl.AttributionControl({
     compact: true,
     customAttribution: [...(props.attribution ?? [])],
   });
+let fold: CreditFold | null = null;
+// The compact control now, by mapbox's own classes (not compact: null).
+const creditBox = (): CreditBox | null => {
+  const c = map
+    ?.getContainer()
+    .querySelector<HTMLElement>(".mapboxgl-ctrl-attrib.mapboxgl-compact");
+  const b = c?.querySelector<HTMLButtonElement>(".mapboxgl-ctrl-attrib-button");
+  return c && b ? { container: c, button: b } : null;
+};
 // True once the style's load event fired. The plateau pipeline MUST NOT mutate
 // the style (addSource/addLayer/setTerrain) before then: pre-load mutations sit
 // in the style's change-set and permanently wedge style.loaded() → the load
@@ -268,6 +285,8 @@ onMounted(() => {
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-left");
     attrib = newAttribution();
     map.addControl(attrib, "bottom-right"); // where mapbox's own goes
+    fold = creditFold(map, creditBox);
+    if (props.openCredit) fold.arm();
     uninstallProbes = installProbes({
       getMap,
       frames,
@@ -451,7 +470,7 @@ window.addEventListener(MAP_MOVED_EVENT, onMapMoved);
 // the camera's padding timer and pointer listeners; the plateau's and the
 // slabs' animations and the theme observer; the plateau pipeline aborted; the
 // lid's hidden map; the resize observer; the markers; the map itself; the flags;
-// the frame bus; the probes.
+// the frame bus; the probes; the credit's fold.
 onBeforeUnmount(() => {
   window.removeEventListener(MAP_MOVED_EVENT, onMapMoved);
   pins.dispose();
@@ -473,6 +492,8 @@ onBeforeUnmount(() => {
   camera.resetIntro();
   frames.dispose();
   uninstallProbes();
+  fold?.dispose();
+  fold = null;
 });
 
 // ---- The watchers, in today's order (watchers run in the order they are made) ----
@@ -571,8 +592,9 @@ watch(
 // The credits changed (the outline files' session fell back to the API's
 // boundaries, say): a new control with the new text — mapbox has no setter.
 // On the joined text, so a fresh array with the same strings does nothing.
-// An expanded « i » closes again: at most twice a session (the files' boot,
-// under the curtain, then a fallback).
+// An expanded « i » closes again (unless the fold is still due,
+// controls/creditFold): at most twice a session (the files' boot, under the
+// curtain, then a fallback).
 watch(
   () => props.attribution?.join("\n") ?? "",
   () => {
@@ -581,7 +603,17 @@ watch(
     m.removeControl(attrib);
     attrib = newAttribution();
     m.addControl(attrib, "bottom-right");
+    fold?.replaced(); // a fold still due: the new control opens too
   },
+);
+
+// The credit may be shown opened (after the re-creation: a same-tick new
+// control is the one opened). True the first time: open; false while still
+// open: fold now — back in the card, the sheet raised, a narrow window. In
+// `idle` or `done`, nothing.
+watch(
+  () => props.openCredit,
+  (on) => (on ? fold?.arm() : fold?.fold()),
 );
 </script>
 
