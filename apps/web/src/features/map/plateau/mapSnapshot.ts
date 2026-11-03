@@ -231,6 +231,8 @@ export class SnapshotManager {
     const ok = await this.until(() => !!this.map && this.map.loaded(), 12000);
     if (seq !== this.seq || !this.map) return null;
     if (!ok) return null;
+    // A "client" run's commit hold is timed against this wait (relief/
+    // reliefSwitch.ts DEFAULT_RELIEF_COMMIT_HOLD_MS): change one, measure both.
     await this.wait(60); // small raster/label settle margin
     if (seq !== this.seq || !this.map) return null;
 
