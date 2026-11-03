@@ -10,7 +10,7 @@
 //   that keep it so (a function gets EXECUTE for PUBLIC when created), and the
 //   generated helpers, replaced as a later migration would replace them, keep
 //   their grants (rolled back);
-// - every SECURITY DEFINER function sets search_path, but the baseline's eight
+// - every SECURITY DEFINER function sets search_path, but the baseline's seven
 //   listed under securityDefinerWithoutSearchPath;
 // - the tables of serverOnlyTables (geo_units among them) are the ones anon
 //   and authenticated hold no privilege on, and cannot read: RLS on, the
