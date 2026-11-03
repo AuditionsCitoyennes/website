@@ -1,11 +1,22 @@
 // The explorer's rules over the outline files (outlineRules.ts), against a
 // scripted view of the store. Run with `node --import tsx --test` (root
-// "test:scripts"). Pure: no Vue, no alias.
+// "test:scripts"). Pure: no Vue; its one app import (the geo barrel) is
+// mapped here.
 
 import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
 import { test } from "node:test";
-import * as rules from "./outlineRules";
 import type { BundleState, OutlineView, RuleUnit } from "./outlineRules";
+
+const SRC = new URL("../../../", import.meta.url);
+registerHooks({
+  resolve: (specifier, context, next) =>
+    next(
+      specifier === "@/features/geo" ? new URL("features/geo/index.ts", SRC).href : specifier,
+      context,
+    ),
+});
+const rules = await import("./outlineRules");
 
 const { bundlesFor, geometryFor, raisedGeometryFor, raisedOutlineDue, refinementBatch } = rules;
 const DEPTH = { world: 0, country: 1, region: 2, dep: 3, city: 4, arr: 5, place: 6 };
@@ -130,6 +141,53 @@ test("a failed file, or a chain settled without a row: known absent, nothing hel
   u.land(RHONE.id, [[LYON.id, {}]]);
   assert.equal(rules.geometryKnownAbsent(u.v, [WORLD, FR, ARA, RHONE, ghost]), true);
   assert.equal(pending(u.v, WORLD, FR, ARA, RHONE, ghost), false);
+});
+
+test("a country: drawn on its g/, raised on its u/, held for it; c3000 and absent rows unheld", () => {
+  const t = booted();
+  const globes = new Map<string, object>();
+  const v: OutlineView = { ...t.v, globeOf: (id) => globes.get(id) };
+  const ES = unit("ES", "world", "country", 40, -3, 10);
+  const CA = unit("CA", "world", "country", 60, -100, 30);
+  const AQ = unit("AQ", "world", "country", -77, 0, 10);
+  t.row("ES", "c300", 0, 1);
+  t.row("CA", "c3000", 0, 1);
+  t.row("AQ", "c3000", 0, 1);
+  for (const id of ["ES", "CA", "AQ"]) t.v.rowOf(id)!.g = 1;
+  t.v.rowOf("AQ")!.wrap = true;
+  const g = { g: "ES" };
+  globes.set("ES", g);
+  assert.equal(geometryFor(v, ES), g);
+  assert.equal(raisedGeometryFor(v, ES), g); // its u/ not in: the g/ stands in
+  assert.equal(raisedOutlineDue(v, ES), true);
+  assert.equal(pending(v, WORLD, ES), true);
+  assert.equal(rules.geometryKnownAbsent(v, [WORLD, ES]), false);
+  const u = { u: "ES" };
+  t.selves.set("ES", u);
+  assert.deepEqual([geometryFor(v, ES), raisedGeometryFor(v, ES)], [g, u]);
+  assert.equal(raisedOutlineDue(v, ES), false);
+  // Given up: rises on its g/; without one either, known absent (a box fit).
+  t.selves.delete("ES");
+  t.gaveUp.add("ES");
+  assert.equal(raisedOutlineDue(v, ES), false);
+  globes.delete("ES");
+  assert.equal(rules.geometryKnownAbsent(v, [WORLD, ES]), true);
+  assert.equal(pending(v, WORLD, ES), false);
+  // c3000: its g/ is its self, nothing is held for it.
+  assert.equal(raisedOutlineDue(v, CA), false);
+  assert.equal(rules.geometryKnownAbsent(v, [WORLD, CA]), true);
+  globes.set("CA", { g: "CA" });
+  assert.equal(raisedGeometryFor(v, CA), globes.get("CA"));
+  // A wrapped / 360° row: nothing, ever.
+  globes.set("AQ", {});
+  t.selves.set("AQ", {});
+  assert.equal(raisedGeometryFor(v, AQ), undefined);
+  assert.equal(raisedOutlineDue(v, AQ), false);
+  assert.equal(rules.geometryKnownAbsent(v, [WORLD, AQ]), true);
+  // France is unchanged: its k/ self, whatever g/ is held for it.
+  globes.set("FR", {});
+  assert.equal(geometryFor(v, FR), t.selves.get("FR"));
+  assert.equal(raisedGeometryFor(v, FR), t.selves.get("FR"));
 });
 
 test("the session's fallback: every answer is the API's", () => {

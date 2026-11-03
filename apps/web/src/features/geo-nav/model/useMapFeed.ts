@@ -5,14 +5,17 @@
 // contours fetched ahead for what is shown: the API's, or, with the outline
 // files read (`outlines`, outlineRules.ts), the scope's chain of bundles and
 // its neighbours' selves.
-import { computed, watch, type ComputedRef } from "vue";
+import { computed, watch, type ComputedRef, type Ref } from "vue";
 import {
   type Bounds,
   centerInBounds,
   communeCodeOf,
   depCodeOf,
+  globeBatch,
   type GeoUnit,
   outlineSourceOf,
+  selfFileOf,
+  siblingSelves,
   unitsByLevelKey,
 } from "@/features/geo";
 import type { MapUnit, OutlineFC } from "@/features/map";
@@ -35,6 +38,8 @@ export interface MapFeedInputs {
   selectedPlace: ComputedRef<GeoUnit | null>;
   /** The outline files (GeoNav: the server's tree with ac:contours=fichiers). */
   outlines?: OutlineFiles | null;
+  /** The page's boot overlay is up (GeoNav): the countries' files wait. */
+  booting?: Ref<boolean>;
 }
 
 export function useMapFeed(inputs: MapFeedInputs) {
@@ -381,6 +386,12 @@ export function useMapFeed(inputs: MapFeedInputs) {
         if (!filesActive()) return;
         const scope = currentScope.value;
         if (raisedOutlineDue(scope)) files.holdSelf(id);
+        // A country with no bundle: its u/ first (once its row is known).
+        if (scope.levelKey === "country")
+          void files.ensureRoot().then(() => {
+            if (currentScope.value.id === id && selfFileOf(files.rowOf(id)) === "u")
+              void files.ensureSelf(id);
+          });
         for (const b of bundlesFor(view, chainOf(scope))) {
           await files.ensureBundle(b);
           if (currentScope.value.id !== id) return;
@@ -401,6 +412,13 @@ export function useMapFeed(inputs: MapFeedInputs) {
         const cross = crossRegionDeps.value;
         if (view.bundleState(s.id) === "loading") return "";
         const parent = s.parentId ? index.value.get(s.parentId) : undefined;
+        // At a country, the countries whose box meets its own, once its self
+        // is in (or given up on): their lines beside its raised edge.
+        if (s.levelKey === "country") {
+          if (raisedOutlineDue(s) || inputs.booting?.value) return "";
+          const countries = root.value.children.filter((c) => c.levelKey === "country");
+          return siblingSelves(s, countries, files.rowOf).join(",");
+        }
         const landed = !nav.scopePinned.value;
         return refinementBatch(view, s, parent?.children ?? [], landed ? cross : []).join(",");
       },
@@ -408,9 +426,32 @@ export function useMapFeed(inputs: MapFeedInputs) {
         if (ids) void files.batchSelf(ids.split(","));
       },
     );
+    // The countries' world outlines (geo's globeBatch), in ONE write, at the
+    // world's scope and at a country's, once the boot is over (the overlay
+    // waits for none of them): the tree's first countries, then those beyond
+    // whose box meets the view. Keyed on the id set, never on the store's
+    // version: a write must not ask again.
+    watch(
+      () => {
+        const s = currentScope.value;
+        if (!filesActive() || inputs.booting?.value) return "";
+        if (s.levelKey !== "world" && s.levelKey !== "country") return "";
+        if (raisedOutlineDue(s)) return ""; // a country's own u/ first
+        const countries = root.value.children.filter((c) => c.levelKey === "country");
+        const { g, u } = globeBatch(countries, files.rowOf, mapView.value?.screen);
+        return g.length || u.length ? `${g.join(",")}|${u.join(",")}` : "";
+      },
+      (key) => {
+        if (!key) return;
+        const [g, u] = key.split("|").map((ids) => (ids ? ids.split(",") : []));
+        void files.ensureGlobe(g, u);
+      },
+      { immediate: true },
+    );
     // Every file the outline draws from stays in the store (an evicted line
     // would vanish and be fetched again): the chain, the scope, its children,
-    // its neighbours — pinned again as each file lands.
+    // its neighbours (a country's g/ and u/ alike) — pinned again as each
+    // file lands.
     watch(
       () => {
         if (!filesActive()) return "";

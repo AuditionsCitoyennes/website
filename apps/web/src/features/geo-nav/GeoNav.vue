@@ -2,7 +2,7 @@
 import { computed, markRaw, nextTick, onBeforeUnmount, ref, toRef, watch } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
-import { ancestorsOf, placeLabel } from "@/features/geo";
+import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
 import {
@@ -93,13 +93,13 @@ if (contoursMode === "fichiers" && !outlines && import.meta.env.DEV)
   console.warn("[outlines] ac:contours=fichiers is read under the server source only: api here");
 if (outlines) void outlines.ensureRoot();
 // The boundaries' credits (data/attribution), after the data actually drawn:
-// the files' only once their session is "ok". « Pays » stays off until the
-// country files are drawn (outline-world).
+// the files' only once their session is "ok". « Pays » once a country's file
+// is in (a g/, or a u/ other than France's units': the tree holds a country).
 const attribution = computed(() =>
   boundaryAttribution({
     mode: contoursMode,
     session: outlines ? outlines.ready.value : null,
-    countries: false,
+    countries: !!outlines?.loadedKeys().some((k) => /^(g\/|u\/(?!fr_))/.test(k)),
   }),
 );
 const boundaries = useBoundaryQueries(
@@ -223,12 +223,16 @@ watch(panelUnits, (units) => {
 });
 
 // Under the files, a row held under the pointer asks for its unit's bundle
-// before the click (data/hoverPrefetch; a région's self is in it). Not on a
-// touch screen (a tap hovers the row it opens) nor under Save-Data. The
-// map's own hover is not emitted: a pin gets none.
+// before the click (data/hoverPrefetch; a région's self is in it), or a
+// country's u/: the file its row declares its self in (geo's prefetchKind).
+// Not on a touch screen (a tap hovers the row it opens) nor under Save-Data.
+// The map's own hover is not emitted: a pin gets none.
 if (outlines) {
   const rowHover = hoverPrefetch({
-    prefetch: (id) => outlines.prefetch("k", id),
+    prefetch: (id) => {
+      const kind = prefetchKind(outlines.rowOf(id));
+      return kind ? outlines.prefetch(kind, id) : Promise.resolve();
+    },
     allowed: () =>
       outlines.mode.value === "fichiers" &&
       window.matchMedia("(hover: hover)").matches &&
@@ -331,6 +335,7 @@ const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
   panelUnits,
   selectedPlace,
   outlines,
+  booting,
 });
 
 /** The page the map fills (`.geo-page`), GeoNav's own element. */

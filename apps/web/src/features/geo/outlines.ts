@@ -379,13 +379,13 @@ export class OutlineStore {
 
   /**
    * Keeps these units' files whatever the cap: for each id, the files holding
-   * its self and its entry, and its bundle. Replaces the pinned set; returns
-   * the pinned files' vertices.
+   * its self, its entry and its world outline, and its bundle. Replaces the
+   * pinned set; returns the pinned files' vertices.
    */
   pin(ids: Iterable<string>): number {
     const pinned = new Set<string>();
     for (const id of ids) {
-      for (const tier of [this.rows.get(id)?.st, this.entryTier.get(id)])
+      for (const tier of [this.rows.get(id)?.st, this.entryTier.get(id), this.globeTier.get(id)])
         for (const fk of (tier && this.objects.get(`${id}@${tier}`)?.holders) || []) pinned.add(fk);
       if (this.files.has(fileKey("k", id))) pinned.add(fileKey("k", id));
     }
@@ -412,6 +412,7 @@ export class OutlineStore {
   entryOf(id: string): OutlineGeometry | undefined {
     return this.at(id, this.entryTier.get(id));
   }
+  /** Its world outline (its g/ file's): undefined until that file is in. */
   globeOf(id: string): OutlineGeometry | undefined {
     return this.at(id, this.globeTier.get(id));
   }

@@ -4,7 +4,14 @@
 // runs the ring's hook first (ring/useAnalysesRing registers it; neither
 // imports the other).
 import { markRaw, onBeforeUnmount, ref, shallowRef, type ComputedRef, type Ref } from "vue";
-import { ancestorsOf, type Bounds, depCodeOf, type GeoUnit, SPAN_DESCEND } from "@/features/geo";
+import {
+  ancestorsOf,
+  type Bounds,
+  depCodeOf,
+  type GeoUnit,
+  selfFileOf,
+  SPAN_DESCEND,
+} from "@/features/geo";
 import type { CameraCmd } from "@/features/map";
 import { frameFill } from "@/features/analyses";
 import type { NavState } from "../navState";
@@ -68,6 +75,8 @@ export function useCamera(inputs: CameraInputs) {
   // arrondissements (Paris 3e) at half the view on a laptop, less on a bigger
   // screen — too small to become the scope.
   const FIT_MAX_ZOOM = 14.9;
+  // The whole globe in sight, for a world too wide to fit (flyToUnit).
+  const WORLD_ZOOM = 1.5;
   // Right after its fit, a unit's children fill at most this much of the view —
   // a wheel notch or so short of DESCEND, where the one under the view's centre
   // would become the scope. The fit makes the unit large — FRAME_FILL of its
@@ -126,13 +135,34 @@ export function useCamera(inputs: CameraInputs) {
         minLng: b.minLng - padLng,
         maxLng: b.maxLng + padLng,
       };
+      // A world of countries (Antarctica's lieux with Russia's) is wider than
+      // the globe shows: no fit holds it (past the poles mapbox refuses it,
+      // and the silhouette fit lands on the south pole). The globe, whole,
+      // around its middle.
+      if (bounds.maxLng - bounds.minLng > 180) {
+        const lat = (Math.max(-60, bounds.minLat) + Math.min(60, bounds.maxLat)) / 2;
+        inMicroZone.value = false;
+        setCamera({
+          type: "ease",
+          center: [lat, (b.minLng + b.maxLng) / 2],
+          zoom: WORLD_ZOOM,
+          animate,
+          fresh,
+        });
+        framedFit.value = { key: nav.cameraKey.value, unitId: unit.id };
+        return;
+      }
     } else {
       // A département rises with its own outline (depFine): ask for it now, the
       // frame takes it if it is already in. With the outline files, the unit's
       // bundle (its self and its children's lines; nothing while its row is
-      // not known), the same request as the scope's chain will make.
-      if (outlines?.mode.value === "fichiers") void outlines.ensureBundle(unit.id);
-      else void ensureDepFine(depCodeOf(unit));
+      // not known), the same request as the scope's chain will make — a
+      // country with no bundle, its u/ (geo's outlineRoles).
+      if (outlines?.mode.value === "fichiers") {
+        if (unit.levelKey === "country" && selfFileOf(outlines.rowOf(unit.id)) === "u")
+          void outlines.ensureSelf(unit.id);
+        else void outlines.ensureBundle(unit.id);
+      } else void ensureDepFine(depCodeOf(unit));
       const geometry = byBox ? undefined : raisedGeometryFor(unit);
       // markRaw: the command lives in a deep ref, and the geometry must never be
       // proxied (see communeGeo's note).

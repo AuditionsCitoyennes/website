@@ -297,6 +297,44 @@ test("LRU: an object held by two files survives the eviction of one", () => {
   assert.equal(s.stats().vertices, 100);
 });
 
+test("globeOf: a country's g/ object, apart from its self; pinned with it", () => {
+  const s = new OutlineStore({ capVertices: 100 });
+  const g = (id: string, n: number) => ({ ...uFile(id, "w3000", n), kind: "g" as const });
+  s.putRoot({
+    ...ROOT(),
+    units: [
+      {
+        id: "ES",
+        parent: null,
+        level: "country",
+        name: "España",
+        bbox: [-18, 27, 4, 44],
+        center: [40, -3],
+        st: "c300",
+        k: 0,
+        u: 1,
+        g: 1,
+      },
+    ],
+  });
+  assert.equal(s.globeOf("ES"), undefined);
+  s.put(g("ES", 60), raw);
+  const globe = s.globeOf("ES");
+  assert.ok(globe && s.loaded("g", "ES"));
+  assert.equal(s.selfOf("ES"), undefined); // its self is the u/ file's (c300)
+  s.put(uFile("ES", "c300", 30), raw);
+  assert.ok(s.selfOf("ES") && s.selfOf("ES") !== globe);
+  assert.equal(s.globeOf("ES"), globe);
+  // Pinned by its id, the g/ file stays past the cap.
+  s.pin(["ES"]);
+  s.put(uFile("fr:dep:69", "e50", 50), raw);
+  assert.ok(s.loaded("g", "ES") && s.loaded("u", "ES"));
+  s.pin([]);
+  s.put(uFile("fr:dep:75", "e50", 50), raw);
+  assert.equal(s.loaded("g", "ES"), false);
+  assert.equal(s.globeOf("ES"), undefined);
+});
+
 test("file names and URLs", () => {
   assert.equal(keyOf("fr:com:69123"), "fr_com_69123");
   assert.equal(keyOf("FR"), "FR");

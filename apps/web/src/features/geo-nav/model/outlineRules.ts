@@ -8,7 +8,9 @@
 // 1. A unit is drawn with, for a country, its self (k/FR); below it, its entry
 //    in its PARENT's bundle — none until k/<parent> is in, even when an object
 //    for it came with another file. Raised: its self once stored, else that.
-//    Below the région the entry IS the self (one object, `id@e50`).
+//    Below the région the entry IS the self (one object, `id@e50`). Any
+//    other country is drawn with its g/ and raised with its u/ (geo's
+//    outlineRoles: which object, which file, which rows are known absent).
 // 2. A plateau waits for its self while its row declares one (k or u), it is
 //    not stored, its file did not fail and the wait was not given up
 //    (OUTLINE_WAIT_MS). Pending: waiting, or no geometry while some may still
@@ -25,7 +27,8 @@
 // 6. The chain: a scope's bundles, root first (bundlesFor), loaded in turn.
 // 7. A panel row held under the pointer asks for its unit's bundle before the
 //    click (data/hoverPrefetch, GeoNav): a région's self is in it.
-import type { Bounds, GeoUnit } from "@/features/geo";
+import { countryOutline, selfFileOf } from "@/features/geo";
+import type { Bounds, GeoUnit, RoleRow } from "@/features/geo";
 
 export type RuleUnit = Pick<
   GeoUnit,
@@ -38,8 +41,10 @@ export interface OutlineView {
   /** "fichiers": the files are read; anything else: the API's answers. */
   readonly mode: string;
   /** Its row (root.json's, or its entry's once its parent's bundle is in). */
-  rowOf(id: string): { st: string; k: 0 | 1; u: 0 | 1 } | undefined;
+  rowOf(id: string): RoleRow | undefined;
   selfOf(id: string): object | undefined;
+  /** Its world outline (a country's g/; none: no country but France). */
+  globeOf?(id: string): object | undefined;
   /** The entries of its loaded bundle (undefined until k/<id> is in). */
   unitsOf(id: string): ReadonlyMap<string, object> | undefined;
   bundleState(id: string): BundleState;
@@ -57,18 +62,28 @@ export interface OutlineView {
  *  is built off the main thread (pr-mesh-worker). */
 export const REFINE_CAPS = { region: 0, dep: 8 } as const;
 
+/** A country's objects as outlineRoles reads them. */
+const objects = (v: OutlineView) => ({
+  selfOf: v.selfOf,
+  globeOf: (id: string) => v.globeOf?.(id),
+});
+
 export function geometryFor(v: OutlineView, u: RuleUnit): object | undefined {
-  if (u.levelKey === "country") return v.selfOf(u.id);
+  if (u.levelKey === "country") return countryOutline(objects(v), u.id, v.rowOf(u.id), false);
   if (!u.parentId || u.levelKey === "world" || u.levelKey === "place") return undefined;
   return v.unitsOf(u.parentId)?.get(u.id);
 }
 
 export const raisedGeometryFor = (v: OutlineView, u: RuleUnit): object | undefined =>
-  v.selfOf(u.id) ?? geometryFor(v, u);
+  u.levelKey === "country"
+    ? countryOutline(objects(v), u.id, v.rowOf(u.id), true)
+    : (v.selfOf(u.id) ?? geometryFor(v, u));
 
+/** Its row declares a self a plateau waits for: its bundle or its u/ — not
+ *  a g/ (outlineRoles: no hold on the globe's batch), nor a row known absent. */
 const declaresSelf = (v: OutlineView, id: string) => {
-  const row = v.rowOf(id);
-  return !!row && (row.k === 1 || row.u === 1);
+  const kind = selfFileOf(v.rowOf(id));
+  return kind === "k" || kind === "u";
 };
 
 export const raisedOutlineDue = (v: OutlineView, u: RuleUnit): boolean =>
@@ -101,6 +116,10 @@ export const bundlesSettled = (v: OutlineView, chain: readonly RuleUnit[]): bool
 export function geometryKnownAbsent(v: OutlineView, chain: readonly RuleUnit[]): boolean {
   const u = chain[chain.length - 1];
   if (!u || raisedGeometryFor(v, u)) return false;
+  // A country with no bundle: absent unless its self is waited for (its g/
+  // rises it when it lands, unheld).
+  const row = v.rowOf(u.id);
+  if (u.levelKey === "country" && row && !row.k) return !raisedOutlineDue(v, u);
   return v.failed(u.id) || bundlesSettled(v, chain);
 }
 

@@ -167,12 +167,19 @@ export class OutlineLoader {
     });
   }
 
-  /** The world-tier outlines of these countries (g:1 rows), in ONE write. */
-  async ensureGlobe(ids: string[]): Promise<OutlineStatus[]> {
-    if (await this.stopped()) return ids.map(() => "fallback");
-    return this.many(ids, (id) =>
-      this.o.store.loaded("g", id) ? "loaded" : this.o.store.rowOf(id)?.g ? "g" : null,
-    );
+  /** The world-tier outlines of these countries (g:1 rows), and the u/ of
+   *  `selves` (micro-states, drawn with their self), in ONE write. No wait is
+   *  armed: no plateau stands on this batch. */
+  async ensureGlobe(ids: string[], selves: string[] = []): Promise<OutlineStatus[]> {
+    const all = [...ids, ...selves];
+    if (await this.stopped()) return all.map(() => "fallback");
+    const self = new Set(selves);
+    const { store } = this.o;
+    const want = (id: string) => {
+      const kind = self.has(id) ? "u" : "g";
+      return store.loaded(kind, id) ? "loaded" : store.rowOf(id)?.[kind] ? kind : null;
+    };
+    return this.many(all, want, false);
   }
 
   /** Warms the HTTP cache with a declared file (a hover): never writes, never
@@ -235,10 +242,12 @@ export class OutlineLoader {
     return "loaded";
   }
 
-  /** Several files, settled together and written in one call. */
+  /** Several files, settled together and written in one call; `hold`: each
+   *  self file arms its give-up timer. */
   private async many(
     ids: string[],
     want: (id: string) => OutlineKind | "loaded" | null,
+    hold = true,
   ): Promise<OutlineStatus[]> {
     const { base, build } = this.o;
     const jobs = new Map<string, Promise<Checked<unknown>>>();
@@ -248,7 +257,7 @@ export class OutlineLoader {
       const key = fileKey(kind, id);
       if (this.failed.has(key) && !this.retry(key)) return { status: "failed" };
       if (!jobs.has(key)) {
-        const stop = kind === "g" ? () => {} : this.waitFor(key);
+        const stop = kind === "g" || !hold ? () => {} : this.waitFor(key);
         jobs.set(
           key,
           this.request(fileUrl(base, build, kind, id), key, { build, kind, id }).finally(stop),
