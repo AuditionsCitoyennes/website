@@ -277,11 +277,12 @@ onMounted(() => {
       // The style's "globe" projection applies as-is: the plateau layer is
       // globe-native (dual mercator/ECEF programs morphed onto the sphere below
       // z6 via the experimental custom-layer API), so no projection juggling.
-      // ac:relief=client (relief/reliefSwitch.ts): the plateau's `ac-dem://` DEM
-      // tiles answered in the page, every other URL left alone. Typed as sync by
-      // mapbox's .d.ts, but awaited at runtime (`params || {url}`): one cast.
+      // ac:relief=client (relief/reliefSwitch.ts, the default): the plateau's
+      // `ac-dem://` DEM tiles answered in the page, every other URL left alone.
+      // Typed as sync by mapbox's .d.ts, but awaited at runtime (`params ||
+      // {url}`): one cast.
       transformRequest:
-        __TEST_TOOLS__ && reliefMode === "client"
+        reliefMode === "client"
           ? (demTransformRequest as unknown as mapboxgl.MapOptions["transformRequest"])
           : undefined,
     });
@@ -312,8 +313,9 @@ onMounted(() => {
       mask.applyMask();
       pins.buildMarkers();
       lid.warmup(); // hidden lid-snapshot map: pay style init now
-      // ac:relief=client: the relief worker started now, not on the first selection.
-      if (__TEST_TOOLS__ && reliefMode === "client") {
+      // ac:relief=client (the default): the relief worker started now, not on
+      // the first selection.
+      if (reliefMode === "client") {
         void loadReliefClient().then(
           (c) => c.warmRelief(),
           () => {},
