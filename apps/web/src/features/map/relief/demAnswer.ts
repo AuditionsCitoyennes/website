@@ -26,7 +26,8 @@
 // the first one's: an aborted job is dropped, its aborted callers take
 // ground and its live ones ask again.
 // Every request resolves exactly once and nothing rejects: a hung promise
-// keeps the source loading. Answers go back through the frame budget.
+// keeps the source loading. Answers go back through the frame budget (ground
+// ones skip it with `groundFree`).
 //
 // `failover()` (the worker died or never started) answers every pending call
 // on the main thread, then everything stays there for the session.
@@ -65,6 +66,8 @@ export interface DemAnswerPort {
   mainRender?(rec: DemRecord, z: number, x: number, y: number): Promise<string>;
   now(): number;
   budget: FrameBudget;
+  /** Ground answers skip the frame budget (`ac:relief-budget-ground`). */
+  groundFree?: boolean;
   /** The `ac:relief-delay` arm: ms waited before each answer. */
   delayMs?: number;
   /** Count (TEST_TOOLS): otherwise no counter is touched. */
@@ -103,6 +106,7 @@ function freshStats() {
     workerMax: 0,
     roundTripMax: 0,
     budgetWaitMax: 0,
+    budgetSkips: 0,
     stringifyMs: 0,
     setMs: 0,
     registers: 0,
@@ -268,6 +272,10 @@ export function createDemAnswer(port: DemAnswerPort) {
       // never: every path above resolves
     }
     if (port.delayMs) await new Promise((r) => setTimeout(r, port.delayMs));
+    if (port.groundFree && url === port.ground) {
+      if (st) st.budgetSkips++;
+      return { url };
+    }
     const t0 = now();
     await port.budget.release(z);
     if (st) st.budgetWaitMax = Math.max(st.budgetWaitMax, now() - t0);

@@ -14,7 +14,8 @@ import { createDemWorkerCore, type DemJob, type DemReply } from "./demWorkerCore
 
 const g = globalThis as unknown as { __TEST_TOOLS__: boolean };
 g.__TEST_TOOLS__ = false;
-const { READY_TIMEOUT_MS, createReliefClient } = await import("./demClient");
+const { READY_TIMEOUT_MS, commitHold, createReliefClient } = await import("./demClient");
+const { DEFAULT_RELIEF_COMMIT_HOLD_MS } = await import("./reliefSwitch");
 type ReliefWorker = import("./demClient").ReliefWorker;
 
 const flush = async () => {
@@ -170,4 +171,41 @@ test("both renderers failing: ground, and onLost once", async () => {
   assert.equal(b.url, GROUND_DATA_URL);
   assert.equal(c.stats()?.failedRender, 2);
   assert.equal(lost(), 1);
+});
+
+test("commitHold: resolves once the default hold has passed, not before", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let done = false;
+    const p = commitHold().then(() => (done = true));
+    mock.timers.tick(DEFAULT_RELIEF_COMMIT_HOLD_MS - 1);
+    await flush();
+    assert.equal(done, false);
+    mock.timers.tick(1);
+    await p;
+    assert.equal(done, true);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("commitHold: another hold is kept to, and 0 sets no timer", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let done = false;
+    const p = commitHold(30).then(() => (done = true));
+    mock.timers.tick(29);
+    await flush();
+    assert.equal(done, false);
+    mock.timers.tick(1);
+    await p;
+    assert.equal(done, true);
+    let zero = false;
+    const z = commitHold(0).then(() => (zero = true));
+    await flush(); // no tick: resolved without a timer
+    assert.equal(zero, true);
+    await z;
+  } finally {
+    mock.timers.reset();
+  }
 });

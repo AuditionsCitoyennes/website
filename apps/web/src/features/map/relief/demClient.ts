@@ -29,12 +29,20 @@ import { keyOfJson, vertexCount, type Polygon } from "./demGeometry";
 import type { DemSelection } from "./demRaster";
 import { FrameBudget } from "./demTiles";
 import type { DemJob, DemReply } from "./demWorkerCore";
-import { demoteRelief, reliefBudget, reliefDelay, reliefRoute } from "./reliefSwitch";
+import {
+  demoteRelief,
+  reliefBudget,
+  reliefBudgetGround,
+  reliefCommitHold,
+  reliefDelay,
+  reliefRoute,
+} from "./reliefSwitch";
 
 type Raster = typeof import("./demRaster");
 
 /** Nothing heard from the worker this long after the first job posted: dead (ms). */
 export const READY_TIMEOUT_MS = 10_000;
+
 /** Selections the main-thread renderer keeps projected. */
 const MAIN_SELECTIONS = 8;
 
@@ -52,6 +60,8 @@ export interface ReliefClientDeps {
   makeWorker(): ReliefWorker;
   loadRaster(): Promise<Raster>;
   budget: FrameBudget;
+  /** Ground answers skip the budget. */
+  groundFree?: boolean;
   delayMs?: number;
   stats?: boolean;
   /** Both renderers failed a tile: called once. */
@@ -163,6 +173,7 @@ export function createReliefClient(deps: ReliefClientDeps) {
     mainRender,
     now: () => performance.now(),
     budget: deps.budget,
+    groundFree: deps.groundFree,
     delayMs: deps.delayMs,
     stats: deps.stats,
     onClientLost() {
@@ -202,6 +213,7 @@ const relief = createReliefClient({
     }) as unknown as ReliefWorker,
   loadRaster: () => (raster ??= import("./demRaster")),
   budget: new FrameBudget(reliefBudget),
+  groundFree: reliefBudgetGround === "exempt",
   delayMs: reliefDelay,
   stats: __TEST_TOOLS__,
   onLost() {
@@ -220,6 +232,16 @@ export const registerSelection = relief.registerSelection;
 /** A DEM slot shows `key` / no longer stands (usePlateau). */
 export const holdSlot = relief.holdSlot;
 export const releaseSlot = relief.releaseSlot;
+
+/**
+ * The registration's hold before a commit with nothing standing, `ms` (the
+ * `ac:relief-commit-hold` arm, DEFAULT_RELIEF_COMMIT_HOLD_MS in reliefSwitch.ts
+ * says why); 0 resolves with no timer.
+ */
+export function commitHold(ms: number = reliefCommitHold): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise<void>((resolve) => setTimeout(() => resolve(), ms));
+}
 
 /** What to run once the client is lost: the plateau again (usePlateau's ensurePlateau). */
 export function onReliefLost(cb: () => void): void {

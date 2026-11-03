@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { createDemAnswer, type DemAnswerPort } from "./demAnswer";
 import { SelectionTooLarge, type Polygon } from "./demGeometry";
 import { makeSelection } from "./demRaster";
-import { FrameBudget, fnv1a64 } from "./demTiles";
+import { FrameBudget, fnv1a64, type FrameScheduler } from "./demTiles";
 import type { DemJob, DemReply } from "./demWorkerCore";
 
 const flush = () => new Promise((r) => setImmediate(r));
@@ -299,4 +299,88 @@ test("stats off: no counters", async () => {
   const key = await registered(r, [rect(2, 45, 3, 46)]);
   await answered(r, url(key, 0, 0, 0));
   assert.equal(r.a.stats(), null);
+});
+
+// demTiles.test.ts's scheduler: frames and timers run only when the test says.
+function fakeScheduler() {
+  const frames = new Map<number, () => void>();
+  const timers = new Map<number, () => void>();
+  let n = 0;
+  const run = (m: Map<number, () => void>) => {
+    const cbs = [...m.values()];
+    m.clear();
+    for (const cb of cbs) cb();
+  };
+  const sched: FrameScheduler = {
+    frame: (cb) => (frames.set(++n, cb), n),
+    cancelFrame: (h) => frames.delete(h as number),
+    timer: (cb) => (timers.set(++n, cb), n),
+    cancelTimer: (h) => timers.delete(h as number),
+  };
+  return { sched, frames, timers, frame: () => run(frames), timer: () => run(timers) };
+}
+
+/** Each answer's settlements, counted: every request resolves exactly once. */
+function settled(p: Promise<{ url: string }>, log: string[]) {
+  return p.then((r) => (log.push(r.url), r.url));
+}
+
+test("groundFree: box-test and cached ground skip the budget, a rendered answer waits its turn", async () => {
+  const f = fakeScheduler();
+  const r = rig({ budget: new FrameBudget(1, f.sched), groundFree: true });
+  const key = await registered(r, [rect(2, 45, 3, 46)]);
+  const log: string[] = [];
+  const box = settled(r.a.answer(url(key, 5, 0, 0)), log); // misses the box: ground
+  const rendered = settled(r.a.answer(url(key, 0, 0, 0)), log);
+  await r.drain();
+  assert.deepEqual(log, ["G"]); // no turn taken
+  assert.equal(f.frames.size, 1); // the rendered one is queued
+  const cachedGround = settled(r.a.answer(url(key, 5, 0, 0)), log);
+  await r.drain();
+  assert.deepEqual(log, ["G", "G"]);
+  assert.equal(r.a.stats()!.budgetWaitMax, 0); // ground never waited
+  f.frame();
+  await r.drain();
+  assert.deepEqual(await Promise.all([box, rendered, cachedGround]), ["G", `w:${key}/0/0/0`, "G"]);
+  assert.deepEqual(log, ["G", "G", `w:${key}/0/0/0`]);
+  const s = r.a.stats()!;
+  assert.deepEqual([s.ground, s.cached, s.rasterised, s.budgetSkips], [1, 1, 1, 2]);
+});
+
+test("groundFree off: every answer waits for a turn (one per frame), each resolves once", async () => {
+  const f = fakeScheduler();
+  const r = rig({ budget: new FrameBudget(1, f.sched) });
+  const key = await registered(r, [rect(2, 45, 3, 46)]);
+  const log: string[] = [];
+  const all = [
+    settled(r.a.answer(url(key, 5, 0, 0)), log),
+    settled(r.a.answer(url(key, 5, 1, 0)), log),
+    settled(r.a.answer(url(key, 0, 0, 0)), log),
+  ];
+  await r.drain();
+  assert.deepEqual(log, []);
+  for (let i = 1; i <= 3; i++) {
+    f.frame();
+    await r.drain();
+    assert.equal(log.length, i);
+  }
+  f.frame();
+  await r.drain();
+  assert.deepEqual(await Promise.all(all), ["G", "G", `w:${key}/0/0/0`]);
+  assert.equal(log.length, 3);
+  assert.equal(r.a.stats()!.budgetSkips, 0);
+});
+
+test("groundFree: the delay arm still delays a ground answer", async () => {
+  const f = fakeScheduler();
+  const r = rig({ budget: new FrameBudget(1, f.sched), groundFree: true, delayMs: 30 });
+  const key = await registered(r, [rect(2, 45, 3, 46)]);
+  const log: string[] = [];
+  const p = settled(r.a.answer(url(key, 5, 0, 0)), log);
+  await r.drain();
+  assert.deepEqual(log, []);
+  await new Promise((res) => setTimeout(res, 60));
+  assert.equal(await p, "G");
+  assert.deepEqual(log, ["G"]);
+  assert.equal(f.frames.size, 0); // no turn asked for
 });
