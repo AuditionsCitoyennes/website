@@ -15,8 +15,8 @@
 // container: geometry must stay a plain, identity-stable object (the WeakMap
 // caches are keyed on it).
 //
-// Under ac:contours=api (production's only mode) the instance is inert: no
-// loader, every ensure* answers "api", nothing is fetched.
+// Under ac:contours=api (the testing tools' other mode) the instance is inert:
+// no loader, every ensure* answers "api", nothing is fetched.
 import { markRaw, shallowRef, type ShallowRef } from "vue";
 import {
   OUTLINE_WAIT_MS,
