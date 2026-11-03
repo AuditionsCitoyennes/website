@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { CONTACT_EMAIL, PRIVACY_EMAIL, PUBLISHER, mailto } from "@/shared/contact";
+import { CONTACT_EMAIL, PRIVACY_EMAIL, mailto } from "@/shared/contact";
 import { ROUTE } from "@/shared/routes";
 import LegalLayout from "../LegalLayout.vue";
 
 const reportMail = mailto(CONTACT_EMAIL, "Signalement d'un témoignage");
-const replyMail = mailto(CONTACT_EMAIL, "Droit de réponse");
 </script>
 
 <template>
@@ -81,27 +80,6 @@ const replyMail = mailto(CONTACT_EMAIL, "Droit de réponse");
         son retrait à
         <a :href="mailto(PRIVACY_EMAIL, 'Témoignage me concernant')">{{ PRIVACY_EMAIL }}</a
         >.
-      </p>
-    </section>
-
-    <section>
-      <h2>Droit de réponse</h2>
-      <p>
-        Toute personne nommée ou désignée sur le site peut demander la publication d'une réponse,
-        dans les trois mois qui suivent la mise en ligne du message. Envoyez votre demande à
-        <a :href="replyMail">{{ CONTACT_EMAIL }}</a> avec&nbsp;:
-      </p>
-      <ul>
-        <li>
-          vos nom, prénom et adresse (ou, pour une organisation, sa dénomination et son
-          siège)&nbsp;;
-        </li>
-        <li>le témoignage concerné, sa page, et les passages contestés&nbsp;;</li>
-        <li>le texte de votre réponse, pas plus long que le message contesté.</li>
-      </ul>
-      <p>
-        Le directeur de la publication, {{ PUBLISHER }}, publie la réponse dans les trois jours qui
-        suivent la demande, ou explique pourquoi il la refuse.
       </p>
     </section>
 

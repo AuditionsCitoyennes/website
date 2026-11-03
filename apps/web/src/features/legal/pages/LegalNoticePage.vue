@@ -56,7 +56,7 @@ import { HOSTS } from "../content";
       <p>
         Les témoignages sont publiés sous la responsabilité de leurs auteurs, selon les
         <RouterLink :to="ROUTE.rules.path">règles de publication</RouterLink>. Pour signaler un
-        témoignage ou exercer un droit de réponse, voir ces règles, ou écrire à
+        témoignage, voir ces règles, ou écrire à
         <a :href="mailto(CONTACT_EMAIL, 'Signalement')">{{ CONTACT_EMAIL }}</a
         >.
       </p>
