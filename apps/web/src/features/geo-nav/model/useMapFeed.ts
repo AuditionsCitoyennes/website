@@ -5,7 +5,7 @@
 // contours fetched ahead for what is shown: the API's, or, with the outline
 // files read (`outlines`, outlineRules.ts), the scope's chain of bundles and
 // its neighbours' selves.
-import { computed, watch, type ComputedRef, type Ref } from "vue";
+import { computed, onScopeDispose, watch, type ComputedRef, type Ref } from "vue";
 import {
   type Bounds,
   centerInBounds,
@@ -429,8 +429,12 @@ export function useMapFeed(inputs: MapFeedInputs) {
     // The countries' world outlines (geo's globeBatch), in ONE write, at the
     // world's scope and at a country's, once the boot is over (the overlay
     // waits for none of them): the tree's first countries, then those beyond
-    // whose box meets the view. Keyed on the id set, never on the store's
-    // version: a write must not ask again.
+    // whose box meets the view — asked once the user's move rests (its view
+    // comes every 250 ms). Keyed on the id set, never on the store's version:
+    // a write must not ask again.
+    const GLOBE_REST_MS = 400; // over the view's 250 ms during a gesture
+    let globeTimer: ReturnType<typeof setTimeout> | undefined;
+    onScopeDispose(() => clearTimeout(globeTimer));
     watch(
       () => {
         const s = currentScope.value;
@@ -442,9 +446,12 @@ export function useMapFeed(inputs: MapFeedInputs) {
         return g.length || u.length ? `${g.join(",")}|${u.join(",")}` : "";
       },
       (key) => {
+        clearTimeout(globeTimer);
         if (!key) return;
         const [g, u] = key.split("|").map((ids) => (ids ? ids.split(",") : []));
-        void files.ensureGlobe(g, u);
+        const ask = () => void files.ensureGlobe(g, u);
+        if (mapView.value?.byUser) globeTimer = setTimeout(ask, GLOBE_REST_MS);
+        else ask();
       },
       { immediate: true },
     );

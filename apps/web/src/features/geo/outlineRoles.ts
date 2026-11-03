@@ -52,8 +52,10 @@ export const isMicro = (row: RoleRow): boolean =>
 export const rowKnownAbsent = (row: RoleRow | undefined): boolean =>
   !row || !!row.wrap || (!!row.bounds && spansWorld(row.bounds));
 
-/** The file a unit's self (its raised outline) comes from: its bundle (k:1),
- *  its u/ (but at c3000), else its g/; null when none will come. */
+/** The file a plateau waits on for a unit's self (its raised outline): its
+ *  bundle (k:1), its u/ (but at c3000), else its g/ (no wait); null when
+ *  none will come. Not where the loader fetches a self from: a French
+ *  département's (k:1, u:1) comes from its u/ (OutlineLoader.selfKind). */
 export function selfFileOf(row: RoleRow | undefined): OutlineKind | null {
   if (!row || rowKnownAbsent(row)) return null;
   if (row.k) return "k";

@@ -11,8 +11,9 @@
 //    Below the région the entry IS the self (one object, `id@e50`). Any
 //    other country is drawn with its g/ and raised with its u/ (geo's
 //    outlineRoles: which object, which file, which rows are known absent).
-// 2. A plateau waits for its self while its row declares one (k or u), it is
-//    not stored, its file did not fail and the wait was not given up
+// 2. A plateau waits for its self while its row declares one (its bundle, or
+//    a country's u/ — but a c3000 row is served by its g/ and not held), it
+//    is not stored, its file did not fail and the wait was not given up
 //    (OUTLINE_WAIT_MS). Pending: waiting, or no geometry while some may still
 //    come — never once the scope's chain is settled: the hold is bounded.
 // 3. The lid's lines (focus) are the entries of the scope's own bundle, cut
@@ -26,7 +27,8 @@
 //    alone (known absent; on the network, asked again by a later ensure).
 // 6. The chain: a scope's bundles, root first (bundlesFor), loaded in turn.
 // 7. A panel row held under the pointer asks for its unit's bundle before the
-//    click (data/hoverPrefetch, GeoNav): a région's self is in it.
+//    click (data/hoverPrefetch, GeoNav): a région's self is in it; a
+//    country's, its u/ (outlineRoles' prefetchKind).
 import { countryOutline, selfFileOf } from "@/features/geo";
 import type { Bounds, GeoUnit, RoleRow } from "@/features/geo";
 

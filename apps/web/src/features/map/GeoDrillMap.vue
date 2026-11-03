@@ -54,7 +54,9 @@ const props = defineProps<{
   /** The analyses' slabs on the raised unit (see SlabSpec); null: none. */
   slabs?: SlabSpec | null;
   /** The outline's geometry objects change only with their shape (the outline
-   *  files): the plateau posts a scope's DEM once, not on every outline. */
+   *  files): the plateau posts a scope's DEM once, not on every outline. With
+   *  them, of two outlines holding a point, the smaller box is hit (pins'
+   *  `smallerWins`). */
   stableOutline?: boolean;
   /** Credits for the app's own data (the boundaries' sources), shown before
    *  Mapbox's in the map's attribution. Mapbox HTML: http(s) anchors only. */
@@ -183,6 +185,7 @@ const pins = useMapPins({
   screenBoundsInset: view.screenBoundsInset,
   occlusion,
   onUnitClick: (id) => emit("unitClick", id),
+  smallerWins: () => !!props.stableOutline,
 });
 const plateau = usePlateau({
   getMap,
