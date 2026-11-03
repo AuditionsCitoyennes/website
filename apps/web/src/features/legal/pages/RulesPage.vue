@@ -29,15 +29,10 @@ const replyMail = mailto(CONTACT_EMAIL, "Droit de réponse");
           les propos haineux ou discriminatoires (origine, religion, sexe, orientation sexuelle,
           handicap…)&nbsp;;
         </li>
-        <li>les accusations sans fondement contre une personne nommée ou reconnaissable&nbsp;;</li>
         <li>
           des informations sur d'autres personnes&nbsp;: le nom d'un particulier, son adresse, sa
           santé, sa vie privée. Parler d'un élu ou d'une institution dans son rôle public reste
-          possible&nbsp;;
-        </li>
-        <li>
-          la publicité, les appels à voter pour un candidat ou un parti, les liens et les contenus
-          sans rapport.
+          possible.
         </li>
       </ul>
       <p>Un témoignage qui enfreint ces règles est retiré, en tout ou en partie.</p>
