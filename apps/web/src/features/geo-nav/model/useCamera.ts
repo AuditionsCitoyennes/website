@@ -17,6 +17,7 @@ import { frameFill } from "@/features/analyses";
 import type { NavState } from "../navState";
 import type { OutlineFiles } from "../data/useOutlineFiles";
 import { resultBounds } from "./auditions";
+import { worldFrame } from "./worldFrame";
 
 /** What the camera needs of the map component (GeoDrillMap's exposed API). */
 export interface MapHandle {
@@ -75,8 +76,6 @@ export function useCamera(inputs: CameraInputs) {
   // arrondissements (Paris 3e) at half the view on a laptop, less on a bigger
   // screen — too small to become the scope.
   const FIT_MAX_ZOOM = 14.9;
-  // The whole globe in sight, for a world too wide to fit (flyToUnit).
-  const WORLD_ZOOM = 1.5;
   // Right after its fit, a unit's children fill at most this much of the view —
   // a wheel notch or so short of DESCEND, where the one under the view's centre
   // would become the scope. The fit makes the unit large — FRAME_FILL of its
@@ -122,36 +121,16 @@ export function useCamera(inputs: CameraInputs) {
     let fillCap: CameraCmd["fillCap"];
     let fill: number | undefined;
     if (unit.levelKey === "world") {
-      // The root's bounds equal France's (union of children): fitting them verbatim
-      // makes the post-flight derive descend straight back into France (span ~0.8 ≥
-      // DESCEND) and needlessly churn its plateau. Inflate so France spans ~0.4 of
-      // the view and the world scope actually holds.
-      const b = unit.bounds;
-      const padLat = (b.maxLat - b.minLat) * 0.6;
-      const padLng = (b.maxLng - b.minLng) * 0.6;
-      bounds = {
-        minLat: b.minLat - padLat,
-        maxLat: b.maxLat + padLat,
-        minLng: b.minLng - padLng,
-        maxLng: b.maxLng + padLng,
-      };
-      // A world of countries (Antarctica's lieux with Russia's) is wider than
-      // the globe shows: no fit holds it (past the poles mapbox refuses it,
-      // and the silhouette fit lands on the south pole). The globe, whole,
-      // around its middle.
-      if (bounds.maxLng - bounds.minLng > 180) {
-        const lat = (Math.max(-60, bounds.minLat) + Math.min(60, bounds.maxLat)) / 2;
+      // Inflated so the world scope holds; the globe, whole, for a world of
+      // countries no fit holds (worldFrame).
+      const frame = worldFrame(unit.bounds);
+      if (frame.type === "ease") {
         inMicroZone.value = false;
-        setCamera({
-          type: "ease",
-          center: [lat, (b.minLng + b.maxLng) / 2],
-          zoom: WORLD_ZOOM,
-          animate,
-          fresh,
-        });
+        setCamera({ type: "ease", center: frame.center, zoom: frame.zoom, animate, fresh });
         framedFit.value = { key: nav.cameraKey.value, unitId: unit.id };
         return;
       }
+      bounds = frame.bounds;
     } else {
       // A département rises with its own outline (depFine): ask for it now, the
       // frame takes it if it is already in. With the outline files, the unit's
