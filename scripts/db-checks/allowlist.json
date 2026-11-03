@@ -20,7 +20,6 @@
       "public.handle_updated_at()",
       "public.has_role(_role public.app_role, _user_id uuid)",
       "public.has_verified_testimony(p_audition uuid)",
-      "public.insert_audit_log(p_user_id uuid, p_action text, p_target_type text, p_target_id text, p_metadata jsonb)",
       "public.is_admin()",
       "public.is_online_audition(p_audition uuid)",
       "public.is_super_admin()",
@@ -55,7 +54,6 @@
     "public.get_pending_registrations()",
     "public.get_user_roles_with_details()",
     "public.has_role(_role public.app_role, _user_id uuid)",
-    "public.insert_audit_log(p_user_id uuid, p_action text, p_target_type text, p_target_id text, p_metadata jsonb)",
     "public.is_admin()",
     "public.is_super_admin()",
     "public.verify_testimony(p_action text, p_token text)"
