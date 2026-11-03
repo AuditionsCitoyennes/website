@@ -5,6 +5,7 @@ import { z } from "zod";
 import { supabase } from "@/shared/api/supabase";
 import { noteOutboxAddress } from "@/shared/api/outbox";
 import { useToast } from "@/shared/ui/toast/useToast";
+import { ROUTE } from "@/shared/routes";
 import { passwordSchema } from "../lib/password";
 import { mapAuthError } from "../authErrors";
 import OAuthButtons from "../components/OAuthButtons.vue";
@@ -342,6 +343,15 @@ async function handleForgotPassword() {
           {{ loading ? "Inscription..." : "S'inscrire" }}
         </button>
       </form>
+
+      <!-- New tabs: what was typed stays. Google sign-in creates an account
+           too, so the notice is under both tabs. -->
+      <p class="legal-note">
+        En créant un compte, vous acceptez les
+        <a :href="ROUTE.rules.path" target="_blank" rel="noopener">règles de publication</a>. Ce que
+        nous faisons de vos données&nbsp;:
+        <a :href="ROUTE.privacy.path" target="_blank" rel="noopener">confidentialité</a>.
+      </p>
     </AuthCard>
 
     <UsernamePromptDialog
@@ -429,6 +439,20 @@ async function handleForgotPassword() {
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
+}
+
+.legal-note {
+  margin-top: 1.25rem;
+  font-size: var(--text-caption);
+  line-height: var(--lh-body);
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+}
+
+.legal-note a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
 .link-btn {

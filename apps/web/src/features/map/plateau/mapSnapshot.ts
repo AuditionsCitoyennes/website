@@ -114,6 +114,7 @@ export class SnapshotManager {
       style,
       interactive: false,
       attributionControl: false,
+      performanceMetricsCollection: false, // as the main map (GeoDrillMap)
       preserveDrawingBuffer: true, // required: we read the canvas after idle
       pitch: 0,
       bearing: 0,

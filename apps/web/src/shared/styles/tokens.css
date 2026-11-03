@@ -56,7 +56,7 @@
 
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-  --font-sans: "Source Sans 3", system-ui, -apple-system, sans-serif;
+  --font-sans: "Source Sans 3 Variable", system-ui, -apple-system, sans-serif;
   --font-display: "Bebas Neue", system-ui, sans-serif;
 
   /* Type scale — the ONLY font sizes in the app (scripts/check-type-scale.mjs

@@ -39,8 +39,8 @@ const EM_STRONG = 0.5;
 const EM_CAPS = 0.66;
 const EM_DISPLAY = 0.4;
 
-const FAMILIES = { sans: '"Source Sans 3"', display: '"Bebas Neue"' } as const;
-const FACE_NAMES = { sans: "Source Sans 3", display: "Bebas Neue" } as const;
+const FAMILIES = { sans: '"Source Sans 3 Variable"', display: '"Bebas Neue"' } as const;
+const FACE_NAMES = { sans: "Source Sans 3 Variable", display: "Bebas Neue" } as const;
 const facesIn = new Set<string>();
 
 /** Whether the site's own face for `family` at `weight` is loaded — not only

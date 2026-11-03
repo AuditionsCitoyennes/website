@@ -5,6 +5,7 @@ import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import LocationCombobox, { type LocationPick } from "./LocationCombobox.vue";
+import WitnessConsentNote from "../testimonies/WitnessConsentNote.vue";
 
 const props = defineProps<{ open: boolean }>();
 
@@ -348,6 +349,7 @@ const title = computed(() => {
 
         <!-- One testimony (keyed: each one gets fields of its own), and the creation -->
         <div v-else :key="current.key" class="form">
+          <WitnessConsentNote />
           <div class="grid-2">
             <div class="form-field">
               <label class="form-label" for="draft-name">Nom/Prénom</label>
@@ -355,7 +357,7 @@ const title = computed(() => {
                 id="draft-name"
                 v-model="current.person_name"
                 class="form-input"
-                placeholder="Ex: Marie"
+                placeholder="Ex: Marie, ou Anonyme"
               />
             </div>
             <div class="form-field">

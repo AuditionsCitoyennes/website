@@ -6,6 +6,7 @@ import { themesOf } from "@ac/shared";
 import { api } from "@/shared/api/client";
 import { formatDateLong } from "@/shared/format/dates";
 import TestimonyText from "@/shared/testimony/TestimonyText.vue";
+import ReportLink from "@/shared/testimony/ReportLink.vue";
 
 interface DetailTestimony {
   id: string;
@@ -88,10 +89,13 @@ const testimonies = computed(() => {
 
           <!-- The grid themes, as on the map and in the filters: the old tags
                ("démocratie", "ruralité"…) stay for the admin only. -->
-          <div v-if="themesOf(t.topics).length" class="t-topics">
-            <span v-for="theme in themesOf(t.topics)" :key="theme" class="t-topic">{{
-              theme
-            }}</span>
+          <div class="t-foot">
+            <div v-if="themesOf(t.topics).length" class="t-topics">
+              <span v-for="theme in themesOf(t.topics)" :key="theme" class="t-topic">{{
+                theme
+              }}</span>
+            </div>
+            <ReportLink :testimony="t" :audition-id="id" />
           </div>
         </article>
       </div>
@@ -229,6 +233,13 @@ const testimonies = computed(() => {
   content: "\00a0»";
   color: hsl(var(--primary));
   font-weight: 600;
+}
+
+.t-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
 }
 
 .t-topics {

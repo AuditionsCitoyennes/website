@@ -4,11 +4,17 @@ import { themesOf, type PublicTestimony } from "@ac/shared";
 import { formatDateShort } from "@/shared/format/dates";
 import HighlightText from "@/shared/testimony/HighlightText.vue";
 import TestimonyText from "@/shared/testimony/TestimonyText.vue";
+import ReportLink from "@/shared/testimony/ReportLink.vue";
 
 const props = defineProps<{
   testimony: PublicTestimony;
   hideAudition?: boolean;
   highlight?: string;
+  /** No « Signaler » (the admin's previews). */
+  noReport?: boolean;
+  /** Its audition, for « Signaler », where the testimony comes without it
+   *  (the map panel's lists, under their audition). */
+  auditionId?: string;
 }>();
 
 // Its themes as the theme filter names them (old tags read in the grid).
@@ -44,8 +50,15 @@ const themes = computed(() => themesOf(props.testimony.topics));
 
     <TestimonyText :content="testimony.content" :highlight="highlight" />
 
-    <div v-if="themes.length" class="t-topics">
-      <span v-for="theme in themes" :key="theme" class="t-topic">{{ theme }}</span>
+    <div v-if="themes.length || !noReport" class="t-foot">
+      <div v-if="themes.length" class="t-topics">
+        <span v-for="theme in themes" :key="theme" class="t-topic">{{ theme }}</span>
+      </div>
+      <ReportLink
+        v-if="!noReport"
+        :testimony="testimony"
+        :audition-id="auditionId ?? testimony.audition?.id"
+      />
     </div>
   </article>
 </template>
@@ -146,6 +159,13 @@ const themes = computed(() => themesOf(props.testimony.topics));
   content: "\00a0»";
   color: hsl(var(--primary));
   font-weight: 600;
+}
+
+.t-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
 }
 
 .t-topics {

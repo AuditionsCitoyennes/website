@@ -11,5 +11,8 @@ export const ROUTE = {
   verifyTestimony: { name: "verify-testimony", path: "/verifier/:token" },
   resetPassword: { name: "reset-password", path: "/reset-password" },
   support: { name: "support", path: "/soutenir" },
+  legalNotice: { name: "legal-notice", path: "/mentions-legales" },
+  privacy: { name: "privacy", path: "/confidentialite" },
+  rules: { name: "rules", path: "/regles" },
   notFound: { name: "not-found", path: "/:pathMatch(.*)*" },
 } as const;
