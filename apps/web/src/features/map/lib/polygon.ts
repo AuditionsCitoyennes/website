@@ -47,10 +47,10 @@ export function buildHitRings(geometry: unknown): HitRing[] {
       const n = ring.length;
       const xs = new Float64Array(n);
       const ys = new Float64Array(n);
-      let minLng = 180;
-      let maxLng = -180;
-      let minLat = 90;
-      let maxLat = -90;
+      let minLng = Infinity;
+      let maxLng = -Infinity;
+      let minLat = Infinity;
+      let maxLat = -Infinity;
       for (let i = 0; i < n; i++) {
         const x = ring[i][0];
         const y = ring[i][1];
@@ -211,7 +211,7 @@ const ringBoundsCache = new WeakMap<object, Bounds>();
 export function ringBounds(ring: number[][]): Bounds {
   let b = ringBoundsCache.get(ring);
   if (!b) {
-    b = { minLat: 90, maxLat: -90, minLng: 180, maxLng: -180 };
+    b = { minLat: Infinity, maxLat: -Infinity, minLng: Infinity, maxLng: -Infinity };
     for (const [lng, lat] of ring) {
       if (lat < b.minLat) b.minLat = lat;
       if (lat > b.maxLat) b.maxLat = lat;
@@ -224,10 +224,10 @@ export function ringBounds(ring: number[][]): Bounds {
 }
 
 export function boundsOfFeatures(features: OutlineFC["features"]): Bounds | null {
-  let minLat = 90;
-  let maxLat = -90;
-  let minLng = 180;
-  let maxLng = -180;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
   for (const f of features) {
     const g = f.geometry as { type?: string; coordinates?: unknown } | undefined;
     if (!g?.type) continue;
@@ -254,6 +254,11 @@ export const unionBounds = (a: Bounds, b: Bounds): Bounds => ({
 });
 export const boundsContain = (a: Bounds, b: Bounds) =>
   b.minLat >= a.minLat && b.maxLat <= a.maxLat && b.minLng >= a.minLng && b.maxLng <= a.maxLng;
+
+/** The tile column of `lng` among `n` (2^z), kept in [0, n − 1]: a canonical
+ *  copy cut at ±180 (geo's canonicalCopies) has a box ending ON the line. */
+export const tileX = (lng: number, n: number) =>
+  Math.min(n - 1, Math.max(0, Math.floor(((lng + 180) / 360) * n)));
 
 // Plateau height for a selection: ~1.25% of the unit's own max bbox span, clamped.
 // Derived from the GEOMETRY, not the viewport, so the height is deterministic per

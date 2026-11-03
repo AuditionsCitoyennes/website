@@ -11,11 +11,12 @@
 // - A micro-state (its box's diagonal under MICRO_DIAG_KM, e.g. Monaco) takes
 //   its u/ (≤ ~1 KB) in every role: a 3000 m sliver can miss its own lieux.
 // - Known absent, never asked for (box fit, pins, no plateau): no row; a row
-//   spanning half the world or more (Antarctica: no fit or mesh holds it); a
-//   row with `wrap` (its outline runs past ±180°, which the map's box tests do
-//   not handle yet).
+//   spanning half the world or more (Antarctica: no fit or mesh holds it).
+//   A row with `wrap` is served like any other: its unwrapped outline is THE
+//   geometry (wrap.ts).
 import type { Bounds } from "./types";
 import type { OutlineKind } from "./outlines";
+import { boxesMeet } from "./wrap";
 
 /** At most this many countries in the first globe batch, by the tree's order. */
 export const GLOBE_CAP = 40;
@@ -50,7 +51,7 @@ export const isMicro = (row: RoleRow): boolean =>
 
 /** No outline for it this session, and none is asked for. */
 export const rowKnownAbsent = (row: RoleRow | undefined): boolean =>
-  !row || !!row.wrap || (!!row.bounds && spansWorld(row.bounds));
+  !row || (!!row.bounds && spansWorld(row.bounds));
 
 /** The file a plateau waits on for a unit's self (its raised outline): its
  *  bundle (k:1), its u/ (but at c3000), else its g/ (no wait); null when
@@ -133,9 +134,6 @@ export function siblingSelves(
     .slice(0, cap)
     .map((s) => s.id);
 }
-
-const boxesMeet = (a: Bounds, b: Bounds) =>
-  a.minLat <= b.maxLat && a.maxLat >= b.minLat && a.minLng <= b.maxLng && a.maxLng >= b.minLng;
 
 /** The view beyond the cap is met padded by this share of its span each way. */
 const VIEW_PAD = 0.15;

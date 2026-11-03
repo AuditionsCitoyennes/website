@@ -9,6 +9,7 @@ import {
   type Bounds,
   depCodeOf,
   type GeoUnit,
+  lngNear,
   selfFileOf,
   SPAN_DESCEND,
 } from "@/features/geo";
@@ -186,11 +187,15 @@ export function useCamera(inputs: CameraInputs) {
    * that middle, the scope went to the neighbour — which rose instead.
    */
   function centreLandsOn(unit: GeoUnit, lat: number, lng: number): boolean {
-    const inBox = (u: GeoUnit) =>
-      lat >= u.bounds.minLat &&
-      lat <= u.bounds.maxLat &&
-      lng >= u.bounds.minLng &&
-      lng <= u.bounds.maxLng;
+    const inBox = (u: GeoUnit) => {
+      const x = lngNear(lng, u.bounds); // a country past ±180 (geo's wrap)
+      return (
+        lat >= u.bounds.minLat &&
+        lat <= u.bounds.maxLat &&
+        x >= u.bounds.minLng &&
+        x <= u.bounds.maxLng
+      );
+    };
     const chain = ancestorsOf(index.value, unit.id);
     for (let i = 1; i < chain.length; i++) {
       const u = chain[i];

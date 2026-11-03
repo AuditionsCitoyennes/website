@@ -154,7 +154,7 @@ test("a country: drawn on its g/, raised on its u/, held for it; c3000 and absen
   t.row("CA", "c3000", 0, 1);
   t.row("AQ", "c3000", 0, 1);
   for (const id of ["ES", "CA", "AQ"]) t.v.rowOf(id)!.g = 1;
-  t.v.rowOf("AQ")!.wrap = true;
+  t.v.rowOf("AQ")!.bounds = { minLat: -85, maxLat: -60, minLng: -180, maxLng: 180 };
   const g = { g: "ES" };
   globes.set("ES", g);
   assert.equal(geometryFor(v, ES), g);
@@ -178,7 +178,7 @@ test("a country: drawn on its g/, raised on its u/, held for it; c3000 and absen
   assert.equal(rules.geometryKnownAbsent(v, [WORLD, CA]), true);
   globes.set("CA", { g: "CA" });
   assert.equal(raisedGeometryFor(v, CA), globes.get("CA"));
-  // A wrapped / 360° row: nothing, ever.
+  // A 360° row: nothing, ever.
   globes.set("AQ", {});
   t.selves.set("AQ", {});
   assert.equal(raisedGeometryFor(v, AQ), undefined);

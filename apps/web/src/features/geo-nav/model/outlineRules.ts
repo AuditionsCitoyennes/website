@@ -29,7 +29,7 @@
 // 7. A panel row held under the pointer asks for its unit's bundle before the
 //    click (data/hoverPrefetch, GeoNav): a région's self is in it; a
 //    country's, its u/ (outlineRoles' prefetchKind).
-import { countryOutline, selfFileOf } from "@/features/geo";
+import { countryOutline, lngNear, selfFileOf } from "@/features/geo";
 import type { Bounds, GeoUnit, RoleRow } from "@/features/geo";
 
 export type RuleUnit = Pick<
@@ -205,9 +205,10 @@ export function containsPointIn<U extends RuleUnit & { ancestors: readonly strin
     if (hit) return hit.ancestors.includes(u.id);
   }
   const b = u.bounds;
-  if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) return false;
+  const x = lngNear(lng, b); // a country past ±180 (geo's wrap)
+  if (lat < b.minLat || lat > b.maxLat || x < b.minLng || x > b.maxLng) return false;
   const g = own(u);
-  return g ? contains(g, lat, lng) : false;
+  return g ? contains(g, lat, x) : false;
 }
 
 /** What the explorer asks of a unit's outline. */
