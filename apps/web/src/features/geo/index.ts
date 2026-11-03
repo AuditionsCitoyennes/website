@@ -70,3 +70,12 @@ export {
   type UFileV1,
 } from "./outlines";
 export { OUTLINE_WAIT_MS, OutlineLoader, type OutlineStatus } from "./outlineLoader";
+export {
+  countryOutline,
+  globeBatch,
+  prefetchKind,
+  rowKnownAbsent,
+  selfFileOf,
+  siblingSelves,
+  type RoleRow,
+} from "./outlineRoles";

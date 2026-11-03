@@ -318,7 +318,8 @@ The build step `release` does the first three:
 file, tarball 31,678,383 B):
 `{"build":"o20261101-2","asset":"outlines-o20261101-2.tar.gz","sha256":"4aa259c3801d5966098b1da8938f6e88a5a3df43d1ba9353d7c968eef7b55dbf"}`.
 Its NOTICE.txt carries the ODbL notice the country files need: publish it with
-the release (`--notes-file`).
+the release (`--notes-file`). Released 2026-11-02; the web's lock names it since
+pr-outline-world (the countries' outlines under `ac:contours=fichiers`).
 
 ## Hosting
 
@@ -398,8 +399,8 @@ France and the countries) or one degraded session per open tab is accepted.
 Documented (Cloudflare, [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
 read 2026-11-02), Workers static assets: 20,000 files per Worker version on
 the Free plan, 100,000 on Paid (Wrangler ≥ 4.34.0; the workflow pins
-4.152.0); 25 MiB per file on both; 100 `_headers` rules. The account's plan:
-to be stated by the owner.
+4.152.0); 25 MiB per file on both; 100 `_headers` rules. The account is on the
+Free plan (the owner, 2026-11-02): 20,000 files per Worker version.
 
 Accepted, measured on the preview run of 2026-11-02 (`o20261101-1`, run
 41465659773): 346 files in `dist` (277 outline files, 69 of the site), the
@@ -409,8 +410,11 @@ site's files were already held), then "Uploaded 277 of 277 assets". The push
 path prints the same lines from `wrangler deploy`.
 
 File budget against the Free plan's 20,000: France 277 + the countries 543
-(`o20261101-2`: 820 in all) + the planned gazetteer (2 × at most 9,000) + the
-site (about 60) ≈ 18,900 with one outline build; hosting the previous build too
+(`o20261101-2`, the lock's since pr-outline-world; its install step, run
+locally on 2026-11-03, printed "820 files in …/o20261101-2, 879 files in
+apps/web/dist, largest k/fr_dep_62.json (1158428 B)") + the planned gazetteer
+(2 × at most 9,000) +
+the site (59) ≈ 18,900 with one outline build; hosting the previous build too
 adds up to 820 more, 19,700. Close to the ceiling: the gazetteer's plan, or
 the Paid plan, decides it before both land.
 

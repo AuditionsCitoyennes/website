@@ -38,6 +38,9 @@ export interface MapPinsInputs {
   occlusion: ReturnType<typeof useSlabOcclusion>;
   /** A unit was clicked (its pin, or inside its boundary): the `unitClick` emit. */
   onUnitClick: (id: string) => void;
+  /** Of two units holding a point, the smaller box is hit (the outline files:
+   *  their coarse France covers Monaco); otherwise the first in `units`. */
+  smallerWins?: () => boolean;
 }
 
 export function useMapPins({
@@ -50,6 +53,7 @@ export function useMapPins({
   screenBoundsInset,
   occlusion,
   onUnitClick,
+  smallerWins,
 }: MapPinsInputs) {
   const { slabsOnScreen, onSlab, slabDotBoxes, mayBeUnderSlab } = occlusion;
 
@@ -396,16 +400,30 @@ export function useMapPins({
   /** The macro unit whose boundary contains [lng, lat] (bbox pre-filter, then flat
    *  precompiled-ring containment) — the hover/click target. Nothing on a
    *  piece of the analyses' slabs, its screen point `at` on one as drawn (see
-   *  slabsOnScreen): it is not a unit, and what lies under it is hidden. */
+   *  slabsOnScreen): it is not a unit, and what lies under it is hidden. Of
+   *  two holding it, the first — or, with `smallerWins`, the smaller box: an
+   *  enclave a coarse neighbour's outline covers (Monaco in France's 1 km
+   *  one) is hit, not that neighbour. */
   function unitAt(lng: number, lat: number, at?: { x: number; y: number }): string {
     if (at && slabsOnScreen() && onSlab(at.x, at.y)) return "";
+    const smaller = !!smallerWins?.();
+    let id = "";
+    let size = Infinity;
     for (const s of sticky) {
       if (!s.hit || !s.bounds) continue;
       const b = s.bounds;
       if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) continue;
-      if (hitTest(s.hit, lng, lat)) return s.id;
+      if (!smaller) {
+        if (hitTest(s.hit, lng, lat)) return s.id;
+        continue;
+      }
+      const area = (b.maxLat - b.minLat) * (b.maxLng - b.minLng);
+      if (area < size && hitTest(s.hit, lng, lat)) {
+        id = s.id;
+        size = area;
+      }
     }
-    return "";
+    return id;
   }
 
   // Central hover switch: updates the cursor, lifts the hovered pin, highlights

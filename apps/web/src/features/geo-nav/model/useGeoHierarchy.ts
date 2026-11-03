@@ -18,6 +18,7 @@ import {
   featureFor,
   geometryContains,
   outlineSourceOf,
+  rowKnownAbsent,
   type GeoUnit,
   type UnitGeo,
   type UnitTreeData,
@@ -63,6 +64,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
     },
     rowOf: outlines.rowOf,
     selfOf: outlines.selfOf,
+    globeOf: outlines.globeOf,
     unitsOf: outlines.unitsOf,
     bundleState: outlines.bundleState,
     failed: (id) => outlines.isFailed("k", id) || outlines.isFailed("u", id),
@@ -73,14 +75,15 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   const filesActive = () => view !== null && view.mode === "fichiers";
 
   /** Every unit's frame from its row, once the row is known (root.json's,
-   *  or an entry's once its parent's bundle is in). */
+   *  or an entry's once its parent's bundle is in); France keeps its own
+   *  (applyBoundaries), a row known absent frames nothing (outlineRoles). */
   function rowFrames(index: Map<string, GeoUnit>): Map<string, UnitGeo> {
     void outlines!.version.value;
     const m = new Map<string, UnitGeo>();
     for (const u of index.values()) {
-      if (u.levelKey === "world" || u.levelKey === "country" || u.levelKey === "place") continue;
+      if (u.levelKey === "world" || u.levelKey === "place") continue;
       const row = outlines!.rowOf(u.id);
-      if (row) m.set(u.id, { center: row.center, bounds: row.bounds });
+      if (row && !rowKnownAbsent(row)) m.set(u.id, { center: row.center, bounds: row.bounds });
     }
     return m;
   }

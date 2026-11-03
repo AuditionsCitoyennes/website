@@ -254,3 +254,35 @@ test("applyBoundaries: the outline files' rows (byId) win below the country, nev
   applyBoundaries(h.index, { byId: new Map([[fr.id, geoAt(10)]]) });
   assert.deepEqual({ center: fr.center, bounds: fr.bounds }, before);
 });
+
+test("applyBoundaries: byId frames the other countries, not France nor a world-wide row", () => {
+  const world = unit("world", undefined, { id: "world" });
+  const fr = unit("country", { country: "FR", level: "country", code: "FR" }, { id: "FR" });
+  const es = unit("country", { country: "ES", level: "country", code: "ES" }, { id: "ES" });
+  const aq = unit("country", { country: "AQ", level: "country", code: "AQ" }, { id: "AQ" });
+  world.children = [fr, es, aq];
+  for (const c of world.children) c.parentId = "world";
+  const frame = (minLng: number, maxLng: number): UnitGeo => ({
+    center: [10, (minLng + maxLng) / 2],
+    bounds: { minLat: 0, maxLat: 20, minLng, maxLng },
+  });
+  const index = new Map([world, fr, es, aq].map((u) => [u.id, u]));
+  // France alone: nothing moves, the world keeps its box.
+  const worldBefore = { center: [...world.center], bounds: { ...world.bounds } };
+  applyBoundaries(index, { byId: new Map([["FR", frame(-5, 9)]]) });
+  assert.deepEqual({ center: world.center, bounds: world.bounds }, worldBefore);
+  assert.deepEqual(fr.bounds, BOX);
+
+  applyBoundaries(index, {
+    byId: new Map([
+      ["FR", frame(-5, 9)],
+      ["ES", frame(-18, 4)],
+      ["AQ", frame(-180, 180)],
+    ]),
+  });
+  assert.deepEqual(es.bounds, frame(-18, 4).bounds); // its row's box
+  assert.deepEqual([fr.bounds, aq.bounds], [BOX, BOX]); // France's frame; a 360° row's none
+  // The world spans its children's boxes once one is real.
+  assert.deepEqual(world.bounds, { minLat: 0, maxLat: 20, minLng: -18, maxLng: 4 });
+  assert.deepEqual(world.center, [10, -7]);
+});

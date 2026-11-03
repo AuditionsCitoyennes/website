@@ -404,6 +404,19 @@ test("(11) ensureGlobe of three countries: one write", async () => {
   assert.ok(t.store.globeOf("ES") && t.store.loaded("g", "IT"));
 });
 
+test("(11b) ensureGlobe with micro-states' selves: one write, no wait armed", async () => {
+  const t = setup({ "u/IT": ["late"] });
+  await t.boot();
+  const r = t.loader.ensureGlobe(["ES", "DE"], ["IT"]);
+  await t.tick(0);
+  await t.tick(2_000); // past OUTLINE_WAIT_MS: nothing given up
+  assert.deepEqual(await r, ["loaded", "loaded", "loaded"]);
+  assert.deepEqual(t.requests.map((q) => q.url).slice(-3), [url("g/ES"), url("g/DE"), url("u/IT")]);
+  assert.equal(t.writes.length, 1);
+  assert.ok(t.store.globeOf("ES") && t.store.loaded("u", "IT") && !t.store.loaded("g", "IT"));
+  assert.equal(t.armed.filter((ms) => ms === 1_200).length, 0);
+});
+
 test("(12) once the session fell back, a request under way makes no further attempt", async () => {
   const t = setup({ "u/fr_dep_01": ["html"], "u/fr_dep_03": [503] });
   await t.boot();

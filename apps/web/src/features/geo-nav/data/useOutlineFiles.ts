@@ -77,7 +77,8 @@ export interface OutlineFiles {
   ensureRoot(): Promise<OutlineFilesStatus>;
   ensureBundle(id: string): Promise<OutlineFilesStatus>;
   ensureSelf(id: string): Promise<OutlineFilesStatus>;
-  ensureGlobe(ids: string[]): Promise<OutlineFilesStatus[]>;
+  /** Their g/, and the u/ of `selves` (micro-states), in one write. */
+  ensureGlobe(ids: string[], selves?: string[]): Promise<OutlineFilesStatus[]>;
   batchSelf(ids: string[]): Promise<OutlineFilesStatus[]>;
   /** Settles with its request (at once when nothing is asked). */
   prefetch(kind: OutlineKind, id: string): Promise<void>;
@@ -211,7 +212,8 @@ function createOutlineFiles(): OutlineFiles {
     ensureRoot: () => loader?.ensureRoot() ?? api,
     ensureBundle: (id) => loader?.ensureBundle(id) ?? api,
     ensureSelf: (id) => loader?.ensureSelf(id) ?? api,
-    ensureGlobe: (ids) => loader?.ensureGlobe(ids) ?? apis(ids),
+    ensureGlobe: (ids, selves = []) =>
+      loader?.ensureGlobe(ids, selves) ?? apis([...ids, ...selves]),
     batchSelf: (ids) => loader?.batchSelf(ids) ?? apis(ids),
     prefetch: (kind, id) => loader?.prefetch(kind, id) ?? Promise.resolve(),
     stats: () =>

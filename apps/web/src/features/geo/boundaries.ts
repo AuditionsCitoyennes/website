@@ -1,7 +1,8 @@
 // Real boundary geometry laid over the data-derived hierarchy. Every outline
 // source of phase 1 is French (the métropole contour, france-geojson's régions
 // and départements, the départements' own, the communes' contours): a unit
-// outside France has none, and is known to have none.
+// outside France has none, and is known to have none. The outline files
+// (ac:contours=fichiers) also frame the other countries (byId, outlineRoles).
 
 import { boundsCenter, unionBounds } from "./bounds";
 import type { GeoUnit, UnitGeo } from "./types";
@@ -88,8 +89,9 @@ export interface BoundaryLookups {
   /** The départements' own outlines (depFine), by code: they win over france-geojson's. */
   byDep?: Map<string, UnitGeo>;
   /** The outline files' rows, by unit id (ac:contours=fichiers): they win
-   *  for régions, départements and communes — never for the country, which
-   *  keeps its constant frame, nor for the world. */
+   *  for régions, départements and communes, and frame the other countries
+   *  (but one spanning half the world or more) — never France, which keeps
+   *  its constant frame, nor the world, which then spans its children. */
   byId?: Map<string, UnitGeo>;
 }
 
@@ -120,6 +122,10 @@ export function applyBoundaries(index: Map<string, GeoUnit>, lookups: BoundaryLo
         (src.code !== undefined ? byDep?.get(src.code) : undefined) ??
         lookUp(departements, src);
     } else if (src?.kind === "commune") geo = byId?.get(u.id) ?? byInsee?.get(src.insee);
+    else if (!src && u.levelKey === "country") {
+      const row = byId?.get(u.id);
+      if (row && row.bounds.maxLng - row.bounds.minLng < 180) geo = row;
+    }
     if (geo) {
       u.center = geo.center;
       u.bounds = geo.bounds;
@@ -134,6 +140,14 @@ export function applyBoundaries(index: Map<string, GeoUnit>, lookups: BoundaryLo
     u.center = boundsCenter(u.bounds);
   };
   for (const u of index.values()) if (!u.parentId) span(u);
+  // The world spans its children once a country is framed by its row: it was
+  // the union of their lieux' boxes, and a world fit on that would leave a
+  // real country box (Spain's, the Canaries in) over the scope's descent line.
+  for (const u of index.values()) {
+    if (u.levelKey !== "world" || !u.children.some((c) => placed.has(c))) continue;
+    u.bounds = unionBounds(u.children.map((c) => c.bounds));
+    u.center = boundsCenter(u.bounds);
+  }
 }
 
 /** Ray-cast point-in-polygon for a GeoJSON Polygon/MultiPolygon (coords [lng,lat]).

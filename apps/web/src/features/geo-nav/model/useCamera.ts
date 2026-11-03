@@ -4,12 +4,20 @@
 // runs the ring's hook first (ring/useAnalysesRing registers it; neither
 // imports the other).
 import { markRaw, onBeforeUnmount, ref, shallowRef, type ComputedRef, type Ref } from "vue";
-import { ancestorsOf, type Bounds, depCodeOf, type GeoUnit, SPAN_DESCEND } from "@/features/geo";
+import {
+  ancestorsOf,
+  type Bounds,
+  depCodeOf,
+  type GeoUnit,
+  selfFileOf,
+  SPAN_DESCEND,
+} from "@/features/geo";
 import type { CameraCmd } from "@/features/map";
 import { frameFill } from "@/features/analyses";
 import type { NavState } from "../navState";
 import type { OutlineFiles } from "../data/useOutlineFiles";
 import { resultBounds } from "./auditions";
+import { worldFrame } from "./worldFrame";
 
 /** What the camera needs of the map component (GeoDrillMap's exposed API). */
 export interface MapHandle {
@@ -113,26 +121,27 @@ export function useCamera(inputs: CameraInputs) {
     let fillCap: CameraCmd["fillCap"];
     let fill: number | undefined;
     if (unit.levelKey === "world") {
-      // The root's bounds equal France's (union of children): fitting them verbatim
-      // makes the post-flight derive descend straight back into France (span ~0.8 ≥
-      // DESCEND) and needlessly churn its plateau. Inflate so France spans ~0.4 of
-      // the view and the world scope actually holds.
-      const b = unit.bounds;
-      const padLat = (b.maxLat - b.minLat) * 0.6;
-      const padLng = (b.maxLng - b.minLng) * 0.6;
-      bounds = {
-        minLat: b.minLat - padLat,
-        maxLat: b.maxLat + padLat,
-        minLng: b.minLng - padLng,
-        maxLng: b.maxLng + padLng,
-      };
+      // Inflated so the world scope holds; the globe, whole, for a world of
+      // countries no fit holds (worldFrame).
+      const frame = worldFrame(unit.bounds);
+      if (frame.type === "ease") {
+        inMicroZone.value = false;
+        setCamera({ type: "ease", center: frame.center, zoom: frame.zoom, animate, fresh });
+        framedFit.value = { key: nav.cameraKey.value, unitId: unit.id };
+        return;
+      }
+      bounds = frame.bounds;
     } else {
       // A département rises with its own outline (depFine): ask for it now, the
       // frame takes it if it is already in. With the outline files, the unit's
       // bundle (its self and its children's lines; nothing while its row is
-      // not known), the same request as the scope's chain will make.
-      if (outlines?.mode.value === "fichiers") void outlines.ensureBundle(unit.id);
-      else void ensureDepFine(depCodeOf(unit));
+      // not known), the same request as the scope's chain will make — a
+      // country with no bundle, its u/ (geo's outlineRoles).
+      if (outlines?.mode.value === "fichiers") {
+        if (unit.levelKey === "country" && selfFileOf(outlines.rowOf(unit.id)) === "u")
+          void outlines.ensureSelf(unit.id);
+        else void outlines.ensureBundle(unit.id);
+      } else void ensureDepFine(depCodeOf(unit));
       const geometry = byBox ? undefined : raisedGeometryFor(unit);
       // markRaw: the command lives in a deep ref, and the geometry must never be
       // proxied (see communeGeo's note).
