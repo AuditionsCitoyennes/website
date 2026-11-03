@@ -29,7 +29,13 @@ import { keyOfJson, vertexCount, type Polygon } from "./demGeometry";
 import type { DemSelection } from "./demRaster";
 import { FrameBudget } from "./demTiles";
 import type { DemJob, DemReply } from "./demWorkerCore";
-import { demoteRelief, reliefBudget, reliefDelay, reliefRoute } from "./reliefSwitch";
+import {
+  demoteRelief,
+  reliefBudget,
+  reliefBudgetGround,
+  reliefDelay,
+  reliefRoute,
+} from "./reliefSwitch";
 
 type Raster = typeof import("./demRaster");
 
@@ -66,6 +72,8 @@ export interface ReliefClientDeps {
   makeWorker(): ReliefWorker;
   loadRaster(): Promise<Raster>;
   budget: FrameBudget;
+  /** Ground answers skip the budget. */
+  groundFree?: boolean;
   delayMs?: number;
   stats?: boolean;
   /** Both renderers failed a tile: called once. */
@@ -177,6 +185,7 @@ export function createReliefClient(deps: ReliefClientDeps) {
     mainRender,
     now: () => performance.now(),
     budget: deps.budget,
+    groundFree: deps.groundFree,
     delayMs: deps.delayMs,
     stats: deps.stats,
     onClientLost() {
@@ -216,6 +225,7 @@ const relief = createReliefClient({
     }) as unknown as ReliefWorker,
   loadRaster: () => (raster ??= import("./demRaster")),
   budget: new FrameBudget(reliefBudget),
+  groundFree: reliefBudgetGround === "exempt",
   delayMs: reliefDelay,
   stats: __TEST_TOOLS__,
   onLost() {

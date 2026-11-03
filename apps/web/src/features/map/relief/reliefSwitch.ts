@@ -33,6 +33,20 @@
 // It acts only on a run whose route is "client"; inert under "serveur". Read
 // once per page load: switching reloads the page. Production has neither key
 // nor switch: DEFAULT_RELIEF_PREFETCH.
+//
+// How a "client" page hands its answers back to Mapbox (measurement arms, kept
+// in localStorage only: no row in the DEV switch):
+//
+// - `ac:relief-budget`: at most that many answers per animation frame, lowest
+//   z first; 0 = each at once. The default is DEFAULT_RELIEF_BUDGET (below,
+//   with its reason).
+// - `ac:relief-budget-ground` = "budgeted" (the default) | "exempt": answers
+//   that are the ground tile skip the budget. Kept as an arm so the phone runs
+//   of the flip can still compare it.
+//
+// They act only on a page loaded in "client". Read once per page load.
+// Production has neither key nor switch: DEFAULT_RELIEF_BUDGET,
+// DEFAULT_RELIEF_BUDGET_GROUND.
 
 export type ReliefMode = "serveur" | "client";
 
@@ -85,8 +99,43 @@ function storedCount(key: string, fallback: number): number {
 /** This page load's mode. */
 export const reliefMode: ReliefMode = __TEST_TOOLS__ ? storedReliefMode() : DEFAULT_RELIEF_MODE;
 
+/**
+ * The budget of a build without the testing tools, and the arm's default: 0,
+ * every answer at once. At 4 per frame, lowest z first, Lyon's ~130 answers
+ * keep the canonical tiles back: the terrain stood flat ~0.9 s after the swap
+ * (desktop medians: first tile 909 ms, all in 1,350 ms after it, against 0 and
+ * -155 at 0; ARA all in 1,767 ms after against -818; relief-france-task).
+ */
+export const DEFAULT_RELIEF_BUDGET = 0;
+
 /** "client": answers handed back to Mapbox per animation frame (`ac:relief-budget`; 0 = at once). */
-export const reliefBudget: number = __TEST_TOOLS__ ? storedCount("ac:relief-budget", 4) : 4;
+export const reliefBudget: number = __TEST_TOOLS__
+  ? storedCount("ac:relief-budget", DEFAULT_RELIEF_BUDGET)
+  : DEFAULT_RELIEF_BUDGET;
+
+export type ReliefBudgetGround = "budgeted" | "exempt";
+
+/** Whether ground answers take the budget in a build without the testing tools, and the arm's default. */
+export const DEFAULT_RELIEF_BUDGET_GROUND: ReliefBudgetGround = "budgeted";
+
+export const RELIEF_BUDGET_GROUNDS: readonly ReliefBudgetGround[] = ["budgeted", "exempt"];
+
+/** The kept ground arm, else the default (garbage or blocked storage too). */
+export function storedReliefBudgetGround(): ReliefBudgetGround {
+  try {
+    const raw = localStorage.getItem("ac:relief-budget-ground");
+    return (RELIEF_BUDGET_GROUNDS as readonly string[]).includes(raw ?? "")
+      ? (raw as ReliefBudgetGround)
+      : DEFAULT_RELIEF_BUDGET_GROUND;
+  } catch {
+    return DEFAULT_RELIEF_BUDGET_GROUND;
+  }
+}
+
+/** "client": whether ground answers skip the budget (`ac:relief-budget-ground`). */
+export const reliefBudgetGround: ReliefBudgetGround = __TEST_TOOLS__
+  ? storedReliefBudgetGround()
+  : DEFAULT_RELIEF_BUDGET_GROUND;
 
 /** "client": ms waited before each answer (`ac:relief-delay`, a measurement arm). */
 export const reliefDelay: number = __TEST_TOOLS__ ? storedCount("ac:relief-delay", 0) : 0;
