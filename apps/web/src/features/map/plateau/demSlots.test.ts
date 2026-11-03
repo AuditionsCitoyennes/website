@@ -8,7 +8,6 @@ import {
   createDemSlots,
   DROP_FLOOR_MS,
   repointDemSlot,
-  SPARE_WAIT_CAP_MS,
   type DemSlot,
   type DemSlotMap,
 } from "./demSlots";
@@ -16,29 +15,39 @@ import {
 const A: DemSlot = "plateau-dem-a";
 const B: DemSlot = "plateau-dem-b";
 
-/** Mapbox's part the slots use: sources, the terrain, one-time `render` listeners. */
+/** Mapbox's part the slots use: sources, the terrain, one-time `render` and
+ *  `remove` listeners. */
 class FakeMap implements DemSlotMap {
   sources = new Set<string>();
   terrain: { source?: string } | null = null;
+  /** The terrain's source as the last rendered frame evaluated it. */
+  evaluated: string | undefined;
   listeners: (() => void)[] = [];
+  removeListeners: (() => void)[] = [];
   /** Who registered each listener: `owner` at the time of its `once`. */
   owners = new Map<() => void, string>();
   owner = "";
   repaints = 0;
+  /** Who asked each repaint: `owner` at the time of the call. */
+  repaintOwners: string[] = [];
   removed: string[] = [];
+  /** Removals of the source the evaluated terrain still names. */
+  staleRemovals = 0;
   throwOnRemove = false;
   /** map.remove() was called: its style is gone, getSource throws. */
   dead = false;
-  once(_type: "render", l: () => void) {
-    this.listeners.push(l);
+  once(type: "render" | "remove", l: () => void) {
+    (type === "render" ? this.listeners : this.removeListeners).push(l);
     this.owners.set(l, this.owner);
   }
-  /** The live listeners `owner` registered. */
+  /** The live listeners (either type) `owner` registered. */
   listenersOf(owner: string) {
-    return this.listeners.filter((l) => this.owners.get(l) === owner).length;
+    return [...this.listeners, ...this.removeListeners].filter((l) => this.owners.get(l) === owner)
+      .length;
   }
-  off(_type: "render", l: () => void) {
-    this.listeners = this.listeners.filter((x) => x !== l);
+  off(type: "render" | "remove", l: () => void) {
+    if (type === "render") this.listeners = this.listeners.filter((x) => x !== l);
+    else this.removeListeners = this.removeListeners.filter((x) => x !== l);
   }
   getSource(id: string) {
     if (this.dead) throw new Error("Cannot read properties of undefined (reading 'getSource')");
@@ -52,18 +61,29 @@ class FakeMap implements DemSlotMap {
     if (this.throwOnRemove) throw new Error("Cannot read properties of undefined (reading 'get')");
     this.sources.delete(id);
     this.removed.push(id);
+    if (this.evaluated === id) this.staleRemovals++;
   }
   getTerrain() {
     return this.terrain;
   }
   triggerRepaint() {
     this.repaints++;
+    this.repaintOwners.push(this.owner);
   }
-  /** A rendered frame: the one-time listeners leave, then run (mapbox's order). */
+  /** A rendered frame: the style evaluated first, then the one-time listeners
+   *  leave and run (mapbox's order). */
   render() {
+    this.evaluated = this.terrain?.source;
     const ls = this.listeners;
     this.listeners = [];
     for (const l of ls) l();
+  }
+  /** map.remove(): its `remove` listeners run, then the map is dead. */
+  removeMap() {
+    const ls = this.removeListeners;
+    this.removeListeners = [];
+    for (const l of ls) l();
+    this.dead = true;
   }
 }
 
@@ -221,7 +241,7 @@ test("listeners stay at one for the swap and one per slot over 10 swaps", (t) =>
   assert.deepEqual([...map.sources], [state.src]);
 });
 
-test("abort leaves no timer, no listener, no pending wait", async (t) => {
+test("abort ends every wait false, no timer, no listener", async (t) => {
   t.after(() => mock.timers.reset());
   const { map, slots, swap } = setup();
   swap();
@@ -229,16 +249,17 @@ test("abort leaves no timer, no listener, no pending wait", async (t) => {
   swap(); // b's drop pending, the swap's frame pending
   mock.timers.tick(DROP_FLOOR_MS); // the drop now waits on a frame
   swap(); // a's drop on its floor timer
-  let waited = false;
-  void slots.waitForFrame(map).then(() => (waited = true));
+  let waited: boolean | undefined;
+  void slots.waitForFrame(map, A).then((v) => (waited = v));
   // b's own removal by addDemSlot (the third swap re-added it) came before.
   const removed = [...map.removed];
   slots.abort();
   await settle();
-  assert.equal(waited, true);
+  assert.equal(waited, false);
   assert.equal(map.listeners.length, 0);
+  assert.equal(map.removeListeners.length, 0);
   const repaints = map.repaints;
-  mock.timers.tick(10 * SPARE_WAIT_CAP_MS);
+  mock.timers.tick(10_000);
   map.render();
   mock.timers.tick(0);
   assert.deepEqual(map.removed, removed);
@@ -268,7 +289,7 @@ test("a throw from removeSource, or from a removed map, is swallowed", (t) => {
   }
 });
 
-test("the spare slot's wait: only for the slot the last swap left, ended by a frame or the cap", async (t) => {
+test("the spare slot's wait: only for the slot the last swap left, ended by a rendered frame", async (t) => {
   t.after(() => mock.timers.reset());
   const { map, slots, swap } = setup();
   swap();
@@ -277,9 +298,9 @@ test("the spare slot's wait: only for the slot the last swap left, ended by a fr
   assert.equal(slots.spareNeedsFrame(map, B), true);
   assert.equal(slots.spareNeedsFrame(map, A), false);
 
-  let byFrame = false;
+  let byFrame: boolean | undefined;
   const before = map.repaints;
-  void slots.waitForFrame(map).then(() => (byFrame = true));
+  void slots.waitForFrame(map, B).then((v) => (byFrame = v));
   assert.equal(map.repaints, before + 1);
   map.render();
   await settle();
@@ -287,16 +308,169 @@ test("the spare slot's wait: only for the slot the last swap left, ended by a fr
   assert.equal(slots.spareNeedsFrame(map, B), false);
   mock.timers.tick(DROP_FLOOR_MS); // b's drop, its frame rendered
   assert.deepEqual(map.removed, [B]);
-
-  let byCap = false;
-  void slots.waitForFrame(map).then(() => (byCap = true));
-  mock.timers.tick(SPARE_WAIT_CAP_MS - 1);
-  await settle();
-  assert.equal(byCap, false);
-  mock.timers.tick(1);
-  await settle();
-  assert.equal(byCap, true);
   assert.equal(map.listeners.length, 0);
+  assert.equal(map.removeListeners.length, 0);
+});
+
+test("no cap: without a frame the wait never ends and asks no second repaint", async (t) => {
+  t.after(() => mock.timers.reset());
+  const { map, slots, swap } = setup();
+  swap();
+  map.render();
+  swap(); // b → a, no frame yet; b's drop on its floor timer
+  let waited: boolean | undefined;
+  map.owner = "wait";
+  void slots.waitForFrame(map, B).then((v) => (waited = v));
+  map.owner = "";
+  assert.deepEqual(map.repaintOwners, ["wait"]);
+  mock.timers.tick(10_000);
+  await settle();
+  assert.equal(waited, undefined);
+  // The wait's one repaint, and b's drop's own at its floor (no frame rendered).
+  assert.equal(map.repaints, 2);
+  assert.equal(map.repaintOwners.filter((o) => o === "wait").length, 1);
+  assert.deepEqual(map.removed, []);
+  assert.equal(map.listenersOf("wait"), 2, "one render and one remove listener");
+  map.render();
+  await settle();
+  assert.equal(waited, true);
+  assert.equal(map.listenersOf("wait"), 0);
+});
+
+test("a frame within 1 s ends the wait at that frame, as before", async (t) => {
+  t.after(() => mock.timers.reset());
+  for (const after of [999, 1]) {
+    const { map, slots, swap } = setup();
+    swap();
+    map.render();
+    swap();
+    let waited: boolean | undefined;
+    void slots.waitForFrame(map, B).then((v) => (waited = v));
+    mock.timers.tick(after);
+    await settle();
+    assert.equal(waited, undefined, `${after} ms: not before the frame`);
+    map.render();
+    await settle();
+    assert.equal(waited, true, `${after} ms: at the frame`);
+    assert.equal(map.listeners.length, 0);
+    assert.equal(map.removeListeners.length, 0);
+    mock.timers.reset();
+  }
+});
+
+test("the map's remove event ends a wait false, with no listener left", async (t) => {
+  t.after(() => mock.timers.reset());
+  const { map, slots, swap } = setup();
+  swap();
+  map.render();
+  swap();
+  let waited: boolean | undefined;
+  map.owner = "wait";
+  void slots.waitForFrame(map, B).then((v) => (waited = v));
+  map.owner = "";
+  map.removeMap();
+  await settle();
+  assert.equal(waited, false);
+  assert.equal(map.listenersOf("wait"), 0);
+  assert.deepEqual(map.removed, []);
+});
+
+test("re-adding the slot ends its waits false; the other slot's wait stays pending", async (t) => {
+  t.after(() => mock.timers.reset());
+  const { map, slots, swap } = setup();
+  swap();
+  map.render();
+  swap();
+  let onB: boolean | undefined;
+  let onA: boolean | undefined;
+  map.owner = "B";
+  void slots.waitForFrame(map, B).then((v) => (onB = v));
+  map.owner = "A";
+  void slots.waitForFrame(map, A).then((v) => (onA = v));
+  map.owner = "";
+  slots.addDemSlot(map, B, {});
+  await settle();
+  assert.equal(onB, false);
+  assert.equal(onA, undefined);
+  assert.equal(map.listenersOf("B"), 0);
+  assert.equal(map.listenersOf("A"), 2);
+  map.render();
+  await settle();
+  assert.equal(onA, true);
+  assert.equal(map.listenersOf("A"), 0);
+});
+
+test("concurrent waits: one frame ends them all true, in call order", async (t) => {
+  t.after(() => mock.timers.reset());
+  const { map, slots, swap } = setup();
+  swap();
+  map.render();
+  swap();
+  const before = map.repaints;
+  const order: string[] = [];
+  for (const i of [1, 2, 3]) void slots.waitForFrame(map, B).then((v) => order.push(`${i} ${v}`));
+  assert.equal(map.repaints, before + 3);
+  map.render();
+  await settle();
+  assert.deepEqual(order, ["1 true", "2 true", "3 true"]);
+  assert.equal(map.listeners.length, 0);
+  assert.equal(map.removeListeners.length, 0);
+});
+
+test("a throw from once or triggerRepaint (a removed map) ends the wait false at once", async (t) => {
+  t.after(() => mock.timers.reset());
+  for (const what of ["once", "triggerRepaint"] as const) {
+    const { map, slots, swap } = setup();
+    swap();
+    map.render();
+    swap();
+    const removedMap = new Error("Cannot read properties of undefined (reading 'style')");
+    if (what === "once")
+      map.once = (type, l) => {
+        if (type === "remove") throw removedMap;
+        FakeMap.prototype.once.call(map, type, l);
+      };
+    else
+      map.triggerRepaint = () => {
+        throw removedMap;
+      };
+    let waited: boolean | undefined;
+    map.owner = "wait";
+    void slots.waitForFrame(map, B).then((v) => (waited = v));
+    map.owner = "";
+    await settle();
+    assert.equal(waited, false, what);
+    assert.equal(map.listenersOf("wait"), 0, what);
+    mock.timers.reset();
+  }
+});
+
+test("#152's R3 in the fake map: the spare is removed after the frame, never stale", async (t) => {
+  t.after(() => mock.timers.reset());
+  const { map, slots, swap } = setup();
+  swap(); // a (never added) → b
+  map.render(); // evaluated: b
+  swap(); // b → a (Rhône), no frame yet: evaluated still b, b's drop scheduled
+  assert.equal(slots.spareNeedsFrame(map, B), true); // Lyon's prefetch, 50 ms later
+  let waited: boolean | undefined;
+  void slots.waitForFrame(map, B).then((v) => (waited = v));
+  mock.timers.tick(1_500); // no frame: neither the drop nor the caller removes b
+  await settle();
+  assert.equal(waited, undefined);
+  assert.deepEqual(map.removed, []);
+  map.render();
+  await settle();
+  assert.equal(waited, true);
+  // The caller (usePlateau's prefetch) goes on: the spare slot replaced.
+  // Before this PR the wait resolved at its 1 s cap and this same addDemSlot
+  // removed b while the evaluated terrain still named it: 1 stale removal.
+  slots.addDemSlot(map, B, {});
+  mock.timers.tick(0); // b's old drop: a newer generation, a no-op
+  mock.timers.tick(DROP_FLOOR_MS);
+  assert.deepEqual(map.removed, [B]);
+  assert.equal(map.staleRemovals, 0);
+  assert.equal(map.listeners.length, 0);
+  assert.equal(map.removeListeners.length, 0);
 });
 
 test("the spare slot's wait: none for the first swap's never-added slot", (t) => {
