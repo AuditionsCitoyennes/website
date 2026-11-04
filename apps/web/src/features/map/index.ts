@@ -7,6 +7,7 @@ export * from "./types";
 export * from "./events";
 // The plateau lid's DEV switch (the Témoignages page draws it).
 export { lidMode, setLidMode, type LidMode } from "./plateau/lidSwitch";
+export { lidCheck, setLidCheck, type LidCheck } from "./plateau/lidSwitch";
 // The plateau mesh's DEV switch (the Témoignages page draws it).
 export { meshMode, setMeshMode, type MeshMode } from "./plateau/meshSwitch";
 // Where the plateau's relief is rendered: its DEV switch (the Témoignages page draws it).
