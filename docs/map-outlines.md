@@ -360,15 +360,16 @@ Whoever adds it MUST copy the staging workflow's two steps
 (`scripts/deploy/outlines.sh fetch` / `install`) and its fail-closed
 `root.json` check (the deploy fails when the lock's release is missing or
 `root.json` is served as HTML): without the files every production page pays
-one `root.json` round trip and falls back to the API's outlines for the
-session, without a word. The web's API outlines must not be removed while a
-production deploy exists that does not ship the files. R2 only when world
-subdivisions or tiles arrive.
+two `root.json` requests (the second with `cache: "reload"`, the release-skew
+confirm) and falls back to the API's outlines for the session, without a word.
+The web's API outlines must not be removed while a production deploy exists
+that does not ship the files. R2 only when world subdivisions or tiles arrive.
 
 **Local dev**: set `VITE_MAP_DATA_BASE` in `apps/web/.env` to a static server
 holding the locked build (e.g. `http://127.0.0.1:5399/` over a directory with
 `outlines/<build>/`, CORS on); without it the dev server answers
-`/map-data/…` with its page (200, HTML) and the session silently gives `api`.
+`/map-data/…` with its page (200, HTML) and the session falls back to `api`
+(one DEV console warning, `[outlines] back to the API's outlines`).
 
 ### Lock bump: release first, lock bump second
 
