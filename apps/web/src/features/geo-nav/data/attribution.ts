@@ -5,8 +5,9 @@
 // "noopener nofollow"). Each array is one entry per « | » of the credit line.
 //
 // The credit follows what is actually drawn, not the switch alone:
-// - `api` (production's only mode), and under `fichiers` until the files are
-//   in (`loading`: the boot curtain hides the map anyway) or once the session
+// - `api` (the testing tools' other mode), no files read (`session` null: the
+//   corpus source, the comparer), and under `fichiers` until the files are in
+//   (`loading`: the boot curtain hides the map anyway) or once the session
 //   went back to the API's (`fallback`): the vendored france-geojson levels
 //   (the line its README asks for, verbatim) and the Géo API's communes.
 // - `fichiers` with the files in (`ok`): Etalab's contours-administratifs.
