@@ -9,7 +9,7 @@ import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { SnapshotManager, type Snapshot } from "../plateau/mapSnapshot";
-import { lidMode } from "../plateau/lidSwitch";
+import { lidCheck, lidMode } from "../plateau/lidSwitch";
 import { boundsOfFeatures, unionBounds } from "../lib/polygon";
 
 export interface PlateauLidInputs {
@@ -34,7 +34,7 @@ export function usePlateauLid({
   plateauActive,
   lidExtra,
 }: PlateauLidInputs) {
-  const snapshotMgr = new SnapshotManager(lidMode);
+  const snapshotMgr = new SnapshotManager(lidMode, lidCheck);
   // "aucun" (DEV, plateau/lidSwitch): no capture, no hidden map — the top is the
   // draped terrain. "ancien": the lid as before, its sizes and its bookkeeping.
   const noLid = lidMode === "aucun";
@@ -407,6 +407,10 @@ export function usePlateauLid({
       lidMode,
       lidCapturePx: lastCapturePx || null,
       hiddenMapPx: snapshotMgr.hiddenMapPx(),
+      // How shots are judged, how they ended, and how many read pixels back.
+      lidCheck,
+      lidShotEnds: { ...snapshotMgr.ends },
+      lidReadbacks: snapshotMgr.readbacks,
       // Asks the in-flight dedupe skipped, and running shots a re-run adopted.
       lidDedupeSkips: dedupeSkips,
       lidAdopted: adopted,

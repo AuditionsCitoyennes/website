@@ -163,7 +163,9 @@ export const reliefDelay: number = __TEST_TOOLS__ ? storedCount("ac:relief-delay
  * 90 on the readback runs first and the rise waits behind it. Not the POST's
  * timing (the swap lands ~36 ms after serveur's): coupled to that lid
  * constant, measured only under SwiftShader, and a loaded host can still put
- * the readback first (one D4 run of four).
+ * the readback first (one D4 run of four). That readback is
+ * `ac:lid-check=pixels` since lid-readback; under the default "signaux" no
+ * pixel is read, and whether the hold still helps is that PR's hold-0 arm.
  */
 export const DEFAULT_RELIEF_COMMIT_HOLD_MS = 60;
 

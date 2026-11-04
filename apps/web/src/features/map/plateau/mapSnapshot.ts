@@ -1,5 +1,13 @@
 import mapboxgl from "mapbox-gl";
-import type { LidMode } from "./lidSwitch";
+import { DEFAULT_LID_CHECK, type LidCheck, type LidMode } from "./lidSwitch";
+import {
+  settleAndGrab,
+  settleAndGrabPixels,
+  uniformSample,
+  type Shot,
+  type ShotEnd,
+  type ShotIO,
+} from "./lidShot";
 import { lidTier, type LidTier } from "./lidTier";
 
 // One persistent HIDDEN Mapbox map used to snapshot the basemap for the plateau's
@@ -12,6 +20,13 @@ import { lidTier, type LidTier } from "./lidTier";
 // The snapshot is the PURE basemap: boundary outlines are NOT baked in — a baked
 // line is a raster that fattens as you zoom past the capture. The focus outlines
 // are drawn over the lid as constant-width GL vector lines (PlateauWallLayer).
+//
+// A blank capture (a buffer never drawn, cleared, or a lost context) is told
+// from the hidden map's own signals, counted here and judged in lidShot.ts: no
+// pixel is read on the main thread, except for a shot with a map error since
+// its jump (failed tiles draw a plain background), which still gets the 8×8
+// readback (looksBlank). `ac:lid-check=pixels` (lidSwitch.ts, the testing
+// tools) keeps the readback on every shot, as before lid-readback.
 
 export interface SnapshotBounds {
   minLat: number;
@@ -78,9 +93,26 @@ export class SnapshotManager {
   private px = 0; // 0 while parked: the next shot resizes it back
   private parkTimer: ReturnType<typeof setTimeout> | null = null;
   private shooting = 0; // captures running
+  // The hidden map's signals (lidShot.ts ShotSignals), kept by its listeners.
+  private readonly sig = { renders: 0, clearedAt: 0, lost: false, errors: 0 };
+  /** How each shot ended, and how many ran the 8×8 readback — for diagnostics. */
+  readonly ends: Record<ShotEnd, number> = {
+    ok: 0,
+    superseded: 0,
+    timeout: 0,
+    lost: 0,
+    undrawn: 0,
+    blank: 0,
+    failed: 0,
+  };
+  readbacks = 0;
 
-  /** `mode`: "ecran" sizes from the screen and parks; "ancien" is the lid as before. */
-  constructor(private readonly mode: LidMode = "ecran") {}
+  /** `mode`: "ecran" sizes from the screen and parks; "ancien" is the lid as before.
+   *  `check`: how a shot is judged before it is returned (lidSwitch.ts). */
+  constructor(
+    private readonly mode: LidMode = "ecran",
+    private readonly check: LidCheck = DEFAULT_LID_CHECK,
+  ) {}
 
   /**
    * Backing-store size this manager will capture at, given what the caller wants.
@@ -125,6 +157,25 @@ export class SnapshotManager {
     });
     map.on("load", () => {
       this.loaded = true;
+    });
+    // What a capture's frame went through (lidShot.ts): a resize or a context
+    // restore clears the drawing buffer until the next render.
+    map.on("render", () => {
+      this.sig.renders++;
+    });
+    map.on("resize", () => {
+      this.sig.clearedAt = this.sig.renders;
+    });
+    map.on("webglcontextlost", () => {
+      this.sig.lost = true;
+    });
+    map.on("webglcontextrestored", () => {
+      this.sig.lost = false;
+      this.sig.clearedAt = this.sig.renders;
+    });
+    map.on("error", (e) => {
+      this.sig.errors++;
+      console.error(e.error); // Mapbox's own line when nobody listens (Evented.fire)
     });
     this.map = map;
     return map;
@@ -172,7 +223,7 @@ export class SnapshotManager {
   }
 
   /** Snapshot the style over `bounds`. Resolves null when superseded by a newer
-   *  capture, on timeout, or when the frame looks blank.
+   *  capture, on timeout, or when the frame is blank (lidShot.ts ShotEnd).
    *  `wantPx`/`hardMax` size the capture — see `budget()`. */
   async capture(
     style: string,
@@ -225,27 +276,47 @@ export class SnapshotManager {
         { padding: 8 },
       ) as mapboxgl.CameraOptions,
     );
+    const at = { renders: this.sig.renders, errors: this.sig.errors };
     // Let tiles + outline settle. `idle` can be flaky right after jumpTo — poll
-    // loaded() with a hard timeout instead of trusting a single event.
-    await this.frame();
-    const ok = await this.until(() => !!this.map && this.map.loaded(), 12000);
-    if (seq !== this.seq || !this.map) return null;
-    if (!ok) return null;
-    // A "client" run's commit hold is timed against this wait (relief/
-    // reliefSwitch.ts DEFAULT_RELIEF_COMMIT_HOLD_MS): change one, measure both.
-    await this.wait(60); // small raster/label settle margin
-    if (seq !== this.seq || !this.map) return null;
-
+    // loaded() with a hard timeout instead of trusting a single event, then the
+    // 60 ms settle margin (lidShot.ts SETTLE_MS). A "client" run's commit hold
+    // is timed against that wait (relief/reliefSwitch.ts
+    // DEFAULT_RELIEF_COMMIT_HOLD_MS): change one, measure both. Under
+    // ac:lid-check=signaux (the default) no pixel is read after it
+    // (plateau/lidShot.ts).
     const canvas = map.getCanvas();
-    const bitmap = await createImageBitmap(canvas);
-    if (seq !== this.seq) {
-      bitmap.close();
-      return null;
+    const io: ShotIO<ImageBitmap> = {
+      map,
+      signals: this.sig,
+      alive: () => !!this.map,
+      current: () => seq === this.seq && !!this.map,
+      glLost: () =>
+        (canvas.getContext("webgl2") as WebGL2RenderingContext | null)?.isContextLost() ?? true,
+      frame: () => this.frame(),
+      wait: (ms) => this.wait(ms),
+      until: (cond, ms) => this.until(cond, ms),
+      grab: () => createImageBitmap(canvas),
+      close: (b) => b.close(),
+      blank: (b) => {
+        this.readbacks++;
+        return this.looksBlank(b);
+      },
+    };
+    let shot: Shot<ImageBitmap>;
+    if (__TEST_TOOLS__ && this.check === "pixels") {
+      try {
+        shot = await settleAndGrabPixels(io);
+      } catch (e) {
+        this.ends.failed++; // a grab that rejects reaches the caller, as before
+        throw e;
+      }
+    } else {
+      shot = await settleAndGrab(io, at);
     }
-    if (this.looksBlank(bitmap)) {
-      bitmap.close();
-      return null; // failed capture → caller keeps the status quo (no lid)
-    }
+    this.ends[shot.end]++;
+    // Superseded, timed out, lost, undrawn or blank: the caller keeps the status quo (no lid).
+    if (!shot.bitmap) return null;
+    const bitmap = shot.bitmap;
     // Actual coverage: at pitch 0 / bearing 0 the canvas maps to an axis-aligned
     // mercator rectangle.
     const b = map.getBounds();
@@ -271,15 +342,8 @@ export class SnapshotManager {
       const ctx = c.getContext("2d");
       if (!ctx) return false;
       ctx.drawImage(bitmap, 0, 0, 8, 8);
-      const d = ctx.getImageData(0, 0, 8, 8).data;
-      let min = 255;
-      let max = 0;
-      for (let i = 0; i < d.length; i += 4) {
-        const lum = (d[i] + d[i + 1] + d[i + 2]) / 3;
-        if (lum < min) min = lum;
-        if (lum > max) max = lum;
-      }
-      return max - min < 4; // uniform frame = blank/black capture
+      // uniform frame = blank/black capture
+      return uniformSample(ctx.getImageData(0, 0, 8, 8).data);
     } catch {
       return false;
     }
@@ -310,5 +374,7 @@ export class SnapshotManager {
     this.container?.remove();
     this.container = null;
     this.loaded = false;
+    // A new hidden map counts from 0.
+    Object.assign(this.sig, { renders: 0, clearedAt: 0, lost: false, errors: 0 });
   }
 }

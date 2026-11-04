@@ -2,9 +2,10 @@
 // The Témoignages page's data switches (dataSource.ts, analyses/devSwitch.ts),
 // map phase 1: "Données" (corpus, serveur, comparer — the page loads again),
 // "Analyses en attente", "Arbre des lieux", "Couvercle" (the plateau's lid,
-// map/plateau/lidSwitch — the page loads again), "Maillage" (how the plateau's
-// mesh is assembled, map/plateau/meshSwitch — the page loads again),
-// "Contours" (the outlines' source, geo-nav/data/contoursSwitch — the page loads
+// map/plateau/lidSwitch — the page loads again) and, unless "Aucun",
+// "Contrôle" (how a lid shot is judged, the same module — the page loads
+// again), "Maillage" (how the plateau's mesh is assembled,
+// map/plateau/meshSwitch — the page loads again), "Contours" (the outlines' source, geo-nav/data/contoursSwitch — the page loads
 // again; the files are read under the "serveur" source only), "Relief"
 // (where the plateau's DEM tiles are rendered, map/relief/reliefSwitch — the
 // page loads again) and, under "Client" only, "Préchargement" (how a new
@@ -16,14 +17,17 @@
 // the attribution button and the sheet).
 import { pendingAnalysesMode, setPendingAnalysesMode } from "@/features/analyses";
 import {
+  lidCheck,
   lidMode,
   meshMode,
   reliefMode,
   reliefPrefetch,
+  setLidCheck,
   setLidMode,
   setMeshMode,
   setReliefMode,
   setReliefPrefetch,
+  type LidCheck,
   type LidMode,
   type MeshMode,
   type ReliefMode,
@@ -57,6 +61,10 @@ const LIDS: readonly { id: LidMode; label: string }[] = [
   { id: "ecran", label: "Écran" },
   { id: "ancien", label: "Ancien" },
   { id: "aucun", label: "Aucun" },
+];
+const LID_CHECKS: readonly { id: LidCheck; label: string }[] = [
+  { id: "signaux", label: "Signaux" },
+  { id: "pixels", label: "Pixels" },
 ];
 const MESHES: readonly { id: MeshMode; label: string }[] = [
   { id: "ancien", label: "Ancien" },
@@ -150,6 +158,19 @@ function showReport() {
           class="seg-btn"
           :aria-pressed="lidMode === m.id"
           @click="setLidMode(m.id)"
+        >
+          {{ m.label }}
+        </button>
+      </div>
+      <div v-if="lidMode !== 'aucun'" class="seg" role="group" aria-label="Contrôle du couvercle">
+        <span class="seg-label">Contrôle</span>
+        <button
+          v-for="m in LID_CHECKS"
+          :key="m.id"
+          type="button"
+          class="seg-btn"
+          :aria-pressed="lidCheck === m.id"
+          @click="setLidCheck(m.id)"
         >
           {{ m.label }}
         </button>
