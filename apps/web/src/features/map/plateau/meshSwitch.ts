@@ -17,9 +17,8 @@
 //   waits, asked of the worker at the map's next idle. Lost (it fails, or says
 //   nothing for 3 s), the session builds on the page: each mesh as its run
 //   starts, the globe sets that wait as merc's.
-//   The default since 2026-11-04: at CPU x4, merc's mesh still held the page
-//   160-300 ms at Rhône and Bouches-du-Rhône, the worker's apply under 1 ms
-//   (#141, #145, #154, #155, #156, #159, #169).
+//   The default since 2026-11-04: at CPU x4 merc still ran 75-175 ms tasks at Rhône
+//   and Bouches-du-Rhône, the worker's apply < 1 ms (#141, #145, #154-#156, #159, #169).
 //
 // Read once per page load: switching reloads the page. Production has neither
 // key nor switch: DEFAULT_MESH_MODE.
