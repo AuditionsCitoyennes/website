@@ -150,10 +150,19 @@ export async function withSession<T>(
       void Promise.allSettled([...live].map((x) => x.delete())).then(() => process.exit(130));
     });
   }
+  let failed = false;
   try {
     return await fn(s);
+  } catch (e) {
+    failed = true;
+    throw e;
   } finally {
     live.delete(s);
-    await s.delete();
+    // A walk that failed because its session died (a WebContent crash, a reset simulator) gets
+    // `invalid session id` back from this delete: the walk's own error is the one thrown.
+    await s.delete().catch((e: unknown) => {
+      if (!failed) throw e;
+      console.warn("session delete failed", e);
+    });
   }
 }

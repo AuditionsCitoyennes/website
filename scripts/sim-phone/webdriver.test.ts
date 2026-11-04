@@ -135,6 +135,37 @@ test("withSession deletes the session once when fn resolves and when it throws",
   assert.equal(deletes(bad.sent), 1);
 });
 
+test("withSession throws fn's error when the delete after it fails too", async () => {
+  const { f, sent } = fakeDriver((r) =>
+    r.method === "DELETE" && r.url === `${DRIVER}/session/s1`
+      ? [404, { error: "invalid session id", message: "crashed" }]
+      : undefined,
+  );
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    await assert.rejects(
+      withSession(
+        DRIVER,
+        async () => {
+          throw new Error("walk failed: WebContent crashed");
+        },
+        SIM_CAPS,
+        f,
+      ),
+      /walk failed: WebContent crashed/,
+    );
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(sent.filter((r) => r.method === "DELETE").length, 1);
+  // With no error of its own, the walk reports the delete's.
+  await assert.rejects(
+    withSession(DRIVER, async () => 1, SIM_CAPS, f),
+    (e: unknown) => e instanceof WebDriverError && e.error === "invalid session id",
+  );
+});
+
 test("a session not created is thrown, not retried", async () => {
   const { f, sent } = fakeDriver((r) =>
     r.url === `${DRIVER}/session`
