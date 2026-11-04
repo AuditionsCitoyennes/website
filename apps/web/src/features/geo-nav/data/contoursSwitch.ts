@@ -3,20 +3,23 @@
 // kept in localStorage like the Témoignages page's data source
 // (temoignages/dataSource.ts) and drawn as its DEV switch's "Contours" row:
 //
-// - "api" (the default): the API's boundaries, as before.
-// - "fichiers": the static outline files of one build (useOutlineFiles.ts, the
-//   build named by apps/web/outlines.lock.json), read by the explorer (GeoNav,
-//   through useOutlineFiles and model/outlineRules.ts) under the server source;
-//   the corpus source and the comparer stay on the API's.
+// - "api": the API's boundaries, as before the outline files.
+// - "fichiers" (the default): the static outline files of one build
+//   (useOutlineFiles.ts, the build named by apps/web/outlines.lock.json), read
+//   by the explorer (GeoNav, through useOutlineFiles and model/outlineRules.ts)
+//   under the server source; the corpus source and the comparer stay on the
+//   API's.
 //
 // Read once per page load: switching reloads the page (the outlines' source
 // is decided once for the session). Production has neither key nor switch:
-// DEFAULT_CONTOURS_MODE.
+// DEFAULT_CONTOURS_MODE. There, as anywhere, a session whose files are not
+// served (root.json missing, HTML or another build, or the boot past its
+// 6 s cap: useOutlineFiles.ts) falls back to "api" until the page loads again.
 
 export type ContoursMode = "api" | "fichiers";
 
 /** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_CONTOURS_MODE: ContoursMode = "api";
+export const DEFAULT_CONTOURS_MODE: ContoursMode = "fichiers";
 
 export const CONTOURS_MODES: readonly ContoursMode[] = ["api", "fichiers"];
 
