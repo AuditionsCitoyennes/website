@@ -14,11 +14,14 @@
 // every tile loaded (the jump marks the sources dirty, the next render clears
 // them), so the shot is the frame it was before.
 //
-// The one frame the signals pass that the pixels would not is a map whose
-// tiles failed (network, quota): loaded() (errored tiles count as done), drawn,
-// and a plain background. A shot with a map error since its jump still gets
-// the 8×8 readback on the main thread. "pixels" is the shot before
-// lid-readback: every grab is read back, a uniform one rejected.
+// Two kinds of frame pass the signals but not the pixels. A map whose tiles
+// failed (network, quota): loaded() (errored tiles count as done), drawn, and
+// a plain background; a shot with a map error since its jump still gets the
+// 8×8 readback on the main thread. And a frame whose basemap really is
+// uniform (open sea, a featureless area) with no map error: it now becomes
+// the lid, where the readback rejected it (lid-readback, stated change 4).
+// "pixels" is the shot before lid-readback: every grab is read back, a
+// uniform one rejected.
 
 export type ShotEnd = "ok" | "superseded" | "timeout" | "lost" | "undrawn" | "blank" | "failed";
 

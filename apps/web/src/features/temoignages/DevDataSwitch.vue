@@ -5,8 +5,9 @@
 // map/plateau/lidSwitch — the page loads again) and, unless "Aucun",
 // "Contrôle" (how a lid shot is judged, the same module — the page loads
 // again), "Maillage" (how the plateau's mesh is assembled,
-// map/plateau/meshSwitch — the page loads again), "Contours" (the outlines' source, geo-nav/data/contoursSwitch — the page loads
-// again; the files are read under the "serveur" source only), "Relief"
+// map/plateau/meshSwitch — the page loads again), "Contours" (the outlines'
+// source, geo-nav/data/contoursSwitch — the page loads again; the files are
+// read under the "serveur" source only), "Relief"
 // (where the plateau's DEM tiles are rendered, map/relief/reliefSwitch — the
 // page loads again) and, under "Client" only, "Préchargement" (how a new
 // slot's tiles start, the same module — the page loads again); in comparer
