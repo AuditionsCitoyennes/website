@@ -4,7 +4,7 @@
 // kept in localStorage like the plateau lid's mode (lidSwitch.ts) and drawn as
 // the Témoignages page's DEV switch's "Maillage" row:
 //
-// - "ancien" (the default): the mesh as before — each boundary line group
+// - "ancien": the mesh as before — each boundary line group
 //   pushed value by value into one number[], then copied into a Float32Array.
 // - "concat": the same groups, each copied once into one Float32Array
 //   (TypedArray.set, gl/meshConcat.ts): the same values, the same draw ranges.
@@ -12,11 +12,13 @@
 //   regime and built with the camera clear of it gets its globe set after the
 //   map's next idle, or on the first globe frame before that
 //   (gl/globeDeferral.ts); any other build has both at once.
-// - "worker": merc's sets, built in a Web Worker (gl/meshClient.ts), the
-//   page only applying them; its globe set, when it waits, asked of the
-//   worker at the map's next idle. Lost (it fails, or says nothing for 3 s),
-//   the session builds on the page: each mesh as its run starts, the globe
-//   sets that wait as merc's.
+// - "worker" (the default): merc's sets, built in a Web Worker
+//   (gl/meshClient.ts), the page only applying them; its globe set, when it
+//   waits, asked of the worker at the map's next idle. Lost (it fails, or says
+//   nothing for 3 s), the session builds on the page: each mesh as its run
+//   starts, the globe sets that wait as merc's.
+//   The default since 2026-11-04: at CPU x4 merc still ran 75-175 ms tasks at Rhône
+//   and Bouches-du-Rhône, the worker's apply < 1 ms (#141, #145, #154-#156, #159, #169).
 //
 // Read once per page load: switching reloads the page. Production has neither
 // key nor switch: DEFAULT_MESH_MODE.
@@ -24,7 +26,7 @@
 export type MeshMode = "ancien" | "concat" | "merc" | "worker";
 
 /** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_MESH_MODE: MeshMode = "ancien";
+export const DEFAULT_MESH_MODE: MeshMode = "worker";
 
 export const MESH_MODES: readonly MeshMode[] = ["ancien", "concat", "merc", "worker"];
 
