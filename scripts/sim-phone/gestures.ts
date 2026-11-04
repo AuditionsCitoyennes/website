@@ -1,5 +1,5 @@
-// W3C Actions for one- and two-finger touch gestures (pure): a pan and a
-// pinch, in viewport CSS pixels. Coordinates are integers kept one pixel
+// W3C Actions for one- and two-finger touch gestures (pure): a tap, a pan and
+// a pinch, in viewport CSS pixels. Coordinates are integers kept one pixel
 // inside the viewport, since a driver refuses a pointer move outside it.
 
 import type { ActionSequence } from "./webdriver";
@@ -15,7 +15,7 @@ const clamp = ([x, y]: Point, v: Viewport): [number, number] => [
   Math.min(Math.max(Math.round(y), 1), v.height - 2),
 ];
 
-/** One finger: down at `from`, moved by `delta` over `ms`, up. */
+/** One finger: down at `from`, moved to `to` over `ms`, up. */
 function finger(id: string, from: Point, to: Point, ms: number, v: Viewport): ActionSequence {
   const [x0, y0] = clamp(from, v);
   const [x1, y1] = clamp(to, v);

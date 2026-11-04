@@ -28,7 +28,9 @@ two switches above is off: stop and ask the owner. The client never retries it.
 ```ts
 import { driverStatus, withSession } from "./scripts/sim-phone/webdriver";
 
-await withSession("http://127.0.0.1:4445", async (s) => {
+const driver = "http://127.0.0.1:4445";
+if (!(await driverStatus(driver)).ready) throw new Error("the driver holds another session");
+await withSession(driver, async (s) => {
   console.log(s.capabilities); // safari:deviceName, safari:platformVersion, browserVersion
   await s.navigate("http://127.0.0.1:<port>/temoignages");
   return s.execute<string>("return JSON.stringify(window.__acPerf.dump())");
@@ -39,8 +41,11 @@ await withSession("http://127.0.0.1:4445", async (s) => {
   `{browserName: "Safari", platformName: "iOS", "safari:useSimulator": true,
   "safari:deviceType": "iPhone"}`. The answer names the device and versions;
   quote it rather than assuming them.
-- One session at a time, one per walk. `withSession` deletes the session in
-  `finally`, on a throw, and on Ctrl-C.
+- One session at a time, one per walk: check `GET /status` answers
+  `ready: true` before asking for one. `withSession` deletes the session in
+  `finally`, on a throw, and on Ctrl-C; when the walk threw, a failing delete
+  (`invalid session id` after a crash) is logged and the walk's error is the
+  one thrown.
 - A new session starts with no site data (check it anyway: set a canary key in
   `localStorage` at the end of a session and look for it at the start of the
   next). `localStorage` keys are set on a page of the same origin that boots no
@@ -62,8 +67,9 @@ await withSession("http://127.0.0.1:4445", async (s) => {
   reproduces what a visitor does; count those second taps.
 - **Pan.** A one-finger `touchPan` moves the map. Check the effect (the centre
   moved on screen), and check that it did not become a tap (a selection).
-- **Pinch.** safaridriver accepts a two-pointer touch sequence, but the page
-  sees one finger: the map pans and its zoom does not change. Use the page's own
+- **Pinch.** safaridriver accepts a two-pointer touch sequence, but in the
+  probe runs (iOS 26.0.1) the page saw one finger: the map panned and its zoom
+  did not change. Use the page's own
   camera instead, and say so.
 - A phone's bottom sheet at rest shows only its peek. A visitor raises it
   (a tap on the grip) to reach the rows and lowers it to use the map; a walk
@@ -102,7 +108,8 @@ served from another port, set `VITE_MAP_DATA_BASE` (e.g.
   build (expose `__acMap` under the testing tools, push map `error` events and
   console errors into arrays, wrap `window.Worker` to list the workers
   started) and says so; such a patch is never committed.
-- **Readers that parse file names.** `p23-flip-mesh/phoneRead.mjs` splits a
+- **Readers that parse file names.** The flip PRs' reader (`phoneRead.mjs`,
+  kept outside the repo with the walk scripts, not in this tree) splits a
   dump's name `<phone>-<mode>-<relief>-<n>.json` on `-` and reads every `.json`
   in its directory: the phone token holds no hyphen (`simiphone17pro`), and
   nothing else goes in that directory.
