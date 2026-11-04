@@ -320,9 +320,10 @@ onMounted(() => {
         );
       }
       // ac:mesh=worker: the mesh worker started now (a fresh worker's first
-      // build is its slowest). Only this literal guard reaches the client: a
-      // build without the testing tools emits neither its chunk nor the worker.
-      if (__TEST_TOOLS__ && meshMode === "worker") {
+      // build is its slowest). Only this guard reaches the client: "worker" is
+      // the default (plateau/meshSwitch.ts), so every build emits its chunk and
+      // the worker, a page on another mode never loads them.
+      if (meshMode === "worker") {
         void import("./gl/meshClient").then(
           ({ warmMeshWorker, globeProviderOf }) => {
             if (!map) return; // unmounted meanwhile
