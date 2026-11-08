@@ -4,12 +4,13 @@
 // (plateau/lidSwitch.ts) and drawn as the Témoignages page's DEV switch's
 // "Relief" row:
 //
-// - "serveur" (the default): the API renders them — POST /api/dem for the
-//   version key, then Mapbox fetches the tiles from /api/dem/<key>/z/x/y.
-// - "client": the page renders them — the key and the tiles come from the
-//   relief worker (demClient.ts), handed to Mapbox through the map's
-//   transformRequest (demHook.ts) for an `ac-dem://<key>/{z}/{x}/{y}`
+// - "client" (the default): the page renders them — the key and the tiles
+//   come from the relief worker (demClient.ts), handed to Mapbox through the
+//   map's transformRequest (demHook.ts) for an `ac-dem://<key>/{z}/{x}/{y}`
 //   template; no request at all.
+// - "serveur": the API renders them — POST /api/dem for the version key, then
+//   Mapbox fetches the tiles from /api/dem/<key>/z/x/y. Also the session's
+//   fallback (below).
 //
 // Read once per page load: switching reloads the page (transformRequest is a
 // Map constructor option, installed only in a page loaded in "client").
@@ -55,7 +56,7 @@
 export type ReliefMode = "serveur" | "client";
 
 /** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_RELIEF_MODE: ReliefMode = "serveur";
+export const DEFAULT_RELIEF_MODE: ReliefMode = "client";
 
 export const RELIEF_MODES: readonly ReliefMode[] = ["serveur", "client"];
 
