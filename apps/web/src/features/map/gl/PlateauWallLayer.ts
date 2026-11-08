@@ -6,7 +6,7 @@
 // 2026-10-20.md): a GL class, kept whole; the SlabPieces collaborator is a
 // later option. Its collaborators: ../lib/projection (the per-geometry
 // caches), ./meshBuild (the plateau's mesh, built), ./mesh (the pieces),
-// ./program, ./plateauShaders.
+// ./program, ./plateauShaders, ./lidTexture (the lid's GL limits and upload).
 
 import mapboxgl from "mapbox-gl";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
@@ -32,6 +32,7 @@ import {
   type GlProg,
   type MapPainterInternals,
 } from "./program";
+import { readLidGlLimits, uploadLidTexture } from "./lidTexture";
 import {
   VIOLET,
   WALL_OVERSHOOT,
@@ -187,8 +188,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private lidTexture: WebGLTexture | null = null;
   /** GL_MAX_TEXTURE_SIZE, read in onAdd — caps the lid snapshot's pixel budget. */
   maxTextureSize = 0;
-  // Anisotropic filtering for the lid — probed once (see the upload in render()).
-  // maxAniso: 0 = not probed yet, -1 = extension unavailable.
+  // GL_MAX_TEXTURE_SIZE and the lid's anisotropy, read in onAdd (./lidTexture
+  // readLidGlLimits): never in the upload, whose frame a query would stall.
+  // maxAniso: 0 = not read yet (before onAdd), -1 = extension unavailable.
   private anisoExt: EXT_texture_filter_anisotropic | null = null;
   private maxAniso = 0;
   private lidPending: Snapshot | null = null; // uploaded lazily in render (gl there)
@@ -1186,8 +1188,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   onAdd(map: mapboxgl.Map, gl: WebGL2RenderingContext) {
     this.map = map;
     // Ceiling for the lid snapshot: asking for a bitmap wider than this uploads
-    // nothing and the plateau falls back to bare draped terrain.
-    this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    // nothing and the plateau falls back to bare draped terrain. And the
+    // anisotropy the lid upload applies: re-read on every add.
+    const lim = readLidGlLimits(gl);
+    this.maxTextureSize = lim.maxTextureSize;
+    this.anisoExt = lim.anisoExt;
+    this.maxAniso = lim.maxAniso;
     const compile = (type: number, src: string) => {
       const s = gl.createShader(type);
       if (!s) return null;
@@ -1398,6 +1404,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.lidProgram = null;
     this.lidBuffer = null;
     this.lidTexture = null;
+    this.anisoExt = null;
+    this.maxAniso = 0;
     this.lidPending = null;
     this.lidMerc = null;
     this.lineProgram = null;
@@ -1463,35 +1471,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       // so there is nothing to gain from a fresh name. The lid is now re-captured
       // on zoom, making this a repeated cost rather than a one-off.
       const tex = this.lidTexture ?? gl.createTexture();
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); // row 0 = north = min mercator y
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, snap.bitmap);
-      // The lid is a texture on a plane the camera looks ALONG at ELEV_PITCH, so
-      // its far half is minified and its near half magnified. A plain LINEAR
-      // min-filter takes a single bilinear tap per fragment, which drops detail
-      // and shimmers across the far half — while the live basemap beside it
-      // stays crisp, because mapbox mipmaps its own rasters. Hence trilinear,
-      // plus anisotropy: that is what recovers the foreshortened axis, which
-      // mipmapping ALONE would blur away (it picks a LOD for the worse axis).
-      // WebGL2 (mapbox-gl v3 requires it), so NPOT mipmaps are legal.
-      gl.generateMipmap(gl.TEXTURE_2D);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      if (this.maxAniso === 0) {
-        const ext = gl.getExtension("EXT_texture_filter_anisotropic");
-        this.anisoExt = ext;
-        this.maxAniso = ext ? gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : -1;
-      }
-      if (this.anisoExt && this.maxAniso > 1) {
-        gl.texParameterf(
-          gl.TEXTURE_2D,
-          this.anisoExt.TEXTURE_MAX_ANISOTROPY_EXT,
-          Math.min(8, this.maxAniso),
-        );
-      }
+      uploadLidTexture(gl, tex, snap.bitmap, this.anisoExt, this.maxAniso);
       this.lidTexture = tex;
       this.lidMerc = snap.merc;
       snap.bitmap.close();
