@@ -2,6 +2,8 @@
 
 > **Note (2026-11-08):** `/api/boundaries`, its module and the vendored france-geojson were removed in #176; the web reads the static outline files (docs/map-outlines.md).
 
+> **Note (2026-11-08):** the API's DEM renderer (`modules/dem`, `/api/dem`) was removed in #177; the plateau relief is rendered in the browser (#147, the default since #173).
+
 Scope: `apps/api` (29 files, ~4 000 lines), the migrations it depends on, and the web client calls that drive it. Method: 9 finders (one lens each), 3 adversarial reviewers per finding (correctness, impact, safety), kept only with 2-of-3; the DB/RPC lens was not reviewed and is marked as my own judgement. Measurements were taken on the dev API (`localhost:3000`, Supabase eu-north) on 2026-10-20. Line numbers are those of the working tree that day; `services/boundaries.ts` and `services/dem.ts` changed under the audit (your WIP), so those two are referenced by function name.
 
 ## What the numbers say

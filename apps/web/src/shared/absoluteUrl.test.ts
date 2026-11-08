@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { absoluteBase, apiBase } from "./absoluteUrl";
+import { absoluteBase } from "./absoluteUrl";
 
 const o = "http://127.0.0.1:5392";
 
@@ -32,15 +32,4 @@ test("an unusable origin or a malformed base returns the base unchanged", () => 
   assert.equal(absoluteBase("", "null"), "");
   assert.doesNotThrow(() => absoluteBase("http://[bad", o));
   assert.equal(absoluteBase("http://[bad", o), "http://[bad");
-});
-
-test("apiBase: unset is the local API, empty is the page's origin", () => {
-  assert.equal(apiBase(undefined, o), "http://localhost:3000");
-  assert.equal(apiBase("", o), "http://127.0.0.1:5392");
-});
-
-test("the DEM tile template is absolute, with no double slash", () => {
-  const template = `${apiBase("", o)}/api/dem/v/{z}/{x}/{y}`;
-  assert.equal(template, "http://127.0.0.1:5392/api/dem/v/{z}/{x}/{y}");
-  assert.doesNotMatch(template.slice("http://".length), /\/\//);
 });

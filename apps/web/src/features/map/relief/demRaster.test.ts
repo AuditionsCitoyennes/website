@@ -1,8 +1,8 @@
 // The relief renderer's own pieces (demRaster.ts): the encoding, the tile
 // touch test, the key, the PNG writer and both of its deflates, the ground tile.
 // Run with `node --import tsx --test` (root "test:scripts"). Pure: no DOM, no
-// alias at run time. Its parity with the API's renderer is
-// scripts/parity/demRelief.test.ts.
+// alias at run time. Its golden (the API's tiles and keys, kept after the API
+// renderer was deleted) is scripts/parity/demRelief.test.ts.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -13,6 +13,7 @@ import { decodeRgbPng } from "../../../../../../scripts/parity/pngRgb";
 import { GROUND_DATA_URL } from "./demGround";
 import {
   PAD,
+  RENDER_REV,
   SIZE,
   constantRgb,
   demKey,
@@ -28,6 +29,10 @@ import {
   zlibStored,
   type Polygon,
 } from "./demRaster";
+
+test("RENDER_REV is 1: the golden's revision (a change is a deliberate visual change)", () => {
+  assert.equal(RENDER_REV, 1);
+});
 
 const RAW_BYTES = SIZE * (SIZE * 3 + 1); // 196,864: the filter byte + a row, per row
 // Signature, IHDR, IDAT (zlib header, 4 stored-block headers, the raw rows, Adler-32), IEND.

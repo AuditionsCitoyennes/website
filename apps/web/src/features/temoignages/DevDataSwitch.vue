@@ -5,10 +5,9 @@
 // map/plateau/lidSwitch — the page loads again) and, unless "Aucun",
 // "Contrôle" (how a lid shot is judged, the same module — the page loads
 // again), "Maillage" (how the plateau's mesh is assembled,
-// map/plateau/meshSwitch — the page loads again), "Relief"
-// (where the plateau's DEM tiles are rendered, map/relief/reliefSwitch — the
-// page loads again) and, under "Client" only, "Préchargement" (how a new
-// slot's tiles start, the same module — the page loads again); in comparer
+// map/plateau/meshSwitch — the page loads again) and "Préchargement" (how a
+// new slot's DEM tiles start, map/relief/reliefSwitch — the page loads
+// again); in comparer
 // mode a badge counting the differences (compare.ts: window.__acCompare, the
 // tree's, and window.__acCompareLists, the lists'). The testing tools only:
 // the explorer loads it behind `__TEST_TOOLS__`. Folded by default, at the
@@ -19,17 +18,14 @@ import {
   lidCheck,
   lidMode,
   meshMode,
-  reliefMode,
   reliefPrefetch,
   setLidCheck,
   setLidMode,
   setMeshMode,
-  setReliefMode,
   setReliefPrefetch,
   type LidCheck,
   type LidMode,
   type MeshMode,
-  type ReliefMode,
   type ReliefPrefetch,
 } from "@/features/map";
 import {
@@ -69,10 +65,6 @@ const MESHES: readonly { id: MeshMode; label: string }[] = [
   { id: "concat", label: "Concat" },
   { id: "merc", label: "Merc" },
   { id: "worker", label: "Worker" },
-];
-const RELIEFS: readonly { id: ReliefMode; label: string }[] = [
-  { id: "serveur", label: "Serveur" },
-  { id: "client", label: "Client" },
 ];
 const PREFETCHES: readonly { id: ReliefPrefetch; label: string }[] = [
   { id: "hillshade", label: "Ombrage" },
@@ -179,20 +171,7 @@ function showReport() {
           {{ m.label }}
         </button>
       </div>
-      <div class="seg" role="group" aria-label="Relief">
-        <span class="seg-label">Relief</span>
-        <button
-          v-for="m in RELIEFS"
-          :key="m.id"
-          type="button"
-          class="seg-btn"
-          :aria-pressed="reliefMode === m.id"
-          @click="setReliefMode(m.id)"
-        >
-          {{ m.label }}
-        </button>
-      </div>
-      <div v-if="reliefMode === 'client'" class="seg" role="group" aria-label="Préchargement">
+      <div class="seg" role="group" aria-label="Préchargement">
         <span class="seg-label">Préchargement</span>
         <button
           v-for="m in PREFETCHES"

@@ -510,7 +510,7 @@ export function useMapCamera({
       // flight tilted, but the map is presentable only now. A release before
       // the load handler ran raised nothing (ensurePlateau waits for it): the
       // plateau goes up now. After that handler the flight's own run stands —
-      // a second one would cost another DEM request and supersede the first.
+      // a second one would cost another DEM key and supersede the first.
       onReady();
       if (releasedBeforeLoad) onIntroReleased();
       releasedBeforeLoad = false;

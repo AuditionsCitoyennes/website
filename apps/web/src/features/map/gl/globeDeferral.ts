@@ -12,7 +12,7 @@
 export const LAZY_GLOBE_MIN_ZCANON = 8;
 
 /** …when the camera is at this zoom or past it as the mesh is built: the
- *  camera is mid-flight then (the build follows the DEM POST and the sink),
+ *  camera is mid-flight then (the build follows the version key and the sink),
  *  a flight can dip below its start zoom, and 6.5 keeps half a zoom level of
  *  margin over the globe regime (< 6). */
 export const LAZY_GLOBE_MIN_ZOOM = 6.5;

@@ -27,7 +27,6 @@ import { usePlateauSlabs } from "./composables/usePlateauSlabs";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
-import { reliefMode } from "./relief/reliefSwitch";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 import { creditFold, type CreditBox, type CreditFold } from "./controls/creditFold";
@@ -57,8 +56,7 @@ const props = defineProps<{
   /** The analyses' slabs on the raised unit (see SlabSpec); null: none. */
   slabs?: SlabSpec | null;
   /** The outline's geometry objects change only with their shape (the outline
-   *  files): the plateau posts a scope's DEM once, not on every outline. With
-   *  them, of two outlines holding a point, the smaller box is hit (pins'
+   *  files): of two outlines holding a point, the smaller box is hit (pins'
    *  `smallerWins`). */
   stableOutline?: boolean;
   /** Credits for the app's own data (the boundaries' sources), shown before
@@ -222,7 +220,6 @@ const plateau = usePlateau({
   syncSlabs: (atSwap) => slabs.syncSlabs(atSwap),
   clearSlabs: () => slabs.clearSlabs(),
   forgetLidExtra: () => slabs.forgetLidExtra(),
-  stableGeometry: () => !!props.stableOutline,
   meshClient: () => meshClient,
 });
 const slabs = usePlateauSlabs({
@@ -277,14 +274,10 @@ onMounted(() => {
       // The style's "globe" projection applies as-is: the plateau layer is
       // globe-native (dual mercator/ECEF programs morphed onto the sphere below
       // z6 via the experimental custom-layer API), so no projection juggling.
-      // ac:relief=client (relief/reliefSwitch.ts, the default): the plateau's
-      // `ac-dem://` DEM tiles answered in the page, every other URL left alone.
-      // Typed as sync by mapbox's .d.ts, but awaited at runtime (`params ||
-      // {url}`): one cast.
-      transformRequest:
-        reliefMode === "client"
-          ? (demTransformRequest as unknown as mapboxgl.MapOptions["transformRequest"])
-          : undefined,
+      // The plateau's `ac-dem://` DEM tiles answered in the page (relief/demHook.ts),
+      // every other URL left alone. Typed as sync by mapbox's .d.ts, but awaited
+      // at runtime (`params || {url}`): one cast.
+      transformRequest: demTransformRequest as unknown as mapboxgl.MapOptions["transformRequest"],
     });
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-left");
     attrib = newAttribution();
@@ -313,14 +306,11 @@ onMounted(() => {
       mask.applyMask();
       pins.buildMarkers();
       lid.warmup(); // hidden lid-snapshot map: pay style init now
-      // ac:relief=client (the default): the relief worker started now, not on
-      // the first selection.
-      if (reliefMode === "client") {
-        void loadReliefClient().then(
-          (c) => c.warmRelief(),
-          () => {},
-        );
-      }
+      // The relief worker started now, not on the first selection.
+      void loadReliefClient().then(
+        (c) => c.warmRelief(),
+        () => {},
+      );
       // ac:mesh=worker: the mesh worker started now (a fresh worker's first
       // build is its slowest). Only this guard reaches the client: "worker" is
       // the default (plateau/meshSwitch.ts), so every build emits its chunk and

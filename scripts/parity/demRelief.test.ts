@@ -1,17 +1,18 @@
 // The web's plateau relief renderer (apps/web/src/features/map/relief/demRaster.ts)
-// against the API's (apps/api/src/modules/dem/service.ts), and against the
-// golden hashes that outlive the API module. Run with `node --import tsx --test`
-// (root "test:scripts").
+// against its golden. Run with `node --import tsx --test` (root "test:scripts").
 //
-// - "server parity": per fixture and height, the version key and every chosen
-//   tile, texel for texel (the server's PNG decoded by ./pngRgb). It is the only
-//   block that needs the API: removing the API renderer removes this block.
-// - "golden": the web renderer's tiles hashed per fixture|height|z against
-//   demRelief.golden.json. A missing or stale line fails; a plain run never writes.
+// The golden was produced by apps/api's DEM service at 0e926bf (#140, the
+// relief-raster PR) and verified unchanged in pr-remove-dem, which also added
+// the service's version keys before deleting it; regenerating it is a
+// deliberate visual change (bump RENDER_REV).
+//
+// - "golden": per fixture and height, the client's tiles hashed per z, and its
+//   version key, against demRelief.golden.json; every far sample is ground by
+//   the box cull (tileTouches) and by a full render alike. A missing or stale
+//   line fails; a plain run never writes.
 //
 // Update mode, the one way to write demRelief.golden.json and demGround.ts
-// (from the SERVER's tiles; every client == server assert still runs, only the
-// client == golden block is skipped; refused on CI):
+// (from the CLIENT renderer; the golden block is skipped; refused on CI):
 //   UPDATE_GOLDEN=1 node --import tsx scripts/parity/demRelief.test.ts
 
 import assert from "node:assert/strict";
@@ -22,7 +23,6 @@ import {
   SIZE,
   constantRgb,
   demKey,
-  encodeHeight,
   encodePNG,
   makeSelection,
   pngDataUrl,
@@ -32,7 +32,6 @@ import {
   type DemSelection,
   type Polygon,
 } from "../../apps/web/src/features/map/relief/demRaster";
-import { decodeRgbPng } from "./pngRgb";
 
 const UPDATE = process.env.UPDATE_GOLDEN === "1";
 if (UPDATE && process.env.CI) throw new Error("UPDATE_GOLDEN writes files: not on CI");
@@ -204,7 +203,6 @@ const pairId = (f: Fixture, h: number) => `${f.name}|${h}`;
 /** Per pair, per z: the tiles' sha256(rgb), in plan order. */
 type ZHashes = Map<number, Buffer[]>;
 const clientHashes = new Map<string, ZHashes>();
-const serverHashes = new Map<string, ZHashes>();
 
 function push(store: Map<string, ZHashes>, id: string, z: number, hash: Buffer): void {
   let byZ = store.get(id);
@@ -220,14 +218,6 @@ function goldenLines(id: string, byZ: ZHashes): [string, { n: number; h: string 
     `${id}|${z}`,
     { n: hashes.length, h: sha256(Buffer.concat(hashes)).toString("hex") },
   ]);
-}
-
-function differingTexels(a: Uint8Array, b: Uint8Array): number {
-  let n = 0;
-  for (let i = 0; i < SIZE * SIZE * 3; i += 3) {
-    if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) n++;
-  }
-  return n;
 }
 
 const GROUND = Buffer.from(constantRgb(0));
@@ -256,110 +246,39 @@ test("every fixture raises an edge tile and a plateau tile among the chosen ones
   }
 });
 
-describe("server parity", () => {
-  let S: typeof import("../../apps/api/src/modules/dem/service");
-  before(async () => {
-    S = await import("../../apps/api/src/modules/dem/service");
-  });
-
-  for (const f of FIXTURES) {
-    for (const height of f.heights) {
-      test(`${f.name} at ${height} m`, async (t) => {
-        const t0 = performance.now();
-        const { features, polys, tiles } = planOf(f);
-        const id = pairId(f, height);
-        // The store holds 40 versions: post right before rendering.
-        const version = S.setSelection(features, height);
-        const keyEqual = (await demKey(polys, height)) === version;
-        const sel = makeSelection(polys, height);
-        let edgeTiles = 0;
-        let constantTiles = 0;
-        let texels = 0;
-        let pngBytesEqual = 0;
-        const differing: string[] = [];
-        for (const { z, x, y, far } of tiles) {
-          const png = S.renderTile(version, z, x, y);
-          assert.ok(png, `${z}/${x}/${y}: the server lost version ${version}`);
-          const server = Buffer.from(decodeRgbPng(png).rgb);
-          const client = renderDemTile(sel, z, x, y);
-          const d = differingTexels(server, client.rgb);
-          if (d) differing.push(`${z}/${x}/${y}: ${d} texels`);
-          texels += d;
-          const touches = tileTouches(sel.bbox, z, x, y);
-          if (!touches) assert.ok(server.equals(GROUND), `${z}/${x}/${y}: untouched, not ground`);
-          if (far) {
-            assert.equal(touches, false, `${z}/${x}/${y}: far tile touches`);
-            assert.equal(client.constant, "ground", `${z}/${x}/${y}: far tile not ground`);
-          }
-          if (client.constant === null) edgeTiles++;
-          else constantTiles++;
-          if (Buffer.from(await encodePNG(client.rgb, SIZE, SIZE)).equals(png)) pngBytesEqual++;
-          push(serverHashes, id, z, sha256(server));
-          push(clientHashes, id, z, sha256(client.rgb));
+if (UPDATE) {
+  test("UPDATE_GOLDEN: writes the golden and demGround.ts from the client's tiles", async () => {
+    const lines: string[] = [];
+    const keys: string[] = [];
+    for (const f of FIXTURES) {
+      const { polys, tiles } = planOf(f);
+      for (const h of f.heights) {
+        const id = pairId(f, h);
+        const sel = makeSelection(polys, h);
+        for (const { z, x, y } of tiles)
+          push(clientHashes, id, z, sha256(renderDemTile(sel, z, x, y).rgb));
+        for (const [k, v] of goldenLines(id, clientHashes.get(id)!)) {
+          lines.push(`${JSON.stringify(k)}: ${JSON.stringify(v)}`);
         }
-        t.diagnostic(
-          JSON.stringify({
-            fixture: f.name,
-            height,
-            tiles: tiles.length,
-            edgeTiles,
-            constantTiles,
-            differingTexels: texels,
-            keyEqual,
-            pngBytesEqual,
-            ms: Math.round(performance.now() - t0),
-          }),
+        keys.push(
+          `${JSON.stringify(`${id}|key`)}: ${JSON.stringify({ key: await demKey(polys, h) })}`,
         );
-        assert.equal(keyEqual, true, `${id}: demKey !== the server's version ${version}`);
-        assert.deepEqual(differing, [], `${id}: tiles differ`);
-      });
-    }
-  }
-
-  test("the stored height is the first one posted, unrounded; the key rounds it", async () => {
-    const square = FIXTURES.find((f) => f.name === "square")!;
-    const { features, polys, tiles } = planOf(square);
-    // A key no other test posts (41): the server memoises tiles per version, so
-    // a key rendered before would answer from that memo whatever the store holds.
-    const first = S.setSelection(features, 41.4);
-    assert.equal(S.setSelection(features, 41), first);
-    assert.equal(await demKey(polys, 41), first);
-    const top = tiles.find((t) => t.constant === "plateau")!;
-    const server = decodeRgbPng(S.renderTile(first, top.z, top.x, top.y)!).rgb;
-    assert.equal((server[0] << 16) | (server[1] << 8) | server[2], 100414);
-    assert.deepEqual([...server.subarray(0, 3)], encodeHeight(41.4));
-    const client = renderDemTile(makeSelection(polys, 41.4), top.z, top.x, top.y);
-    assert.ok(Buffer.from(server).equals(client.rgb));
-  });
-
-  if (UPDATE) {
-    test("UPDATE_GOLDEN: writes the golden and demGround.ts from the server's tiles", async () => {
-      const lines: string[] = [];
-      for (const f of FIXTURES) {
-        for (const h of f.heights) {
-          const byZ = serverHashes.get(pairId(f, h));
-          assert.ok(byZ, `${pairId(f, h)}: no server tiles`);
-          for (const [k, v] of goldenLines(pairId(f, h), byZ)) {
-            lines.push(`${JSON.stringify(k)}: ${JSON.stringify(v)}`);
-          }
-        }
       }
-      fs.writeFileSync(GOLDEN, `{\n${lines.join(",\n")}\n}\n`);
-      const empty = S.setSelection([], 0);
-      const url = pngDataUrl(S.renderTile(empty, 0, 0, 0)!);
-      fs.writeFileSync(
-        GROUND_TS,
-        "// The ground tile (0 m everywhere) as a data: URL. Generated from the API's\n" +
-          "// renderer by `UPDATE_GOLDEN=1 node --import tsx scripts/parity/demRelief.test.ts`:\n" +
-          "// do not edit by hand.\n" +
-          `export const GROUND_DATA_URL =\n  ${JSON.stringify(url)};\n`,
-      );
-    });
-  }
-});
+    }
+    fs.writeFileSync(GOLDEN, `{\n${[...lines, ...keys].join(",\n")}\n}\n`);
+    const url = pngDataUrl(await encodePNG(constantRgb(0), SIZE, SIZE));
+    fs.writeFileSync(
+      GROUND_TS,
+      "// The ground tile (0 m everywhere) as a data: URL. Generated from the client's\n" +
+        "// renderer by `UPDATE_GOLDEN=1 node --import tsx scripts/parity/demRelief.test.ts`:\n" +
+        "// do not edit by hand.\n" +
+        `export const GROUND_DATA_URL =\n  ${JSON.stringify(url)};\n`,
+    );
+  });
+}
 
-describe("golden", { skip: UPDATE && "UPDATE_GOLDEN: written from the server" }, () => {
-  let golden: Record<string, { n: number; h: string }>;
+describe("golden", { skip: UPDATE && "UPDATE_GOLDEN: written from the client" }, () => {
+  let golden: Record<string, { n?: number; h?: string; key?: string }>;
   before(() => {
     assert.ok(fs.existsSync(GOLDEN), "no golden: run UPDATE_GOLDEN=1 (header)");
     assert.ok(fs.statSync(GOLDEN).size <= GOLDEN_MAX_BYTES, "golden over 60 KB");
@@ -369,14 +288,24 @@ describe("golden", { skip: UPDATE && "UPDATE_GOLDEN: written from the server" },
   const expected = new Set<string>();
   for (const f of FIXTURES) {
     for (const height of f.heights) {
-      test(`${f.name} at ${height} m`, () => {
+      test(`${f.name} at ${height} m`, async () => {
         const id = pairId(f, height);
-        // The parity block's hashes when it ran, else the client renders alone.
-        if (!clientHashes.has(id)) {
-          const { polys, tiles } = planOf(f);
-          const sel = makeSelection(polys, height);
-          for (const { z, x, y } of tiles)
-            push(clientHashes, id, z, sha256(renderDemTile(sel, z, x, y).rgb));
+        // The version key, as the server gave it when the golden was written.
+        expected.add(`${id}|key`);
+        assert.equal(
+          await demKey(planOf(f).polys, height),
+          golden[`${id}|key`]?.key,
+          `${id}: demKey left the golden`,
+        );
+        const { polys, tiles } = planOf(f);
+        const sel = makeSelection(polys, height);
+        for (const { z, x, y, far } of tiles) {
+          const { rgb } = renderDemTile(sel, z, x, y);
+          if (far) {
+            assert.equal(tileTouches(sel.bbox, z, x, y), false, `${z}/${x}/${y}: far tile touches`);
+            assert.ok(Buffer.from(rgb).equals(GROUND), `${z}/${x}/${y}: far tile not ground`);
+          }
+          push(clientHashes, id, z, sha256(rgb));
         }
         const byZ = clientHashes.get(id)!;
         const lines = goldenLines(id, byZ);

@@ -1,8 +1,9 @@
-// Absolute base URLs for whatever Mapbox fetches from its workers. Mapbox runs
-// its tile requests in a `blob:` worker, where a relative URL has no base to
-// resolve against: a `/api/dem/…` template fails every tile with "Failed to
-// parse URL" before it reaches the network. Every base URL handed to Mapbox
-// must go through here; the TEST_TOOLS `?pmtiles=` probe is the exception: it
+// Absolute base URLs for whatever is fetched from a worker. Mapbox runs its
+// tile requests in a `blob:` worker, where a relative URL has no base to
+// resolve against: a relative template fails every tile with "Failed to parse
+// URL" before it reaches the network (the plateau's own `ac-dem://` tiles
+// never reach it: the page answers them). Every base URL handed to Mapbox, and
+// the outline files' base, must go through here; the TEST_TOOLS `?pmtiles=` probe is the exception: it
 // takes its URL as typed, so type an absolute one. Pure: no imports, no DOM
 // (the origin is passed in).
 
@@ -18,11 +19,4 @@ export function absoluteBase(base: string, origin: string): string {
   } catch {
     return base;
   }
-}
-
-/** The API's base from `VITE_API_URL`: unset means the local API, while an
- *  EMPTY value (staging, behind the site's own /api proxy) means the page's
- *  origin, so the `??` keeps it rather than falling back. */
-export function apiBase(env: string | undefined, origin: string): string {
-  return absoluteBase(env ?? "http://localhost:3000", origin);
 }

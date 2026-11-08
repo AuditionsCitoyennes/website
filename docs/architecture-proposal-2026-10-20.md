@@ -1,5 +1,7 @@
 # Architecture proposal — 2026-10-20
 
+> **Note (2026-11-08):** the API's DEM renderer (`modules/dem`, `/api/dem`) was removed in #177; the plateau relief is rendered in the browser (#147, the default since #173).
+
 Scope: `apps/web/src` (27.9k lines), `apps/api/src` (4.4k), `packages/shared/src` (1k). Method: seven mappers read every oversized file and cluster and listed its responsibilities with line ranges; one architect merged them into a target layout; one critic checked the layout against the real imports (cycles, line counts, lint, behaviour). The critic's verdict was "sound with fixes"; the fixes are applied below. Line numbers refer to the working tree on 2026-10-20 (your WIP included).
 
 ## Diagnosis

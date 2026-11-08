@@ -9,15 +9,15 @@ import { fnv1a64 } from "./demTiles";
 export const SIZE = 256;
 export const ERODE_TEXELS = 2.5;
 export const PAD = Math.ceil(ERODE_TEXELS) + 2;
-/** The server's RENDER_REV (service.ts), folded into the version key: both bump together. */
+/** The renderer's revision (the API's RENDER_REV, kept), folded into the version key. */
 export const RENDER_REV = 1;
-/** The server's MAX_SELECTION_VERTICES (service.ts): above it, neither route raises a selection. */
+/** The API's MAX_SELECTION_VERTICES, kept: above it, no selection is raised. */
 export const MAX_SELECTION_VERTICES = 250_000;
 
 export type Ring = [number, number][];
 export type Polygon = Ring[]; // [exterior, ...holes]
 
-/** The selection holds more vertices than either route will raise (the server's error). */
+/** The selection holds more vertices than the relief will raise (the API's 413, kept). */
 export class SelectionTooLarge extends Error {
   constructor(vertices: number) {
     super(`selection too large: ${vertices} vertices (max ${MAX_SELECTION_VERTICES})`);

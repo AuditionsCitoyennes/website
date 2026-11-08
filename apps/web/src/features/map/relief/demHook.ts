@@ -1,6 +1,5 @@
-// The map's door to the client relief (ac:relief=client, reliefSwitch.ts):
-// the transformRequest a page loaded in "client" gives its Map, and the lazy
-// client behind it. Tiny on purpose: the map imports it statically, and the
+// The map's door to the client relief: the transformRequest the map is
+// given, and the lazy client behind it. Tiny on purpose: the map imports it statically, and the
 // client (demClient.ts: the answer policy, the worker, the main-thread
 // renderer) is a chunk of its own, loaded on first use.
 //

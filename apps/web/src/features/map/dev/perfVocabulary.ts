@@ -10,7 +10,7 @@
 //                     will get (GeoNav.vue, useMapFeed.outlineReady)
 //   lieu-pins         a lieu opened → the dots around it placed (useMapPins)
 //
-// Spans: dem.post, plateau.rise, plateau.setGeometry, projection.ringBases,
+// Spans: plateau.rise, plateau.setGeometry, projection.ringBases,
 // projection.lidBases, tint.setSelection, mask.setData, mask.drapedIndexed, outline.setData,
 // lid.capture, slabs.sync, pins.buildMarkers, vue.hierarchy, vue.outline,
 // vue.mapUnits, vue.deriveScope, pmtiles.firstTiles, and
@@ -20,7 +20,7 @@
 //                     (detail: features, pending)
 //   dem.tilesReady    a DEM slot's addSource → the first tile event after
 //                     which its tiles are all loaded (usePlateau; detail:
-//                     scope, route, tiles, errTiles — a 404 comes as
+//                     scope, tiles, errTiles — a 404 comes as
 //                     `sourcedata`, any other failure as a map `error`, after
 //                     which mapbox reads the source loaded: errTiles > 0 is
 //                     no ready time)
@@ -30,9 +30,8 @@
 //                     `mesh: "worker"`)
 //   plateau.globeLate the same set built by the first globe frame drawn
 //                     before that, or by `__acMeshHash({ globe: true })`
-//   dem.key           ac:relief=client: a selection's version key from the
-//                     relief worker, in place of dem.post (usePlateau; detail:
-//                     scope)
+//   dem.key           a selection's version key from the relief worker
+//                     (usePlateau; detail: scope)
 //   plateau.meshBuild ac:mesh=worker: a mesh's build in the worker, its own
 //                     time, noted when the reply is received, so the span
 //                     ends there, not at the worker's end (gl/meshClient.ts;
@@ -41,7 +40,7 @@
 //                     both on the page (detail: scope, first, puts, cloneMs —
 //                     the page's tokens, flattening and postMessage)
 //   plateau.meshWait  ac:mesh=worker: how long a run waited for its mesh
-//                     beyond its other gates (the POST/key, the tile wait;
+//                     beyond its other gates (the key, the tile wait;
 //                     with the sink: the mesh's time past the sink's end, 0
 //                     if it came first) (usePlateau; detail: scope, path —
 //                     same, quiet, swap —, first)

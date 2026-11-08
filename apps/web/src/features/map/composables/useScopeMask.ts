@@ -29,7 +29,7 @@ export interface ScopeMaskInputs {
   /**
    * Whether a plateau is standing — the grey is cut around it. Not read by
    * applyOutline: it still describes the previous selection until ensurePlateau's
-   * DEM POST returns.
+   * version key is registered.
    */
   plateauActive: () => boolean;
 }
@@ -270,13 +270,12 @@ export function useScopeMask({
     // returns early on the same id), so the previous outline would keep painting
     // over the new plateau. A drill costs one empty write, the way back to the
     // world one outline write. `plateauActive` is not read: it still describes
-    // the PREVIOUS selection at this point (ensurePlateau sets it after the DEM
-    // POST).
+    // the PREVIOUS selection at this point (ensurePlateau sets it after the
+    // version key's registration).
     //
-    // Accepted: no draped hover during the DEM POST (~40-80 ms) and the
+    // Accepted: no draped hover during the key's registration and the
     // deep-link intro flight, during a cold hold (a bundle on its way) and
-    // after a DEM failure — the GL
-    // sweep draws nothing there either.
+    // after a DEM failure — the GL sweep draws nothing there either.
     //
     // The dedupe compares objects, which holds because useMapFeed builds a fresh
     // outline on every recompute and nothing mutates one.

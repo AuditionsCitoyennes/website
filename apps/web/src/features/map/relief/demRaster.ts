@@ -1,5 +1,6 @@
 // The plateau's DEM tile, rendered without the server: a port of the API's
-// renderer (apps/api/src/modules/dem/service.ts + png.ts). The same scanline
+// renderer (apps/api's modules/dem, deleted in #177; its tiles live on as
+// scripts/parity/demRelief.golden.json). The same scanline
 // rasteriser at pixel centres with a PAD of 5 texels, the same 2.5-texel
 // two-pass chamfer erosion and hard step, the same Mapbox terrain-RGB: ground
 // at 0 m, the plateau at the selection's height, nothing in between. Pure: no

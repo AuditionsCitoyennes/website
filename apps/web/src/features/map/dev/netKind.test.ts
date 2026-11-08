@@ -9,10 +9,6 @@ const API = "http://127.0.0.1:3391";
 
 test("every kind the map already had keeps its answer", () => {
   const cases: [string, string | null][] = [
-    [`${API}/api/dem/0f3a9c/12/2101/1461`, "dem.tiles"],
-    [`${API}/api/dem`, "dem.post"],
-    [`${API}/api/dem/`, "dem.post"],
-    [`${API}/api/dem?x=1`, "dem.post"],
     [`${API}/api/map/units`, "api.map"],
     [`${API}/api/places?level=departement`, "api.other"],
     ["https://api.mapbox.com/styles/v1/mapbox/standard", "mapbox"],
