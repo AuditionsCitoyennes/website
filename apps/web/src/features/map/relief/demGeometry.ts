@@ -25,7 +25,7 @@ export class SelectionTooLarge extends Error {
   }
 }
 
-/** The polygons the server keeps of the POSTed features (setSelection). */
+/** The polygons a selection keeps of its features (the API's setSelection rule, kept). */
 export function polysOf(
   features: readonly { geometry?: unknown; type?: string; coordinates?: unknown }[],
 ): Polygon[] {

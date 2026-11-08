@@ -72,7 +72,7 @@ export interface DemAnswerPort {
   delayMs?: number;
   /** Count (TEST_TOOLS): otherwise no counter is touched. */
   stats?: boolean;
-  /** Both renderers failed a tile: the shell demotes the route. */
+  /** Both renderers failed a tile: the client is lost for the session (registrations reject). */
   onClientLost?(): void;
 }
 
