@@ -12,9 +12,20 @@
 // - "aucun": no lid at all — no capture, no hidden map; the plateau's top is
 //   the draped terrain.
 //
+// How a shot is checked before it becomes the lid (`ac:lid-check`, the DEV
+// switch's "Contrôle" row; any mode but "aucun"):
+//
+// - "signaux" (the default): the hidden map's own signals (lidShot.ts) —
+//   loaded() after the jump, a frame rendered since the jump and since the
+//   last resize or context restore, the context not lost. No pixel is read,
+//   except for a shot with a map error since its jump: that one still gets the
+//   8×8 readback below.
+// - "pixels" (before lid-readback): every shot is drawn to an 8×8 canvas and
+//   read back (getImageData) on the main thread; a uniform frame is rejected.
+//
 // Read once per page load: switching reloads the page (the hidden map is
 // created at the main map's load). Production has neither key nor switch:
-// DEFAULT_LID_MODE.
+// DEFAULT_LID_MODE, DEFAULT_LID_CHECK.
 
 export type LidMode = "ecran" | "ancien" | "aucun";
 
@@ -42,6 +53,38 @@ export function setLidMode(mode: LidMode) {
   if (!__TEST_TOOLS__ || mode === lidMode) return;
   try {
     localStorage.setItem("ac:lid", mode);
+  } catch {
+    /* storage blocked (a private window): the choice lasts for this page */
+  }
+  window.location.reload();
+}
+
+export type LidCheck = "signaux" | "pixels";
+
+/** The check of a build without the testing tools, and the switch's default. */
+export const DEFAULT_LID_CHECK: LidCheck = "signaux";
+
+export const LID_CHECKS: readonly LidCheck[] = ["signaux", "pixels"];
+
+function storedLidCheck(): LidCheck {
+  try {
+    const raw = localStorage.getItem("ac:lid-check");
+    return (LID_CHECKS as readonly string[]).includes(raw ?? "")
+      ? (raw as LidCheck)
+      : DEFAULT_LID_CHECK;
+  } catch {
+    return DEFAULT_LID_CHECK;
+  }
+}
+
+/** This page load's check. */
+export const lidCheck: LidCheck = __TEST_TOOLS__ ? storedLidCheck() : DEFAULT_LID_CHECK;
+
+/** Another check: kept, and the page loaded again with it. */
+export function setLidCheck(check: LidCheck) {
+  if (!__TEST_TOOLS__ || check === lidCheck) return;
+  try {
+    localStorage.setItem("ac:lid-check", check);
   } catch {
     /* storage blocked (a private window): the choice lasts for this page */
   }
