@@ -71,7 +71,7 @@ export function scopeForView(
     // Children whose POLYGON provably contains the centre (when geometry is
     // available), and those whose bbox covers it — the polygon's holders
     // included: a unit can hold a point past its own box (a département holds
-    // its communes, whose contours can run past its france-geojson box).
+    // its communes, whose contours can run past its box).
     const insidePoly = contains ? kids.filter((c) => contains(c, lat, lng)) : [];
     const insideBox = kids.filter((c) => boundsHas(c.bounds, lat, lng) || insidePoly.includes(c));
     const incumbent = insideBox.find((c) => prefer?.has(c.id));

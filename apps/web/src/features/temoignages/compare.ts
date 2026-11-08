@@ -3,7 +3,7 @@
 // the same filters, and every difference is listed in window.__acCompare —
 // a DEV badge counts them (DevDataSwitch). Compared, once the key asked for is
 // the one on screen and the corpus is in:
-// - every unit of the tree: count, label, level, centre, box, codes, outline,
+// - every unit of the tree: count, label, level, centre, box, codes,
 //   lieux and their labels, the children's order (geo-nav's compareTrees);
 // - every unit's analyses figures and its analysis (themes' order,
 //   reliability, the concentration's lieu);
@@ -55,7 +55,6 @@ import {
   placeLabel,
   placesKeys,
   resultBounds,
-  type BoundaryFC,
   type UnitTree,
 } from "@/features/geo-nav";
 import type { LocNode } from "@/shared/ui/select/treeNode";
@@ -235,11 +234,7 @@ export function startCompare(inputs: {
     const groups = filtering.groups.value;
 
     // The tree.
-    const fcs = {
-      regions: queryClient.getQueryData<BoundaryFC>(["boundaries", "regions"]),
-      departements: queryClient.getQueryData<BoundaryFC>(["boundaries", "departements"]),
-    };
-    const trees = compareTrees(groups, data, fcs);
+    const trees = compareTrees(groups, data);
     for (const d of trees.diffs) diffs.push({ area: "tree", ...d });
 
     // Every unit's figures and analysis.
@@ -435,11 +430,7 @@ export function startCompare(inputs: {
     const groups = filtering.groups.value;
     const own = groupOwnAuditions(filtering.filteredTestimonies.value);
     const diffs: CompareDiff[] = [];
-    const fcs = {
-      regions: queryClient.getQueryData<BoundaryFC>(["boundaries", "regions"]),
-      departements: queryClient.getQueryData<BoundaryFC>(["boundaries", "departements"]),
-    };
-    const trees = compareTrees(groups, data, fcs);
+    const trees = compareTrees(groups, data);
     // As the corpus' panel names a lieu: placeByCanonical (the last of a name).
     const corpusLabels = new Map<string, string>();
     for (const u of trees.corpusIndex.values()) {

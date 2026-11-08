@@ -5,7 +5,8 @@
 //
 // - One store per filter key, plain and NOT reactive (thousands of rows at
 //   scale): one `version` ref is bumped per answer merged into the store on
-//   screen, as useCommuneGeo bumps per batch. The 4 latest keys are kept.
+//   screen, as the outline files' store bumps per write. The 4 latest keys
+//   are kept.
 // - A unit's answer is a vue-query entry ([...placesKeys.all, key, unit,
 //   depth, facts]): asked again it is served from there, abandoned it is
 //   aborted. The units asked within 50 ms go out as one units= request.

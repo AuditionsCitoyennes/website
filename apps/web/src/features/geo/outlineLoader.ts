@@ -7,7 +7,7 @@
 // parse + validate, never the write; each caller then writes through the
 // store, which skips a file already loaded, so a URL shared by two callers is
 // fetched once and written once. A failure is per file: root.json and k/FR
-// end the session on the API's outlines; so does a release skew on any file
+// end the session (the fallback: no outlines at all); so does a release skew on any file
 // (the host holds another build, or none: a tab opened before a deploy), once
 // a refetch past the HTTP cache confirms it (after the network retry too); a
 // network failure is retried once, then failed, until the next ensure after
@@ -108,7 +108,7 @@ export class OutlineLoader {
   }
 
   /** root.json then k/FR; any failure of either, or `bootMs` passing first,
-   *  ends the session on the API. */
+   *  ends the session (the fallback). */
   ensureRoot(): Promise<OutlineStatus> {
     const first = !this.root;
     this.root ??= (async () => {
@@ -313,7 +313,7 @@ export class OutlineLoader {
     return true;
   }
 
-  /** The session goes back to the API's outlines: files from this build must
+  /** The session falls back (no outlines for its rest): files from this build must
    *  not mix with nothing for the rest of it. */
   private fallback(reason: OutlineReason, key: string): "fallback" {
     if (this.mode !== "fallback") this.set("fallback", "fallback", { reason, key });

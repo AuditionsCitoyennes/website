@@ -2,7 +2,7 @@
 // docs/map-outlines.md): their shapes, their URLs, the check every response
 // goes through, and the store that hands their geometries out. Pure: no Vue,
 // no DOM, nothing at import but declarations. Read by the explorer through
-// geo-nav/data/useOutlineFiles.ts (ac:contours=fichiers, the default).
+// geo-nav/data/useOutlineFiles.ts.
 //
 // The store's rules: every geometry is stored once per `id@tier` and handed
 // out by identity (WeakMap caches are keyed on the object, so a département's

@@ -1,4 +1,4 @@
-// The row-hover prefetch (ac:contours=fichiers, model/outlineRules rule 7): a
+// The row-hover prefetch (the outline files, model/outlineRules rule 7): a
 // panel row held under the pointer (or the keyboard's focus) HOVER_HOLD_MS
 // asks for its unit's bundle ahead of the click, through the loader's own
 // request, so the click joins it or finds it in the HTTP cache. One at a

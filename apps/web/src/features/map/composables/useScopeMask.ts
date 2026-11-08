@@ -274,10 +274,8 @@ export function useScopeMask({
     // POST).
     //
     // Accepted: no draped hover during the DEM POST (~40-80 ms) and the
-    // deep-link intro flight, during a cold hold (the département merge, 0.5-1 s;
-    // with the dev corpus source a DROM région holds for the whole visit, because
-    // its régions query never resolves a geometry and the geometryKnownAbsent
-    // release exists only for the server tree) and after a DEM failure — the GL
+    // deep-link intro flight, during a cold hold (a bundle on its way) and
+    // after a DEM failure — the GL
     // sweep draws nothing there either.
     //
     // The dedupe compares objects, which holds because useMapFeed builds a fresh

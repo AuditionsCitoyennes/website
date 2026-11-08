@@ -1,4 +1,4 @@
-// The static outline files in the page (ac:contours=fichiers, contoursSwitch.ts):
+// The static outline files in the page (the build outlinesBuild.ts names):
 // one OutlineStore and its OutlineLoader (features/geo) for the whole page, not
 // per GeoNav mount, so the session's fallback, the requests under way, the
 // failed files and the LRU outlive a remount. Built at the first
@@ -14,9 +14,6 @@
 // Every stored geometry went through markRaw and never goes into a reactive
 // container: geometry must stay a plain, identity-stable object (the WeakMap
 // caches are keyed on it).
-//
-// Under ac:contours=api (the testing tools' other mode) the instance is inert:
-// no loader, every ensure* answers "api", nothing is fetched.
 //
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's
@@ -35,20 +32,19 @@ import {
 import { absoluteBase } from "@/shared/absoluteUrl";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BundleState } from "../model/outlineRules";
-import { contoursMode, outlinesBuild } from "./contoursSwitch";
+import { outlinesBuild } from "./outlinesBuild";
 
 export { OUTLINE_WAIT_MS };
 
-export type OutlineFilesStatus = OutlineStatus | "api";
+export type OutlineFilesStatus = OutlineStatus;
 
-/** How long the boot (root.json, then k/FR) may take before the session goes
- *  back to the API's outlines: a stalled root must not keep the overlay up
- *  with the API's queries off. */
+/** How long the boot (root.json, then k/FR) may take before the session
+ *  falls back: a stalled root must not keep the overlay up. */
 const BOOT_MS = 6000;
 
 export interface OutlineFiles {
-  mode: ShallowRef<"api" | "fichiers" | "fallback">;
-  ready: ShallowRef<"idle" | "loading" | "ok" | "fallback">;
+  mode: ShallowRef<"fichiers" | "fallback">;
+  ready: ShallowRef<"loading" | "ok" | "fallback">;
   /** Bumped by every write to the store. */
   version: ShallowRef<number>;
   /** fileKeys (`k/fr_dep_69`) whose file will not come this session. */
@@ -107,9 +103,8 @@ function createOutlineFiles(): OutlineFiles {
   const b = absoluteBase(import.meta.env.VITE_MAP_DATA_BASE || "/map-data/", location.origin);
   const base = b.endsWith("/") ? b : b + "/";
   const build = outlinesBuild;
-  const on = contoursMode === "fichiers";
-  const mode = shallowRef<OutlineFiles["mode"]["value"]>(on ? "fichiers" : "api");
-  const ready = shallowRef<OutlineFiles["ready"]["value"]>(on ? "loading" : "idle");
+  const mode = shallowRef<OutlineFiles["mode"]["value"]>("fichiers");
+  const ready = shallowRef<OutlineFiles["ready"]["value"]>("loading");
   const version = shallowRef(0);
   const failed = shallowRef<ReadonlySet<string>>(new Set());
   const gaveUp = shallowRef<ReadonlySet<string>>(new Set());
@@ -122,52 +117,48 @@ function createOutlineFiles(): OutlineFiles {
     if (__TEST_TOOLS__) seen.push(new WeakRef(o));
     return markRaw(o);
   };
-  const store = on ? new OutlineStore() : null;
+  const store = new OutlineStore();
   let conflicts = 0;
-  const loader =
-    store &&
-    new OutlineLoader({
-      store,
-      fetchFn: (url, init) => fetch(url, init),
-      base,
-      build,
-      wrap,
-      setTimer: (fn, ms) => window.setTimeout(fn, ms),
-      clearTimer: (timer) => window.clearTimeout(timer as number),
-      onWrite(v) {
-        version.value = v;
-        const now = store.stats().conflicts;
-        if (import.meta.env.DEV && now > conflicts)
-          console.warn(`[outlines] ${now - conflicts} vertex count conflict(s), existing kept`);
-        conflicts = now;
-      },
-      onSets() {
-        failed.value = loader!.failed;
-        gaveUp.value = loader!.gaveUp;
-      },
-      onMode(m, r, why) {
-        mode.value = m;
-        ready.value = r;
-        if (m !== "fallback") return;
-        // Once per session (the loader falls back once), in every build.
-        const key = why?.key ?? "root";
-        const url = key === "root" ? rootUrl(base, build) : `${base}outlines/${build}/${key}.json`;
-        console.warn(
-          `[outlines] fallback: ${why?.reason ?? "network"} ${url}` +
-            (__TEST_TOOLS__ ? " (see docs/map-outlines.md#local-development)" : ""),
-        );
-        if (perfOn) perfNote("outline.fallback", 0, { reason: why?.reason, key: why?.key });
-      },
-      span: perfOn ? perfSpan : undefined,
-      bootMs: BOOT_MS,
-    });
+  const loader: OutlineLoader = new OutlineLoader({
+    store,
+    fetchFn: (url, init) => fetch(url, init),
+    base,
+    build,
+    wrap,
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimer: (timer) => window.clearTimeout(timer as number),
+    onWrite(v) {
+      version.value = v;
+      const now = store.stats().conflicts;
+      if (import.meta.env.DEV && now > conflicts)
+        console.warn(`[outlines] ${now - conflicts} vertex count conflict(s), existing kept`);
+      conflicts = now;
+    },
+    onSets() {
+      failed.value = loader.failed;
+      gaveUp.value = loader.gaveUp;
+    },
+    onMode(m, r, why) {
+      mode.value = m;
+      ready.value = r;
+      if (m !== "fallback") return;
+      // Once per session (the loader falls back once), in every build.
+      const key = why?.key ?? "root";
+      const url = key === "root" ? rootUrl(base, build) : `${base}outlines/${build}/${key}.json`;
+      console.warn(
+        `[outlines] fallback: ${why?.reason ?? "network"} ${url}` +
+          (__TEST_TOOLS__ ? " (see docs/map-outlines.md#local-development)" : ""),
+      );
+      if (perfOn) perfNote("outline.fallback", 0, { reason: why?.reason, key: why?.key });
+    },
+    span: perfOn ? perfSpan : undefined,
+    bootMs: BOOT_MS,
+  });
 
-  const api = Promise.resolve("api" as const);
-  const apis = (ids: string[]) => Promise.resolve(ids.map(() => "api" as const));
   // Reads version first: a computed calling an accessor tracks the store.
-  const read = <T>(fn: (s: OutlineStore) => T, none: T): T => {
+  const read = <T>(fn: (s: OutlineStore) => T): T => {
     void version.value;
-    return store ? fn(store) : none;
+    return fn(store);
   };
 
   return {
@@ -181,36 +172,36 @@ function createOutlineFiles(): OutlineFiles {
     base,
     isFailed: (kind, id) => {
       void failed.value;
-      return loader?.isFailed(kind, id) ?? false;
+      return loader.isFailed(kind, id);
     },
     isGaveUp: (kind, id) => {
       void gaveUp.value;
-      return loader?.isGaveUp(kind, id) ?? false;
+      return loader.isGaveUp(kind, id);
     },
     selfSettled: (id) => {
       void mode.value;
       void version.value;
       void failed.value;
       void gaveUp.value;
-      return loader?.selfSettled(id) ?? true;
+      return loader.selfSettled(id);
     },
-    rowOf: (id) => read((s) => s.rowOf(id), undefined),
-    selfOf: (id) => read((s) => s.selfOf(id), undefined),
-    entryOf: (id) => read((s) => s.entryOf(id), undefined),
-    globeOf: (id) => read((s) => s.globeOf(id), undefined),
-    unitsOf: (id) => read((s) => s.unitsOf(id), undefined),
+    rowOf: (id) => read((s) => s.rowOf(id)),
+    selfOf: (id) => read((s) => s.selfOf(id)),
+    entryOf: (id) => read((s) => s.entryOf(id)),
+    globeOf: (id) => read((s) => s.globeOf(id)),
+    unitsOf: (id) => read((s) => s.unitsOf(id)),
     bundleState: (id) => {
       if (ready.value === "loading") return "loading";
-      if (!read((s) => s.rowOf(id)?.k, 0)) return "none";
-      if (store!.bundleLoaded(id)) return "loaded";
+      if (!read((s) => s.rowOf(id)?.k)) return "none";
+      if (store.bundleLoaded(id)) return "loaded";
       void failed.value;
-      return loader!.isFailed("k", id) ? "failed" : "loading";
+      return loader.isFailed("k", id) ? "failed" : "loading";
     },
-    has: (id, tier) => read((s) => s.has(id, tier), false),
-    bundleLoaded: (id) => read((s) => s.bundleLoaded(id), false),
-    pin: (ids) => store?.pin(ids) ?? 0,
+    has: (id, tier) => read((s) => s.has(id, tier)),
+    bundleLoaded: (id) => read((s) => s.bundleLoaded(id)),
+    pin: (ids) => store.pin(ids),
     holdSelf: (id) => {
-      if (!store || holding.has(id) || heldOut.value.has(id)) return;
+      if (holding.has(id) || heldOut.value.has(id)) return;
       holding.add(id);
       window.setTimeout(() => {
         holding.delete(id);
@@ -219,23 +210,14 @@ function createOutlineFiles(): OutlineFiles {
         heldOut.value = new Set(heldOut.value).add(id);
       }, OUTLINE_WAIT_MS);
     },
-    ensureRoot: () => loader?.ensureRoot() ?? api,
-    ensureBundle: (id) => loader?.ensureBundle(id) ?? api,
-    ensureSelf: (id) => loader?.ensureSelf(id) ?? api,
-    ensureGlobe: (ids, selves = []) =>
-      loader?.ensureGlobe(ids, selves) ?? apis([...ids, ...selves]),
-    batchSelf: (ids) => loader?.batchSelf(ids) ?? apis(ids),
-    prefetch: (kind, id) => loader?.prefetch(kind, id) ?? Promise.resolve(),
-    stats: () =>
-      read((s) => s.stats(), {
-        files: 0,
-        objects: 0,
-        vertices: 0,
-        dedupeHits: 0,
-        conflicts: 0,
-        evicted: 0,
-      }),
-    loadedKeys: () => read((s) => s.loadedKeys(), []),
+    ensureRoot: () => loader.ensureRoot(),
+    ensureBundle: (id) => loader.ensureBundle(id),
+    ensureSelf: (id) => loader.ensureSelf(id),
+    ensureGlobe: (ids, selves = []) => loader.ensureGlobe(ids, selves),
+    batchSelf: (ids) => loader.batchSelf(ids),
+    prefetch: (kind, id) => loader.prefetch(kind, id),
+    stats: () => read((s) => s.stats()),
+    loadedKeys: () => read((s) => s.loadedKeys()),
     wrapped: () => seen.flatMap((r) => r.deref() ?? []),
   };
 }

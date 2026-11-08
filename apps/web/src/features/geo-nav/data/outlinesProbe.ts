@@ -1,8 +1,7 @@
 // `window.__acOutlines()` — the outline files in the page, in the builds with
 // the testing tools (loaded from the geo-nav barrel behind __TEST_TOOLS__, so a
 // production build has no chunk for it). Installing it builds nothing: the
-// page's instance (useOutlineFiles) is built at the first call, and under
-// ac:contours=api it stays inert (every ensure answers "api").
+// page's instance (useOutlineFiles) is built at the first call.
 //
 //   const o = __acOutlines();          // a snapshot: mode, ready, counters…
 //   await o.ensure("root");            // root.json, then k/FR

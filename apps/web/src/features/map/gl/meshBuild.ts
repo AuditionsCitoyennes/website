@@ -226,11 +226,10 @@ export function buildPlateauMesh(
   // Focus children sit ON the lid while a plateau stands; with no plateau
   // (world scope) they draw at ground level like everything else. Lifting
   // them is safe because the raised outline comes from the same source as
-  // they do (GeoNav: france-geojson for the country and its régions and
-  // départements, a département raised as the union of its communes' Géo API
-  // contours, those contours for villes and arrondissements), so it holds
-  // them. Only a département whose own outline could not be had rises with
-  // its france-geojson one, which a commune can cross by up to ~1 km. A child
+  // they do (GeoNav: the outline files, the scope's self and its bundle's
+  // entries cut by one run), so it holds them. Only a unit whose self could
+  // not be had rises with its coarser entry, which a child can cross by up
+  // to ~1 km. A child
   // is lifted only where its box meets one of the raised polygons': the data
   // can file a unit under a scope whose outline leaves it out (Saint-Martin
   // under the Guadeloupe, some 250 km off its islands), and that one stays

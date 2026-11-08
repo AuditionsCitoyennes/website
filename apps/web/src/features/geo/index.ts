@@ -34,18 +34,7 @@ export {
   type UnitTreeData,
   type UnitTreeEntry,
 } from "./treeFromUnits";
-export {
-  applyBoundaries,
-  communeCodeOf,
-  depCodeOf,
-  featureFor,
-  geometryContains,
-  isFrench,
-  outlineSourceOf,
-  type BoundaryLookups,
-  type LevelLookup,
-  type OutlineSource,
-} from "./boundaries";
+export { applyBoundaries, communeCodeOf, geometryContains } from "./boundaries";
 export { scopeForView, SPAN_DESCEND } from "./scope";
 export { abbrevCount } from "./labels";
 export {

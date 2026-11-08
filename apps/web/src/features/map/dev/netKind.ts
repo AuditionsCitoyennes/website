@@ -12,9 +12,6 @@ export function netKind(url: string): string | null {
   if (OUTLINE_FILE.test(url) && !url.includes("/src/")) return "outlines";
   if (/\/api\/dem\/[^/]+\/\d+\/\d+\/\d+/.test(url)) return "dem.tiles";
   if (/\/api\/dem\/?(\?|$)/.test(url)) return "dem.post";
-  if (url.includes("/api/boundaries/departement/")) return "boundaries.departement";
-  if (url.includes("/api/boundaries/communes")) return "boundaries.communes";
-  if (url.includes("/api/boundaries/")) return "boundaries.levels";
   if (url.includes("/api/map")) return "api.map";
   if (url.includes("/api/")) return "api.other";
   if (/mapbox\.com/.test(url)) return "mapbox";
