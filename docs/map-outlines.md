@@ -425,10 +425,11 @@ hold. What it gets is the missing-file answer below: on Cloudflare, the app's
 page (200, HTML), for the app's `fetch` as for a navigation (the preview run
 of 2026-11-02, all three rows). The outline store takes it as a release skew
 and the tab falls back for its session until it reloads: no plateau, every
-unit known absent. Accepted (the founder, with the removal of the web's API
-outlines): one degraded session per tab left open across a lock bump. Hosting
-the previous build too (a `previous` key in the lock: +277 files for
-`o20261101-1`, about 830 for France and the countries) would avoid it.
+unit known absent. Not decided yet, and due before the next lock bump: either
+the previous build is hosted too (a `previous` key in the lock: +277 files for
+`o20261101-1`, about 830 for France and the countries) or the founder accepts
+one degraded session per tab left open across a lock bump. A deploy that keeps
+the lock's build changes nothing for an open tab.
 
 ### Limits and what a deploy uses
 
