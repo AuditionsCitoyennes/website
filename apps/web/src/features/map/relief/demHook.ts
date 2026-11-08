@@ -15,9 +15,12 @@ type DemClient = typeof import("./demClient");
 
 let client: Promise<DemClient> | null = null;
 
-/** The client relief, loaded once. */
+/** The client relief, loaded once; a chunk that failed to load is asked again at the next call. */
 export function loadReliefClient(): Promise<DemClient> {
-  return (client ??= import("./demClient"));
+  return (client ??= import("./demClient").catch((e: unknown) => {
+    client = null;
+    throw e;
+  }));
 }
 
 /** The map's transformRequest: our `ac-dem://` tiles answered, every other URL left alone. */
