@@ -4,12 +4,13 @@
 // (plateau/lidSwitch.ts) and drawn as the Témoignages page's DEV switch's
 // "Relief" row:
 //
-// - "serveur" (the default): the API renders them — POST /api/dem for the
-//   version key, then Mapbox fetches the tiles from /api/dem/<key>/z/x/y.
-// - "client": the page renders them — the key and the tiles come from the
-//   relief worker (demClient.ts), handed to Mapbox through the map's
-//   transformRequest (demHook.ts) for an `ac-dem://<key>/{z}/{x}/{y}`
+// - "client" (the default): the page renders them — the key and the tiles
+//   come from the relief worker (demClient.ts), handed to Mapbox through the
+//   map's transformRequest (demHook.ts) for an `ac-dem://<key>/{z}/{x}/{y}`
 //   template; no request at all.
+// - "serveur": the API renders them — POST /api/dem for the version key, then
+//   Mapbox fetches the tiles from /api/dem/<key>/z/x/y. Also the session's
+//   fallback (below).
 //
 // Read once per page load: switching reloads the page (transformRequest is a
 // Map constructor option, installed only in a page loaded in "client").
@@ -41,12 +42,14 @@
 //   z first; 0 = each at once. The default is DEFAULT_RELIEF_BUDGET (below,
 //   with its reason).
 // - `ac:relief-budget-ground` = "budgeted" (the default) | "exempt": answers
-//   that are the ground tile skip the budget. Kept as an arm so the phone runs
-//   of the flip can still compare it.
+//   that are the ground tile skip the budget. Not compared by the flip (no
+//   phone exists; lead note 2026-11-05): kept as an arm for a later
+//   real-device run.
 // - `ac:relief-commit-hold`: ms a run with nothing standing holds its commit
 //   after the registration (usePlateau, demClient `commitHold`); 0 = no hold.
 //   The default is DEFAULT_RELIEF_COMMIT_HOLD_MS (below, with its reason).
-//   Kept as an arm so the flip's real-device runs can compare it with 0.
+//   The flip compared it with 0 in the iOS Simulator only (it did not lose);
+//   kept as an arm for a later real-device run.
 //
 // They act only on a page loaded in "client". Read once per page load.
 // Production has neither key nor switch: DEFAULT_RELIEF_BUDGET,
@@ -55,7 +58,7 @@
 export type ReliefMode = "serveur" | "client";
 
 /** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_RELIEF_MODE: ReliefMode = "serveur";
+export const DEFAULT_RELIEF_MODE: ReliefMode = "client";
 
 export const RELIEF_MODES: readonly ReliefMode[] = ["serveur", "client"];
 
@@ -110,9 +113,10 @@ export const reliefMode: ReliefMode = __TEST_TOOLS__ ? storedReliefMode() : DEFA
  * (desktop medians: first tile 909 ms, all in 1,350 ms after it, against 0 and
  * -155 at 0; ARA all in 1,767 ms after against -818; relief-france-task).
  * Not settled on phones: on the phone profile 0's ARA TBT (median 1,684 ms)
- * is above serveur's (1,170) and 4-with-ground-exempt's (1,148), inside rule
- * L's band only after six rounds (it tripped at two): pr-flip-relief compares
- * it with `ac:relief-budget-ground=exempt` at 4 on real phones.
+ * was above serveur's (1,170) and 4-with-ground-exempt's (1,148), inside rule
+ * L's band only after six rounds (it tripped at two); the flip's phone-profile
+ * runs read 1,130 against serveur's 1,119. Real-phone timing is unmeasured (no
+ * device, lead note 2026-11-05): the arms stay so a later run can compare it.
  */
 export const DEFAULT_RELIEF_BUDGET = 0;
 
