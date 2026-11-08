@@ -39,3 +39,5 @@ supabase/seed.sql
 .claude/
 # Wrangler (Cloudflare) local state
 .wrangler/
+# A local copy of the outline build (docs/map-outlines.md "Local development")
+apps/web/public/map-data/

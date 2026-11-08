@@ -6,7 +6,7 @@
 // corpus' (the map's groups), or the server's tree (map phase 1). Under the
 // server's tree with ac:contours=fichiers (`outlines`), every one of them is
 // answered by the outline files instead (outlineRules.ts) — until the session
-// falls back to the API's.
+// falls back: then every unit is known absent.
 import { computed, toRaw, type ComputedRef, type Ref } from "vue";
 import type { LocationGroup } from "@ac/shared";
 import {
@@ -97,12 +97,14 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
       h.index,
       filesActive()
         ? { byId: rowFrames(h.index) }
-        : {
-            regions: regionLookup.value,
-            departements: depLookup.value,
-            byInsee: inseeGeo.value,
-            byDep: depFineGeo.value,
-          },
+        : view
+          ? {} // the session fell back: the data's frames
+          : {
+              regions: regionLookup.value,
+              departements: depLookup.value,
+              byInsee: inseeGeo.value,
+              byDep: depFineGeo.value,
+            },
     );
     if (end) end({ units: h.index.size });
     return h;
@@ -170,7 +172,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
     geometryKnownAbsent: apiGeometryKnownAbsent,
   };
   const { geometryFor, raisedGeometryFor, raisedOutlineDue, geometryKnownAbsent } = view
-    ? outlineRules(view, api, chainOf)
+    ? outlineRules(view, chainOf)
     : api;
 
   // Real polygon containment, used to break bbox ties in the scope walk (e.g. Lyon 3e
@@ -204,6 +206,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   /** The deepest ville / arrondissement whose loaded contour holds the point. */
   function finestAt(lat: number, lng: number): GeoUnit | null {
     const files = filesActive();
+    if (!files && view) return null; // the session fell back: no contour
     const version = files ? outlines!.version.value : -1;
     const geo = communeGeo.value;
     const units = communeUnits.value;

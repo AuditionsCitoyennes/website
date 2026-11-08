@@ -345,15 +345,20 @@ same origin, at `/map-data/outlines/<build>/` (the web's default base:
 Every miss fails the deploy: a lock missing or malformed, a release or asset
 missing (or GitHub unreachable: the same error), a hash or layout mismatch, a
 manifest that is not the lock's build, a file count off. There is no skip: a
-deploy without the files would fall back to the API without a word. Nothing
-builds outlines in CI.
+deploy without the files would draw no outline at all. Nothing builds outlines
+in CI.
 
 The web reads the files by default (`DEFAULT_CONTOURS_MODE` = `fichiers`,
 `apps/web/src/features/geo-nav/data/contoursSwitch.ts`) under the server
 source, with or without the testing tools (the corpus source and the comparer
 stay on the API's); `ac:contours=api` still picks the API's outlines in the
 builds that have the testing tools (the dev server, staging, previews). A
-session whose files are not served falls back to the API's for that page load.
+session whose files are not served
+(`root.json` missing, HTML or another build, the boot past its 6 s cap, or a
+release skew on a later file) falls back for that page load: every unit known
+absent — the box fits, the pins, the panel and its lists unchanged, no plateau
+and no outline line — with one console warning in every build,
+`[outlines] fallback: <reason> <url>`.
 
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps
@@ -361,15 +366,28 @@ Whoever adds it MUST copy the staging workflow's two steps
 `root.json` check (the deploy fails when the lock's release is missing or
 `root.json` is served as HTML): without the files every production page pays
 two `root.json` requests (the second with `cache: "reload"`, the release-skew
-confirm) and falls back to the API's outlines for the session, without a word.
-The web's API outlines must not be removed while a production deploy exists
-that does not ship the files. R2 only when world subdivisions or tiles arrive.
+confirm) and falls back for the session: no plateau, no outline anywhere. R2
+only when world subdivisions or tiles arrive.
 
-**Local dev**: set `VITE_MAP_DATA_BASE` in `apps/web/.env` to a static server
-holding the locked build (e.g. `http://127.0.0.1:5399/` over a directory with
-`outlines/<build>/`, CORS on); without it the dev server answers
-`/map-data/…` with its page (200, HTML) and the session falls back to `api`
-(one DEV console warning, `[outlines] back to the API's outlines`).
+### Local development
+
+The dev server has no outline files of its own: without them every session
+falls back (no plateau; the console warning names this section). Either:
+
+- put the locked build under `apps/web/public/map-data/outlines/` (gitignored),
+  which Vite serves at `/map-data/` with a JSON content type, so no variable is
+  needed (`npm run build` then copies it into `dist`: harmless locally, CI
+  starts clean):
+
+  ```bash
+  WORK=/tmp/outlines scripts/deploy/outlines.sh fetch   # the lock's release, hash-checked
+  mkdir -p apps/web/public/map-data/outlines
+  tar -xzf /tmp/outlines/outlines-<build>.tar.gz -C apps/web/public/map-data/outlines
+  ```
+
+- or serve the build elsewhere (a static server over a directory holding
+  `outlines/<build>/`, CORS on) and set `VITE_MAP_DATA_BASE` in
+  `apps/web/.env` to it (e.g. `http://127.0.0.1:5399/`).
 
 ### Lock bump: release first, lock bump second
 
@@ -406,11 +424,11 @@ deploy asks for `/map-data/outlines/<old>/…`, which the new deploy does not
 hold. What it gets is the missing-file answer below: on Cloudflare, the app's
 page (200, HTML), for the app's `fetch` as for a navigation (the preview run
 of 2026-11-02, all three rows). The outline store takes it as a release skew
-and the tab falls back to the API for its session until it reloads. Fine
-while `/api/boundaries` exists. Once the web's API outlines are removed, that
-fallback is gone: before that, either the previous build is hosted too (a
-`previous` key in the lock: +277 files for `o20261101-1`, about 830 for
-France and the countries) or one degraded session per open tab is accepted.
+and the tab falls back for its session until it reloads: no plateau, every
+unit known absent. Accepted (the founder, with the removal of the web's API
+outlines): one degraded session per tab left open across a lock bump. Hosting
+the previous build too (a `previous` key in the lock: +277 files for
+`o20261101-1`, about 830 for France and the countries) would avoid it.
 
 ### Limits and what a deploy uses
 
@@ -454,7 +472,7 @@ So the Worker (`main` in `wrangler.jsonc`) is not reached for a path under
 `/map-data/`: the assets layer answers first and its `not_found_handling`
 serves the app's page, under the `/map-data/*` rule. The outline store takes
 that HTML as a release skew (`features/geo/outlineLoader.ts`), which ends
-the session on the API, never as a per-file `missing`.
+the session (the fallback), never as a per-file `missing`.
 
 A browser keeps that HTML for a year under that URL. Harmless for a URL that
 names its build (the app and its files ship in one Worker version, so the

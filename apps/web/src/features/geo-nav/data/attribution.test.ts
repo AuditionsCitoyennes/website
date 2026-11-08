@@ -1,7 +1,7 @@
 // The boundary credits (attribution.ts): the API's wording whenever the API's
-// boundaries are what is drawn (api, a files session still loading or fallen
-// back), Etalab's once the files are in, « Pays » only with the country files,
-// and HTML that Mapbox keeps as written (https anchors, no other markup). Run
+// boundaries are what is drawn (api, no files read), Etalab's once the files
+// are in, « Pays » only with the country files, nothing while a files session
+// is still loading or once it fell back, and HTML that Mapbox keeps as written (https anchors, no other markup). Run
 // with `node --import tsx --test` (root "test:scripts"). Pure: no Vue, no DOM.
 
 import assert from "node:assert/strict";
@@ -24,13 +24,18 @@ test("api: the france-geojson line verbatim, then the Géo API's communes", () =
   assert.ok(!api.some((s) => s.startsWith("Pays")));
 });
 
-test("the API's wording until the files are in, and after a fallback", () => {
-  const sessions: OutlineSession[] = [null, "idle", "loading", "fallback"];
+test("no credit until the files are in, nor after a fallback; the API's with no files", () => {
+  const none = boundaryAttribution({ mode: "fichiers", session: "loading", countries: false });
+  assert.deepEqual(none, []);
+  assert.ok(Object.isFrozen(none));
+  const sessions: OutlineSession[] = ["loading", "fallback"];
   for (const session of sessions) {
     for (const countries of [false, true]) {
-      assert.equal(boundaryAttribution({ mode: "fichiers", session, countries }), api);
+      assert.equal(boundaryAttribution({ mode: "fichiers", session, countries }), none);
     }
   }
+  for (const countries of [false, true])
+    assert.equal(boundaryAttribution({ mode: "fichiers", session: null, countries }), api);
   // api mode never reads a session, whatever is passed
   for (const session of ["ok", "loading", "fallback"] as const) {
     assert.equal(boundaryAttribution({ mode: "api", session, countries: true }), api);
