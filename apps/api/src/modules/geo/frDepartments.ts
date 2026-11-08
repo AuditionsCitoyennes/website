@@ -13,7 +13,7 @@
 // makes no runtime call.
 //
 // `centre` ([lat, lng]) is where a lieu placed at that level sits: the centre
-// boundaries/geometry gives the unit (of its largest ring), computed over
+// the deleted boundaries/geometry gave the unit (of its largest ring), computed over
 // france-geojson's departements-avec-outre-mer / regions-avec-outre-mer. Two
 // exceptions: Hauts-de-Seine, a crescent whose centre falls in Paris (its
 // pole of inaccessibility instead), and the three collectivities france-geojson

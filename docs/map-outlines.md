@@ -481,6 +481,40 @@ release skew, so a cached page never ends a session on its own. No narrower
 that answers 404 itself for unknown `/map-data/` paths would need
 `run_worker_first` in `wrangler.jsonc`; not done here (web code).
 
+## Previous source: /api/boundaries (removed in #176)
+
+Before the outline files, the API served the outlines itself:
+`/api/boundaries/{metropole,regions,departements}` from three files vendored
+under `apps/api/data/france-geojson/`, and `/departement/:code`,
+`/communes?codes=` and `/commune/:code` from the Géo API (geo.api.gouv.fr),
+kept in a disk cache (`apps/api/.boundaries-cache/`) and a 32 MB heap LRU. The
+module, the vendored files and the cache went in #176; git history keeps
+them. A developer's stale `apps/api/.boundaries-cache*` can be deleted
+(`rm -rf apps/api/.boundaries-cache*`; still gitignored).
+
+The vendored levels' origin, from their README:
+
+- Repository: [gregoiredavid/france-geojson](https://github.com/gregoiredavid/france-geojson)
+  (Grégoire David), branch `master`, fetched 2026-10-21: the métropole's
+  contour (one Feature, no properties; the API named it `FR` / `France`), the
+  13 metropolitan régions and the 96 metropolitan départements, the
+  `*-version-simplifiee.geojson` files.
+- Lines: IGN, [Admin Express COG](https://geoservices.ign.fr/adminexpress), 2018
+  edition, converted to GeoJSON with Mapshaper ("visvalingam weighted"
+  simplification at 25 %, coordinates at 5 decimals), as that repository
+  publishes them. Names and codes: INSEE, Code Officiel Géographique, 2018.
+- Licence: [Licence Ouverte / Open Licence (Etalab)](https://www.etalab.gouv.fr/licence-ouverte-open-licence),
+  Admin Express's terms. The credit line it asked for, verbatim:
+  « Source : IGN — Admin Express COG 2018, via france-geojson (Grégoire David) — Licence Ouverte ».
+
+md5 of the files as fetched:
+
+| File | md5 |
+| --- | --- |
+| `metropole-version-simplifiee.geojson` | `5b50944d1ca5e003c3275e6e76d5615f` |
+| `regions-version-simplifiee.geojson` | `275e39e649b090b9a8dd957659f8d611` |
+| `departements-version-simplifiee.geojson` | `7999bd8fa3567d938032da52f6a9bfdf` |
+
 ## Not here
 
 The 13 French overseas codes merged under `FR`, world subdivisions (their

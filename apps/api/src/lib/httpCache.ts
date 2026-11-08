@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { CachedResponse } from "./cache";
 
-// Sending a cachedResponse(): its validator and the freshness rule in the
+// Sending a CachedResponse: its validator and the freshness rule in the
 // headers; a bodiless 304 when the client already holds these bytes; the
 // pre-gzipped body for a client that accepts gzip (every browser), the plain
 // JSON otherwise. @fastify/compress leaves a reply that already carries a

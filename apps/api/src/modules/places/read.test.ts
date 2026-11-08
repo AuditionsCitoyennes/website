@@ -1241,18 +1241,13 @@ test("/api/health?details=1 (testing tools): the memory budget", async () => {
     details.families.map((f: { name: string }) => f.name),
     ["places", "assembled", "lieu", "results", "tpage", "audition", "legacy"],
   );
-  // Design A19: 74 MB of Buffers (64 of answers, 10 assembled from them); the
-  // boundaries' 32 MB are parsed values, on the heap.
+  // Design A19: 74 MB of Buffers (64 of answers, 10 assembled from them); no
+  // heap store today.
   assert.equal(details.budgetMb.familiesMax, 74);
-  assert.equal(details.budgetMb.heapStoresMax, 32);
+  assert.equal(details.budgetMb.heapStoresMax, 0);
   assert.equal(details.budgetMb.externalStoresMax, 0);
-  assert.deepEqual(
-    details.lrus.map((l: { name: string; maxMb: number; resident: string }) => [
-      l.name,
-      l.maxMb,
-      l.resident,
-    ]),
-    [["boundaries", 32, "heap"]],
-  );
+  assert.deepEqual(details.lrus, []);
+  assert.equal(details.staticResponses, undefined);
+  assert.equal(details.boundariesOnDisk, undefined);
   assert.deepEqual(details.dbGate, { active: 0, held: 0, waiting: 0 });
 });

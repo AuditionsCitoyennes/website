@@ -1,6 +1,6 @@
 // A map bounded in bytes, least recently used out first: the process memory
-// budget's in-memory stores that are not caches of responses (the boundary
-// geometry, the gazetteer chunks). The bytes are what the caller says a
+// budget's in-memory stores that are not caches of responses (the gazetteer
+// chunks, planned). The bytes are what the caller says a
 // value weighs where it lives: on the V8 heap (parsed objects: an estimate
 // of their heap size) or outside it (Buffers: their length). A value
 // heavier than the whole budget is not kept.
