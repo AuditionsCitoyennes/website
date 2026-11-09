@@ -155,14 +155,19 @@ function glideTo(e: MouseEvent, id: string) {
   align-items: flex-start;
 }
 
+/* The text keeps its height when the window is short, but the hero does not:
+   the shade then holds down to below the text (27rem) instead of fading
+   over its last lines. From a full screen up, the percentages win. */
 .hero--top .hero-shade {
+  --shade-hold: 27rem;
+  --shade-end: 31rem;
   background:
     linear-gradient(
       to bottom,
       rgb(12 8 22 / 0.8) 0%,
       rgb(12 8 22 / 0.6) 30%,
-      rgb(12 8 22 / 0.55) 52%,
-      transparent 60%
+      rgb(12 8 22 / 0.6) max(52%, var(--shade-hold)),
+      transparent max(60%, var(--shade-end))
     ),
     linear-gradient(to top, rgb(12 8 22 / 0.35) 0%, transparent 18%);
 }
@@ -247,6 +252,12 @@ function glideTo(e: MouseEvent, id: string) {
   outline-offset: 3px;
 }
 
+/* The buttons can sit over a bright part of the photo: the ring then gets a
+   dark edge on its inner side. */
+.hero-actions .cta-btn:focus-visible {
+  box-shadow: 0 0 0 5px rgb(12 8 22 / 0.6);
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -306,6 +317,12 @@ function glideTo(e: MouseEvent, id: string) {
 
   .hero--top .hero-content {
     padding-top: calc(var(--header-space) + clamp(1rem, 3vh, 2rem));
+  }
+
+  /* The photo takes the whole screen: the shade follows it alone. */
+  .hero--top .hero-shade {
+    --shade-hold: 0rem;
+    --shade-end: 0rem;
   }
 }
 
