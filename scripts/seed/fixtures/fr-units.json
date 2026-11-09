@@ -228,6 +228,18 @@
     "geo_release": "geoapi-2026"
   },
   {
+    "id": "fr:dep:52",
+    "parent_id": "fr:reg:44",
+    "level": "county",
+    "country": "FR",
+    "name": "Haute-Marne",
+    "code": "52",
+    "lat": null,
+    "lng": null,
+    "source": "insee",
+    "geo_release": "geoapi-2026"
+  },
+  {
     "id": "fr:dep:59",
     "parent_id": "fr:reg:32",
     "level": "county",
@@ -456,6 +468,18 @@
     "geo_release": "geoapi-2026"
   },
   {
+    "id": "fr:com:07186",
+    "parent_id": "fr:dep:07",
+    "level": "locality",
+    "country": "FR",
+    "name": "Privas",
+    "code": "07186",
+    "lat": 44.7214,
+    "lng": 4.5949,
+    "source": "insee",
+    "geo_release": "geoapi-2026"
+  },
+  {
     "id": "fr:com:13055",
     "parent_id": "fr:dep:13",
     "level": "locality",
@@ -536,6 +560,18 @@
     "code": "48095",
     "lat": 44.5349,
     "lng": 3.4909,
+    "source": "insee",
+    "geo_release": "geoapi-2026"
+  },
+  {
+    "id": "fr:com:52121",
+    "parent_id": "fr:dep:52",
+    "level": "locality",
+    "country": "FR",
+    "name": "Chaumont",
+    "code": "52121",
+    "lat": 48.0965,
+    "lng": 5.1566,
     "source": "insee",
     "geo_release": "geoapi-2026"
   },

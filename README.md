@@ -88,9 +88,40 @@ Les données locales et de staging sont **fictives** et propres à Auditions Cit
 
 | `SEED_PROFILE` | Contenu |
 |---|---|
-| `france` (défaut) | ~65 auditions et ~300 témoignages à la forme du corpus réel actuel (surtout Villeurbanne, Lyon, Bron, La Tour-du-Pin, quelques villes et villages ailleurs), brouillons, auditions en ligne, et des cas limites (emoji, HTML, texte très long, homonymes, outre-mer) |
+| `france` (défaut) | ~65 auditions et ~300 témoignages à la forme du corpus réel actuel (surtout Villeurbanne, Lyon, Bron, La Tour-du-Pin, quelques villes et villages ailleurs), brouillons, auditions en ligne, et des cas limites (emoji, HTML, texte très long, homonymes, outre-mer). Chaque audition en présentiel est à une rue ou une place, sauf trois cas limites sans point sur la carte ; les 5 écrites comme l'ancienne application les écrivait (jamais placées) le sont à l'adresse de leur lieu par la tâche de placement de l'API |
 | `world` | Chaque pays sauf la France : plusieurs villes, 2–3 auditions de 3–4 témoignages, en partie dans la langue locale |
 | `all` | Les deux |
+
+**Staging** tourne sur ces mêmes données fictives (profil `france`). Chaque audition en présentiel y est à une adresse précise (une rue ou une place), sauf trois cas limites volontairement sans point sur la carte : « Saint-Denis » (communes homonymes), « Ribiers » (commune déléguée) et « France » (lieu général). Pour recharger sa base après un changement de `scripts/seed/` (réservé aux mainteneurs qui ont accès au projet de staging ; jamais un agent ni un script), depuis une copie à jour de `dev` : vérifier d'abord que le dossier `supabase/migrations/` du dossier staging est identique à celui de cette copie (le recopier au besoin), puis lancer les commandes ci-dessous. Le dry run ne doit annoncer que le fichier de seed (« Would seed these files ») ; s'il annonce aussi une migration (« Would push these migrations »), s'arrêter et la pousser d'abord selon `scripts/place-backfill/README.md` (staging d'abord).
+
+```sh
+SEED_PROFILE=france npm run db:seed                       # écrit supabase/seed.sql
+H=$(shasum supabase/seed.sql | cut -c1-8)
+cp supabase/seed.sql <dossier staging>/supabase/seed-france-$H.sql
+sed -i '' "s#^sql_paths = .*#sql_paths = [\"./seed-france-$H.sql\"]#" <dossier staging>/supabase/config.toml
+supabase db push --workdir <dossier staging> --include-seed --dry-run   # n'annonce que ce fichier de seed, sinon s'arrêter
+supabase db push --workdir <dossier staging> --include-seed
+```
+
+`<dossier staging>` est le dossier lié au projet de staging, celui des migrations (`scripts/place-backfill/README.md`) ; jamais la copie principale du dépôt, liée à la production. Le fichier porte un nom tiré de son contenu parce que `db push --include-seed` ne rejoue pas un seed déjà appliqué sous le même nom (il n'en met à jour que l'empreinte : « hash update »). Le script refuse une base qui n'a jamais reçu ces données fictives (la production) ; sur staging, qui les a déjà reçues, il remplace TOUT : toutes les auditions, tous les témoignages et dépôts en ligne, y compris ceux créés à la main (les comptes restent). Le site de staging montre les nouvelles données sous un quart d'heure (caches de l'API).
+
+Pour lister, en lecture seule, les auditions qui ne sont pas à une adresse (staging ou production) : éditeur SQL du tableau de bord Supabase,
+
+```sql
+select id, location, audition_en_ligne, status, place_precision, place_stale
+  from public.auditions
+ where place_precision is distinct from 'address'
+ order by audition_en_ligne, place_precision nulls first, location;
+```
+
+ou avec la clé publique (auditions publiées seulement ; en ligne, une fois un témoignage vérifié) :
+
+```sh
+curl -s "$SUPABASE_URL/rest/v1/auditions?select=id,location,audition_en_ligne,status,place_precision,place_stale&or=(place_precision.is.null,place_precision.neq.address)&order=audition_en_ligne.asc,location.asc" \
+  -H "apikey: $SUPABASE_PUBLISHABLE_KEY"
+```
+
+`place_precision` vide = jamais placée (la tâche de placement de l'API s'en charge, sous une dizaine de minutes sur staging) ; `commune` = au centre de la commune ; `unplaced` = sans point sur la carte. Juste après un rechargement, staging en liste 8 (les trois cas limites et les 5 jamais placées), puis 3.
 
 Comptes de test (`npm run db:accounts`) : `superadmin@example.org`, `admin@example.org`, `inscription@example.org` (inscription en attente), `non-confirme@example.org`. Sur staging : `SUPABASE_PROJECT_REF=<ref> SEED_PASSWORD=… npm run db:accounts` (la clé est lue via la CLI Supabase connectée). Le script refuse de s'exécuter sur la production.
 
