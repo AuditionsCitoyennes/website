@@ -88,7 +88,7 @@ Les données locales et de staging sont **fictives** et propres à Auditions Cit
 
 | `SEED_PROFILE` | Contenu |
 |---|---|
-| `france` (défaut) | ~65 auditions et ~300 témoignages à la forme du corpus réel actuel (surtout Villeurbanne, Lyon, Bron, La Tour-du-Pin, quelques villes et villages ailleurs), brouillons, auditions en ligne, et des cas limites (emoji, HTML, texte très long, homonymes, outre-mer). Chaque audition en présentiel est à une rue ou une place, sauf trois cas limites sans point sur la carte ; les 5 écrites comme l'ancienne application les écrivait (jamais placées) le sont à l'adresse de leur lieu par la tâche de placement de l'API |
+| `france` (défaut) | ~65 auditions et ~300 témoignages à la forme du corpus réel actuel (surtout Villeurbanne, Lyon, Bron, La Tour-du-Pin, quelques villes et villages ailleurs), brouillons, auditions en ligne, et des cas limites (emoji, HTML, texte très long, homonymes, outre-mer). Chaque audition en présentiel se tient dans une rue ou sur une place, sauf trois cas limites sans point sur la carte ; les 5 écrites comme le faisait l'ancienne application sont chargées sans position sur la carte, puis placées à l'adresse de leur lieu par la tâche de placement de l'API |
 | `world` | Chaque pays sauf la France : plusieurs villes, 2–3 auditions de 3–4 témoignages, en partie dans la langue locale |
 | `all` | Les deux |
 
