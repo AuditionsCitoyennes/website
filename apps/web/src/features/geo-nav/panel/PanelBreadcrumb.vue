@@ -80,7 +80,12 @@ function goBack() {
 </script>
 
 <template>
-  <nav ref="crumbsEl" class="crumbs" aria-label="Fil d'Ariane">
+  <nav
+    ref="crumbsEl"
+    class="crumbs"
+    :class="{ tight: crumbsCollapsed === trail.length - 1 }"
+    aria-label="Fil d'Ariane"
+  >
     <button
       v-if="back"
       ref="backEl"
@@ -135,7 +140,8 @@ function goBack() {
   margin-top: 0.7rem;
   display: flex;
   /* ONE line: no wrap — when room runs out the leading crumbs collapse into
-     "…" (measured against scrollWidth, so nothing here may flex-shrink). */
+     "…" (measured against scrollWidth, so nothing here may flex-shrink until
+     the last fit step, `.tight` below). */
   flex-wrap: nowrap;
   overflow: hidden;
   align-items: center;
@@ -164,6 +170,14 @@ function goBack() {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Collapsed as far as it goes (the arrow, "…", "›", the current crumb), fitCrumbs
+   has stopped measuring: the current crumb alone shrinks, so its ellipsis stays
+   inside the row instead of being clipped at its right edge. */
+.crumbs.tight .crumb.current {
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .crumb:hover {
