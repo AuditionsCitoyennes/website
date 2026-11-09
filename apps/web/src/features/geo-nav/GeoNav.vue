@@ -995,7 +995,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
    buttons and the logo (bottom left); its plain text in mapbox's own link
    colour on its light ground, not the page's. */
 .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
-  max-width: calc(100% - var(--panel-cover, 0px) - 7rem);
+  max-width: calc(100% - 7rem);
 }
 
 .geo-map :deep(.mapboxgl-ctrl-attrib) {

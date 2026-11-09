@@ -110,7 +110,8 @@ let attrib: mapboxgl.AttributionControl | null = null;
 // Compact (mapbox's « i », opened on demand) at every width: with the
 // boundaries' credits the line is far longer than the room the zoom buttons
 // and the logo leave it. Closed until the visitor opens it (mapbox's own
-// click), and it closes only on that click again.
+// click), and it closes on that click again or when the last watcher
+// replaces it.
 const newAttribution = () =>
   new mapboxgl.AttributionControl({
     compact: true,
