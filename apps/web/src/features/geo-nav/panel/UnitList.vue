@@ -4,6 +4,7 @@
 // out reverses it.
 import { abbrevCount, type GeoUnit } from "@/features/geo";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
+import { rowHoverGate } from "./rowHover";
 
 defineProps<{
   units: GeoUnit[];
@@ -19,10 +20,22 @@ defineProps<{
 
 const emit = defineEmits<{
   activate: [unit: GeoUnit];
-  /** The row under the pointer (or keyboard focus), null when none — handed to
-   *  the map so it runs its own hover highlight for that unit. */
+  /** The row under a mouse pointer (or keyboard focus), null when none — handed
+   *  to the map so it runs its own hover highlight for that unit; a touch does
+   *  not hover a row (rowHover.ts). */
   hover: [id: string | null];
 }>();
+
+// A tap's compatibility mouseenter must not hover the row: on iOS it would
+// reveal the unit's pill and withhold the tap's click. A mouse still previews;
+// mouseleave and blur always clear.
+const hoverGate = rowHoverGate();
+function onPointerEnter(e: PointerEvent) {
+  hoverGate.pointerEnter(e.pointerType);
+}
+function onMouseEnter(id: string) {
+  if (hoverGate.mouseEnterHovers()) emit("hover", id);
+}
 </script>
 
 <template>
@@ -41,7 +54,8 @@ const emit = defineEmits<{
           type="button"
           class="unit-row"
           @click="emit('activate', u)"
-          @mouseenter="emit('hover', u.id)"
+          @pointerenter="onPointerEnter"
+          @mouseenter="onMouseEnter(u.id)"
           @mouseleave="emit('hover', null)"
           @focus="emit('hover', u.id)"
           @blur="emit('hover', null)"
