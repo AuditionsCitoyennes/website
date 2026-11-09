@@ -16,10 +16,6 @@ import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
 import { createNavState } from "./navState";
-import { useBoundaryQueries } from "./data/useBoundaryQueries";
-import { useCommuneGeo } from "./data/useCommuneGeo";
-import { useDepFine } from "./data/useDepFine";
-import { contoursMode } from "./data/contoursSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
@@ -69,8 +65,8 @@ const props = defineProps<{
    * change under a mounted page.
    */
   unitTree?: UnitTree | null;
-  /** The comparer is on (testing tools): its report reads the API's
-   *  boundaries beside the tree, so the outline files are not read. */
+  /** The comparer is on (testing tools): the outline files are not read, as
+   *  under the corpus (every unit known absent). */
   comparing?: boolean;
 }>();
 
@@ -81,41 +77,27 @@ const unitTree = props.unitTree ?? null;
  *  owns the toggle; the plates' own close button turns it off from here. */
 const analyses = defineModel<boolean>("analyses", { default: false });
 
-// ---- Data: the boundaries, the communes' contours, the raised départements' own ----
-// Or the static outline files (ac:contours=fichiers, data/useOutlineFiles):
-// under the server's tree only, whose unit ids are the files' (the corpus'
-// are paths); then the API's boundaries are asked for only if the session
-// falls back: at boot (root.json, k/FR, the 6 s cap), or on a release skew
-// of any later file (model/outlineRules).
-const outlines =
-  contoursMode === "fichiers" && unitTree && !props.comparing ? useOutlineFiles() : null;
-if (contoursMode === "fichiers" && !outlines && import.meta.env.DEV)
-  console.warn("[outlines] ac:contours=fichiers is read under the server source only: api here");
+// ---- Data: the static outline files (data/useOutlineFiles) ----
+// Under the server's tree only, whose unit ids are the files' (the corpus'
+// are paths; the comparer reads none either): null there, every unit known
+// absent. A session that falls back — at boot (root.json, k/FR, the 6 s cap),
+// or on a release skew of any later file — is known absent from then on
+// (model/outlineRules).
+const outlines = unitTree && !props.comparing ? useOutlineFiles() : null;
 if (outlines) void outlines.ensureRoot();
 // The boundaries' credits (data/attribution), after the data actually drawn:
 // the files' only once their session is "ok". « Pays » once a country's file
 // is in (a g/, or a u/ other than France's units': the tree holds a country).
 const attribution = computed(() =>
   boundaryAttribution({
-    mode: contoursMode,
     session: outlines ? outlines.ready.value : null,
     countries: !!outlines?.loadedKeys().some((k) => /^(g\/|u\/(?!fr_))/.test(k)),
   }),
 );
-const boundaries = useBoundaryQueries(
-  outlines ? () => outlines.mode.value === "fallback" : undefined,
-);
-const { regionsQuery, metroQuery } = boundaries;
-const communes = useCommuneGeo();
-const deps = useDepFine();
-const { ensureDepFine } = deps;
 
 // ---- One hierarchy, both nav models read from it (model/useGeoHierarchy) ----
 const geo = useGeoHierarchy({
   groups: toRef(props, "groups"),
-  boundaries,
-  communes,
-  deps,
   unitTree,
   outlines,
 });
@@ -154,7 +136,6 @@ const scope = useScope({
   nav,
   root,
   index,
-  communeGeo: communes.communeGeo,
   containsPoint,
   isDesktop,
   // The layout a view must have been measured in: the ring's view padding or
@@ -167,25 +148,17 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 // A cold load shows an unstyled map, tiles popping in, and an empty panel before
 // anything is presentable. Cover all of it, and lift once the pieces the FIRST
 // view needs are in: the basemap painted (GeoDrillMap's `ready`), the
-// testimonies, and the two boundary sets that view is drawn from — régions and
-// the country contour. Départements and commune contours are fetched on demand
-// when drilling, so waiting on them here would just hold the screen longer.
-// With the outline files: their boot (root.json, k/FR), and, if the session
-// fell back there, the API's two sets.
+// testimonies, and the outline files that view is drawn from — their boot
+// (root.json, k/FR: the country and its régions). Départements and communes
+// come on demand when drilling, so waiting on them here would just hold the
+// screen longer. A session that falls back there waits for nothing more.
 const mapPresentable = ref(false);
 const booting = ref(true);
 // The curtain's fade has ended: the map is in sight (the credit's 5 s count
 // from here).
 const curtainGone = ref(false);
 watch(
-  () =>
-    !mapPresentable.value ||
-    props.loading ||
-    (outlines
-      ? outlines.ready.value === "loading" ||
-        (outlines.ready.value === "fallback" &&
-          (metroQuery.isPending.value || regionsQuery.isPending.value))
-      : metroQuery.isLoading.value || regionsQuery.isLoading.value),
+  () => !mapPresentable.value || props.loading || outlines?.ready.value === "loading",
   (busy) => {
     if (!busy) booting.value = false;
   },
@@ -287,7 +260,6 @@ const cam = useCamera({
   raisedGeometryFor,
   containsPoint,
   allPlaceUnits,
-  ensureDepFine,
   outlines,
   mapCmp,
   listMode,
@@ -332,9 +304,6 @@ const {
 const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
   nav,
   geo,
-  boundaries,
-  communes,
-  deps,
   panelUnits,
   selectedPlace,
   outlines,

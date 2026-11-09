@@ -4,7 +4,7 @@
 //
 // 0. Under the server's tree only (GeoNav decides): its unit ids ARE the
 //    files' (FR, fr:reg:<code>, fr:dep:<code>, fr:com:<insee>); the corpus'
-//    are paths, which no file names.
+//    are paths, which no file names: there no file is read (NO_FILES).
 // 1. A unit is drawn with, for a country, its self (k/FR); below it, its entry
 //    in its PARENT's bundle — none until k/<parent> is in, even when an object
 //    for it came with another file. Raised: its self once stored, else that.
@@ -222,9 +222,9 @@ export interface OutlineAnswers<U> {
   geometryKnownAbsent(u: U): boolean;
 }
 
-/** The answers with no file to read (the session fell back, rule 5): no
- *  geometry, nothing held, every unit known absent — a box fit, pins, no
- *  plateau. */
+/** The answers with no file to read (no files at all: the corpus, the
+ *  comparer; or the session fell back, rule 5): no geometry, nothing held,
+ *  every unit known absent — a box fit, pins, no plateau. */
 export const NO_FILES: OutlineAnswers<RuleUnit> = {
   geometryFor: () => undefined,
   raisedGeometryFor: () => undefined,

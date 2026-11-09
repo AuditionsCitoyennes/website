@@ -5,9 +5,7 @@
 // map/plateau/lidSwitch — the page loads again) and, unless "Aucun",
 // "Contrôle" (how a lid shot is judged, the same module — the page loads
 // again), "Maillage" (how the plateau's mesh is assembled,
-// map/plateau/meshSwitch — the page loads again), "Contours" (the outlines'
-// source, geo-nav/data/contoursSwitch — the page loads again; the files are
-// read under the "serveur" source only), "Relief"
+// map/plateau/meshSwitch — the page loads again), "Relief"
 // (where the plateau's DEM tiles are rendered, map/relief/reliefSwitch — the
 // page loads again) and, under "Client" only, "Préchargement" (how a new
 // slot's tiles start, the same module — the page loads again); in comparer
@@ -34,7 +32,6 @@ import {
   type ReliefMode,
   type ReliefPrefetch,
 } from "@/features/map";
-import { contoursMode, setContoursMode, type ContoursMode } from "@/features/geo-nav";
 import {
   dataSource,
   placeTreeMode,
@@ -72,13 +69,6 @@ const MESHES: readonly { id: MeshMode; label: string }[] = [
   { id: "concat", label: "Concat" },
   { id: "merc", label: "Merc" },
   { id: "worker", label: "Worker" },
-];
-const CONTOURS: readonly { id: ContoursMode; label: string }[] = [
-  { id: "api", label: "API" },
-  {
-    id: "fichiers",
-    label: dataSource === "serveur" ? "Fichiers" : "Fichiers (source serveur seulement)",
-  },
 ];
 const RELIEFS: readonly { id: ReliefMode; label: string }[] = [
   { id: "serveur", label: "Serveur" },
@@ -185,19 +175,6 @@ function showReport() {
           class="seg-btn"
           :aria-pressed="meshMode === m.id"
           @click="setMeshMode(m.id)"
-        >
-          {{ m.label }}
-        </button>
-      </div>
-      <div class="seg" role="group" aria-label="Contours">
-        <span class="seg-label">Contours</span>
-        <button
-          v-for="m in CONTOURS"
-          :key="m.id"
-          type="button"
-          class="seg-btn"
-          :aria-pressed="contoursMode === m.id"
-          @click="setContoursMode(m.id)"
         >
           {{ m.label }}
         </button>

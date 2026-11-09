@@ -348,12 +348,9 @@ manifest that is not the lock's build, a file count off. There is no skip: a
 deploy without the files would draw no outline at all. Nothing builds outlines
 in CI.
 
-The web reads the files by default (`DEFAULT_CONTOURS_MODE` = `fichiers`,
-`apps/web/src/features/geo-nav/data/contoursSwitch.ts`) under the server
-source, with or without the testing tools (the corpus source and the comparer
-stay on the API's); `ac:contours=api` still picks the API's outlines in the
-builds that have the testing tools (the dev server, staging, previews). A
-session whose files are not served
+The web reads the files under the server source, the only outlines it has
+(`/api/boundaries` is no longer called; the corpus source and the comparer, the
+testing tools' data sources, draw none). A session whose files are not served
 (`root.json` missing, HTML or another build, the boot past its 6 s cap, or a
 release skew on a later file) falls back for that page load: every unit known
 absent — the box fits, the pins, the panel and its lists unchanged, no plateau

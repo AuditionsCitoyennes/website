@@ -1,5 +1,5 @@
 // Which outline-file object a country is drawn and raised with, and which of
-// its files are asked for (ac:contours=fichiers; the country files of the
+// its files are asked for (the outline files; the country files of the
 // build, docs/map-outlines.md). Pure: over the store's rows and objects, no
 // Vue, nothing at import but declarations.
 //

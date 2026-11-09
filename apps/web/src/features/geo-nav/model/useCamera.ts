@@ -7,7 +7,6 @@ import { markRaw, onBeforeUnmount, ref, shallowRef, type ComputedRef, type Ref }
 import {
   ancestorsOf,
   type Bounds,
-  depCodeOf,
   type GeoUnit,
   lngNear,
   selfFileOf,
@@ -32,9 +31,8 @@ export interface CameraInputs {
   raisedGeometryFor: (u: GeoUnit) => unknown;
   containsPoint: (u: GeoUnit, lat: number, lng: number) => boolean;
   allPlaceUnits: ComputedRef<GeoUnit[]>;
-  ensureDepFine: (code: string | undefined) => Promise<void>;
-  /** The outline files (GeoNav: the server's tree with ac:contours=fichiers). */
-  outlines?: OutlineFiles | null;
+  /** The outline files (GeoNav: under the server's tree); null: none read. */
+  outlines: OutlineFiles | null;
   mapCmp: Ref<MapHandle | null>;
   listMode: ComputedRef<boolean>;
   /**
@@ -51,10 +49,8 @@ export interface CameraInputs {
 }
 
 export function useCamera(inputs: CameraInputs) {
-  const { nav, index, raisedGeometryFor, containsPoint, allPlaceUnits, ensureDepFine, mapCmp } =
-    inputs;
-  const { listMode, resultsFrame, resultsBounds } = inputs;
-  const outlines = inputs.outlines ?? null;
+  const { nav, index, raisedGeometryFor, containsPoint, allPlaceUnits, mapCmp } = inputs;
+  const { listMode, resultsFrame, resultsBounds, outlines } = inputs;
   const { currentScope, inMicroZone, openAuditions } = nav;
 
   const camera = ref<CameraCmd | null>(null);
@@ -133,19 +129,19 @@ export function useCamera(inputs: CameraInputs) {
       }
       bounds = frame.bounds;
     } else {
-      // A département rises with its own outline (depFine): ask for it now, the
-      // frame takes it if it is already in. With the outline files, the unit's
-      // bundle (its self and its children's lines; nothing while its row is
-      // not known), the same request as the scope's chain will make — a
-      // country with no bundle, its u/ (geo's outlineRoles).
+      // The unit's bundle (its self and its children's lines; nothing while
+      // its row is not known): asked now, the frame takes its self if it is
+      // already in; the same request as the scope's chain will make — a
+      // country with no bundle, its u/ (geo's outlineRoles). Nothing without
+      // the files, or once the session fell back.
       if (outlines?.mode.value === "fichiers") {
         if (unit.levelKey === "country" && selfFileOf(outlines.rowOf(unit.id)) === "u")
           void outlines.ensureSelf(unit.id);
         else void outlines.ensureBundle(unit.id);
-      } else void ensureDepFine(depCodeOf(unit));
+      }
       const geometry = byBox ? undefined : raisedGeometryFor(unit);
       // markRaw: the command lives in a deep ref, and the geometry must never be
-      // proxied (see communeGeo's note).
+      // proxied (see useOutlineFiles' note).
       if (geometry) {
         shape = markRaw({
           id: unit.id,

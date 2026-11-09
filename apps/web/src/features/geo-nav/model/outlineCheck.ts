@@ -5,8 +5,8 @@
 // polygons' boxes (PlateauWallLayer's buildArrays, features/map: the rule is
 // copied here, not imported). A lifted line running along the scope's
 // boundary is drawn on the lid's edge only where it goes through the lid's
-// own vertices: a vertex a metre beside the edge puts the line off it. Under
-// ac:contours=fichiers the focus lines are the entries of the scope's own
+// own vertices: a vertex a metre beside the edge puts the line off it. With
+// the outline files the focus lines are the entries of the scope's own
 // bundle, cut by the same run as its self (outlineRules, rule 3), so every
 // such vertex is one of the self's.
 //

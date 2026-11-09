@@ -2,18 +2,15 @@
 // hysteresis, held still while a lieu is read, pinned while a flight is in the
 // air; the lieu zone's hysteresis at the bottom of the zoom range; the open
 // lieu, the breadcrumb and the list of units the panel shows.
-import { computed, watch, type ComputedRef, type Ref, type ShallowRef } from "vue";
+import { computed, watch, type ComputedRef, type Ref } from "vue";
 import { ancestorsOf, scopeForView, type GeoUnit } from "@/features/geo";
 import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { Insets, MapView, NavState } from "../navState";
-import type { CommuneGeo } from "../data/useCommuneGeo";
 
 export interface ScopeInputs {
   nav: NavState;
   root: ComputedRef<GeoUnit>;
   index: ComputedRef<Map<string, GeoUnit>>;
-  /** The commune contours: a derivation runs again when one arrives. */
-  communeGeo: ShallowRef<Record<string, CommuneGeo>>;
   containsPoint: (u: GeoUnit, lat: number, lng: number) => boolean;
   isDesktop: Ref<boolean>;
   /** The layout a view must have been measured in to count: the view's
@@ -23,7 +20,7 @@ export interface ScopeInputs {
 }
 
 export function useScope(inputs: ScopeInputs) {
-  const { nav, root, index, communeGeo, containsPoint, isDesktop, mapInsets } = inputs;
+  const { nav, root, index, containsPoint, isDesktop, mapInsets } = inputs;
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, inMicroZone, mapView } = nav;
 
   /** A lieu is open and the reader is on the panel: the map is not being used. */
@@ -64,9 +61,10 @@ export function useScope(inputs: ScopeInputs) {
     currentScope.value = scopeForView(root.value, mapView.value.bounds, prefer, containsPoint);
     if (end) end();
   }
-  // Re-derive when the map settles, the hierarchy reloads, OR a commune polygon
-  // arrives (so the containment tie-break applies once the geometry is in).
-  watch([mapView, root, communeGeo], deriveScope);
+  // Re-derive when the map settles or the hierarchy reloads, which it does on
+  // every outline file write (`hierarchy` reads `outlines.version`): the
+  // containment tie-break applies once the geometry is in.
+  watch([mapView, root], deriveScope);
 
   // A NEW hierarchy (data reload, or the user changing a filter) leaves
   // `currentScope` / `selectedPlaceId` pointing at nodes from the PREVIOUS tree —

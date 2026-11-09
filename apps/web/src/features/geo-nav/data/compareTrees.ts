@@ -4,21 +4,18 @@
 // ids), so units are matched by what they are: a country by its code, a
 // région by its name, a département by its code, a ville or an arrondissement
 // by its INSEE code, a lieu by its canonical name. Every difference of a
-// matched pair is listed — count, label, level, centre, box, codes, the
-// outline it is given, and the order of its children. A unit of the server's
+// matched pair is listed — count, label, level, centre, box, codes, and the
+// order of its children. A unit of the server's
 // tree whose children are not known yet (the lazy path) is compared without
 // them.
 
 import {
   buildGeoHierarchy,
   buildTreeFromUnits,
-  featureFor,
-  outlineSourceOf,
   type GeoUnit,
   type UnitTreeData,
 } from "@/features/geo";
 import type { LocationGroup } from "@ac/shared";
-import type { BoundaryFC } from "./useBoundaryQueries";
 
 export interface TreeDiff {
   /** The unit, as the corpus names it (its path id), or the server's id. */
@@ -57,30 +54,10 @@ function matchKey(u: GeoUnit): string {
   }
 }
 
-/** The outline a unit is given: its france-geojson feature's code, its
- *  commune's INSEE code, the métropole, or none. */
-function outlineOf(u: GeoUnit, fcs: { regions?: BoundaryFC; departements?: BoundaryFC }): string {
-  const src = outlineSourceOf(u);
-  if (!src) return "none";
-  if (src.kind === "metropole") return "metropole";
-  if (src.kind === "commune") return `commune:${src.insee}`;
-  const fc = src.kind === "regions" ? fcs.regions : fcs.departements;
-  if (!fc) return `${src.kind}:?`;
-  return `${src.kind}:${featureFor(fc.features, src)?.properties.code ?? "none"}`;
-}
-
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/**
- * The corpus' tree of `groups` against the server's tree of `data`. `fcs`:
- * the boundaries loaded, to tell which outline each unit is given (by name
- * for the corpus' régions, by code for the server's).
- */
-export function compareTrees(
-  groups: LocationGroup[],
-  data: UnitTreeData,
-  fcs: { regions?: BoundaryFC; departements?: BoundaryFC } = {},
-): TreeComparison {
+/** The corpus' tree of `groups` against the server's tree of `data`. */
+export function compareTrees(groups: LocationGroup[], data: UnitTreeData): TreeComparison {
   const built = buildGeoHierarchy(groups);
   const corpus = built.root;
   // Its rows only: a lieu opened from a list before its row came (a stub) is
@@ -108,7 +85,6 @@ export function compareTrees(
     // A région has no code in the corpus (the map's groups carry its name).
     if (c.levelKey !== "region")
       diff("geoRef.code", c.geoRef?.code ?? null, s.geoRef?.code ?? null);
-    diff("outline", outlineOf(c, fcs), outlineOf(s, fcs));
     if (s.childrenPending) {
       out.pending++;
       return;

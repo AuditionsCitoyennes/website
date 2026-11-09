@@ -62,7 +62,7 @@ export interface GeoUnit {
   childrenPending?: boolean;
 }
 
-/** A unit's real geometry-derived centre + extent (from the boundaries endpoint). */
+/** A unit's real geometry-derived centre + extent (from the outline files' rows). */
 export interface UnitGeo {
   center: [number, number];
   bounds: Bounds;

@@ -13,10 +13,6 @@ test("every kind the map already had keeps its answer", () => {
     [`${API}/api/dem`, "dem.post"],
     [`${API}/api/dem/`, "dem.post"],
     [`${API}/api/dem?x=1`, "dem.post"],
-    [`${API}/api/boundaries/departement/69`, "boundaries.departement"],
-    [`${API}/api/boundaries/communes?codes=69123,69387`, "boundaries.communes"],
-    [`${API}/api/boundaries/regions`, "boundaries.levels"],
-    [`${API}/api/boundaries/metropole`, "boundaries.levels"],
     [`${API}/api/map/units`, "api.map"],
     [`${API}/api/places?level=departement`, "api.other"],
     ["https://api.mapbox.com/styles/v1/mapbox/standard", "mapbox"],
@@ -25,6 +21,10 @@ test("every kind the map already had keeps its answer", () => {
     ["http://127.0.0.1:5394/src/main.ts", null],
   ];
   for (const [url, kind] of cases) assert.equal(netKind(url), kind, url);
+});
+
+test("a removed endpoint has no kind of its own", () => {
+  assert.equal(netKind(`${API}/api/boundaries/regions`), "api.other");
 });
 
 test("outline files are `outlines`, wherever they are served from", () => {

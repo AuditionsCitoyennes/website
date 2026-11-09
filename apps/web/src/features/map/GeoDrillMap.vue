@@ -595,8 +595,8 @@ watch(
   },
 );
 
-// The credits changed (the outline files' session fell back to the API's
-// boundaries, say): a new control with the new text — mapbox has no setter.
+// The credits changed (the outline files' session came in, or fell back,
+// say): a new control with the new text — mapbox has no setter.
 // On the joined text, so a fresh array with the same strings does nothing.
 // An expanded « i » closes again (unless the fold is still due,
 // controls/creditFold): a few times a session (the files' boot under the
