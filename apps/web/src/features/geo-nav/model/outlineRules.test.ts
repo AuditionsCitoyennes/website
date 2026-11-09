@@ -190,24 +190,35 @@ test("a country: drawn on its g/, raised on its u/, held for it; c3000 and absen
   assert.equal(raisedGeometryFor(v, FR), t.selves.get("FR"));
 });
 
-test("the session's fallback: every answer is the API's", () => {
-  const api = {
-    geometryFor: () => "api-geometry",
-    raisedGeometryFor: () => "api-raised",
-    raisedOutlineDue: () => true,
-    geometryKnownAbsent: () => false,
-  };
-  const r = rules.outlineRules(view("fallback").v, api, (u: RuleUnit) => [u]);
-  assert.deepEqual(
-    [
-      r.geometryFor(ARA),
-      r.raisedGeometryFor(ARA),
-      r.raisedOutlineDue(ARA),
-      r.geometryKnownAbsent(ARA),
-    ],
-    ["api-geometry", "api-raised", true, false],
+test("the session's fallback: every unit known absent, nothing held", () => {
+  // Rows and France's bundle in, then the fallback (a later release skew).
+  const t = booted();
+  t.row(LYON.id);
+  const v: OutlineView = { ...t.v, mode: "fallback" };
+  const LIEU = unit("l:1", LYON_7.id, "place");
+  const chains = [
+    [WORLD, FR, ARA],
+    [WORLD, FR, ARA, RHONE],
+    [WORLD, FR, ARA, RHONE, LYON],
+    [WORLD],
+    [WORLD, FR, ARA, RHONE, LYON, LYON_7, LIEU],
+  ];
+  const parents = new Map(chains.map((c) => [c.at(-1)!.id, c]));
+  const r = rules.outlineRules(v, (u: RuleUnit) => parents.get(u.id)!);
+  for (const chain of chains) {
+    const u = chain.at(-1)!;
+    assert.equal(r.geometryFor(u), undefined, u.id);
+    assert.equal(r.raisedGeometryFor(u), undefined, u.id);
+    assert.equal(r.geometryKnownAbsent(u), true, u.id);
+    assert.equal(r.raisedOutlineDue(u), false, u.id);
+    assert.equal(rules.scopePendingFiles(v, chain, false), false, u.id);
+    assert.equal(rules.outlineReadyFiles(v, chain, false), true, u.id);
+  }
+  // The same view read as "fichiers" still holds ARA for its self.
+  assert.equal(
+    rules.outlineRules(t.v, (u: RuleUnit) => parents.get(u.id)!).raisedOutlineDue(ARA),
+    true,
   );
-  assert.equal(rules.outlineRules(view().v, api, (u: RuleUnit) => [u]).geometryFor(ARA), undefined);
 });
 
 test("bundlesFor: root first, ancestors from the département down, k:0 left out", () => {

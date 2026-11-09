@@ -1,6 +1,6 @@
 // The explorer's outlines read from the static outline files
-// (ac:contours=fichiers, data/useOutlineFiles.ts). Pure: no Vue, no DOM — over
-// the OutlineView useGeoHierarchy hands in.
+// (data/useOutlineFiles.ts). Pure: no Vue, no DOM — over the OutlineView
+// useGeoHierarchy hands in.
 //
 // 0. Under the server's tree only (GeoNav decides): its unit ids ARE the
 //    files' (FR, fr:reg:<code>, fr:dep:<code>, fr:com:<insee>); the corpus'
@@ -23,8 +23,9 @@
 //    batch after the scope's bundle, nearest first, capped (REFINE_CAPS).
 // 5. The session falls back at boot (root.json, k/FR, the 6 s cap), or on a
 //    release skew of any later file (useOutlineFiles): from then on every
-//    answer is the API's (outlineRules). A later file failing is its unit's
-//    alone (known absent; on the network, asked again by a later ensure).
+//    unit is known absent, nothing is held (outlineRules: NO_FILES). A later
+//    file failing is its unit's alone (known absent; on the network, asked
+//    again by a later ensure).
 // 6. The chain: a scope's bundles, root first (bundlesFor), loaded in turn.
 // 7. A panel row held under the pointer asks for its unit's bundle before the
 //    click (data/hoverPrefetch, GeoNav): a région's self is in it; a
@@ -40,7 +41,7 @@ export type BundleState = "none" | "loading" | "loaded" | "failed";
 
 /** The outline files as the rules read them. */
 export interface OutlineView {
-  /** "fichiers": the files are read; anything else: the API's answers. */
+  /** "fichiers": the files are read; anything else: none (the fallback). */
   readonly mode: string;
   /** Its row (root.json's, or its entry's once its parent's bundle is in). */
   rowOf(id: string): RoleRow | undefined;
@@ -127,14 +128,16 @@ export function geometryKnownAbsent(v: OutlineView, chain: readonly RuleUnit[]):
 
 export function scopePendingFiles(v: OutlineView, chain: readonly RuleUnit[], micro: boolean) {
   const s = chain[chain.length - 1];
-  if (micro || !s || s.levelKey === "world") return false;
+  if (micro || !s || s.levelKey === "world" || v.mode !== "fichiers") return false;
   return raisedOutlineDue(v, s) || (!raisedGeometryFor(v, s) && !geometryKnownAbsent(v, chain));
 }
 
 /** Every geometry the outline will get is in: not pending, the chain settled
- *  (a refinement batch is not waited for). */
+ *  (a refinement batch is not waited for); at once in the fallback. */
 export const outlineReadyFiles = (v: OutlineView, chain: readonly RuleUnit[], micro: boolean) =>
-  micro || (!scopePendingFiles(v, chain, micro) && bundlesSettled(v, chain));
+  micro ||
+  v.mode !== "fichiers" ||
+  (!scopePendingFiles(v, chain, micro) && bundlesSettled(v, chain));
 
 const meets = (a: Bounds, b: Bounds) =>
   a.minLat <= b.maxLat && a.maxLat >= b.minLat && a.minLng <= b.maxLng && a.maxLng >= b.minLng;
@@ -219,19 +222,28 @@ export interface OutlineAnswers<U> {
   geometryKnownAbsent(u: U): boolean;
 }
 
+/** The answers with no file to read (the session fell back, rule 5): no
+ *  geometry, nothing held, every unit known absent — a box fit, pins, no
+ *  plateau. */
+export const NO_FILES: OutlineAnswers<RuleUnit> = {
+  geometryFor: () => undefined,
+  raisedGeometryFor: () => undefined,
+  raisedOutlineDue: () => false,
+  geometryKnownAbsent: () => true,
+};
+
 /** The same questions, answered by the files while they are read (mode
- *  "fichiers"), by the API's stores (`api`) otherwise (rule 5). */
+ *  "fichiers"), by NO_FILES otherwise (rule 5). */
 export function outlineRules<U extends RuleUnit>(
   v: OutlineView,
-  api: OutlineAnswers<U>,
   chainOf: (u: U) => readonly RuleUnit[],
 ): OutlineAnswers<U> {
   const on = () => v.mode === "fichiers";
   return {
-    geometryFor: (u) => (on() ? geometryFor(v, u) : api.geometryFor(u)),
-    raisedGeometryFor: (u) => (on() ? raisedGeometryFor(v, u) : api.raisedGeometryFor(u)),
-    raisedOutlineDue: (u) => (on() ? raisedOutlineDue(v, u) : api.raisedOutlineDue(u)),
+    geometryFor: (u) => (on() ? geometryFor(v, u) : NO_FILES.geometryFor(u)),
+    raisedGeometryFor: (u) => (on() ? raisedGeometryFor(v, u) : NO_FILES.raisedGeometryFor(u)),
+    raisedOutlineDue: (u) => (on() ? raisedOutlineDue(v, u) : NO_FILES.raisedOutlineDue(u)),
     geometryKnownAbsent: (u) =>
-      on() ? geometryKnownAbsent(v, chainOf(u)) : api.geometryKnownAbsent(u),
+      on() ? geometryKnownAbsent(v, chainOf(u)) : NO_FILES.geometryKnownAbsent(u),
   };
 }

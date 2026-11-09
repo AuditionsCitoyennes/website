@@ -5,14 +5,15 @@
 // "noopener nofollow"). Each array is one entry per « | » of the credit line.
 //
 // The credit follows what is actually drawn, not the switch alone:
-// - `api` (the testing tools' other mode), no files read (`session` null: the
-//   corpus source, the comparer), and under `fichiers` until the files are in
-//   (`loading`: the boot curtain hides the map anyway) or once the session
-//   went back to the API's (`fallback`): the vendored france-geojson levels
-//   (the line its README asks for, verbatim) and the Géo API's communes.
+// - `api` (the testing tools' other mode) and no files read (`session` null:
+//   the corpus source, the comparer): the vendored france-geojson levels (the
+//   line its README asks for, verbatim) and the Géo API's communes.
 // - `fichiers` with the files in (`ok`): Etalab's contours-administratifs.
 // - « Pays » only once country files are drawn (outline-world turns
 //   `countries` on).
+// - `fichiers` until the files are in (`loading`: the boot curtain hides the
+//   map anyway) or once the session fell back (`fallback`: every unit known
+//   absent): no boundary is drawn, none is credited — one empty list.
 //
 // Sources read 2026-11-02: data.gouv.fr datasets « Contours administratifs »
 // (licence ODbL; IGN Admin Express, OpenStreetMap for the collectivités
@@ -58,6 +59,7 @@ const FILES_FRANCE =
 
 const COUNTRIES = `Pays : <a href="https://overturemaps.org">Overture Maps Foundation</a>, <a href="${OSM}">© les contributeurs OpenStreetMap</a> — <a href="${ODBL}">ODbL</a>`;
 
+const NONE: readonly string[] = Object.freeze([]);
 const FILES_STRINGS: readonly string[] = Object.freeze([FILES_FRANCE, PF_NC]);
 const FILES_WORLD_STRINGS: readonly string[] = Object.freeze([FILES_FRANCE, PF_NC, COUNTRIES]);
 
@@ -71,6 +73,7 @@ export function boundaryAttribution({
   session: OutlineSession;
   countries: boolean;
 }): readonly string[] {
-  if (mode !== "fichiers" || session !== "ok") return API_STRINGS;
+  if (mode !== "fichiers" || session === null || session === "idle") return API_STRINGS;
+  if (session !== "ok") return NONE;
   return countries ? FILES_WORLD_STRINGS : FILES_STRINGS;
 }

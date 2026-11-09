@@ -17,11 +17,16 @@
 //
 // Under ac:contours=api (the testing tools' other mode) the instance is inert:
 // no loader, every ensure* answers "api", nothing is fetched.
+//
+// A session that falls back has no outlines at all (every unit known absent:
+// model/outlineRules.ts), so it says why once, in every build: a bug report's
+// only trace of it.
 import { markRaw, shallowRef, type ShallowRef } from "vue";
 import {
   OUTLINE_WAIT_MS,
   OutlineLoader,
   OutlineStore,
+  rootUrl,
   type OutlineGeometry,
   type OutlineKind,
   type OutlineRow,
@@ -144,8 +149,13 @@ function createOutlineFiles(): OutlineFiles {
         mode.value = m;
         ready.value = r;
         if (m !== "fallback") return;
-        if (import.meta.env.DEV)
-          console.warn(`[outlines] back to the API's outlines for this session`, why);
+        // Once per session (the loader falls back once), in every build.
+        const key = why?.key ?? "root";
+        const url = key === "root" ? rootUrl(base, build) : `${base}outlines/${build}/${key}.json`;
+        console.warn(
+          `[outlines] fallback: ${why?.reason ?? "network"} ${url}` +
+            (__TEST_TOOLS__ ? " (see docs/map-outlines.md#local-development)" : ""),
+        );
         if (perfOn) perfNote("outline.fallback", 0, { reason: why?.reason, key: why?.key });
       },
       span: perfOn ? perfSpan : undefined,
