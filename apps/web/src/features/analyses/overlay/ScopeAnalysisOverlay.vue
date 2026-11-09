@@ -45,7 +45,6 @@ import { frameFill, ringBandMode, slabLidMode, slabTextMode, slabTextScale } fro
 import type { FrameSource } from "./frameSource";
 import { useRingPick } from "./useRingPick";
 import { stretchOf, useSlabLayout, type SlabName } from "./useSlabLayout";
-import DevSlabSwitch from "./DevSlabSwitch.vue";
 
 const props = defineProps<{
   analysis: ScopeAnalysis;
@@ -56,10 +55,10 @@ const props = defineProps<{
   visible: boolean;
   /** The safe rect inside the map container, px: clear of the panel, and on a
    *  phone of the header's tiles and the lowered sheet (the reading notes
-   *  stay inside it, and the DEV switch). */
+   *  stay inside it). */
   insets: { top: number; right: number; bottom: number; left: number };
   frames: FrameSource | null;
-  /** A phone: the reading notes' words for a finger, the DEV switch's place. */
+  /** A phone: the reading notes' words for a finger. */
   compact: boolean;
   /** Filters are on: every figure counts only what they let through. */
   filtered: boolean;
@@ -74,8 +73,6 @@ const emit = defineEmits<{
 
 const uid = useId();
 const isDev = import.meta.env.DEV;
-// The DEV switch (DevSlabSwitch): the dev server and staging (the testing tools).
-const testTools = __TEST_TOOLS__;
 
 // ---- Content -------------------------------------------------------------------
 
@@ -556,11 +553,6 @@ onBeforeUnmount(() => {
         </li>
       </ul>
     </div>
-
-    <!-- Testing tools only (dev server, staging): the slabs' lid, words and
-         size, the territory's framing, the ring's band (DevSlabSwitch,
-         analyses/devSwitch). Apart from them; on a phone folded. -->
-    <DevSlabSwitch v-if="testTools" v-show="visible" :compact="compact" :insets="insets" />
   </div>
 </template>
 
