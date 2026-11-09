@@ -29,7 +29,6 @@ import { installPmtilesProbe } from "./dev/pmtiles";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
-import { creditFold, type CreditBox, type CreditFold } from "./controls/creditFold";
 
 const props = defineProps<{
   units: MapUnit[];
@@ -62,12 +61,9 @@ const props = defineProps<{
   /** Credits for the app's own data (the boundaries' sources), shown before
    *  Mapbox's in the map's attribution. Mapbox HTML: http(s) anchors only. */
   attribution?: readonly string[];
-  /** The credit may be shown opened now — the page (not the card), wider
-   *  than mapbox's 640 px compact line, the corner in sight, the boot curtain
-   *  gone. The first time it is true the compact « i » opens, and folds on the
-   *  user's first move, 5 s later, or when this turns false
-   *  (controls/creditFold); never again. */
-  openCredit?: boolean;
+  /** The map corner the credits' « i » sits in (default bottom right, where
+   *  mapbox's own goes). */
+  creditCorner?: "top-left" | "bottom-right";
 }>();
 
 const emit = defineEmits<{
@@ -113,22 +109,14 @@ const getMap = () => map;
 let attrib: mapboxgl.AttributionControl | null = null;
 // Compact (mapbox's « i », opened on demand) at every width: with the
 // boundaries' credits the line is far longer than the room the zoom buttons
-// and the logo leave it. Opened at first above 640 px, folded on the first
-// move (`openCredit`).
+// and the logo leave it. Closed until the visitor opens it (mapbox's own
+// click), and it closes only on that click again.
 const newAttribution = () =>
   new mapboxgl.AttributionControl({
     compact: true,
     customAttribution: [...(props.attribution ?? [])],
   });
-let fold: CreditFold | null = null;
-// The compact control now, by mapbox's own classes (not compact: null).
-const creditBox = (): CreditBox | null => {
-  const c = map
-    ?.getContainer()
-    .querySelector<HTMLElement>(".mapboxgl-ctrl-attrib.mapboxgl-compact");
-  const b = c?.querySelector<HTMLButtonElement>(".mapboxgl-ctrl-attrib-button");
-  return c && b ? { container: c, button: b } : null;
-};
+const creditCorner = () => props.creditCorner ?? "bottom-right";
 // True once the style's load event fired. The plateau pipeline MUST NOT mutate
 // the style (addSource/addLayer/setTerrain) before then: pre-load mutations sit
 // in the style's change-set and permanently wedge style.loaded() → the load
@@ -281,9 +269,7 @@ onMounted(() => {
     });
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-left");
     attrib = newAttribution();
-    map.addControl(attrib, "bottom-right"); // where mapbox's own goes
-    fold = creditFold(map, creditBox);
-    if (props.openCredit) fold.arm();
+    map.addControl(attrib, creditCorner());
     uninstallProbes = installProbes({
       getMap,
       frames,
@@ -469,7 +455,7 @@ window.addEventListener(MAP_MOVED_EVENT, onMapMoved);
 // the camera's padding timer and pointer listeners; the plateau's and the
 // slabs' animations and the theme observer; the plateau pipeline aborted; the
 // lid's hidden map; the resize observer; the markers; the map itself; the flags;
-// the frame bus; the probes; the credit's fold.
+// the frame bus; the probes.
 onBeforeUnmount(() => {
   window.removeEventListener(MAP_MOVED_EVENT, onMapMoved);
   pins.dispose();
@@ -491,8 +477,6 @@ onBeforeUnmount(() => {
   camera.resetIntro();
   frames.dispose();
   uninstallProbes();
-  fold?.dispose();
-  fold = null;
 });
 
 // ---- The watchers, in today's order (watchers run in the order they are made) ----
@@ -588,32 +572,19 @@ watch(
   },
 );
 
-// The credits changed (the outline files' session came in, or fell back,
-// say): a new control with the new text — mapbox has no setter.
+// The credits or their corner changed (the outline files' session came in,
+// or fell back, say; the window crossed the desktop line): a new control with
+// the new text, in the new corner — mapbox has no setter and no "move".
 // On the joined text, so a fresh array with the same strings does nothing.
-// An expanded « i » closes again (unless the fold is still due,
-// controls/creditFold): a few times a session (the files' boot under the
-// curtain, « Pays » once a country file is in, a fallback).
-watch(
-  () => props.attribution?.join("\n") ?? "",
-  () => {
-    const m = getMap();
-    if (!m || !attrib) return;
-    m.removeControl(attrib);
-    attrib = newAttribution();
-    m.addControl(attrib, "bottom-right");
-    fold?.replaced(); // a fold still due: the new control opens too
-  },
-);
-
-// The credit may be shown opened (after the re-creation: a same-tick new
-// control is the one opened). True the first time: open; false while still
-// open: fold now — back in the card, the sheet raised, a narrow window. In
-// `idle` or `done`, nothing.
-watch(
-  () => props.openCredit,
-  (on) => (on ? fold?.arm() : fold?.fold()),
-);
+// An expanded « i » closes again: a few times a session (the files' boot under
+// the curtain, « Pays » once a country file is in, a fallback, a resize).
+watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
+  const m = getMap();
+  if (!m || !attrib) return;
+  m.removeControl(attrib);
+  attrib = newAttribution();
+  m.addControl(attrib, creditCorner());
+});
 </script>
 
 <template>
