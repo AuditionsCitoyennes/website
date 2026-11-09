@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { createAuditionSchema, updateAuditionSchema } from "@ac/shared";
+import { createAuditionSchema, PRECISE_ADDRESS_REQUIRED, updateAuditionSchema } from "@ac/shared";
 import { publicClient } from "../../lib/supabase";
 import { sendCached } from "../../lib/httpCache";
 import {
@@ -110,6 +110,7 @@ export default async function auditionRoutes(app: FastifyInstance) {
         req.params.id,
         parsed.data,
       );
+      if (result.kind === "needsAddress") return reply.badRequest(PRECISE_ADDRESS_REQUIRED);
       if (result.kind === "dbError") return reply.badRequest(result.message);
       return { success: true };
     },

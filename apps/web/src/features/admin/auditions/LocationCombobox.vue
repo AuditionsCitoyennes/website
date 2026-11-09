@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { BAN_PICK_TYPES, normalizeLocation, type BanPick } from "@ac/shared";
+import { nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from "vue";
+import { normalizeLocation, type BanPick } from "@ac/shared";
+import { banSearchUrl, isPickType, preciseSuggestions } from "./banSuggestions";
 
 // Location autocomplete backed by the Base Adresse Nationale (the official
 // French geocoder — replaces the old app's Nominatim, which rate-limits).
 // Besides the label, a pick hands over where BAN puts it (its commune's
-// INSEE code and its point): the audition is placed there.
+// INSEE code and its point): the audition is placed there. Only precise
+// results are offered (banSuggestions.ts): never a whole commune.
 
 interface BanFeature {
   geometry?: { coordinates?: [number, number] };
@@ -33,6 +35,7 @@ const emit = defineEmits<{
   pick: [value: LocationPick];
 }>();
 
+const hintId = useId();
 const root = ref<HTMLElement | null>(null);
 const searchEl = ref<HTMLInputElement | null>(null);
 const open = ref(false);
@@ -78,14 +81,12 @@ watch(search, (q) => {
   debounce = setTimeout(async () => {
     const id = ++seq;
     try {
-      const res = await fetch(
-        `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(query)}&limit=5`,
-      );
+      const res = await fetch(banSearchUrl(query));
       if (id !== seq) return; // a newer query superseded this one
       if (res.ok) {
         const data = (await res.json()) as { features?: BanFeature[] };
         if (id !== seq) return;
-        results.value = data.features ?? [];
+        results.value = preciseSuggestions(data.features ?? []);
       }
     } catch {
       /* silently ignore network errors */
@@ -94,9 +95,6 @@ watch(search, (q) => {
     }
   }, 300);
 });
-
-const isPickType = (t: string | undefined): t is BanPick["type"] =>
-  (BAN_PICK_TYPES as readonly string[]).includes(t ?? "");
 
 function select(f: BanFeature) {
   const label = normalizeLocation(shortLabel(f));
@@ -124,58 +122,74 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="root" class="combo">
-    <button type="button" class="combo-trigger" @click="open = !open">
-      <span v-if="modelValue" class="combo-value">{{ modelValue }}</span>
-      <span v-else class="combo-placeholder">{{ placeholder ?? "Rechercher un lieu..." }}</span>
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        width="15"
-        height="15"
-        class="combo-chevron"
-      >
-        <polyline points="7 15 12 20 17 15" />
-        <polyline points="7 9 12 4 17 9" />
-      </svg>
-    </button>
+    <div class="combo-anchor">
+      <button type="button" class="combo-trigger" :aria-describedby="hintId" @click="open = !open">
+        <span v-if="modelValue" class="combo-value">{{ modelValue }}</span>
+        <span v-else class="combo-placeholder">{{ placeholder ?? "Rechercher un lieu..." }}</span>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="15"
+          height="15"
+          class="combo-chevron"
+        >
+          <polyline points="7 15 12 20 17 15" />
+          <polyline points="7 9 12 4 17 9" />
+        </svg>
+      </button>
 
-    <div v-if="open" class="combo-panel">
-      <input
-        ref="searchEl"
-        v-model="search"
-        class="combo-search"
-        placeholder="Rechercher une adresse..."
-      />
-      <div class="combo-list">
-        <div v-if="loading" class="combo-state">
-          <span class="spinner" aria-label="Recherche"></span>
+      <div v-if="open" class="combo-panel">
+        <input
+          ref="searchEl"
+          v-model="search"
+          class="combo-search"
+          placeholder="Rechercher une adresse..."
+        />
+        <div class="combo-list">
+          <div v-if="loading" class="combo-state">
+            <span class="spinner" aria-label="Recherche"></span>
+          </div>
+          <p v-else-if="search.trim().length >= 2 && results.length === 0" class="combo-state">
+            Aucune adresse précise trouvée&nbsp;: ajoutez la rue ou la place.
+          </p>
+          <template v-else>
+            <button
+              v-for="f in results"
+              :key="f.properties.id"
+              type="button"
+              class="combo-item"
+              @click="select(f)"
+            >
+              {{ shortLabel(f) }}
+            </button>
+          </template>
         </div>
-        <p v-else-if="search.trim().length >= 2 && results.length === 0" class="combo-state">
-          Aucun résultat trouvé.
-        </p>
-        <template v-else>
-          <button
-            v-for="f in results"
-            :key="f.properties.id"
-            type="button"
-            class="combo-item"
-            @click="select(f)"
-          >
-            {{ shortLabel(f) }}
-          </button>
-        </template>
       </div>
     </div>
+    <p :id="hintId" class="combo-hint">
+      Choisissez une adresse précise (rue, place, lieu-dit) dans la liste.
+    </p>
   </div>
 </template>
 
 <style scoped>
 .combo {
   position: relative;
+}
+
+/* The panel opens under the trigger, not under the hint. */
+.combo-anchor {
+  position: relative;
+}
+
+.combo-hint {
+  margin-top: 0.35rem;
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-caption);
 }
 
 .combo-trigger {

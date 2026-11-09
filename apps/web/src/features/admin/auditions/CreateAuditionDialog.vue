@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { CONSENT_CERTIFIED_REQUIRED, testimonyInputSchema, type BanPick } from "@ac/shared";
+import {
+  CONSENT_CERTIFIED_REQUIRED,
+  PRECISE_ADDRESS_REQUIRED,
+  testimonyInputSchema,
+  type BanPick,
+} from "@ac/shared";
 import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
@@ -193,6 +198,13 @@ async function handleCreate() {
     await goTo(0);
     return;
   }
+  // An in-person audition goes to an address picked from the suggestions.
+  if (!pick.value) {
+    fail(PRECISE_ADDRESS_REQUIRED);
+    guard.value++;
+    await goTo(0);
+    return;
+  }
   // A testimony that was started is not dropped in silence: it is complete, or
   // the audition is not created yet. (One left entirely empty is ignored.)
   const testimonies = draftTestimonies.value.filter((t) => !isBlank(t));
@@ -326,7 +338,7 @@ const title = computed(() => {
               <label class="form-label">Lieu</label>
               <LocationCombobox
                 v-model="form.location"
-                placeholder="Ex: Villeurbanne"
+                placeholder="Ex: Rue Léon Blum, Villeurbanne"
                 @pick="onPick"
               />
             </div>
