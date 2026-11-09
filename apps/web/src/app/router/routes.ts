@@ -39,7 +39,8 @@ export const routes: RouteRecordRaw[] = [
     meta: { bleed: true },
   },
   // The page is gone: its analyses are drawn on the map now, around the
-  // territory it shows. Old links open the map with them on.
+  // territory it shows. Old links open the map — with them on where the
+  // build has them (toAnalyses, above).
   { path: "/analyses", redirect: toAnalyses },
   { path: "/analyse", redirect: toAnalyses },
   {

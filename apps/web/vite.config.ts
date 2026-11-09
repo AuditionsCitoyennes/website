@@ -35,7 +35,8 @@ export default defineConfig(({ command, mode }) => ({
     // The Analyses (features/analyses: the panel's toggle, the plates and slabs
     // around the plateau): in local development, and in a build with
     // VITE_ANALYSES=on (staging). Any other build — production's first release —
-    // has none of their code (docs/feature-flags.md).
+    // has none of their drawing code (a few inert hooks and the framing
+    // settings stay: docs/feature-flags.md).
     __ANALYSES__: JSON.stringify(
       command === "serve" || loadEnv(mode, process.cwd(), "VITE_").VITE_ANALYSES === "on",
     ),
