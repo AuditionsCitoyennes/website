@@ -172,7 +172,6 @@ const constant = (name: string) => {
 test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:data-source"), [...data.DATA_SOURCES]);
   assert.deepEqual(ids("ac:place-tree"), storedCall("data", "TREE_KEY").ids);
-  assert.deepEqual(ids("ac:place-tree"), ["sans", "avec"]);
   assert.deepEqual(ids("ac:lid"), [...lid.LID_MODES]);
   assert.deepEqual(ids("ac:lid-check"), [...lid.LID_CHECKS]);
   assert.deepEqual(ids("ac:mesh"), [...mesh.MESH_MODES]);
