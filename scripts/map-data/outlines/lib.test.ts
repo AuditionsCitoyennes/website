@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { enrich as apiEnrich } from "../../../apps/api/src/modules/boundaries/geometry";
 import * as lib from "./lib";
 import type { Geometry, Position } from "./lib";
 
@@ -28,18 +27,26 @@ test("clean5 rounds, drops repeated points, closes rings and drops what collapse
 });
 
 test("enrich is the API's: same centre, bounds as the bbox", () => {
-  const geoms: Geometry[] = [
-    poly(square(2.1, 48.7, 0.3)),
-    poly(square(0, 0, 4), square(1, 1, 1).reverse()),
-    { type: "MultiPolygon", coordinates: [[square(0, 0, 1)], [square(5, 5, 2)]] },
-    poly(ring(3, 3, 4, 3, 5, 3, 3, 3)), // no area: the first point
-    poly(ring(-61.81, 16.0, -61.0, 16.2, -61.2, 16.5, -61.75, 16.42, -61.81, 16.0)),
+  // The API's enrich() of each geometry (apps/api's boundaries/geometry.ts,
+  // deleted with /api/boundaries), frozen: [geometry, center, bbox].
+  const cases: [Geometry, string, number[]][] = [
+    [poly(square(2.1, 48.7, 0.3)), "[48.84999999999951,2.249999999999971]", [2.1, 48.7, 2.4, 49]],
+    [poly(square(0, 0, 4), square(1, 1, 1).reverse()), "[2,2]", [0, 0, 4, 4]],
+    [
+      { type: "MultiPolygon", coordinates: [[square(0, 0, 1)], [square(5, 5, 2)]] },
+      "[6,6]",
+      [0, 0, 7, 7],
+    ],
+    [poly(ring(3, 3, 4, 3, 5, 3, 3, 3)), "[3,3]", [3, 3, 5, 3]], // no area: the first point
+    [
+      poly(ring(-61.81, 16.0, -61.0, 16.2, -61.2, 16.5, -61.75, 16.42, -61.81, 16.0)),
+      "[16.26590992406296,-61.4477232259719]",
+      [-61.81, 16, -61, 16.5],
+    ],
   ];
-  for (const g of geoms) {
-    const a = apiEnrich({ geometry: g, properties: {} }).properties;
+  for (const [g, center, bbox] of cases) {
     const b = lib.enrich(g);
-    assert.equal(JSON.stringify(b.center), JSON.stringify(a.center));
-    const bbox = [a.bounds.minLng, a.bounds.minLat, a.bounds.maxLng, a.bounds.maxLat];
+    assert.equal(JSON.stringify(b.center), center);
     assert.deepEqual(b.bbox, bbox);
     assert.equal(JSON.stringify(b.bbox), JSON.stringify(bbox));
   }

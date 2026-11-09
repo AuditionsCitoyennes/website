@@ -1,6 +1,5 @@
 import { buildServer } from "./server";
 import { config, emailMode, hasServiceRole, mapSource } from "./config";
-import { loadBoundariesCache } from "./modules/boundaries/service";
 import { loadGeocodeCache } from "./modules/geo/geocode";
 import { warmLocationGeocodes } from "./modules/map/locationGroups";
 import { startPlacementJob } from "./modules/places/placementJob";
@@ -29,17 +28,11 @@ if (config.MAP_SOURCE === "db" && mapSource !== "db") {
   app.log.warn("MAP_SOURCE=db without SUPABASE_SERVICE_ROLE_KEY: the map is built by the geocoder");
 }
 
-// The two disk caches are read before anything can ask for them — the
-// placement job and the prewarm below, the first requests once listening — so
-// that no lieu already geocoded is queried again and no commune already
-// fetched is fetched again on a cold start. (The boundaries read also splits
-// the one-file cache of earlier versions into its directory, the one time it
-// finds it.)
-const [geocode, boundaries] = await Promise.all([loadGeocodeCache(), loadBoundariesCache()]);
-app.log.info(
-  { geocode: geocode.entries, boundaries: boundaries.keys, migrated: boundaries.migrated },
-  "disk caches loaded",
-);
+// The disk cache is read before anything can ask for it — the placement job
+// and the prewarm below, the first requests once listening — so that no lieu
+// already geocoded is queried again on a cold start.
+const geocode = await loadGeocodeCache();
+app.log.info({ geocode: geocode.entries }, "disk caches loaded");
 
 // Auditions not placed yet are placed by the job (10 s after boot, then every
 // 10 minutes) where PLACEMENT_JOB turns it on. The geocoder's build of the

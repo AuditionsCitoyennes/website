@@ -1,10 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { config, hasServiceRole } from "../../config";
 import { byteLrus, type Resident } from "../../lib/byteLru";
-import { cacheFamilies, storeStats } from "../../lib/cache";
+import { cacheFamilies } from "../../lib/cache";
 import { dbGate } from "../../lib/dbGate";
 import { visitorIp } from "../../lib/visitor";
-import { boundariesMemoryStats } from "../boundaries/service";
 import { demTileStats } from "../dem/service";
 
 export default async function healthRoutes(app: FastifyInstance) {
@@ -40,8 +39,6 @@ function memoryDetails() {
   const lrus = byteLrus().map((l) => l.stats());
   const sum = (resident: Resident, of: "bytes" | "maxBytes") =>
     mb(lrus.filter((l) => l.resident === resident).reduce((s, l) => s + l[of], 0));
-  const boundaries = boundariesMemoryStats();
-  const store = storeStats();
   const dem = demTileStats();
   return {
     memoryMb: {
@@ -63,9 +60,7 @@ function memoryDetails() {
     },
     families: families.map((f) => ({ ...f, mb: mb(f.bytes), maxMb: mb(f.maxBytes) })),
     lrus: lrus.map((l) => ({ ...l, mb: mb(l.bytes), maxMb: mb(l.maxBytes) })),
-    boundariesOnDisk: boundaries.onDisk,
-    // The static responses (boundary levels and départements) and the DEM tiles.
-    staticResponses: { entries: store.entries, mb: mb(store.bytes) },
+    // The DEM tiles.
     demTiles: { entries: dem.entries, mb: mb(dem.bytes) },
     dbGate: dbGate.stats(),
   };

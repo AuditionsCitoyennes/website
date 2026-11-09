@@ -1,5 +1,5 @@
-// What the two disk caches (geocode, boundaries) share: a write a reader can
-// never catch half done, and a read that treats "no file" like "no cache".
+// What the geocode cache uses: a write a reader can never catch half done,
+// and a read that treats "no file" like "no cache".
 
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";

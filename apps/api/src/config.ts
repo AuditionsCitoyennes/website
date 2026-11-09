@@ -72,7 +72,7 @@ const schema = z
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
-    // Where the geocode and boundary caches live on disk (a volume, in a
+    // Where the geocode cache lives on disk (a volume, in a
     // container). Empty: the apps/api directory, as always for a developer.
     CACHE_DIR: z.string().optional().default(""),
     // The Base Adresse Nationale the geocoder asks (its /search/ and
@@ -157,10 +157,8 @@ const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const config = {
   ...parsed.data,
-  /** The directory the geocode and boundary caches are kept in (CACHE_DIR, else apps/api). */
+  /** The directory the geocode cache is kept in (CACHE_DIR, else apps/api). */
   CACHE_DIR: parsed.data.CACHE_DIR ? resolve(parsed.data.CACHE_DIR) : APP_DIR,
-  /** Static data shipped with the API (apps/api/data): the france-geojson levels. */
-  DATA_DIR: join(APP_DIR, "data"),
 };
 
 /** Whether privileged operations (analysis, emails, role mgmt) are available. */

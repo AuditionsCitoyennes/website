@@ -10,7 +10,6 @@
 .github
 .claude
 apps/api/.geocode-cache*.json
-apps/api/.boundaries-cache.json
 # The web app's manifest only: npm checks the lockfile against every workspace.
 apps/web/*
 !apps/web/package.json

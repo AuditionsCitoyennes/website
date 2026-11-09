@@ -1,5 +1,7 @@
 # The map, next: snappy, worldwide, near-free — discussion notes, 2026-10-25
 
+> **Note (2026-11-08):** `/api/boundaries`, its module and the vendored france-geojson were removed in #176; the web reads the static outline files (docs/map-outlines.md).
+
 **Decisions taken on 2026-10-25 (founder):** keep **Mapbox GL JS** (no MapLibre migration); boundaries from **Overture + Etalab** (ODbL share-alike accepted); disputed territories follow the source with a footer note; the **deepest available level per country** (uneven depth accepted); **Supabase Pro at $25/month only while a load-test campaign runs**; the **hierarchical place picker**; basemap and terrain stay Mapbox's. The sections below keep the alternatives for the record; "Plan as decided" at the end is what we build.
 
 Goals stated by the founder: (1) the map must be snappy: elevation, boundaries and animations never lag; (2) it must work for users from every country; (3) the first load ships too much data; (4) staging must run with a huge fake database; (5) cost as close to zero as possible, with no cliff when usage grows.

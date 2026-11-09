@@ -14,7 +14,6 @@ import healthRoutes from "./modules/health/routes";
 import auditionRoutes from "./modules/auditions/routes";
 import testimonyRoutes from "./modules/testimonies/routes";
 import mapRoutes from "./modules/map/routes";
-import boundaryRoutes from "./modules/boundaries/routes";
 import demRoutes from "./modules/dem/routes";
 import adminRoutes from "./modules/admin/routes";
 import placeRoutes from "./modules/places/routes";
@@ -100,7 +99,7 @@ export function buildServer() {
     // retries after it. Not a safelisted header: unread cross-origin otherwise.
     exposedHeaders: ["Retry-After"],
   });
-  // The map/boundary payloads are large JSON with very high entropy overlap.
+  // The map payloads are large JSON with very high entropy overlap.
   app.register(compress, { global: true, threshold: 1024 });
   app.register(sensible);
   app.register(authPlugin);
@@ -128,7 +127,6 @@ export function buildServer() {
   app.register(auditionRoutes, { prefix: "/api/auditions" });
   app.register(testimonyRoutes, { prefix: "/api/testimonies" });
   app.register(mapRoutes, { prefix: "/api/map" });
-  app.register(boundaryRoutes, { prefix: "/api/boundaries" });
   app.register(demRoutes, { prefix: "/api/dem" });
   app.register(adminRoutes, { prefix: "/api/admin" });
   app.register(placeRoutes, { prefix: "/api/admin/places" });

@@ -29,16 +29,13 @@ COPY packages/shared/package.json packages/shared/
 RUN npm ci --workspace=@ac/api --omit=dev --ignore-scripts --no-audit --no-fund \
     && npm cache clean --force
 COPY --from=build /repo/apps/api/dist apps/api/dist
-# The static boundary levels (régions, départements, métropole), read from
-# apps/api/data at runtime: a cold container never fetches them upstream.
-COPY --from=build /repo/apps/api/data apps/api/data
 # The commit this image is built from (docker build --build-arg
 # APP_VERSION=<sha>), shown by /health: last, so that it changes no layer above.
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 WORKDIR /repo/apps/api
-# The geocode and boundary caches are written next to dist/ (disposable:
-# rebuilt on demand after each deploy).
+# The geocode cache is written next to dist/ (disposable: rebuilt on demand
+# after each deploy).
 RUN chown node:node /repo/apps/api
 USER node
 EXPOSE 8080

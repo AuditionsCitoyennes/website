@@ -14,8 +14,9 @@ copies go. Each file is one line of GeoJSON. Changing any of them changes the go
   most of any département in the file) out of `departements-version-simplifiee.geojson`.
 
 The extracts are the source's Feature (geometry and properties) re-serialised in a one-feature
-FeatureCollection. The source files, as vendored in `apps/api/data/france-geojson/` (fetched
-2026-10-21 from [gregoiredavid/france-geojson](https://github.com/gregoiredavid/france-geojson),
+FeatureCollection. The source files, as vendored in `apps/api/data/france-geojson/` (deleted in
+#176; its provenance and md5s are in `docs/map-outlines.md`, "Previous source: /api/boundaries";
+fetched 2026-10-21 from [gregoiredavid/france-geojson](https://github.com/gregoiredavid/france-geojson),
 branch `master`; IGN Admin Express COG 2018 traced, simplified to 25 % by the source):
 
 | File                                      | md5                                |

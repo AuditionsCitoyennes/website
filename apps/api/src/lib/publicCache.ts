@@ -3,8 +3,8 @@ import { TooLongError } from "./guards";
 
 // The caches of the public reads, one family each (lib/cache.ts), within one
 // memory budget (design A19, D3): 74 MB of Buffers in all — 64 MB of answers
-// and 10 MB of responses assembled from them — beside the 256 MB heap (which
-// holds the boundaries' LRU) in a 512 MB container. Every family can be full
+// and 10 MB of responses assembled from them — beside the 256 MB heap in a
+// 512 MB container. Every family can be full
 // at once (entries leave by LRU, a delete or a write, never by age alone),
 // so the budgets below add up to the 74 MB. A change to auditions or
 // testimonies can move any of them (the map groups, the auditions list and

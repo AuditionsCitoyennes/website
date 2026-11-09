@@ -113,8 +113,8 @@ export const vertexCount = (geom: Geometry): number =>
 
 // ---- centre and extent: a copy of the API's enrich() -------------------------
 // apps/api/src/modules/boundaries/geometry.ts computeBounds / computeCenter,
-// copied (that module goes away with /api/boundaries); lib.test.ts holds them
-// equal. Its bounds {minLat, maxLat, minLng, maxLng} are our bbox.
+// copied (that module was deleted with /api/boundaries); lib.test.ts holds
+// the frozen values. Its bounds {minLat, maxLat, minLng, maxLng} are our bbox.
 
 function computeBounds(geom: Geometry): BBox {
   let minLat = 90;
