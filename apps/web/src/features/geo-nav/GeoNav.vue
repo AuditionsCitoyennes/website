@@ -201,7 +201,7 @@ watch(panelUnits, (units) => {
 // Under the files, a row held under the pointer asks for its unit's bundle
 // before the click (data/hoverPrefetch; a région's self is in it), or a
 // country's u/: the file its row declares its self in (geo's prefetchKind).
-// Not on a touch screen (a tap hovers the row it opens) nor under Save-Data.
+// Not on a touch screen (a tap's focus can hover the row it opens) nor under Save-Data.
 // The map's own hover is not emitted: a pin gets none.
 if (outlines) {
   const rowHover = hoverPrefetch({
