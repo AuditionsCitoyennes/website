@@ -26,10 +26,6 @@ import {
   slabLidMode,
   slabTextMode,
   slabTextScale,
-  type PendingAnalysesMode,
-  type RingBandMode,
-  type SlabLidMode,
-  type SlabTextMode,
 } from "@/features/analyses";
 import {
   lidCheck,
@@ -40,19 +36,8 @@ import {
   setLidMode,
   setMeshMode,
   setReliefPrefetch,
-  type LidCheck,
-  type LidMode,
-  type MeshMode,
-  type ReliefPrefetch,
 } from "@/features/map";
-import {
-  dataSource,
-  placeTreeMode,
-  setDataSource,
-  setPlaceTreeMode,
-  type DataSource,
-  type PlaceTreeMode,
-} from "./dataSource";
+import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
 import { compareState } from "./compare";
 import {
   DEV_DESCRIPTION,
@@ -62,44 +47,31 @@ import {
   type DevOption,
 } from "./devOptions";
 
-/** A share as the switch stores it ("80"), and back. */
-const pct = (v: number) => String(Math.round(v * 100));
+type Binding = { now: () => string; set: (id: string) => void };
+/** A row's choice now and its switch's own setter (a choice's id is the switch's value). */
+const bind = <T extends string>(now: () => T, set: (v: T) => void): Binding => ({
+  now,
+  set: (id) => set(id as T),
+});
+/** A share, as the switch stores it ("80"). */
+const share = (now: () => number, set: (v: number) => void): Binding => ({
+  now: () => String(Math.round(now() * 100)),
+  set: (id) => set(Number(id) / 100),
+});
 
-/** Each row's choice now, and its switch's setter (the modules' own). */
-const BINDINGS: Record<DevKey, { now: () => string; set: (id: string) => void }> = {
-  "ac:data-source": { now: () => dataSource, set: (id) => setDataSource(id as DataSource) },
-  "ac:place-tree": {
-    now: () => placeTreeMode.value,
-    set: (id) => setPlaceTreeMode(id as PlaceTreeMode),
-  },
-  "ac:lid": { now: () => lidMode, set: (id) => setLidMode(id as LidMode) },
-  "ac:lid-check": { now: () => lidCheck, set: (id) => setLidCheck(id as LidCheck) },
-  "ac:mesh": { now: () => meshMode, set: (id) => setMeshMode(id as MeshMode) },
-  "ac:relief-prefetch": {
-    now: () => reliefPrefetch,
-    set: (id) => setReliefPrefetch(id as ReliefPrefetch),
-  },
-  "ac:frame-fill": { now: () => pct(frameFill.value), set: (id) => setFrameFill(Number(id) / 100) },
-  "ac:analyses-pending": {
-    now: () => pendingAnalysesMode.value,
-    set: (id) => setPendingAnalysesMode(id as PendingAnalysesMode),
-  },
-  "ac:slab-lid-verre": {
-    now: () => slabLidMode.value,
-    set: (id) => setSlabLidMode(id as SlabLidMode),
-  },
-  "ac:slab-text": {
-    now: () => slabTextMode.value,
-    set: (id) => setSlabTextMode(id as SlabTextMode),
-  },
-  "ac:slab-size": {
-    now: () => pct(slabTextScale.value),
-    set: (id) => setSlabTextScale(Number(id) / 100),
-  },
-  "ac:ring-band": {
-    now: () => ringBandMode.value,
-    set: (id) => setRingBandMode(id as RingBandMode),
-  },
+const BINDINGS: Record<DevKey, Binding> = {
+  "ac:data-source": bind(() => dataSource, setDataSource),
+  "ac:place-tree": bind(() => placeTreeMode.value, setPlaceTreeMode),
+  "ac:lid": bind(() => lidMode, setLidMode),
+  "ac:lid-check": bind(() => lidCheck, setLidCheck),
+  "ac:mesh": bind(() => meshMode, setMeshMode),
+  "ac:relief-prefetch": bind(() => reliefPrefetch, setReliefPrefetch),
+  "ac:frame-fill": share(() => frameFill.value, setFrameFill),
+  "ac:analyses-pending": bind(() => pendingAnalysesMode.value, setPendingAnalysesMode),
+  "ac:slab-lid-verre": bind(() => slabLidMode.value, setSlabLidMode),
+  "ac:slab-text": bind(() => slabTextMode.value, setSlabTextMode),
+  "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
+  "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
