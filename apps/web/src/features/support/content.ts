@@ -12,7 +12,8 @@ export const DONATION_PLATFORM = "Liberapay";
 /** Who receives the donations while the project has no association. */
 export const RECIPIENT = "Florent Grea";
 
-/** What the donations pay for (SupportPage). */
+/** What the donations pay for (SupportPage). The analyses only in a build
+ *  that has them (vite.config's __ANALYSES__). */
 export const COSTS = [
   {
     title: "L'hébergement",
@@ -26,8 +27,12 @@ export const COSTS = [
     title: "Les emails",
     text: "Les liens envoyés pour relire, modifier, valider ou supprimer son témoignage.",
   },
-  {
-    title: "Les analyses",
-    text: "Les synthèses de ce qui se dit dans chaque territoire.",
-  },
+  ...(__ANALYSES__
+    ? [
+        {
+          title: "Les analyses",
+          text: "Les synthèses de ce qui se dit dans chaque territoire.",
+        },
+      ]
+    : []),
 ];

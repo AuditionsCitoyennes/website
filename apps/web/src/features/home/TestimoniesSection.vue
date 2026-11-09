@@ -13,6 +13,10 @@ const props = defineProps<{
 const mapCard = ref<HTMLElement | null>(null);
 useMapCardSlot(mapCard, toRef(props, "heroReady"));
 
+// `!!`: a constant the template reads as is, so a build without the analyses
+// (vite.config's __ANALYSES__) drops their bullet.
+const analysesOn = !!__ANALYSES__;
+
 // The testing tools only: when the card is lent (useMapCardSlot's policies).
 const DevHomeMapSwitch = __TEST_TOOLS__
   ? defineAsyncComponent(() => import("./DevHomeMapSwitch.vue"))
@@ -43,7 +47,9 @@ const DevHomeMapSwitch = __TEST_TOOLS__
             Validés par leurs auteurs quand ils ont laissé leur email&nbsp;: un lien leur permet de
             relire, modifier, valider ou supprimer leur témoignage.
           </li>
-          <li>Analysés dans leur ensemble, pour faire ressortir le pouls de chaque localité.</li>
+          <li v-if="analysesOn">
+            Analysés dans leur ensemble, pour faire ressortir le pouls de chaque localité.
+          </li>
         </ul>
       </div>
 

@@ -10,10 +10,14 @@ interface ImportMetaEnv {
   readonly VITE_MAPBOX_STYLE?: string;
   /** Where the static map data is served (the outline files): unset = same origin `/map-data/`. */
   readonly VITE_MAP_DATA_BASE?: string;
+  /** "on" builds the Analyses in (vite.config's __ANALYSES__): staging; unset in production. */
+  readonly VITE_ANALYSES?: "on";
 }
 
 /** Whether this build has the testing tools: the outbox, the DEV switches (see vite.config). */
 declare const __TEST_TOOLS__: boolean;
+/** Whether this build has the Analyses: the toggle, the plates, the slabs (see vite.config). */
+declare const __ANALYSES__: boolean;
 /** The outline build the site reads: apps/web/outlines.lock.json's (see vite.config). */
 declare const __OUTLINES_BUILD__: string;
 

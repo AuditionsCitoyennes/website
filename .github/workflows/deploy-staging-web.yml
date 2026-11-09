@@ -87,6 +87,8 @@ jobs:
       - name: Build
         env:
           VITE_APP_ENV: staging
+          # The Analyses, kept on staging while they mature (docs/feature-flags.md).
+          VITE_ANALYSES: "on"
           VITE_SUPABASE_URL: https://papnqtvugzqtllcwigfi.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_uqMDtN2yFb6Y6h3gHPfYOA_Xa6lAmHK
           # Empty: the API is the site's own /api (the Worker forwards it).
