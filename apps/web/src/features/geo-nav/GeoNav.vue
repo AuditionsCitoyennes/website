@@ -101,15 +101,7 @@ const geo = useGeoHierarchy({
   unitTree,
   outlines,
 });
-const {
-  root,
-  index,
-  raisedGeometryFor,
-  containsPoint,
-  allPlaceUnits,
-  placeByCanonical,
-  placeIdByCanonical,
-} = geo;
+const { root, index, raisedGeometryFor, containsPoint, placeByCanonical, placeIdByCanonical } = geo;
 
 // The association's own testimonies (all loaded with the page), grouped by
 // audition (model/auditions).
@@ -223,8 +215,9 @@ if (outlines) {
 // ---- Filtered: every matching audition in ONE list ---------------------------
 // With filters on, what the reader wants is the answer to them — not a drill
 // through territories to find where the answers are. So the panel lists every
-// audition that matches, the map frames all of their lieux at once, and opening
-// one flies the map to its lieu (see toggleAud).
+// audition that matches, the map frames the country the visitor is in (the
+// world: it stays put), and opening one flies the map to its lieu (see
+// toggleAud).
 const listMode = computed(() => Boolean(props.filtered));
 
 // ---- The server's lists (data/useServerLists, map phase 1): the results, the
@@ -259,16 +252,11 @@ const cam = useCamera({
   index,
   raisedGeometryFor,
   containsPoint,
-  allPlaceUnits,
   outlines,
   mapCmp,
   listMode,
-  // The server's lists: the results are framed on their frame, once the
-  // filters' answer is on screen.
-  resultsFrame: lists ? () => (lists.resultsCurrent.value ? "ready" : "pending") : undefined,
-  resultsBounds: lists?.resultsFrame,
 });
-const { camera, framedFit, flyToUnit, spotlightPlace, scheduleResultsFit, resultsArrived } = cam;
+const { camera, framedFit, flyToUnit, spotlightPlace, scheduleFilterFrame, handMoved } = cam;
 
 // ---- The panel's auditions (model/usePanelAuditions): a lieu's own, or the results ----
 const panel = usePanelAuditions({
@@ -283,7 +271,7 @@ const panel = usePanelAuditions({
   panelListEl,
   moreEl,
   spotlightPlace,
-  scheduleResultsFit,
+  scheduleFilterFrame,
   moreTestimoniesEl,
   server: lists,
 });
@@ -357,6 +345,12 @@ const {
   onPanelPointerLeave,
   mapPadding,
 } = layout;
+/** A hand on the map: the panel makes way, and the frame the camera gave is
+ *  left (useCamera's handMoved). */
+function onUserGesture() {
+  engageMap();
+  handMoved();
+}
 // Desktop: how much of the map's right edge the panel covers, which the map's
 // bottom-right corner (the attribution) is moved clear of: the narrow width
 // when folded (the fold leaves it on screen), the wide one when open wide.
@@ -725,15 +719,6 @@ if (unitTree) {
     },
     { immediate: true },
   );
-  // The results are framed on the server's frame: a fit due while the
-  // filters' answer was on its way runs once it is on screen (useCamera's
-  // resultsFrame).
-  watch(
-    () => lists?.resultsCurrent.value ?? false,
-    (current) => {
-      if (current) resultsArrived();
-    },
-  );
   if (__TEST_TOOLS__) {
     const w = window as unknown as { __acUnitTree?: () => unknown; __acLists?: () => unknown };
     const probe = () => tree.stats();
@@ -780,7 +765,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       @ready="mapPresentable = true"
       @unit-click="onUnitClick"
       @view-change="onViewChange"
-      @user-gesture="engageMap"
+      @user-gesture="onUserGesture"
     />
 
     <!-- The analyses, around the raised territory. Over the map, under the

@@ -87,7 +87,7 @@ export interface AnalysesRingInputs {
   camera: {
     onBeforeCommand: (hook: () => void) => void;
     flyToUnit: (unit: GeoUnit, animate: boolean, fresh?: boolean) => void;
-    scheduleResultsFit: () => void;
+    scheduleFilterFrame: (owed?: boolean) => void;
   };
 }
 
@@ -301,10 +301,12 @@ export function useAnalysesRing(inputs: AnalysesRingInputs) {
       ringOn.value = ringWanted.value;
       return;
     }
-    // The results are what the map frames while filters are on: framed again,
-    // inside the ring now (that fit waits for the map to be let go itself).
+    // While filters are on the map frames the visitor's country (at the world,
+    // the world itself): framed again, inside the ring now. This call owes a
+    // command, so the ring flips with it (that fit waits for the map to be let
+    // go itself).
     if (listMode.value) {
-      camera.scheduleResultsFit();
+      camera.scheduleFilterFrame(true);
       return;
     }
     // Not from under a hand on the map (a camera command ends the gesture): it
@@ -330,7 +332,7 @@ export function useAnalysesRing(inputs: AnalysesRingInputs) {
   // (setCamera reads it afresh), the slabs sized for the new fit.
   watch([slabTextMode, slabTextScale, frameFill], () => {
     if (!ringOn.value || preview.value) return;
-    if (listMode.value) camera.scheduleResultsFit();
+    if (listMode.value) camera.scheduleFilterFrame(true);
     else if (!inMicroZone.value) camera.flyToUnit(currentScope.value, true);
   });
 

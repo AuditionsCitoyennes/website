@@ -122,9 +122,8 @@ export function testimoniesOf(a: PanelAudition): PublicTestimony[] | null {
 // as the reader scrolls down it.
 export const RESULTS_PAGE = 50;
 
-// The map frames every lieu of the results. Not on each keystroke of a search:
-// once the list has stopped changing. And not from under someone reading an
-// audition — the map is on its lieu.
+// The frame of every lieu of the results (the comparer's twin of the server's
+// first-page frame). Not used by the camera.
 export function resultBounds(places: GeoUnit[]): Bounds | null {
   if (!places.length) return null;
   const lats = places.map((u) => u.center[0]).sort((a, b) => a - b);
