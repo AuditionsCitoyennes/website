@@ -17,6 +17,7 @@ import {
   type InteriorHit,
 } from "../lib/polygon";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
+import { canvasHoverGate } from "../lib/canvasHover";
 import type { MapUnit } from "../types";
 import type { useSlabOcclusion } from "./useSlabOcclusion";
 
@@ -471,11 +472,28 @@ export function useMapPins({
     }
   }
 
+  // The pointer last seen on the canvas (attachPointerTracking): a touch's
+  // compatibility mousemove sets no hover — iOS withholds the tap's click when
+  // the hover reveals the pill under the finger (canvasHover.ts).
+  const hoverGate = canvasHoverGate();
+  function onCanvasPointer(e: PointerEvent) {
+    hoverGate.pointerSeen(e.pointerType);
+  }
+  /** The canvas box's pointer events, which come before their compatibility
+   *  mouse events; the box lives as long as the map, nothing to remove. */
+  function attachPointerTracking(canvasBox: HTMLElement) {
+    canvasBox.addEventListener("pointerdown", onCanvasPointer, true);
+    canvasBox.addEventListener("pointermove", onCanvasPointer, true);
+  }
+
   let hoverRaf = 0;
   let lastHoverPt: { x: number; y: number } | null = null;
   let pendingHoverLngLat: { lng: number; lat: number } | null = null;
   let pendingHoverPt: { x: number; y: number } | undefined;
   function onMapHover(lngLat: { lng: number; lat: number }, point?: { x: number; y: number }) {
+    // A mousemove (the clear from onMouseOut carries no point) of a pointer
+    // that is not a mouse: no hover. A tap selects on its click.
+    if (point && !hoverGate.mouseMoveHovers()) return;
     // Mousemove floods; only re-test once the cursor actually travelled a few px.
     if (point && lastHoverPt) {
       const dx = point.x - lastHoverPt.x;
@@ -556,8 +574,9 @@ export function useMapPins({
     applyActivePin,
     /** The hover, from the panel (`hoveredId`) — the same switch the pointer uses. */
     setHover,
-    /** The canvas `mousemove`. */
+    /** The canvas `mousemove`, a mouse's only (attachPointerTracking). */
     onHover: onMapHover,
+    attachPointerTracking,
     onMouseOut,
     onClick,
     scheduleSticky,

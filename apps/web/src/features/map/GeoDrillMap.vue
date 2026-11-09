@@ -364,12 +364,15 @@ onMounted(() => {
     });
     // Pointers down on the map: a finger at rest is a gesture to come.
     camera.attachPointerTracking(map.getCanvasContainer());
+    // Which pointer is on the map: only a mouse's mousemove hovers a unit.
+    pins.attachPointerTracking(map.getCanvasContainer());
     // A restored WebGL context comes back empty, and mapbox does not run onAdd
     // again for custom layers: the tint sheet is set up again (useScopeMask).
     map.on("webglcontextrestored", () => mask.onContextRestored());
-    // Hover inside a unit's boundary reveals its (possibly room-hidden) macro pin
-    // and shows a pointer; clicking inside the boundary SELECTS the unit — the
-    // whole territory is the click target, the pin is just its label.
+    // Hover (a mouse's) inside a unit's boundary reveals its (possibly
+    // room-hidden) macro pin and shows a pointer; clicking inside the boundary
+    // SELECTS the unit — the whole territory is the click target, the pin is
+    // just its label.
     map.on("mousemove", (e) => pins.onHover(e.lngLat, e.point));
     map.on("mouseout", pins.onMouseOut);
     map.on("click", pins.onClick);

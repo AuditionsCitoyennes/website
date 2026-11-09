@@ -65,8 +65,9 @@ await withSession(driver, async (s) => {
   `mouseover` changed the page; the visitor taps again. A walk that waits for
   the `click` event (a capture listener on `document`) and taps a second time
   reproduces what a visitor does; count those second taps. The panel's unit
-  rows no longer trip it (on iOS a tap never sets their hover, `rowHover.ts`); a
-  walk still counts second taps.
+  rows no longer trip it (on iOS a tap never sets their hover, `rowHover.ts`),
+  nor does a territory on the map canvas (a touch's mousemove sets no map
+  hover, `canvasHover.ts`); a walk still counts second taps.
 - **Pan.** A one-finger `touchPan` moves the map. Check the effect (the centre
   moved on screen), and check that it did not become a tap (a selection).
 - **Pinch.** safaridriver accepts a two-pointer touch sequence, but in the
