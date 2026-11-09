@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from "vue";
 import { normalizeLocation, type BanPick } from "@ac/shared";
-import { banSearchUrl, isPickType, preciseSuggestions } from "./banSuggestions";
+import { banSearchUrl, isPickType, preciseSuggestions, typedCommune } from "./banSuggestions";
 
 // Location autocomplete backed by the Base Adresse Nationale (the official
 // French geocoder — replaces the old app's Nominatim, which rate-limits).
@@ -16,6 +16,7 @@ interface BanFeature {
     label: string;
     name?: string;
     city?: string;
+    postcode?: string;
     municipality?: string;
     citycode?: string;
     type?: string;
@@ -41,6 +42,7 @@ const searchEl = ref<HTMLInputElement | null>(null);
 const open = ref(false);
 const search = ref("");
 const results = ref<BanFeature[]>([]);
+const commune = ref<string | null>(null); // the commune typed, not offered
 const loading = ref(false);
 let debounce: ReturnType<typeof setTimeout> | null = null;
 let seq = 0; // drops out-of-order BAN responses
@@ -74,6 +76,7 @@ watch(search, (q) => {
   if (query.length < 2) {
     seq++;
     results.value = [];
+    commune.value = null;
     loading.value = false;
     return;
   }
@@ -87,6 +90,7 @@ watch(search, (q) => {
         const data = (await res.json()) as { features?: BanFeature[] };
         if (id !== seq) return;
         results.value = preciseSuggestions(data.features ?? []);
+        commune.value = typedCommune(data.features ?? []);
       }
     } catch {
       /* silently ignore network errors */
@@ -106,6 +110,7 @@ function select(f: BanFeature) {
   }
   search.value = "";
   results.value = [];
+  commune.value = null;
   open.value = false;
 }
 
@@ -147,16 +152,25 @@ onBeforeUnmount(() => {
           ref="searchEl"
           v-model="search"
           class="combo-search"
-          placeholder="Rechercher une adresse..."
+          placeholder="Rue, place ou lieu-dit, puis la ville..."
+          :aria-describedby="hintId"
         />
         <div class="combo-list">
           <div v-if="loading" class="combo-state">
             <span class="spinner" aria-label="Recherche"></span>
           </div>
-          <p v-else-if="search.trim().length >= 2 && results.length === 0" class="combo-state">
-            Aucune adresse précise trouvée&nbsp;: ajoutez la rue ou la place.
-          </p>
           <template v-else>
+            <p v-if="commune" class="combo-state" role="status">
+              «&nbsp;{{ commune }}&nbsp;» est une commune&nbsp;: ajoutez le nom de la rue ou de la
+              place.
+            </p>
+            <p
+              v-else-if="search.trim().length >= 2 && results.length === 0"
+              class="combo-state"
+              role="status"
+            >
+              Aucune adresse précise trouvée&nbsp;: ajoutez la rue ou la place.
+            </p>
             <button
               v-for="f in results"
               :key="f.properties.id"
@@ -165,6 +179,9 @@ onBeforeUnmount(() => {
               @click="select(f)"
             >
               {{ shortLabel(f) }}
+              <span v-if="f.properties.postcode" class="combo-postcode">{{
+                f.properties.postcode
+              }}</span>
             </button>
           </template>
         </div>
@@ -269,6 +286,13 @@ onBeforeUnmount(() => {
   color: hsl(var(--foreground));
   font-size: var(--text-ui);
   cursor: pointer;
+}
+
+/* Tells same-named places apart ("Bron, Tourch" is in Finistère). */
+.combo-postcode {
+  margin-left: 0.35rem;
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-caption);
 }
 
 .combo-item:hover {
