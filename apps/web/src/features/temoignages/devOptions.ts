@@ -47,7 +47,7 @@ export interface DevOption {
 
 /** The dialog's description (exported so the test checks it like the sentences). */
 export const DEV_DESCRIPTION =
-  "Ces options servent aux essais, sur un poste de développement et sur le site de pré-production ; le site public n'en a aucune. Chaque choix reste enregistré dans ce navigateur. ↻ : changer ce choix recharge la page.";
+  "Ces options servent aux essais, sur un poste de développement et sur le site de pré-production ; le site public n'en a aucune. Chaque choix reste enregistré dans ce navigateur. ↻ : changer cette option recharge la page.";
 
 export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: string }[] = [
   {
@@ -56,7 +56,11 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
     intro: "D'où viennent les chiffres, et la liste des lieux des Filtres.",
   },
   { id: "carte", title: "Carte", intro: "Le relief du territoire choisi et son cadrage." },
-  { id: "analyses", title: "Analyses", intro: "Visibles quand le bouton Analyses est activé." },
+  {
+    id: "analyses",
+    title: "Analyses",
+    intro: "Ce qui s'affiche quand le bouton Analyses est activé.",
+  },
 ];
 
 /** "Taille" and "Cadrage": the stored percentages (analyses/devSwitch: SCALE_CHOICES). */
@@ -91,7 +95,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "avec", label: "Avec arr." },
     ],
     explain:
-      "Dans le champ « Lieu » des Filtres, Paris, Lyon et Marseille apparaissent comme une seule commune (« Sans arr. », par défaut) ou avec leurs arrondissements en dessous (« Avec arr. »). Sans effet avec « Corpus ».",
+      "Dans le champ « Lieu » des Filtres, Paris, Lyon et Marseille apparaissent chacune comme une seule commune (« Sans arr. », par défaut) ou avec leurs arrondissements en dessous (« Avec arr. »). Sans effet avec « Corpus ».",
     reloads: false,
     defaultId: "sans",
   },
@@ -157,7 +161,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     label: "Cadrage",
     choices: SHARES,
     explain:
-      "La place que prend un territoire à l'écran quand la carte se cadre dessus (80 % par défaut) : 100 % le fait aller jusqu'aux bords de la partie visible, 70 % laisse plus de carte autour. Avec les analyses ouvertes, la carte se recadre aussitôt ; sinon, au prochain territoire choisi.",
+      "La place que prend un territoire à l'écran quand la carte le cadre (80 % par défaut) : 100 % le fait aller jusqu'aux bords de la partie visible, 70 % laisse plus de carte autour. Avec les analyses ouvertes, la carte se recadre aussitôt ; sinon, au prochain territoire choisi.",
     reloads: false,
     defaultId: "80",
   },
@@ -170,7 +174,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "masquer", label: "Masquer" },
     ],
     explain:
-      "Quand on arrive directement sur un petit territoire sans passer par ceux qui le contiennent (un lien, une recherche, un lieu choisi dans les Filtres), ses chiffres peuvent arriver un peu après lui. En attendant, « Garder » (par défaut) laisse les chiffres d'avant sur les analyses ; « Masquer » n'en montre aucun. Seulement avec « Serveur » ou « Comparer ».",
+      "Quand on arrive directement sur un petit territoire sans passer par ceux qui le contiennent (un résultat de la liste filtrée ou d'une recherche, un lieu choisi dans les Filtres), ses chiffres peuvent arriver un peu après lui. En attendant, « Garder » (par défaut) laisse les chiffres d'avant sur les analyses ; « Masquer » n'en montre aucun. Seulement avec « Serveur » ou « Comparer ».",
     reloads: false,
     defaultId: "garder",
   },
@@ -197,7 +201,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "plat", label: "À plat" },
     ],
     explain:
-      "La carte est vue penchée. « Redressé » (par défaut) étire les étiquettes, comme les inscriptions peintes sur une route, pour que les mots se lisent droits ; « À plat » les pose telles quelles, et les mots paraissent écrasés.",
+      "La carte est vue penchée. « Redressé » (par défaut) étire les étiquettes, comme les inscriptions peintes sur une route, pour que les mots gardent leurs vraies proportions ; « À plat » les pose telles quelles, et les mots paraissent écrasés.",
     reloads: false,
     defaultId: "redresse",
   },
@@ -207,7 +211,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     label: "Taille",
     choices: SHARES,
     explain:
-      "La taille des mots des analyses juste après le cadrage, par rapport au texte normal du site (80 % par défaut). Plus grand se lit mieux mais prend plus de place : la carte se recadre aussitôt.",
+      "La taille des mots des analyses quand la carte vient de se cadrer sur un territoire, par rapport au texte normal du site (80 % par défaut). Plus grand se lit mieux mais prend plus de place : la carte se recadre aussitôt.",
     reloads: false,
     defaultId: "80",
   },
@@ -221,7 +225,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "epais", label: "Épais" },
     ],
     explain:
-      "L'épaisseur du cercle des thèmes : « Moyen » (par défaut) est la bande actuelle, « Fin » l'ancienne, plus mince, au trou plus grand, « Épais » une bande plus large. La taille du cercle ne change pas.",
+      "L'épaisseur du cercle des thèmes : « Moyen » (par défaut) est la bande actuelle ; « Fin », l'ancienne, plus mince, au trou plus grand ; « Épais », une bande plus large. La taille du cercle ne change pas.",
     reloads: false,
     defaultId: "moyen",
   },
