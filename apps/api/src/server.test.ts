@@ -88,6 +88,16 @@ test("an unknown route is a plain 404", async () => {
   assert.equal(res.json().error, "Not Found");
 });
 
+test("the plateau relief is the page's: /api/dem answers 404", async () => {
+  for (const [method, url] of [
+    ["POST", "/api/dem"],
+    ["GET", "/api/dem/x/1/0/0"],
+  ] as const) {
+    const res = await app.inject({ method, url });
+    assert.equal(res.statusCode, 404, `${method} ${url}`);
+  }
+});
+
 test("a body past a route's limit is a 413, not a 500", async () => {
   const res = await app.inject({
     method: "POST",

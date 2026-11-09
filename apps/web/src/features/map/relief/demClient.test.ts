@@ -171,6 +171,8 @@ test("both renderers failing: ground, and onLost once", async () => {
   assert.equal(b.url, GROUND_DATA_URL);
   assert.equal(c.stats()?.failedRender, 2);
   assert.equal(lost(), 1);
+  // Lost for the session: a later selection's registration rejects (no plateau).
+  await assert.rejects(c.registerSelection(lyon(), 80), /relief client lost/);
 });
 
 test("commitHold: resolves once the default hold has passed, not before", async () => {

@@ -1,7 +1,6 @@
-// The client relief's shell (ac:relief=client, reliefSwitch.ts): the answer
-// policy (demAnswer.ts) wired to the relief worker (demWorker.ts) and to a
-// main-thread renderer, one per page. Loaded only by a page in "client"
-// (demHook.ts), as a chunk of its own.
+// The client relief's shell: the answer policy (demAnswer.ts) wired to the
+// relief worker (demWorker.ts) and to a main-thread renderer, one per page.
+// Loaded by the map (demHook.ts), as a chunk of its own.
 //
 // The route, one tile: Mapbox asks transformRequest for
 // `ac-dem://<key>/z/x/y` → a tile clear of the selection is the ground tile
@@ -15,13 +14,14 @@
 // the first job was posted. Any message from it disarms that timer, and a
 // timer that comes due waits one more task before it fails the worker, giving
 // the messages a busy main thread left queued a turn. The main-thread renderer is the same
-// demRaster.ts, imported on first use. Both failing a tile → the session's
-// route goes "serveur" (demoteRelief) and the plateau standing runs again on
-// it (`onReliefLost`).
+// demRaster.ts, imported on first use. Both failing a tile → the client is
+// lost for the session: tiles keep their ground answer, every later
+// registration rejects, and the plateau standing runs again (`onReliefLost`),
+// which takes its no-plateau path.
 //
 // `window.__acDem` (testing tools): stats(), reset() (the counters only),
 // cacheSize(), and the live `mode` ("worker" | "main" | "none": no worker
-// yet) and `route` (reliefRoute()).
+// yet).
 
 import { createDemAnswer, type Bbox, type DemRecord } from "./demAnswer";
 import { GROUND_DATA_URL } from "./demGround";
@@ -29,14 +29,7 @@ import { keyOfJson, vertexCount, type Polygon } from "./demGeometry";
 import type { DemSelection } from "./demRaster";
 import { FrameBudget } from "./demTiles";
 import type { DemJob, DemReply } from "./demWorkerCore";
-import {
-  demoteRelief,
-  reliefBudget,
-  reliefBudgetGround,
-  reliefCommitHold,
-  reliefDelay,
-  reliefRoute,
-} from "./reliefSwitch";
+import { reliefBudget, reliefBudgetGround, reliefCommitHold, reliefDelay } from "./reliefSwitch";
 
 type Raster = typeof import("./demRaster");
 
@@ -189,7 +182,9 @@ export function createReliefClient(deps: ReliefClientDeps) {
       start();
     },
     answer: answer.answer,
-    registerSelection: answer.registerSelection,
+    /** Rejects once the client is lost (both renderers failed a tile). */
+    registerSelection: (...args: Parameters<typeof answer.registerSelection>) =>
+      lost ? Promise.reject(new Error("relief client lost")) : answer.registerSelection(...args),
     holdSlot: answer.holdSlot,
     releaseSlot: answer.releaseSlot,
     get mode(): "worker" | "main" | "none" {
@@ -217,8 +212,9 @@ const relief = createReliefClient({
   delayMs: reliefDelay,
   stats: __TEST_TOOLS__,
   onLost() {
-    demoteRelief("render");
-    // Out of the answer's chain: the plateau standing again, on "serveur".
+    if (import.meta.env.DEV) console.warn("[relief] client lost: no plateau from now on");
+    // Out of the answer's chain: the plateau standing again, which now takes
+    // its no-plateau path (registerSelection rejects).
     if (rerun) setTimeout(rerun, 0);
   },
 });
@@ -255,9 +251,6 @@ if (__TEST_TOOLS__) {
     cacheSize: () => relief.cacheSize(),
     get mode() {
       return relief.mode;
-    },
-    get route() {
-      return reliefRoute();
     },
   };
 }

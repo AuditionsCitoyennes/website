@@ -1,6 +1,5 @@
-// The map's door to the client relief (ac:relief=client, reliefSwitch.ts):
-// the transformRequest a page loaded in "client" gives its Map, and the lazy
-// client behind it. Tiny on purpose: the map imports it statically, and the
+// The map's door to the client relief: the transformRequest the map is
+// given, and the lazy client behind it. Tiny on purpose: the map imports it statically, and the
 // client (demClient.ts: the answer policy, the worker, the main-thread
 // renderer) is a chunk of its own, loaded on first use.
 //
@@ -16,9 +15,12 @@ type DemClient = typeof import("./demClient");
 
 let client: Promise<DemClient> | null = null;
 
-/** The client relief, loaded once. */
+/** The client relief, loaded once; a chunk that failed to load is asked again at the next call. */
 export function loadReliefClient(): Promise<DemClient> {
-  return (client ??= import("./demClient"));
+  return (client ??= import("./demClient").catch((e: unknown) => {
+    client = null;
+    throw e;
+  }));
 }
 
 /** The map's transformRequest: our `ac-dem://` tiles answered, every other URL left alone. */

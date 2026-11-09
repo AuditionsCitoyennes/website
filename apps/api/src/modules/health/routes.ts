@@ -4,7 +4,6 @@ import { byteLrus, type Resident } from "../../lib/byteLru";
 import { cacheFamilies } from "../../lib/cache";
 import { dbGate } from "../../lib/dbGate";
 import { visitorIp } from "../../lib/visitor";
-import { demTileStats } from "../dem/service";
 
 export default async function healthRoutes(app: FastifyInstance) {
   // Also under /api: the path the site's proxy forwards, so that a check
@@ -39,7 +38,6 @@ function memoryDetails() {
   const lrus = byteLrus().map((l) => l.stats());
   const sum = (resident: Resident, of: "bytes" | "maxBytes") =>
     mb(lrus.filter((l) => l.resident === resident).reduce((s, l) => s + l[of], 0));
-  const dem = demTileStats();
   return {
     memoryMb: {
       rss: mb(m.rss),
@@ -60,8 +58,6 @@ function memoryDetails() {
     },
     families: families.map((f) => ({ ...f, mb: mb(f.bytes), maxMb: mb(f.maxBytes) })),
     lrus: lrus.map((l) => ({ ...l, mb: mb(l.bytes), maxMb: mb(l.maxBytes) })),
-    // The DEM tiles.
-    demTiles: { entries: dem.entries, mb: mb(dem.bytes) },
     dbGate: dbGate.stats(),
   };
 }

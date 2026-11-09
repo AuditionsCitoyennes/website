@@ -8,11 +8,10 @@
 //   nearest the box's middle (a click on Chukotka at −175 is at 185).
 // - boxesMeet: two boxes meet, one of them also shifted by ±360.
 // - canonicalCopies: for the consumers that work in [-180, 180] only — the
-//   DEM selection (the API projects linearly in lng), its tile warm-up and the
-//   globe mask —, a derived geometry with each polygon shifted back into
-//   range, whole, or cut at ±180 where the build merged it across (Russia,
-//   Fiji). Kept in a WeakMap by the source object: never a second store
-//   object.
+//   DEM selection (the relief renderer projects linearly in lng) and the globe
+//   mask —, a derived geometry with each polygon shifted back into range,
+//   whole, or cut at ±180 where the build merged it across (Russia, Fiji).
+//   Kept in a WeakMap by the source object: never a second store object.
 import type { Bounds } from "./types";
 
 type Position = number[];

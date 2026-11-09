@@ -1,27 +1,13 @@
-// Where the plateau's relief (its DEM tiles) is rendered, compared live in the
-// builds with the testing tools — the dev server and staging (__TEST_TOOLS__,
+// How the plateau's relief (its DEM tiles, rendered in the page: the key and
+// the tiles come from the relief worker, demClient.ts, handed to Mapbox through
+// the map's transformRequest, demHook.ts, for an `ac-dem://<key>/{z}/{x}/{y}`
+// template) is prefetched and handed back, compared live in the builds with
+// the testing tools — the dev server and staging (__TEST_TOOLS__,
 // vite.config), kept in localStorage like the plateau lid's mode
-// (plateau/lidSwitch.ts) and drawn as the Témoignages page's DEV switch's
-// "Relief" row:
+// (plateau/lidSwitch.ts).
 //
-// - "client" (the default): the page renders them — the key and the tiles
-//   come from the relief worker (demClient.ts), handed to Mapbox through the
-//   map's transformRequest (demHook.ts) for an `ac-dem://<key>/{z}/{x}/{y}`
-//   template; no request at all.
-// - "serveur": the API renders them — POST /api/dem for the version key, then
-//   Mapbox fetches the tiles from /api/dem/<key>/z/x/y. Also the session's
-//   fallback (below).
-//
-// Read once per page load: switching reloads the page (transformRequest is a
-// Map constructor option, installed only in a page loaded in "client").
-// Production has neither key nor switch: DEFAULT_RELIEF_MODE.
-//
-// The session's route (`reliefRoute`) starts at the mode and changes once at
-// most: a "client" page whose client failed (demoteRelief) takes "serveur" for
-// the rest of the session.
-//
-// How a "client" run prefetches the new slot's tiles (`ac:relief-prefetch`, the
-// "Préchargement" row, shown under "Client" only):
+// How a run prefetches the new slot's tiles (`ac:relief-prefetch`, the
+// Témoignages page's DEV switch's "Préchargement" row):
 //
 // - "hillshade" (the default): as today — an invisible hillshade on the spare
 //   slot makes mapbox fetch its tiles while the old plateau sinks.
@@ -31,11 +17,10 @@
 //   in the same task: that only matters to a run superseded in between. The
 //   quiet swap keeps the hillshade (its wait needs the tiles).
 //
-// It acts only on a run whose route is "client"; inert under "serveur". Read
-// once per page load: switching reloads the page. Production has neither key
-// nor switch: DEFAULT_RELIEF_PREFETCH.
+// Read once per page load: switching reloads the page. Production has neither
+// key nor switch: DEFAULT_RELIEF_PREFETCH.
 //
-// How a "client" page hands its answers back to Mapbox (measurement arms, kept
+// How the page hands its answers back to Mapbox (measurement arms, kept
 // in localStorage only: no row in the DEV switch):
 //
 // - `ac:relief-budget`: at most that many answers per animation frame, lowest
@@ -51,27 +36,9 @@
 //   The flip compared it with 0 in the iOS Simulator only (it did not lose);
 //   kept as an arm for a later real-device run.
 //
-// They act only on a page loaded in "client". Read once per page load.
-// Production has neither key nor switch: DEFAULT_RELIEF_BUDGET,
+// Read once per page load: switching reloads the page. Production has neither
+// key nor switch: DEFAULT_RELIEF_BUDGET,
 // DEFAULT_RELIEF_BUDGET_GROUND, DEFAULT_RELIEF_COMMIT_HOLD_MS.
-
-export type ReliefMode = "serveur" | "client";
-
-/** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_RELIEF_MODE: ReliefMode = "client";
-
-export const RELIEF_MODES: readonly ReliefMode[] = ["serveur", "client"];
-
-function storedReliefMode(): ReliefMode {
-  try {
-    const raw = localStorage.getItem("ac:relief");
-    return (RELIEF_MODES as readonly string[]).includes(raw ?? "")
-      ? (raw as ReliefMode)
-      : DEFAULT_RELIEF_MODE;
-  } catch {
-    return DEFAULT_RELIEF_MODE;
-  }
-}
 
 export type ReliefPrefetch = "hillshade" | "terrain0";
 
@@ -103,9 +70,6 @@ function storedCount(key: string, fallback: number): number {
   }
 }
 
-/** This page load's mode. */
-export const reliefMode: ReliefMode = __TEST_TOOLS__ ? storedReliefMode() : DEFAULT_RELIEF_MODE;
-
 /**
  * The budget of a build without the testing tools, and the arm's default: 0,
  * every answer at once. At 4 per frame, lowest z first, Lyon's ~130 answers
@@ -120,7 +84,7 @@ export const reliefMode: ReliefMode = __TEST_TOOLS__ ? storedReliefMode() : DEFA
  */
 export const DEFAULT_RELIEF_BUDGET = 0;
 
-/** "client": answers handed back to Mapbox per animation frame (`ac:relief-budget`; 0 = at once). */
+/** Answers handed back to Mapbox per animation frame (`ac:relief-budget`; 0 = at once). */
 export const reliefBudget: number = __TEST_TOOLS__
   ? storedCount("ac:relief-budget", DEFAULT_RELIEF_BUDGET)
   : DEFAULT_RELIEF_BUDGET;
@@ -144,16 +108,16 @@ export function storedReliefBudgetGround(): ReliefBudgetGround {
   }
 }
 
-/** "client": whether ground answers skip the budget (`ac:relief-budget-ground`). */
+/** Whether ground answers skip the budget (`ac:relief-budget-ground`). */
 export const reliefBudgetGround: ReliefBudgetGround = __TEST_TOOLS__
   ? storedReliefBudgetGround()
   : DEFAULT_RELIEF_BUDGET_GROUND;
 
-/** "client": ms waited before each answer (`ac:relief-delay`, a measurement arm). */
+/** Ms waited before each answer (`ac:relief-delay`, a measurement arm). */
 export const reliefDelay: number = __TEST_TOOLS__ ? storedCount("ac:relief-delay", 0) : 0;
 
 /**
- * How long a "client" run with nothing standing holds its commit after the
+ * How long a run with nothing standing holds its commit after the
  * registration, ms, in a build without the testing tools, and the arm's
  * default. A fixed delay from the registration's end, so a slow registration
  * (the boot run, a unit never registered) pays it in full on top. France after
@@ -173,26 +137,15 @@ export const reliefDelay: number = __TEST_TOOLS__ ? storedCount("ac:relief-delay
  */
 export const DEFAULT_RELIEF_COMMIT_HOLD_MS = 60;
 
-/** "client": the commit hold of a run with nothing standing (`ac:relief-commit-hold`, ms; 0 = none). */
+/** The commit hold of a run with nothing standing (`ac:relief-commit-hold`, ms; 0 = none). */
 export const reliefCommitHold: number = __TEST_TOOLS__
   ? storedCount("ac:relief-commit-hold", DEFAULT_RELIEF_COMMIT_HOLD_MS)
   : DEFAULT_RELIEF_COMMIT_HOLD_MS;
 
-/** This page load's prefetch (a "client" run's only). */
+/** This page load's prefetch. */
 export const reliefPrefetch: ReliefPrefetch = __TEST_TOOLS__
   ? storedReliefPrefetch()
   : DEFAULT_RELIEF_PREFETCH;
-
-/** Another mode: kept, and the page loaded again with it. */
-export function setReliefMode(mode: ReliefMode) {
-  if (!__TEST_TOOLS__ || mode === reliefMode) return;
-  try {
-    localStorage.setItem("ac:relief", mode);
-  } catch {
-    /* storage blocked (a private window): the choice lasts for this page */
-  }
-  window.location.reload();
-}
 
 /** Another prefetch: kept, and the page loaded again with it. */
 export function setReliefPrefetch(prefetch: ReliefPrefetch) {
@@ -203,18 +156,4 @@ export function setReliefPrefetch(prefetch: ReliefPrefetch) {
     /* storage blocked (a private window): the choice lasts for this page */
   }
   window.location.reload();
-}
-
-let route: ReliefMode = reliefMode;
-
-/** The route this session's plateaus take now: the mode, or "serveur" once demoted. */
-export function reliefRoute(): ReliefMode {
-  return route;
-}
-
-/** The client failed (`reason`): "serveur" for the rest of the session. */
-export function demoteRelief(reason: string) {
-  if (route === "serveur") return;
-  route = "serveur";
-  if (__TEST_TOOLS__) console.warn(`[relief] client lost (${reason}): serveur from now on`);
 }

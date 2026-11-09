@@ -2,6 +2,8 @@
 
 > **Note (2026-11-08):** `/api/boundaries`, its module and the vendored france-geojson were removed in #176; the web reads the static outline files (docs/map-outlines.md).
 
+> **Note (2026-11-08):** the API's DEM renderer (`modules/dem`, `/api/dem`) was removed in #177; the plateau relief is rendered in the browser (#147, the default since #173).
+
 > Implements phase 1 of [the map roadmap](map-roadmap-2026-10-25.md). Written from a read-only reconnaissance of the code, three independent drafts, a judge panel and two rounds of adversarial review.
 
 > **Citations.** Repo `dev` @ 4adbcd5. File:line citations point into that tree unless a prefix says otherwise:

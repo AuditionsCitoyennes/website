@@ -3,7 +3,7 @@
 // the clock and the frame budget come in through a port, so every rule below
 // is tested without a Worker (demAnswer.test.ts).
 //
-// Selections: `registerSelection(features, height)` replaces POST /api/dem.
+// Selections: `registerSelection(features, height)` gives the version key.
 // The key is the server's (the worker computes it); the record keeps the FIRST
 // registered height, unrounded, as the server's store does. Memoised on every
 // feature's geometry object (nested WeakMaps, freed with the geometry) and the
@@ -72,7 +72,7 @@ export interface DemAnswerPort {
   delayMs?: number;
   /** Count (TEST_TOOLS): otherwise no counter is touched. */
   stats?: boolean;
-  /** Both renderers failed a tile: the shell demotes the route. */
+  /** Both renderers failed a tile: the client is lost for the session (registrations reject). */
   onClientLost?(): void;
 }
 

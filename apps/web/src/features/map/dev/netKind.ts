@@ -10,8 +10,6 @@ const OUTLINE_FILE = /\/outlines\/[^/]+\/(root\.json|[kug]\/[^/]+\.json)(\?|$)/;
 /** The request's kind, or null when the map has no word for it. */
 export function netKind(url: string): string | null {
   if (OUTLINE_FILE.test(url) && !url.includes("/src/")) return "outlines";
-  if (/\/api\/dem\/[^/]+\/\d+\/\d+\/\d+/.test(url)) return "dem.tiles";
-  if (/\/api\/dem\/?(\?|$)/.test(url)) return "dem.post";
   if (url.includes("/api/map")) return "api.map";
   if (url.includes("/api/")) return "api.other";
   if (/mapbox\.com/.test(url)) return "mapbox";

@@ -1,7 +1,8 @@
 # DEM parity fixtures
 
-The selections `scripts/parity/demRelief.test.ts` raises with both relief renderers (the API's
-`apps/api/src/modules/dem/service.ts` and the web's `apps/web/src/features/map/relief/demRaster.ts`).
+The selections `scripts/parity/demRelief.test.ts` raises with the web's relief renderer
+(`apps/web/src/features/map/relief/demRaster.ts`), against the golden the API's renderer
+(`apps/api/src/modules/dem/service.ts`, deleted in #177) produced.
 Copied here, not read from `apps/api/data/`, so the golden hashes keep their inputs when the API's
 copies go. Each file is one line of GeoJSON. Changing any of them changes the golden: regenerate it
 (`UPDATE_GOLDEN=1`, see the test's header).

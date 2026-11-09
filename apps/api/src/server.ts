@@ -14,7 +14,6 @@ import healthRoutes from "./modules/health/routes";
 import auditionRoutes from "./modules/auditions/routes";
 import testimonyRoutes from "./modules/testimonies/routes";
 import mapRoutes from "./modules/map/routes";
-import demRoutes from "./modules/dem/routes";
 import adminRoutes from "./modules/admin/routes";
 import placeRoutes from "./modules/places/routes";
 import placeReadRoutes from "./modules/places/readRoutes";
@@ -127,7 +126,6 @@ export function buildServer() {
   app.register(auditionRoutes, { prefix: "/api/auditions" });
   app.register(testimonyRoutes, { prefix: "/api/testimonies" });
   app.register(mapRoutes, { prefix: "/api/map" });
-  app.register(demRoutes, { prefix: "/api/dem" });
   app.register(adminRoutes, { prefix: "/api/admin" });
   app.register(placeRoutes, { prefix: "/api/admin/places" });
   // /api/places…, and an audition's testimony pages and the admin list's
