@@ -437,8 +437,19 @@ const { activate, onUnitClick, drillToCrumb } = useNavActions({
 // reads of this component. None of it may reach `outline`: the plateau would
 // be rebuilt for a change it does not show. A build without the analyses
 // (__ANALYSES__, see vite.config) has none of it: nothing analysed or drawn,
-// and the overlay not even in the bundle.
-const ScopeAnalysisOverlay = __ANALYSES__ ? defineAsyncComponent(loadScopeAnalysisOverlay) : null;
+// and the overlay not even in the bundle. Where it is, its code comes the
+// first time the analyses turn on; a fetch that fails (offline, or a tab left
+// open across a deploy) turns them back off rather than leave the slabs
+// standing without their words.
+const ScopeAnalysisOverlay = __ANALYSES__
+  ? defineAsyncComponent({
+      loader: loadScopeAnalysisOverlay,
+      onError(_error, _retry, fail) {
+        analyses.value = false;
+        fail();
+      },
+    })
+  : null;
 
 /** The filters' themes, as the plates are handed them (one array, not a fresh
  *  one per render). */
