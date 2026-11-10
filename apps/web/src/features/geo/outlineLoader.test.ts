@@ -59,6 +59,8 @@ const ROOT: RootV1 = {
     row("FR", null, { level: "country", st: "fr1000", u: 0 }),
     row("fr:reg:84", "FR", { level: "region" }),
     ...DEPS.map((d) => row(d, "fr:reg:84")),
+    row("fr:reg:03", "FR", { level: "region", name: "Guyane" }),
+    row("fr:dep:973", "fr:reg:03", { name: "Guyane" }),
     ...["ES", "IT", "DE"].map((c) => row(c, null, { level: "country", st: "c100", k: 0, g: 1 })),
   ],
 };
@@ -72,6 +74,7 @@ const BUNDLES: Record<string, OutlineFileV1> = {
     DEPS.map((d) => entry(d, "dep")),
   ),
   "k/fr_dep_69": file("k", "fr:dep:69", "e50", [entry("fr:com:69001", "city", 0)]),
+  "k/fr_dep_973": file("k", "fr:dep:973", "e50", [entry("fr:com:97302", "city", 0)]),
 };
 
 type Reply = number | "html" | "hang" | "late" | "defer" | "reject" | "json" | { body: unknown };
@@ -529,4 +532,32 @@ test("(14) a network failure is asked again by the next ensure after failedMs; a
   assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
   assert.equal(t.requests.length, 4);
   assert.equal(t.loader.mode, "fichiers");
+});
+
+test("(15) an overseas région reads its département's files: its bundle, its self, its prefetch", async () => {
+  const t = setup();
+  await t.boot();
+  assert.equal(await t.loader.ensureBundle("fr:reg:03"), "loaded");
+  assert.deepEqual(
+    t.requests.map((r) => r.url),
+    [url("k/fr_dep_973")],
+  );
+  assert.ok(t.store.bundleLoaded("fr:reg:03"));
+  assert.ok(t.store.unitsOf("fr:reg:03")?.has("fr:com:97302"));
+  assert.equal(await t.loader.ensureSelf("fr:reg:03"), "loaded");
+  assert.equal(t.loader.selfSettled("fr:reg:03"), true);
+  assert.equal(t.requests.length, 1);
+
+  const p = setup({ "k/fr_dep_973": [404] });
+  await p.boot();
+  await p.loader.prefetch("k", "fr:reg:03");
+  assert.deepEqual(
+    p.requests.map((r) => r.url),
+    [url("k/fr_dep_973")],
+  );
+  assert.equal(await p.loader.ensureBundle("fr:reg:03"), "failed");
+  assert.equal(p.loader.isFailed("k", "fr:reg:03"), true);
+  assert.deepEqual(await p.loader.batchSelf(["fr:reg:03"]), ["loaded"]);
+  assert.ok(p.requests.every((r) => !r.url.includes("fr_reg_03")));
+  assert.equal(p.requests[p.requests.length - 1].url, url("u/fr_dep_973"));
 });

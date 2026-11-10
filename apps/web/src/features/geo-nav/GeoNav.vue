@@ -701,7 +701,12 @@ watch(
 /** The scope's children are on their way: the panel shows them loading. */
 const scopeChildrenPending = computed(() => currentScope.value.childrenPending === true);
 /** The scope's answer (or the filter's) could not be had: the error line. */
-const scopeFailed = computed(() => (unitTree ? unitTree.failed(currentScope.value.id) : false));
+const scopeFailed = computed(() => {
+  if (!unitTree) return false;
+  // A folded territory's children are its département's answer.
+  const s = currentScope.value;
+  return unitTree.failed(s.id) || (!!s.foldedDep && unitTree.failed(s.foldedDep));
+});
 if (unitTree) {
   const tree = unitTree;
   watch(
@@ -724,12 +729,18 @@ if (unitTree) {
           .filter((u) => (u.levelKey === "city" || u.levelKey === "arr") && u.childrenPending)
           .map((u) => u.id),
       );
-      return `${deep ? s.id : ""}\n${[...communes].sort().join(",")}`;
+      // An overseas territory's children are its département's: asked by it
+      // (its région, loaded from France's answer, holds them only by name).
+      const folded = [s, ...s.children]
+        .filter((u) => u.foldedDep && u.childrenPending)
+        .map((u) => u.foldedDep!);
+      return `${deep ? s.id : ""}\n${[...communes].sort().join(",")}\n${folded.join(",")}`;
     },
     (wanted) => {
-      const [deep, communes] = wanted.split("\n");
+      const [deep, communes, folded] = wanted.split("\n");
       if (deep) tree.ensure([deep], true);
       if (communes) tree.ensure(communes.split(","));
+      if (folded) tree.ensure(folded.split(","));
     },
     { immediate: true },
   );

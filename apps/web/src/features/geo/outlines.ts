@@ -10,6 +10,7 @@
 // are authoritative; a write is one call, bumping `version` once; existence is
 // declared by the rows' k/u/g flags, never probed.
 
+import { foldedDepartementOf } from "@ac/shared";
 import type { Bounds, LevelKey } from "./types";
 
 // ---- format v1 (copied as types: the web never imports scripts/) --------------
@@ -265,6 +266,8 @@ export class OutlineStore {
   private readonly files = new Map<string, Loaded>();
   private readonly entryTier = new Map<string, string>();
   private readonly globeTier = new Map<string, string>();
+  /** filesIdOf's aliases, from root.json's rows. */
+  private readonly filesOf = new Map<string, string>();
   private pinned = new Set<string>();
   private vertices = 0;
   private clock = 0;
@@ -299,7 +302,23 @@ export class OutlineStore {
         fromRoot: true,
       });
     }
+    for (const r of root.units) {
+      if (r.level !== "region") continue;
+      const kids = root.units.filter((k) => k.parent === r.id);
+      const dep = foldedDepartementOf(
+        r.name,
+        kids.map((k) => ({ id: k.id, name: k.name, isDepartement: k.level === "dep" })),
+      );
+      if (dep) this.filesOf.set(r.id, dep);
+    }
     this.written++;
+  }
+
+  /** The unit whose files hold this one's self and children: an overseas
+   *  région's are its département's (one territory, @ac/shared frOverseas):
+   *  the same outline (gate 1) and the only bundle with its communes. */
+  filesIdOf(id: string): string {
+    return this.filesOf.get(id) ?? id;
   }
 
   put(file: OutlineFileV1, wrap: OutlineWrap) {
@@ -380,11 +399,12 @@ export class OutlineStore {
   /**
    * Keeps these units' files whatever the cap: for each id, the files holding
    * its self, its entry and its world outline, and its bundle. Replaces the
-   * pinned set; returns the pinned files' vertices.
+   * pinned set; returns the pinned files' vertices. An overseas région pins
+   * its entry (k/FR's) and its département's files.
    */
   pin(ids: Iterable<string>): number {
     const pinned = new Set<string>();
-    for (const id of ids) {
+    for (const id of [...ids].flatMap((i) => [i, this.filesIdOf(i)])) {
       for (const tier of [this.rows.get(id)?.st, this.entryTier.get(id), this.globeTier.get(id)])
         for (const fk of (tier && this.objects.get(`${id}@${tier}`)?.holders) || []) pinned.add(fk);
       if (this.files.has(fileKey("k", id))) pinned.add(fileKey("k", id));
@@ -406,7 +426,8 @@ export class OutlineStore {
   }
   /** Its self, at its row's tier: undefined until that object is stored. */
   selfOf(id: string): OutlineGeometry | undefined {
-    return this.at(id, this.rows.get(id)?.st);
+    const fid = this.filesIdOf(id);
+    return this.at(fid, this.rows.get(fid)?.st);
   }
   /** Its entry in its parent's bundle (FR has none). */
   entryOf(id: string): OutlineGeometry | undefined {
@@ -419,13 +440,13 @@ export class OutlineStore {
   /** The entries of its loaded bundle, by id (undefined until k/<id> is in):
    *  its children's geometries, cut by the same run as its self. */
   unitsOf(id: string): ReadonlyMap<string, OutlineGeometry> | undefined {
-    return this.files.get(fileKey("k", id))?.units;
+    return this.files.get(fileKey("k", this.filesIdOf(id)))?.units;
   }
   has(id: string, tier: string): boolean {
     return this.objects.has(`${id}@${tier}`);
   }
   bundleLoaded(id: string): boolean {
-    return this.files.has(fileKey("k", id));
+    return this.files.has(fileKey("k", this.filesIdOf(id)));
   }
   loaded(kind: OutlineKind, id: string): boolean {
     return this.files.has(fileKey(kind, id));

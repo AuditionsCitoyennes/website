@@ -60,6 +60,10 @@ export interface GeoUnit {
   /** The server's tree only: what it holds is not known yet (its children are
    *  on their way). The scope stops above it, the panel shows them loading. */
   childrenPending?: boolean;
+  /** The server's tree only: an overseas territory's région shown as one
+   *  level (@ac/shared frOverseas) — the id of the département of its name
+   *  whose children and lieux it holds; that département has no unit of its own. */
+  foldedDep?: string;
 }
 
 /** A unit's real geometry-derived centre + extent (from the outline files' rows). */

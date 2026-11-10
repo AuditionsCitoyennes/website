@@ -39,7 +39,13 @@
 import { getCurrentScope, onScopeDispose, ref } from "vue";
 import { isCancelledError, type QueryClient } from "@tanstack/vue-query";
 import type { PlaceCounts, PlaceFacts, PlaceLieuRow, PlaceUnitRow } from "@ac/shared";
-import { WORLD, type LieuStub, type UnitTreeData, type UnitTreeEntry } from "@/features/geo";
+import {
+  serverChainOf,
+  WORLD,
+  type LieuStub,
+  type UnitTreeData,
+  type UnitTreeEntry,
+} from "@/features/geo";
 import { onPlacesReload } from "../keys";
 import {
   createCountsBatcher,
@@ -428,7 +434,9 @@ export function useUnitTree(opts: UnitTreeOptions) {
   /** The scope on screen changed: its chain is what a key change waits for;
    *  it and its parent are asked for, and what failed is tried again. */
   function setScope(scope: { id: string; ancestors: readonly string[] }) {
-    chain = [...scope.ancestors, scope.id];
+    // The server's filing: an overseas région's département is in it, though
+    // the tree folds it.
+    chain = (shown && serverChainOf(shown, scope.id)) ?? [...scope.ancestors, scope.id];
     let retried = false;
     for (const ks of [shown, next]) if (ks && forgetFailures(ks)) retried = true;
     if (retried) status.value++;
