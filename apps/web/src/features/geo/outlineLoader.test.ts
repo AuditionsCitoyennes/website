@@ -74,7 +74,7 @@ const BUNDLES: Record<string, OutlineFileV1> = {
   "k/fr_dep_69": file("k", "fr:dep:69", "e50", [entry("fr:com:69001", "city", 0)]),
 };
 
-type Reply = number | "html" | "hang" | "late" | "reject" | "json" | { body: unknown };
+type Reply = number | "html" | "hang" | "late" | "defer" | "reject" | "json" | { body: unknown };
 
 /** A scripted host (each URL's replies in turn, the last one repeats) and a fake clock. */
 function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoaderOptions> = {}) {
@@ -87,14 +87,23 @@ function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoader
   const modes: unknown[][] = [];
   const spans: Record<string, unknown>[] = [];
   let sets = 0;
+  /** "defer" replies waiting for release(). */
+  const deferred: (() => void)[] = [];
   const fetchFn = async (u: string, init: { signal: AbortSignal; cache?: "reload" }) => {
     requests.push({ url: u, cache: init.cache, signal: init.signal });
     const path = u.slice(`${BASE}outlines/${BUILD}/`.length, -".json".length);
     const list = script[path] ?? ["json"];
-    let r = list[Math.min(requests.filter((q) => q.url === u).length, list.length) - 1];
+    const at = Math.min(requests.filter((q) => q.url === u).length, list.length) - 1;
+    let r = list[at];
     // "late": the answer comes 10 ms later on the fake clock.
     if (r === "late")
       await new Promise<void>((done) => timers.set(++next, { at: now + 10, fn: done, ms: 10 }));
+    // "defer": the answer (the next reply, or the default file) comes when the
+    // test releases it.
+    if (r === "defer") {
+      await new Promise<void>((done) => deferred.push(done));
+      r = list[at + 1] ?? "json";
+    }
     if (r === "json" || r === "late")
       r = {
         body: BUNDLES[path] ?? file(path[0] as OutlineKind, path.slice(2).replaceAll("_", ":")),
@@ -162,7 +171,20 @@ function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoader
   };
   /** The `outline.decode` spans of the writes. */
   const written = () => spans.filter((s) => s.name === "outline.decode" && s.phase === "write");
-  return { loader, store, requests, writes, modes, armed, tick, boot, written, sets: () => sets };
+  const release = () => deferred.splice(0).forEach((done) => done());
+  return {
+    loader,
+    store,
+    requests,
+    writes,
+    modes,
+    armed,
+    tick,
+    boot,
+    written,
+    release,
+    sets: () => sets,
+  };
 }
 
 test("(1) two concurrent ensureBundle of one unit: one request, one write", async () => {
@@ -430,8 +452,49 @@ test("(12) once the session fell back, a request under way makes no further atte
   assert.equal(t.modes.length, 2);
 });
 
-test("(13) bootMs: a stalled root falls back at the deadline; a boot in time disarms it", async () => {
-  const t = setup({ root: ["hang"] }, { bootMs: 6000 });
+test("(13) bootMs: a root past the deadline turns the session late, then ok when it lands; a boot in time disarms it", async () => {
+  const t = setup({ root: ["defer"] }, { bootMs: 6000 });
+  const r = t.loader.ensureRoot();
+  await t.tick(5999);
+  assert.deepEqual([t.loader.mode, t.loader.ready], ["fichiers", "loading"]);
+  const waiting = t.loader.ensureBundle("fr:reg:84"); // waits for the boot
+  await t.tick(1);
+  assert.deepEqual(t.modes, [["fichiers", "late", undefined]]);
+  // Not a failure: the request goes on, nothing is asked again, the waiters wait.
+  assert.equal(t.requests[0].signal.aborted, false);
+  await t.tick(4_000);
+  assert.deepEqual([t.requests.length, t.loader.ready], [1, "late"]);
+  t.release(); // root.json lands at 10 s
+  await t.tick(0);
+  assert.deepEqual(await Promise.all([r, waiting]), ["loaded", "loaded"]);
+  assert.deepEqual(t.modes, [
+    ["fichiers", "late", undefined],
+    ["fichiers", "ok", undefined],
+  ]);
+  assert.ok(t.store.bundleLoaded("FR") && t.store.bundleLoaded("fr:reg:84"));
+  assert.deepEqual(
+    t.requests.map((q) => q.url),
+    [url("root"), url("k/FR"), url("k/fr_reg_84")],
+  );
+
+  // A root that fails after the deadline still ends the session.
+  const bad = setup({ root: ["defer", 404] }, { bootMs: 6000 });
+  const rb = bad.loader.ensureRoot();
+  await bad.tick(6000);
+  assert.deepEqual(bad.modes, [["fichiers", "late", undefined]]);
+  bad.release();
+  await bad.tick(0);
+  assert.equal(await rb, "fallback");
+  assert.deepEqual(bad.modes.at(-1), ["fallback", "fallback", { reason: "missing", key: "root" }]);
+
+  const ok = setup({}, { bootMs: 6000 });
+  await ok.boot();
+  await ok.tick(10_000);
+  assert.deepEqual(ok.modes, [["fichiers", "ok", undefined]]);
+});
+
+test('(13b) bootCap "fallback": a stalled root falls back at the deadline, its request aborted', async () => {
+  const t = setup({ root: ["hang"] }, { bootMs: 6000, bootCap: "fallback" });
   const r = t.loader.ensureRoot();
   await t.tick(5999);
   assert.deepEqual([t.loader.mode, t.loader.ready], ["fichiers", "loading"]);
@@ -443,11 +506,6 @@ test("(13) bootMs: a stalled root falls back at the deadline; a boot in time dis
   assert.deepEqual(await Promise.all([r, waiting]), ["fallback", "fallback"]);
   await t.tick(20_000); // no retry: the session is over
   assert.equal(t.requests.length, 1);
-
-  const ok = setup({}, { bootMs: 6000 });
-  await ok.boot();
-  await ok.tick(10_000);
-  assert.deepEqual(ok.modes, [["fichiers", "ok", undefined]]);
 });
 
 test("(14) a network failure is asked again by the next ensure after failedMs; a missing file never", async () => {

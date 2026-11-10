@@ -11,6 +11,9 @@
 // geometry re-runs at the next write — one write per file or batch, which is
 // what each consumer's rebuild costs. selfSettled also reads `mode`: once the
 // session falls back every self counts as settled, and that changes no set.
+// `ready` is the page's wait on the boot: "loading" holds the boot curtain,
+// "late" (the boot past BOOT_MS, still under way) lets it lift while the
+// files keep coming, "ok" turns the credits on.
 // Every stored geometry went through markRaw and never goes into a reactive
 // container: geometry must stay a plain, identity-stable object (the WeakMap
 // caches are keyed on it).
@@ -26,6 +29,7 @@ import {
   rootUrl,
   type OutlineGeometry,
   type OutlineKind,
+  type OutlineReady,
   type OutlineRow,
   type OutlineStatus,
 } from "@/features/geo";
@@ -38,13 +42,27 @@ export { OUTLINE_WAIT_MS };
 
 export type OutlineFilesStatus = OutlineStatus;
 
-/** How long the boot (root.json, then k/FR) may take before the session
- *  falls back: a stalled root must not keep the overlay up. */
+/** How long the boot (root.json, then k/FR) may hold the page: past it the
+ *  session turns "late" — the overlay lifts, the boot goes on and the files
+ *  are drawn when they land. Not a fallback: at boot the main thread is busy
+ *  with the map's own start for seconds at a time, and a response that has
+ *  long arrived may wait on it past the cap (seen about one cold load in
+ *  forty under load, 2026-11-09). */
 const BOOT_MS = 6000;
+
+/** `ac:outlines-boot` (testing tools): "fallback" ends the session at BOOT_MS
+ *  instead, its requests aborted — the cap before 2026-11-10, kept to compare. */
+function storedBootCap(): "late" | "fallback" {
+  try {
+    return localStorage.getItem("ac:outlines-boot") === "fallback" ? "fallback" : "late";
+  } catch {
+    return "late";
+  }
+}
 
 export interface OutlineFiles {
   mode: ShallowRef<"fichiers" | "fallback">;
-  ready: ShallowRef<"loading" | "ok" | "fallback">;
+  ready: ShallowRef<OutlineReady>;
   /** Bumped by every write to the store. */
   version: ShallowRef<number>;
   /** fileKeys (`k/fr_dep_69`) whose file will not come this session. */
@@ -141,6 +159,12 @@ function createOutlineFiles(): OutlineFiles {
     onMode(m, r, why) {
       mode.value = m;
       ready.value = r;
+      if (r === "late") {
+        if (import.meta.env.DEV)
+          console.info(`[outlines] boot past ${BOOT_MS} ms, still under way`);
+        if (perfOn) perfNote("outline.late", 0);
+        return;
+      }
       if (m !== "fallback") return;
       // Once per session (the loader falls back once), in every build.
       const key = why?.key ?? "root";
@@ -153,6 +177,7 @@ function createOutlineFiles(): OutlineFiles {
     },
     span: perfOn ? perfSpan : undefined,
     bootMs: BOOT_MS,
+    bootCap: __TEST_TOOLS__ ? storedBootCap() : "late",
   });
 
   // Reads version first: a computed calling an accessor tracks the store.
