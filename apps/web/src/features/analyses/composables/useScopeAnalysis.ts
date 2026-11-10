@@ -260,3 +260,17 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
 
   return { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLoaded };
 }
+
+/** useScopeAnalysis's answer in a build without the analyses (see
+ *  vite.config): nothing analysed, measured or drawn, no fonts listened
+ *  to — and none of the maths above in the bundle. */
+export function noScopeAnalysis(): ReturnType<typeof useScopeAnalysis> {
+  return {
+    scopeAnalysis: computed<ScopeAnalysis | null>(() => null),
+    analysesVisible: computed(() => false),
+    slabSizesNow: computed<SlabSizes | null>(() => null),
+    slabSpec: computed<SlabSpec | null>(() => null),
+    roomNow: () => null,
+    fontsLoaded: ref(0),
+  };
+}

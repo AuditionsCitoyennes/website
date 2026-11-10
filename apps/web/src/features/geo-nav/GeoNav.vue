@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onBeforeUnmount, ref, toRef, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  markRaw,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+  toRef,
+  watch,
+} from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
 import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
@@ -8,7 +17,8 @@ import { perfBegin, perfEnd } from "@/shared/perf/perf";
 import {
   analysisSummary,
   buildFactsIndex,
-  ScopeAnalysisOverlay,
+  loadScopeAnalysisOverlay,
+  noScopeAnalysis,
   useScopeAnalysis,
 } from "@/features/analyses";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
@@ -403,7 +413,21 @@ const { activate, onUnitClick, drillToCrumb } = useNavActions({
 // whether they are on screen, the slabs GeoDrillMap stands and the room the
 // camera leaves them — analyses/composables/useScopeAnalysis, handed what it
 // reads of this component. None of it may reach `outline`: the plateau would
-// be rebuilt for a change it does not show.
+// be rebuilt for a change it does not show. A build without the analyses
+// (__ANALYSES__, see vite.config) has none of it: nothing analysed or drawn,
+// and the overlay not even in the bundle. Where it is, its code comes the
+// first time the analyses turn on; a fetch that fails (offline, or a tab left
+// open across a deploy) turns them back off rather than leave the slabs
+// standing without their words.
+const ScopeAnalysisOverlay = __ANALYSES__
+  ? defineAsyncComponent({
+      loader: loadScopeAnalysisOverlay,
+      onError(_error, _retry, fail) {
+        analyses.value = false;
+        fail();
+      },
+    })
+  : null;
 
 /** The filters' themes, as the plates are handed them (one array, not a fresh
  *  one per render). */
@@ -412,38 +436,41 @@ const filterThemes = computed(() => props.themeFilter ?? NO_THEMES);
 
 // The server's figures: indexed once per key and store version (the facts
 // come with the tree, so turning the analyses on asks for nothing).
-const factsIndex = unitTree ? computed(() => markRaw(buildFactsIndex(unitTree.facts()))) : null;
+const factsIndex =
+  __ANALYSES__ && unitTree ? computed(() => markRaw(buildFactsIndex(unitTree.facts()))) : null;
 
 const { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLoaded } =
-  useScopeAnalysis({
-    analyses,
-    preview: toRef(props, "preview"),
-    groups: toRef(props, "groups"),
-    ownAuditions,
-    currentScope,
-    placeByCanonical,
-    booting,
-    inMicroZone,
-    readingPlace,
-    isDesktop,
-    sheetOpen,
-    plateScreen,
-    listMode,
-    themeFilter: filterThemes,
-    framedFit,
-    server: factsIndex
-      ? {
-          stats: () => factsIndex.value,
-          placeLabel: (lieu) => placeLabel(lieu.key, lieu.city),
-        }
-      : undefined,
-  });
+  !__ANALYSES__
+    ? noScopeAnalysis()
+    : useScopeAnalysis({
+        analyses,
+        preview: toRef(props, "preview"),
+        groups: toRef(props, "groups"),
+        ownAuditions,
+        currentScope,
+        placeByCanonical,
+        booting,
+        inMicroZone,
+        readingPlace,
+        isDesktop,
+        sheetOpen,
+        plateScreen,
+        listMode,
+        themeFilter: filterThemes,
+        framedFit,
+        server: factsIndex
+          ? {
+              stats: () => factsIndex.value,
+              placeLabel: (lieu) => placeLabel(lieu.key, lieu.city),
+            }
+          : undefined,
+      });
 // The room the plates need, bound late for the camera (navState's roomNow box):
 // setCamera reads it at each command, the resize watch above as the width changes.
 nav.roomNow.value = roomNow;
 
 // ---- The focus around the plates (ring/usePlaqueFocus) ----
-const overlayCmp = ref<InstanceType<typeof ScopeAnalysisOverlay> | null>(null);
+const overlayCmp = ref<{ focusPlaque: () => void } | null>(null);
 const { focusPlaqueWhenShown, dropPlaqueFocus } = usePlaqueFocus({
   analyses,
   scopeAnalysis,
@@ -496,7 +523,7 @@ const analysesLive = ref("");
 let liveTimer = 0;
 watch(
   () =>
-    analysesVisible.value && scopeAnalysis.value
+    __ANALYSES__ && analysesVisible.value && scopeAnalysis.value
       ? analysisSummary(scopeAnalysis.value, {
           filtered: listMode.value,
           themeFilter: filterThemes.value,
@@ -755,7 +782,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
     <!-- The analyses, around the raised territory. Over the map, under the
          panel: no z-index of its own, and before the panel in the page. -->
     <ScopeAnalysisOverlay
-      v-if="scopeAnalysis && slabSizesNow"
+      v-if="ScopeAnalysisOverlay && scopeAnalysis && slabSizesNow"
       ref="overlayCmp"
       :analysis="scopeAnalysis"
       :sizes="slabSizesNow"

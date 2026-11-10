@@ -80,11 +80,11 @@ await withSession(driver, async (s) => {
 
 ## Build under test
 
-A staging-shaped build carries the testing tools (`__TEST_TOOLS__`) without the
-dev server:
+A staging-shaped build carries the testing tools (`__TEST_TOOLS__`) and the
+Analyses (`__ANALYSES__`, docs/feature-flags.md) without the dev server:
 
 ```sh
-VITE_APP_ENV=staging npm run build --workspace=@ac/web
+VITE_APP_ENV=staging VITE_ANALYSES=on npm run build --workspace=@ac/web
 npm run preview --workspace=@ac/web -- --host 127.0.0.1 --port <p> --strictPort
 ```
 
