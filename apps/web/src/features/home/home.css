@@ -27,7 +27,8 @@
   scroll-margin-top: 4rem;
 }
 
-/* Focused only by script (the "Découvrir" link): no ring around the band. */
+/* Focused only by script (the hero's "Découvrir" and organise links): no ring
+   around the band. */
 .landing .band:focus {
   outline: none;
 }
