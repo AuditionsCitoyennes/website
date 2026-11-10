@@ -251,14 +251,8 @@ async function placeBanPick(
   const chain = await deps.commune(pick.citycode);
   const point: [number, number] = [pick.lat, pick.lng];
   if (!chain?.centre || distanceKm(point, chain.centre) > PICK_MAX_KM) return null;
-  return placed(
-    location,
-    key,
-    chain,
-    point,
-    pick.type === "municipality" ? "commune" : "address",
-    null,
-  );
+  // Every pick is a precise point (BAN_PICK_TYPES).
+  return placed(location, key, chain, point, "address", null);
 }
 
 /** The deps with the read options bound (`cachedOnly`: no upstream call). */

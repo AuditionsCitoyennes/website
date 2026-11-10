@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, test } from "node:test";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import { PRECISE_ADDRESS_REQUIRED } from "@ac/shared";
 import {
   FakeBan,
   FakeDb,
   FakeGeoApi,
   fakeEnv,
+  fakeToken,
   installFakes,
   type FakeCommune,
   type Row,
@@ -108,6 +110,11 @@ db.rpcs.submit_online_testimony = (args) => {
 };
 db.rpcs.insert_audit_log = () => null;
 db.tables.testimonies = [];
+
+// The admin behind the form's requests.
+const ADMIN = "00000000-0000-4000-8000-0000000000bb";
+db.users = { [ADMIN]: { email: "admin@example.test" } };
+db.tables.user_roles = [{ user_id: ADMIN, role: "admin" }];
 
 let app: FastifyInstance;
 let auditions: typeof import("../auditions/service");
@@ -246,6 +253,8 @@ test("the online form refuses a place without a commune, and a place abroad (for
   assert.equal(rpcCalls.length, 0);
 });
 
+// Service-level calls past the schema: a text without a pick still reaches
+// placeBriefly and placeRefused through a refused pick or a stale old row.
 const input = (location: string, extra: Row = {}) =>
   ({
     title: "Audition",
@@ -257,14 +266,186 @@ const input = (location: string, extra: Row = {}) =>
     ...extra,
   }) as never;
 
-test("an admin creation is stored placed, from its text", async () => {
-  const r = await auditions.createAudition(publicClient, log, "u1", input("bron"));
-  assert.equal(r.kind, "ok");
+// The admin form's requests, through the routes and their schemas.
+const asAdmin = { authorization: `Bearer ${fakeToken(ADMIN)}` };
+const post = (payload: object) =>
+  app.inject({ method: "POST", url: "/api/auditions", payload, headers: asAdmin });
+const patch = (id: unknown, payload: object) =>
+  app.inject({ method: "PATCH", url: `/api/auditions/${id}`, payload, headers: asAdmin });
+const body = (location: string, extra: object = {}) => ({
+  title: "Audition",
+  date: "2026-05-01",
+  location,
+  ...extra,
+});
+const VILLEURBANNE_STREET = {
+  kind: "ban",
+  citycode: "69266",
+  lat: 45.769,
+  lng: 4.88,
+  type: "street",
+} as const;
+const VILLEURBANNE_TOWN = {
+  kind: "ban",
+  citycode: "69266",
+  lat: 45.7707,
+  lng: 4.8846,
+  type: "municipality",
+};
+
+/** Records a refusal's footprint: what reached the database and the geocoders. */
+function watchWrites() {
+  db.requests = [];
+  const units = structuredClone(db.tables.geo_units);
+  const banCalls = ban.calls.length;
+  const geoCalls = geo.calls.length;
+  return () => {
+    const writes = db.requests.filter((r) => r.method !== "GET");
+    assert.deepEqual(writes, [], "nothing written");
+    assert.deepEqual(db.tables.geo_units, units);
+    assert.equal(ban.calls.length, banCalls);
+    assert.equal(geo.calls.length, geoCalls);
+  };
+}
+
+test("a pick a curated lieu claims is placed by its rule", async () => {
+  // "bron" is a curated keyword (LOCATION_RULES): its rule wins over the pick.
+  const place = { kind: "ban", citycode: "69029", lat: 45.7387, lng: 4.9127, type: "street" };
+  const res = await post(body("bron", { place }));
+  assert.equal(res.statusCode, 201, res.body);
   const row = db.tables.auditions[0];
   assert.equal(row.location, "Bron");
   assert.equal(row.lieu_key, "Parvis Médiathèque, Bron");
   assert.equal(row.place_unit, "fr:com:69029");
   assert.equal(row.place_stale, false);
+});
+
+test("an in-person creation without a picked address is refused", async () => {
+  const nothingWritten = watchWrites();
+  const res = await post(body("Bron"));
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().message, PRECISE_ADDRESS_REQUIRED);
+  assert.equal(db.tables.auditions.length, 0);
+  nothingWritten();
+  assert.deepEqual(ban.calls, []);
+});
+
+test("a commune picked as a whole is refused", async () => {
+  const nothingWritten = watchWrites();
+  const res = await post(body("Villeurbanne", { place: VILLEURBANNE_TOWN }));
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().message, PRECISE_ADDRESS_REQUIRED);
+  assert.equal(db.tables.auditions.length, 0);
+  nothingWritten();
+});
+
+test("a street picked from the suggestions is created at the pick", async () => {
+  const street = await post(body("Rue Racine, Villeurbanne", { place: VILLEURBANNE_STREET }));
+  assert.equal(street.statusCode, 201, street.body);
+  const row = db.tables.auditions[0];
+  assert.equal(row.place_precision, "address");
+  assert.deepEqual([row.lat, row.lng], [45.769, 4.88]);
+  assert.equal(row.place_unit, "fr:com:69266");
+  assert.equal(row.lieu_key, row.location);
+
+  const place = { kind: "ban", citycode: "69266", lat: 45.7752, lng: 4.8781, type: "locality" };
+  const square = await post(body("Square Gendron, Villeurbanne", { place }));
+  assert.equal(square.statusCode, 201, square.body);
+  const lieuDit = db.tables.auditions[1];
+  assert.equal(lieuDit.place_precision, "address");
+  assert.deepEqual([lieuDit.lat, lieuDit.lng], [45.7752, 4.8781]);
+  assert.equal(lieuDit.place_unit, "fr:com:69266");
+  assert.equal(lieuDit.lieu_key, lieuDit.location);
+  assert.deepEqual(ban.calls, [], "no geocoder");
+});
+
+test("an in-person move without a pick is refused, the row untouched", async () => {
+  const created = await post(body("Rue Racine, Villeurbanne", { place: VILLEURBANNE_STREET }));
+  assert.equal(created.statusCode, 201, created.body);
+  const row = db.tables.auditions[0];
+  const was = structuredClone(row);
+  const nothingWritten = watchWrites();
+  const res = await patch(row.id, { title: "X", location: "Bron" });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().message, PRECISE_ADDRESS_REQUIRED);
+  assert.deepEqual(row, was);
+  nothingWritten();
+});
+
+test("an edit: a commune pick is refused, a street pick moves it", async () => {
+  const created = await post(body("Rue Racine, Villeurbanne", { place: VILLEURBANNE_STREET }));
+  assert.equal(created.statusCode, 201, created.body);
+  const row = db.tables.auditions[0];
+  const was = structuredClone(row);
+  const nothingWritten = watchWrites();
+  const town = await patch(row.id, { location: "Villeurbanne", place: VILLEURBANNE_TOWN });
+  assert.equal(town.statusCode, 400, town.body);
+  assert.equal(town.json().message, PRECISE_ADDRESS_REQUIRED);
+  assert.deepEqual(row, was);
+  nothingWritten();
+
+  const place = { kind: "ban", citycode: "69266", lat: 45.7731, lng: 4.8862, type: "street" };
+  const moved = await patch(row.id, { location: "Rue Léon Blum, Villeurbanne", place });
+  assert.equal(moved.statusCode, 200, moved.body);
+  assert.deepEqual([row.lat, row.lng], [45.7731, 4.8862]);
+  assert.equal(row.place_unit, "fr:com:69266");
+  assert.equal(row.place_precision, "address");
+  assert.equal(row.lieu_key, row.location);
+  assert.deepEqual(ban.calls, []);
+});
+
+test("an old row's save that keeps its text is accepted, and placed again from its text as today", async () => {
+  db.insert("geo_units", [
+    { id: "FR", parent_id: null, level: "country", country: "FR", name: "France" },
+    { id: "fr:reg:84", parent_id: "FR", level: "region", country: "FR", name: ARA.nom },
+    { id: "fr:dep:69", parent_id: "fr:reg:84", level: "county", country: "FR", name: RHONE.nom },
+  ]);
+  const [old] = db.insert("auditions", [
+    {
+      title: "Audition",
+      date: "2026-05-01",
+      location: "place du marché, bron",
+      content: "",
+      status: "published",
+      audition_en_ligne: false,
+      place_unit: "fr:dep:69",
+      place_path: ["FR", "fr:reg:84", "fr:dep:69"],
+      lieu_key: "place du marché, bron",
+      lat: 45.87,
+      lng: 4.64,
+      place_precision: "departement",
+      placed_location: "place du marché, bron",
+    },
+  ]);
+  const res = await patch(old.id, { title: "Renamed", location: "place du marché, bron" });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(old.title, "Renamed");
+  assert.equal(old.location, "Place Du Marché, Bron");
+  // The curated Bron rule's place, as an old row's save gets it today.
+  assert.equal(old.lieu_key, "Parvis Médiathèque, Bron");
+  assert.equal(old.place_unit, "fr:com:69029");
+  assert.equal(old.place_stale, false);
+  assert.deepEqual([old.lat, old.lng], [45.7387, 4.9127]);
+  assert.equal(old.place_precision, "address");
+});
+
+test("an online audition's edit without a pick is as today", async () => {
+  const [bucket] = db.insert("auditions", [
+    {
+      title: "Audition en ligne de mai",
+      date: "2026-05-01",
+      location: "Mairie de Bron (69)",
+      content: "",
+      status: "published",
+      audition_en_ligne: true,
+      citycode: "69029",
+      place: { insee: "69029", lat: 45.7389, lng: 4.9132 },
+    },
+  ]);
+  const res = await patch(bucket.id, { title: "T", location: "Ailleurs" });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(bucket.title, "T");
+  assert.equal(bucket.location, "Mairie de Bron (69)");
 });
 
 test("an admin creation with a BAN pick is stored at the pick, no geocoder call", async () => {
@@ -325,11 +506,32 @@ test("an admin edit re-places on a move, a pick or a stale row — and only then
   assert.equal(geo.calls.length, geoCalls);
   assert.equal(row.title, "Renamed");
 
-  // Moved: placed where it now is, in the same write.
-  await auditions.updateAudition(publicClient, log, "u1", id, { location: "bron" });
-  assert.equal(row.location, "Bron");
-  assert.equal(row.place_unit, "fr:com:69029");
+  // Moved without a pick: refused, the row as it was.
+  const was = structuredClone(row);
+  const refused = await auditions.updateAudition(publicClient, log, "u1", id, {
+    location: "bron",
+  });
+  assert.deepEqual(refused, { kind: "needsAddress" });
+  assert.deepEqual(row, was);
+
+  // Moved with a pick: placed where it now is, in the same write.
+  const givors = {
+    kind: "ban",
+    citycode: "69091",
+    lat: 45.591,
+    lng: 4.77,
+    type: "street",
+  } as const;
+  await auditions.updateAudition(publicClient, log, "u1", id, {
+    location: "Rue Jean Jaurès, Givors",
+    place: givors,
+  });
+  assert.equal(row.location, "Rue Jean Jaurès, Givors");
+  assert.equal(row.place_unit, "fr:com:69091");
+  assert.deepEqual([row.lat, row.lng], [45.591, 4.77]);
+  assert.equal(row.lieu_key, row.location);
   assert.equal(row.place_stale, false);
+  assert.deepEqual(ban.calls, []);
 
   // A pick: placed at the pick.
   const place = { kind: "ban", citycode: "69266", lat: 45.769, lng: 4.88, type: "street" } as const;
@@ -432,10 +634,11 @@ test("a place the table refuses: the audition is stored all the same, stale", as
   forgetGeoUnits();
   const updated = await auditions.updateAudition(publicClient, log, "u1", String(row.id), {
     title: "Renamed",
-    location: "Bron",
+    location: "Rue Jean Jaurès, Givors",
+    place: { kind: "ban", citycode: "69091", lat: 45.591, lng: 4.77, type: "street" },
   });
   assert.equal(updated.kind, "ok");
-  assert.equal(row.location, "Bron");
+  assert.equal(row.location, "Rue Jean Jaurès, Givors");
   assert.equal(row.title, "Renamed");
   assert.equal(row.place_stale, true);
 });

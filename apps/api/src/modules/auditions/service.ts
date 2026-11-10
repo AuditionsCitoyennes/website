@@ -629,7 +629,7 @@ export async function updateAudition(
   actorId: string,
   id: string,
   input: UpdateAuditionInput,
-): Promise<{ kind: "ok" } | DbError> {
+): Promise<{ kind: "ok" } | { kind: "needsAddress" } | DbError> {
   // What the audition held: for the audit entry, to tell which fields the
   // save really changed (the form sends them all every time), and for its
   // place. Best effort: a draft is not readable until the policy migration
@@ -661,6 +661,16 @@ export async function updateAudition(
     where !== undefined && (input.place !== undefined || moved || before?.place_stale === true);
   const abroad =
     replace && !input.place && before ? keepPlacedAbroad({ ...before, location: where }) : null;
+  // An in-person audition goes to a precise address: moving it needs a new
+  // pick. Before anything is written, compared on the normalised text (an
+  // old row's spelling is not a move). Unknown when the audition could not
+  // be read: as before. A lieu placed abroad may be renamed (no pick exists
+  // for it yet).
+  const moving =
+    before && !online && next.location !== undefined
+      ? next.location !== normalizeLocation(before.location)
+      : false;
+  if (moving && !input.place && !abroad) return { kind: "needsAddress" };
   const placement = replace ? (abroad ?? (await placeBriefly(where, input.place, log))) : null;
   // With the location it was computed from, in the same write; for a
   // location the form did not send, only where it is still that one.

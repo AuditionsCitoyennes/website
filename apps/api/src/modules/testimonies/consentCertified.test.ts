@@ -62,7 +62,8 @@ const post = (url: string, payload: object) =>
 const newAudition = (extra: object) => ({
   title: "Audition de la place",
   date: "2026-11-01",
-  location: "Bron",
+  location: "Rue Racine, Villeurbanne",
+  place: { kind: "ban", citycode: "69266", lat: 45.769, lng: 4.88, type: "street" },
   content: "Sur la place du marché.",
   ...extra,
 });

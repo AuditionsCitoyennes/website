@@ -92,8 +92,12 @@ export interface PlaceCandidate extends LieuCandidate {
   population: number | null;
 }
 
-/** BAN's result types, as an admin picks one (housenumber, street, lieu-dit, commune). */
-export const BAN_PICK_TYPES = ["housenumber", "street", "locality", "municipality"] as const;
+/**
+ * BAN's result types an admin may pick: a house number, a street, a lieu-dit or
+ * named place — precise points. A whole commune (`municipality`) is not offered:
+ * a new in-person audition goes to a precise address.
+ */
+export const BAN_PICK_TYPES = ["housenumber", "street", "locality"] as const;
 
 /** An address an admin picked from the BAN suggestions: the audition is placed there. */
 export interface BanPick {

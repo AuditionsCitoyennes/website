@@ -284,11 +284,11 @@ test("an explicit BAN pick places the audition there, never reusing another's", 
   assert.equal(p.columns.lieu_key, "Rue Francis De Pressensé, Villeurbanne");
   assert.deepEqual(calls.locate, []);
 
-  // A commune picked as a whole: precision commune.
-  const town = placed(
-    await placeLieu("Villeurbanne", { deps: d, pick: { ...pick, type: "municipality" } }),
+  // A lieu-dit picked: precision address.
+  const lieuDit = placed(
+    await placeLieu("Villeurbanne", { deps: d, pick: { ...pick, type: "locality" } }),
   );
-  assert.equal(town.columns.place_precision, "commune");
+  assert.equal(lieuDit.columns.place_precision, "address");
 
   // A curated lieu picked: its rule places it, at its curated point.
   const curated = placed(

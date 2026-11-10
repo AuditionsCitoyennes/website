@@ -53,18 +53,25 @@ export const updateTestimonySchema = z.object({
 /** An INSEE commune (or arrondissement) code: 69387, 2A004. */
 const INSEE_COMMUNE = /^(\d{5}|2[AB]\d{3})$/;
 
+/** What a volunteer is told when an in-person audition has no precise address picked from the suggestions. */
+export const PRECISE_ADDRESS_REQUIRED = "Choisissez une adresse précise dans les suggestions.";
+
 /**
  * The address an admin picked from the suggestions, beside the lieu's text:
- * the audition is placed there (the server checks it against the commune).
- * Picks from the world gazetteer arrive with the places picker.
+ * the place an in-person audition needs. The audition is placed there (the
+ * server checks it against the commune). Picks from the world gazetteer arrive
+ * with the places picker.
  */
-export const placePickSchema = z.object({
-  kind: z.literal("ban"),
-  citycode: z.string().regex(INSEE_COMMUNE, "Lieu invalide : choisissez-le dans la liste"),
-  lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
-  type: z.enum(BAN_PICK_TYPES),
-});
+export const placePickSchema = z.object(
+  {
+    kind: z.literal("ban"),
+    citycode: z.string().regex(INSEE_COMMUNE, "Lieu invalide : choisissez-le dans la liste"),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    type: z.enum(BAN_PICK_TYPES, { error: PRECISE_ADDRESS_REQUIRED }),
+  },
+  { error: PRECISE_ADDRESS_REQUIRED },
+);
 
 export const createAuditionSchema = z
   .object({
@@ -75,7 +82,9 @@ export const createAuditionSchema = z
       .trim()
       .min(1, "Le lieu est requis")
       .max(300, "Le lieu est trop long (300 caractères au plus)"),
-    place: placePickSchema.optional(),
+    // An in-person audition needs a precise address (the only kind created
+    // here: online ones come from submit_online_testimony).
+    place: placePickSchema,
     content: z.string().trim().default(""),
     status: auditionStatusSchema.default("published"),
     testimonies: z
