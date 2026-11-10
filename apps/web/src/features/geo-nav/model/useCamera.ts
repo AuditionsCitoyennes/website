@@ -1,22 +1,15 @@
 // The camera commands GeoDrillMap is handed: a unit framed so that it becomes
-// the scope, a lieu spotlighted, the results framed once the list has stopped
-// changing. Every command pins the optimistic scope until the flight lands and
-// runs the ring's hook first (ring/useAnalysesRing registers it; neither
-// imports the other).
+// the scope, a lieu spotlighted, the visitor's country framed once the filters'
+// answer has stopped changing. Every command pins the optimistic scope until
+// the flight lands and runs the ring's hook first (ring/useAnalysesRing
+// registers it; neither imports the other).
 import { markRaw, onBeforeUnmount, ref, shallowRef, type ComputedRef, type Ref } from "vue";
-import {
-  ancestorsOf,
-  type Bounds,
-  type GeoUnit,
-  lngNear,
-  selfFileOf,
-  SPAN_DESCEND,
-} from "@/features/geo";
+import { ancestorsOf, type GeoUnit, lngNear, selfFileOf, SPAN_DESCEND } from "@/features/geo";
 import type { CameraCmd } from "@/features/map";
 import { frameFill } from "@/features/analyses";
 import type { NavState } from "../navState";
 import type { OutlineFiles } from "../data/useOutlineFiles";
-import { resultBounds } from "./auditions";
+import { filterFrameUnit, stillFramed } from "./filterFrame";
 import { worldFrame } from "./worldFrame";
 
 /** What the camera needs of the map component (GeoDrillMap's exposed API). */
@@ -30,27 +23,15 @@ export interface CameraInputs {
   index: ComputedRef<Map<string, GeoUnit>>;
   raisedGeometryFor: (u: GeoUnit) => unknown;
   containsPoint: (u: GeoUnit, lat: number, lng: number) => boolean;
-  allPlaceUnits: ComputedRef<GeoUnit[]>;
   /** The outline files (GeoNav: under the server's tree); null: none read. */
   outlines: OutlineFiles | null;
   mapCmp: Ref<MapHandle | null>;
   listMode: ComputedRef<boolean>;
-  /**
-   * Where the results' lieux stand, the server's tree being the source (map
-   * phase 1; absent: "ready"). "pending": the filters' answer is not on
-   * screen yet — the fit waits for it (resultsArrived); "partial": the tree on
-   * screen holds only some of them (the lazy path) — no fit, rather than one
-   * on the few loaded (PR K brings the server's frame).
-   */
-  resultsFrame?: () => "ready" | "pending" | "partial";
-  /** The server's lists: the results' frame is theirs (the first page's,
-   *  resultBounds over every result's lieu), not the tree's lieux'. */
-  resultsBounds?: () => Bounds | null;
 }
 
 export function useCamera(inputs: CameraInputs) {
-  const { nav, index, raisedGeometryFor, containsPoint, allPlaceUnits, mapCmp } = inputs;
-  const { listMode, resultsFrame, resultsBounds, outlines } = inputs;
+  const { nav, index, raisedGeometryFor, containsPoint, mapCmp } = inputs;
+  const { listMode, outlines } = inputs;
   const { currentScope, inMicroZone, openAuditions } = nav;
 
   const camera = ref<CameraCmd | null>(null);
@@ -214,48 +195,49 @@ export function useCamera(inputs: CameraInputs) {
     setCamera({ type: "spotlight", center: unit.center, animate: true, arc });
   }
 
-  // The map frames every lieu of the results. Not on each keystroke of a search:
-  // once the list has stopped changing. And not from under someone reading an
-  // audition — the map is on its lieu.
+  // While filters are on, the map frames the country the visitor is in, as its
+  // crumb would — not every lieu of the results, a world-wide frame as a rule;
+  // at the world it stays put. Not on each keystroke of a search: once the
+  // answer has stopped changing. Not again while the map still stands on that
+  // frame. And not from under someone reading an audition — the map is on its
+  // lieu. The ring's calls owe a command (it flips only with one: see
+  // useAnalysesRing): framed even when it stands there, the world at the world.
   let fitTimer = 0;
-  /** A fit was due while the results' lieux were on their way. */
-  let fitOwed = false;
-  function scheduleResultsFit() {
+  /** A ring's call is waiting: the next frame is issued whatever stands. */
+  let frameOwed = false;
+  /** The camera key a hand last moved the map under: that frame is left. */
+  let movedAtKey = -1;
+  /** A hand moved the map (GeoDrillMap's userGesture: a wheel's zoom too,
+   *  whose view is not `byUser` — mapbox starts it with no DOM event). */
+  function handMoved() {
+    movedAtKey = nav.cameraKey.value;
+  }
+  function scheduleFilterFrame(owed = false) {
+    frameOwed ||= owed;
     window.clearTimeout(fitTimer);
     fitTimer = window.setTimeout(() => {
-      if (!listMode.value || openAuditions.value.size > 0) return;
+      if (!listMode.value || openAuditions.value.size > 0) {
+        frameOwed = false;
+        return;
+      }
       // Not from under a hand on the map (a camera command ends the gesture):
       // it comes back once the map is let go.
       if (mapCmp.value?.inUserHands()) {
-        scheduleResultsFit();
+        scheduleFilterFrame();
         return;
       }
-      const frame = resultsFrame?.() ?? "ready";
-      fitOwed = frame === "pending";
-      if (frame !== "ready") return;
-      const bounds = resultsBounds ? resultsBounds() : resultBounds(allPlaceUnits.value);
-      if (!bounds) return;
-      setCamera({
-        type: "fit",
-        center: [(bounds.minLat + bounds.maxLat) / 2, (bounds.minLng + bounds.maxLng) / 2],
-        bounds,
-        animate: true,
-      });
-      // The slabs of the territory raised are sized for where this lands — not
-      // for the camera of the moment, mid-flight (another unit raised once it
-      // lands is sized then, for the map as it is).
-      framedFit.value = { key: nav.cameraKey.value, unitId: currentScope.value.id };
+      const owe = frameOwed;
+      frameOwed = false;
+      const country = filterFrameUnit(currentScope.value, index.value, true);
+      const unit = country ?? (owe ? currentScope.value : null);
+      if (!unit) return; // the world: a filter does not move the map
+      const moved = movedAtKey === nav.cameraKey.value;
+      if (!owe && stillFramed(unit.id, framedFit.value, nav.cameraKey.value, moved)) return;
+      currentScope.value = unit; // optimistic, as a crumb — see useNavActions.activate()
+      flyToUnit(unit, true);
     }, 350);
   }
   onBeforeUnmount(() => window.clearTimeout(fitTimer));
-
-  /** The results' lieux are on screen (the server's tree swapped in): the fit
-   *  that waited for them, if one did. */
-  function resultsArrived() {
-    if (!fitOwed) return;
-    fitOwed = false;
-    scheduleResultsFit();
-  }
 
   return {
     camera,
@@ -264,8 +246,8 @@ export function useCamera(inputs: CameraInputs) {
     onBeforeCommand,
     flyToUnit,
     spotlightPlace,
-    scheduleResultsFit,
-    resultsArrived,
+    scheduleFilterFrame,
+    handMoved,
   };
 }
 
