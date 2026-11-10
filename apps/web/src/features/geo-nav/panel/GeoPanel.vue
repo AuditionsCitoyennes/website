@@ -105,7 +105,8 @@ defineExpose({ el, peekEl, safeEl, listEl });
       <!-- Breadcrumb: where the map is; click a crumb to fly back out. One
            line only — leading crumbs collapse into "…" when room runs out,
            and the "…" flies back to the deepest ancestor it wraps. With a
-           lieu open the trail stays and ends at the lieu itself. -->
+           lieu open the trail stays and ends at the lieu itself; an arrow
+           before it goes one level up (backTarget.ts). -->
       <PanelBreadcrumb
         v-if="crumbs"
         :trail="crumbs"
