@@ -861,6 +861,11 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       aria-hidden="true"
     ></div>
 
+    <!-- Over the map's bottom-right corner (TemoignagesExplorer: the testing
+         tools' menu, not in production): inside the page, so it follows
+         --panel-cover. -->
+    <slot name="map-tools" />
+
     <!-- Boot curtain: covers map AND panel, so nothing half-built is on show.
          Lifts on its own (see `booting`) and is inert once gone. -->
     <Transition name="boot">

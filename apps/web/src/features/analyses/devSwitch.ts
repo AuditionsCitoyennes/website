@@ -1,8 +1,9 @@
-// The analyses' slabs' choices, compared live (the overlay's DEV switch), in
-// the builds with the testing tools — the dev server and staging
-// (__TEST_TOOLS__, vite.config): shared by GeoNav (the camera's room, the
-// slabs' spec) and the overlay (the words' ground). Production keeps the
-// defaults, which these refs never leave there (no switch is drawn).
+// The analyses' slabs' choices, compared live (the Témoignages page's testing
+// options menu, temoignages/DevOptionsMenu.vue), in the builds with the
+// testing tools — the dev server and staging (__TEST_TOOLS__, vite.config):
+// shared by GeoNav (the camera's room, the slabs' spec) and the overlay (the
+// words' ground). Production keeps the defaults, which these refs never leave
+// there (no switch is drawn).
 //
 // - The lid of the words' pieces (the label's box, the plaque): "verre" (the
 //   default) — glass, the map under it seen blurred and brightened, the words
@@ -18,14 +19,13 @@
 //   default).
 // - "Cadrage": how much of its rectangle a clicked territory fills once
 //   framed, on the axis that limits it (map/lib/slabs: FRAME_FILL, the default) —
-//   every territory's fit, the analyses shown or not (the switch is drawn
-//   with them).
+//   every territory's fit, the analyses shown or not.
 // - "Anneau": the themes' ring's band, per px of its outer diameter — "fin"
 //   (the band of before, its hole the larger), "moyen" (analyses/content/ring:
 //   RING_THICK, the default) or "epais". The ring's box stays as it is: no
 //   room, no slab moves.
-// - "Analyses en attente" (the Témoignages page's DEV data switch, map phase
-//   1): the server's tree sends a unit's figures with its own answer or its
+// - "Analyses en attente" (the testing options menu, map phase 1): the
+//   server's tree sends a unit's figures with its own answer or its
 //   parent's; on the lazy path a deep jump reaches a unit before them. Until
 //   they come the plates keep the previous figures ("garder", the default) or
 //   show none ("masquer"). Production keeps "garder", read nowhere: every
