@@ -79,7 +79,8 @@ type Column = (typeof COLUMNS)[number];
 /**
  * The design's edge lieux (map phase 1, F1): where each must be; for a
  * same-named commune, what settles it (population alone, or only the lieux
- * placed in its département: placement_support()).
+ * placed in its département: placement_support()). Every one is at an
+ * address but the three off the map on purpose (places.ts OFF_THE_MAP).
  */
 const EDGES: Record<
   string,
@@ -90,12 +91,26 @@ const EDGES: Record<
     settledBy?: "population" | "support";
   }
 > = {
-  Ardèche: { unit: "fr:dep:07", precision: "departement", candidates: false },
+  "Place Jean Marcellin, Gap, Hautes-Alpes": {
+    unit: "fr:com:05061",
+    precision: "address",
+    candidates: false,
+  },
+  "Place de l'Hôtel de Ville, Privas (Ardèche)": {
+    unit: "fr:com:07186",
+    precision: "address",
+    candidates: false,
+  },
   "Saint-Denis": { unit: null, precision: "unplaced", candidates: true },
-  Serres: { unit: "fr:com:05166", precision: "commune", candidates: true, settledBy: "population" },
-  Châteauvieux: {
+  "Rue de l'Église, Serres": {
+    unit: "fr:com:05166",
+    precision: "address",
+    candidates: true,
+    settledBy: "population",
+  },
+  "Chemin du Moulin, Châteauvieux": {
     unit: "fr:com:05037",
-    precision: "commune",
+    precision: "address",
     candidates: true,
     settledBy: "support",
   },
