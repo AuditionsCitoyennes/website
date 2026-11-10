@@ -2,7 +2,8 @@
 // stand for: every key a switch reads has its row (and a later key without
 // one fails), the sentences are plain French with their no-break spaces, the
 // reload mark follows the setter, the choices and the marked default are the
-// module's. The modules without imports are loaded (a build without the
+// module's, a row off its default is found and every row's key cleared. The
+// modules without imports are loaded (a build without the
 // testing tools: storage unread); analyses/devSwitch.ts, which imports
 // "@/features/map/lib", and the defaults passed as arguments are read as
 // text. Run with `node --import tsx --test` (root "test:scripts"). Pure: no
@@ -11,7 +12,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { DEV_DESCRIPTION, DEV_OPTIONS, DEV_SECTIONS, type DevKey } from "./devOptions";
+import {
+  DEV_CHANGED_MARK,
+  DEV_DESCRIPTION,
+  DEV_NONE_CHANGED,
+  DEV_OPTIONS,
+  DEV_RESET_LABEL,
+  DEV_SECTIONS,
+  changedCount,
+  changedOptions,
+  clearOptions,
+  type DevKey,
+} from "./devOptions";
 
 (globalThis as unknown as { __TEST_TOOLS__: boolean }).__TEST_TOOLS__ = false;
 const data = await import("./dataSource");
@@ -94,6 +106,11 @@ const LOOSE_SPACE = /« |[ ][»;:?%]/;
 test("the sentences are plain French, long enough, with their no-break spaces", () => {
   const texts = [
     DEV_DESCRIPTION,
+    DEV_CHANGED_MARK,
+    DEV_NONE_CHANGED,
+    DEV_RESET_LABEL,
+    changedCount(1),
+    changedCount(3),
     ...DEV_SECTIONS.flatMap((s) => [s.title, s.intro]),
     ...DEV_OPTIONS.flatMap((o) => [o.label, o.explain]),
   ];
@@ -221,4 +238,47 @@ test("the default marked in each sentence is the module's", () => {
       assert.equal(quoted, label, o.key);
     }
   }
+});
+
+const defaults = Object.fromEntries(DEV_OPTIONS.map((o) => [o.key, o.defaultId]));
+const changedWith = (now: Partial<Record<DevKey, string>>) =>
+  changedOptions((key) => now[key] ?? defaults[key]).map((o) => o.key);
+
+test("the rows off their default are found, in the menu's order", () => {
+  assert.deepEqual(changedWith({}), []);
+  assert.deepEqual(changedWith({ "ac:data-source": "corpus" }), ["ac:data-source"]);
+  assert.deepEqual(changedWith({ "ac:data-source": "comparer" }), ["ac:data-source"]);
+  // A share is read as the switch stores it, and a default kept on purpose is not a change.
+  assert.deepEqual(
+    changedWith({ "ac:ring-band": "fin", "ac:frame-fill": "100", "ac:lid": "ecran" }),
+    ["ac:frame-fill", "ac:ring-band"],
+  );
+  // Every other choice of every row counts, alone.
+  for (const o of DEV_OPTIONS) {
+    for (const c of o.choices) {
+      assert.deepEqual(changedWith({ [o.key]: c.id }), c.id === o.defaultId ? [] : [o.key]);
+    }
+  }
+  assert.equal(changedCount(1), "1 choix modifié");
+  assert.equal(changedCount(2), "2 choix modifiés");
+});
+
+test("the reset removes the key of every row, and no other", () => {
+  const kept = new Map<string, string>([
+    ...KEYS.map((k): [string, string] => [k, "x"]),
+    ...NO_ROW.map((k): [string, string] => [k, "x"]),
+    ["sb-auth-token", "x"],
+  ]);
+  clearOptions((key) => kept.delete(key));
+  assert.deepEqual([...kept.keys()], [...NO_ROW, "sb-auth-token"]);
+});
+
+test("« Données » says what the map loses with the corpus and the comparer", () => {
+  const { explain } = row("ac:data-source");
+  const after = explain.split("par défaut")[1];
+  assert.match(
+    after,
+    /Avec «\u00a0Corpus\u00a0» et «\u00a0Comparer\u00a0», la carte ne montre que les points des lieux/,
+  );
+  for (const lost of ["contour", "relief", "analyses"]) assert.ok(after.includes(lost), lost);
 });

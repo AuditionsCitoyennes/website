@@ -49,6 +49,13 @@ export interface DevOption {
 export const DEV_DESCRIPTION =
   "Ces options servent aux essais, sur un poste de développement et sur le site de pré-production ; le site public n'en a aucune. Chaque choix reste enregistré dans ce navigateur. ↻ : changer cette option recharge la page.";
 
+/** The mark of a row whose choice is not the default, and of the dialog's top line. */
+export const DEV_CHANGED_MARK = "modifié";
+export const DEV_NONE_CHANGED = "Aucun choix modifié.";
+export const DEV_RESET_LABEL = "Tout remettre par défaut";
+/** "1 choix modifié", "3 choix modifiés": the top line's and the DEV button's count. */
+export const changedCount = (n: number) => `${n} choix ${DEV_CHANGED_MARK}${n > 1 ? "s" : ""}`;
+
 export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: string }[] = [
   {
     id: "donnees",
@@ -82,7 +89,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "comparer", label: "Comparer" },
     ],
     explain:
-      "D'où la page tire ses chiffres et ses listes. « Serveur » (par défaut, comme le site public) les demande au serveur ; « Corpus » télécharge tous les témoignages et compte dans la page ; « Comparer » affiche ceux du serveur, recompte à côté et signale les écarts (pastille Δ).",
+      "D'où la page tire ses chiffres et ses listes. « Serveur » (par défaut, comme le site public) les demande au serveur ; « Corpus » télécharge tous les témoignages et compte dans la page ; « Comparer » affiche ceux du serveur, recompte à côté et signale les écarts (pastille Δ). Avec « Corpus » et « Comparer », la carte ne montre que les points des lieux : elle ne trace pas le contour des territoires, ne soulève pas en relief celui qui est choisi et ne pose pas les analyses autour de lui.",
     reloads: true,
     defaultId: "serveur",
   },
@@ -230,3 +237,15 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     defaultId: "moyen",
   },
 ];
+
+/** The rows whose choice now (`read`: a key's value, as its switch stores it)
+ *  is not the default, in the menu's order. */
+export function changedOptions(read: (key: DevKey) => string): DevOption[] {
+  return DEV_OPTIONS.filter((o) => read(o.key) !== o.defaultId);
+}
+
+/** Every row back to its default: its stored key removed (`remove`:
+ *  localStorage's). The caller loads the page again, once. */
+export function clearOptions(remove: (key: DevKey) => void) {
+  for (const o of DEV_OPTIONS) remove(o.key);
+}
