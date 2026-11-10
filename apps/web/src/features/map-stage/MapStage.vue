@@ -249,7 +249,7 @@ onBeforeUnmount(() => stopTitleWatch?.());
   inset: 0;
   z-index: 20;
   display: flex;
-  /* Top right: the bottom corners hold Mapbox's logo and attribution. */
+  /* Top right: the corners below and, on a desktop, top left hold Mapbox's logo, zoom and credits. */
   align-items: flex-start;
   justify-content: flex-end;
   padding: 1rem;
