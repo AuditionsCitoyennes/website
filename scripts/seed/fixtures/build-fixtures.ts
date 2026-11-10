@@ -7,6 +7,8 @@
 //
 //   npx tsx scripts/seed/fixtures/build-fixtures.ts
 //
+// Every lieu but those of OFF_THE_MAP must come out at an address (a street
+// or a square), or nothing is written.
 // No database: the reuse of a lieu already placed and the support that
 // settles same-named communes (placement_support()) are computed over the
 // seed's own lieux, as the placement job does over a pass. Every lieu
@@ -23,7 +25,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import prettier from "prettier";
 import type { Placement, StoredPlace } from "../../../apps/api/src/modules/places/placeLieu";
-import { FRANCE_CLUSTERS, ONLINE_TOWN_HALLS } from "../places";
+import { FRANCE_CLUSTERS, OFF_THE_MAP, ONLINE_TOWN_HALLS } from "../places";
 import {
   FR_PLACES_FILE,
   FR_UNITS_FILE,
@@ -222,6 +224,15 @@ for (const location of locations) {
 }
 const places: FrPlaces = { rules: RULES, lieux, online };
 
+const imprecise = locations.filter(
+  (l) => lieux[l].place_precision !== "address" && !OFF_THE_MAP.includes(l),
+);
+if (imprecise.length > 0)
+  throw new Error(
+    `not at an address (a street or a square): ${imprecise.map((l) => `"${l}" ${lieux[l].place_precision}`).join(", ")}`,
+  );
+console.log(`every lieu at an address but ${OFF_THE_MAP.length} off the map on purpose`);
+
 async function writeJson(file: URL, value: unknown) {
   const path = fileURLToPath(file);
   const options = (await prettier.resolveConfig(path)) ?? {};
@@ -240,7 +251,8 @@ console.log(
     `${count((p) => p.place_candidates !== null)} with same-named communes), ` +
     `${Object.keys(online).length} town halls; rules ${RULES}`,
 );
-for (const location of ["Ardèche", "Saint-Denis", "Serres", "Châteauvieux", "Ribiers", "France"]) {
+const edges = FRANCE_CLUSTERS.find((c) => c.name === "edges")!.places.map((p) => p.location);
+for (const location of edges) {
   const p = lieux[location];
   if (!p) continue;
   const candidates = p.place_candidates?.map((c) => `${c.citycode} (${c.departementCode})`);

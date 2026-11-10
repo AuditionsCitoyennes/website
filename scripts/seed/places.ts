@@ -61,11 +61,11 @@ const LYON: Cluster = {
     { location: "Place Sathonay, Lyon", times: 1 },
     { location: "Quai Saint-Vincent, Lyon", times: 1 },
     { location: "Place Carnot, Lyon", times: 1 },
-    { location: "La Tour-du-Pin", times: 4, legacy: 1 },
+    { location: "Place Antonin Dubost, La Tour-du-Pin", times: 4, legacy: 1 },
   ],
 };
 
-/** Hautes-Alpes villages, typed as bare commune names: the map's rural side. */
+/** Hautes-Alpes villages, each at its square or main street: the map's rural side. */
 const ALPS: Cluster = {
   name: "alps",
   daysAgo: [30, 420],
@@ -78,14 +78,14 @@ const ALPS: Cluster = {
     climat: 3,
   },
   places: [
-    "Embrun",
-    "Briançon",
-    "Guillestre",
-    "Veynes",
-    "Saint-Bonnet-en-Champsaur",
-    "L'Argentière-la-Bessée",
-    "Orpierre",
-    "Remollon",
+    "Place Barthelon, Embrun",
+    "Place d'Armes, Briançon",
+    "Place Joseph Salva, Guillestre",
+    "Avenue Commandant Dumont, Veynes",
+    "Place Grenette, Saint-Bonnet-en-Champsaur",
+    "Rue de la République, L'Argentière-la-Bessée",
+    "Grand Rue, Orpierre",
+    "Rue de l'Église, Remollon",
   ].map((location) => ({ location, times: 1 })),
 };
 
@@ -103,39 +103,50 @@ const ELSEWHERE: Cluster = {
     "Place Royale, Nantes",
     "Place Grenette, Grenoble",
     "Place de Jaude, Clermont-Ferrand",
-    "Aurillac",
-    "Mende",
+    "Place de l'Hôtel de Ville, Aurillac",
+    "Place Urbain V, Mende",
   ].map((location) => ({ location, times: 1 })),
 };
 
 /**
- * Places that test the edges of geocoding: a département instead of a town,
- * overseas towns (outside the map's mainland box), same-named communes
- * (Saint-Denis, 93 or Réunion, left unplaced; Serres, settled in the
- * Hautes-Alpes by population alone, that one being over five times the size
- * of any other; Châteauvieux, three of nearly the same size, settled in the
+ * Places that test the edges of geocoding, each at a street or a square but
+ * the three of OFF_THE_MAP: a street named with its département (after a
+ * comma, in parentheses), overseas towns (outside the map's mainland box),
+ * same-named communes (Saint-Denis, 93 or Réunion, left unplaced; Serres,
+ * whose street is in more than one of them, settled in the Hautes-Alpes by
+ * population alone, that one being over five times the size of any other;
+ * Châteauvieux, likewise, three of nearly the same size, settled in the
  * Hautes-Alpes only by the lieux the seed holds there: placement_support()),
  * a commune merged into another (Ribiers, a commune déléguée: no commune by
- * that name), a name that is no place ("France"), a very long place name.
+ * that name), a name that is no place ("France"), a very long street name in
+ * one of several same-named communes.
  */
 const EDGES: Cluster = {
   name: "edges",
   daysAgo: [60, 420],
   boost: {},
   places: [
-    "Hautes-Alpes",
-    "Ardèche",
-    "Fort-de-France",
-    "Saint-Pierre, La Réunion",
-    "Cayenne",
+    "Place Jean Marcellin, Gap, Hautes-Alpes",
+    "Place de l'Hôtel de Ville, Privas (Ardèche)",
+    "Rue Victor Hugo, Fort-de-France",
+    "Boulevard Hubert Delisle, Saint-Pierre, La Réunion",
+    "Place des Palmistes, Cayenne",
     "Saint-Denis",
-    "Serres",
-    "Châteauvieux",
+    "Rue de l'Église, Serres",
+    "Chemin du Moulin, Châteauvieux",
     "Ribiers",
     "France",
-    "Parvis de la Maison des Jeunes et de la Culture du quartier des États-Unis, Lyon 8",
+    "Place de la Résistance et des Martyrs de la Déportation, Chaumont",
   ].map((location) => ({ location, times: 1 })),
 };
+
+/**
+ * The seed's in-person lieux that are on no point ON PURPOSE (every other one
+ * sits at a street or a square: build-fixtures.ts refuses otherwise):
+ * same-named communes none of which the seed settles, a commune déléguée,
+ * a general lieu.
+ */
+export const OFF_THE_MAP: readonly string[] = ["Saint-Denis", "Ribiers", "France"];
 
 export const FRANCE_CLUSTERS: Cluster[] = [LYON, ALPS, ELSEWHERE, EDGES];
 
