@@ -58,7 +58,12 @@ export {
   type RootV1,
   type UFileV1,
 } from "./outlines";
-export { OUTLINE_WAIT_MS, OutlineLoader, type OutlineStatus } from "./outlineLoader";
+export {
+  OUTLINE_WAIT_MS,
+  OutlineLoader,
+  type OutlineReady,
+  type OutlineStatus,
+} from "./outlineLoader";
 export {
   countryOutline,
   globeBatch,

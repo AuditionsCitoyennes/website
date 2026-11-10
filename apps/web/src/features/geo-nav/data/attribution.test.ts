@@ -14,7 +14,7 @@ const world = boundaryAttribution({ session: "ok", countries: true });
 test("no credit until the files are in, after a fallback, or with no files read", () => {
   const none = boundaryAttribution({ session: null, countries: false });
   assert.deepEqual(none, []);
-  const sessions: OutlineSession[] = [null, "loading", "fallback"];
+  const sessions: OutlineSession[] = [null, "loading", "late", "fallback"];
   for (const session of sessions) {
     for (const countries of [false, true]) {
       assert.equal(boundaryAttribution({ session, countries }), none);

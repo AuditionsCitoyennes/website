@@ -90,9 +90,10 @@ const analyses = defineModel<boolean>("analyses", { default: false });
 // ---- Data: the static outline files (data/useOutlineFiles) ----
 // Under the server's tree only, whose unit ids are the files' (the corpus'
 // are paths; the comparer reads none either): null there, every unit known
-// absent. A session that falls back — at boot (root.json, k/FR, the 6 s cap),
-// or on a release skew of any later file — is known absent from then on
-// (model/outlineRules).
+// absent. A session that falls back — at boot (root.json, k/FR), or on a
+// release skew of any later file — is known absent from then on
+// (model/outlineRules). A boot past the loader's 6 s cap goes on without the
+// curtain (`ready` "late"): the plateau rises when its files land.
 const outlines = unitTree && !props.comparing ? useOutlineFiles() : null;
 if (outlines) void outlines.ensureRoot();
 // The boundaries' credits (data/attribution), after the data actually drawn:
@@ -153,7 +154,9 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 // testimonies, and the outline files that view is drawn from — their boot
 // (root.json, k/FR: the country and its régions). Départements and communes
 // come on demand when drilling, so waiting on them here would just hold the
-// screen longer. A session that falls back there waits for nothing more.
+// screen longer. A session that falls back there waits for nothing more, nor
+// does one past the loader's 6 s cap (`ready` "late": its files are drawn
+// when they land).
 const mapPresentable = ref(false);
 const booting = ref(true);
 watch(

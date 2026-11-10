@@ -13,7 +13,11 @@
 // network failure is retried once, then failed, until the next ensure after
 // `failedMs` asks again; a missing or malformed file is final at once. Once
 // the session fell back, nothing is requested any more, not even the next
-// attempt of a request under way.
+// attempt of a request under way. A boot still under way after `bootMs` is
+// not a failure: `ready` turns "late" (the page stops waiting for it) and the
+// boot goes on — a main thread busy with the map's own start can hold a
+// response that has long arrived (`bootCap: "fallback"` ends the session
+// there instead).
 
 import {
   checkResponse,
@@ -38,7 +42,7 @@ export const OUTLINE_WAIT_MS = 1200;
 
 export type OutlineStatus = "loaded" | "absent" | "failed" | "fallback";
 export type OutlineMode = "fichiers" | "fallback";
-export type OutlineReady = "loading" | "ok" | "fallback";
+export type OutlineReady = "loading" | "late" | "ok" | "fallback";
 
 /** What the loader reads of a response. */
 export interface OutlineResponse {
@@ -75,10 +79,14 @@ export interface OutlineLoaderOptions {
   waitMs?: number;
   timeoutMs?: number;
   retryMs?: number;
-  /** ensureRoot gives up after this long (none: it waits for its requests),
-   *  its requests aborted: a stalled boot must not keep the page waiting for
-   *  files that may not come. */
+  /** The boot (root.json, k/FR) still under way this long after ensureRoot
+   *  (none: no deadline) turns `ready` to "late": the page stops waiting for
+   *  files that may not come, while the boot goes on. */
   bootMs?: number;
+  /** What the deadline does: "late" (the default) turns `ready` to "late"
+   *  and lets the boot go on; "fallback" ends the session there, its
+   *  requests aborted (the cap before 2026-11-10). */
+  bootCap?: "late" | "fallback";
   /** A file failed on the network is asked again by the first ensure this
    *  long after (not before: a dead network is not asked on every move). */
   failedMs?: number;
@@ -107,8 +115,9 @@ export class OutlineLoader {
     this.o = options;
   }
 
-  /** root.json then k/FR; any failure of either, or `bootMs` passing first,
-   *  ends the session (the fallback). */
+  /** root.json then k/FR; any failure of either ends the session (the
+   *  fallback); `bootMs` passing first turns `ready` to "late" (or ends the
+   *  session too, under `bootCap: "fallback"`). */
   ensureRoot(): Promise<OutlineStatus> {
     const first = !this.root;
     this.root ??= (async () => {
@@ -126,6 +135,10 @@ export class OutlineLoader {
     })();
     if (first && this.o.bootMs !== undefined) {
       const late = this.o.setTimer(() => {
+        if (this.o.bootCap !== "fallback") {
+          this.set("fichiers", "late"); // the boot goes on; "ok" when it lands
+          return;
+        }
         this.fallback("network", "root");
         for (const abort of this.live) abort.abort(); // the boot's: it settles now
       }, this.o.bootMs);
