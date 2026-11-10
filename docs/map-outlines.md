@@ -502,10 +502,11 @@ read before the map is made (`map/plateau/terrainSwitch.ts`). With noise it
 draws these same outline files flat: the chosen unit and its children and
 neighbours as the `scope-flat-line` line layer, the grey outside the unit as
 the draped sheet at every zoom, the hover as the plain fill. No plateau, lid,
-wall, slab, DEM source, relief worker or mesh worker is started; the « Contours »
-credit is unchanged. In the console, `__acPlateau()` reads `terrainAvailable`
-and `canvasNoise`. On dev and staging, `localStorage["ac:terrain"] = "off"`
-(the DEV dialog's « Relief » row, « À plat ») forces the flat drawing.
+DEM source, relief worker or mesh worker is started; the wall and slab layers
+stay added but get no geometry, and the « Contours » credit is unchanged. In
+the console, `__acPlateau()` reads `terrainAvailable` and `canvasNoise`. On
+dev and staging, `localStorage["ac:terrain"] = "off"` (the DEV dialog's
+« Relief » row, « À plat ») forces the flat drawing.
 
 ## Previous source: /api/boundaries (removed in #176)
 

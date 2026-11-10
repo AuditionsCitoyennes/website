@@ -187,10 +187,11 @@ export function useScopeMask({
   /**
    * Grey outside the plateau, cut around the current selection.
    *
-   * Keyed on `plateauActive` (and held as-is while the next scope's boundary is
-   * still loading). The hole is what keeps the selection clear, so this needs
-   * nothing from the lid: in the flat view the sheet is re-cut right here,
-   * synchronously, and clicking a zone colours it in that frame.
+   * Keyed on `plateauActive` (or always, without elevated terrain; held as-is
+   * while the next scope's boundary is still loading). The hole is what keeps
+   * the selection clear, so this needs nothing from the lid: in the flat view
+   * the sheet is re-cut right here, synchronously, and clicking a zone colours
+   * it in that frame.
    */
   function applyMask() {
     const src = getMap()?.getSource(MASK_SOURCE) as mapboxgl.GeoJSONSource | undefined;
@@ -338,7 +339,8 @@ export function useScopeMask({
         ...(flat ? {} : { maxzoom: MASK_ARM_ZOOM }),
         paint: {
           "fill-color": MASK_COLOR,
-          // Starts hidden: `syncDrapedMask` shows it on the globe only.
+          // Starts hidden: `syncDrapedMask` shows it on the globe only (without
+          // elevated terrain: at every zoom).
           "fill-opacity": 0,
           // The switch to/from the GL sheet must land in ONE frame. A fade would
           // leave both greys (or neither) on screen for its duration, and mapbox
@@ -395,7 +397,12 @@ export function useScopeMask({
     // draws nothing (no plateau ever stands). The chosen unit's rim, its
     // children and neighbours at the GL lines' widths and alphas; each width
     // gains the GL shader's 1 device px feather (gl/plateauShaders LINE_FS),
-    // so the line puts down the ink the GL one does.
+    // so the line puts down the ink the GL one does. The world scope's country
+    // lines (a `focus` country: only Monde has one) take the rim's width: the
+    // globe drapes them into its tiles, which wash a thin line out to about a
+    // third of the GL one's violet. The density is read once, here: on a move
+    // to a screen of another density the feather is off by under 1 px until
+    // the next page load (the GL lines read it every frame).
     if (flat) {
       const ink = 1 / (window.devicePixelRatio || 1);
       map.addLayer({
@@ -408,6 +415,8 @@ export function useScopeMask({
           "line-width": [
             "case",
             ["==", ["get", "kind"], "scope"],
+            2 + ink,
+            ["all", ["==", ["get", "kind"], "focus"], ["==", ["get", "level"], "country"]],
             2 + ink,
             ["match", ["get", "level"], ["country", "region"], 0.9 + ink, 1.7 + ink], // gl/meshBuild's widths
           ],
