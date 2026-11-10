@@ -153,7 +153,9 @@ export function useUnitTree(opts: UnitTreeOptions) {
   let shown: KeyStore | null = null;
   /** The key asked for, while its store is not on screen yet. */
   let next: KeyStore | null = null;
-  /** The scope and the units above it, root first (setScope). */
+  /** The scope's chain as the server files it, root first (setScope): an
+   *  overseas territory's folded département included, though no tree unit
+   *  holds it. */
   let chain: string[] = [WORLD];
   /** The place picker's store before a reload, read until its own reload
    *  holds the world and the places opened in it (see settleEmpty). */
