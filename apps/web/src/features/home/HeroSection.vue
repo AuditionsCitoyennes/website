@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import { useSubmitTestimony } from "@/features/testify";
+import { ROUTE } from "@/shared/routes";
 import { HERO_IMAGE as hero, srcFor, srcsetFor } from "./homeImages";
 
 // `ready` once the photograph is shown — or could not be: at once when it is
@@ -30,12 +32,15 @@ onMounted(() => {
 });
 onBeforeUnmount(() => stopWaiting?.());
 
+const testify = useSubmitTestimony();
+
 /**
- * "Découvrir": glide down to the project (the link alone would jump there).
+ * "Découvrir" (to the project) and the organise link (to the public
+ * auditions): glide down to the band (the link alone would jump there).
  * Focus follows, for the keyboard. Reduced motion: straight there.
  */
-function toProject(e: MouseEvent) {
-  const target = document.getElementById("le-projet");
+function glideTo(e: MouseEvent, id: string) {
+  const target = document.getElementById(id);
   if (!target) return;
   e.preventDefault();
   const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -65,8 +70,21 @@ function toProject(e: MouseEvent) {
     <div class="hero-content container-page">
       <h1 id="hero-title" class="hero-title">Auditions<br />Citoyennes</h1>
       <p class="hero-slogan">Chaque voix compte</p>
+      <p class="hero-message">
+        La parole de chacun est recueillie telle quelle, puis mise en commun pour qu'elle pèse.
+        Lisez les témoignages, ajoutez le vôtre ou
+        <a href="#auditions-publiques" @click="glideTo($event, 'auditions-publiques')"
+          >organisez des auditions</a
+        >.
+      </p>
+      <div class="hero-actions">
+        <button type="button" class="cta-btn" @click="testify.show()">Témoigner</button>
+        <RouterLink :to="ROUTE.temoignages.path" class="cta-btn cta-btn--ghost">
+          Lire les témoignages
+        </RouterLink>
+      </div>
     </div>
-    <a href="#le-projet" class="hero-next" @click="toProject">
+    <a href="#le-projet" class="hero-next" @click="glideTo($event, 'le-projet')">
       Découvrir
       <svg
         viewBox="0 0 24 24"
@@ -137,14 +155,19 @@ function toProject(e: MouseEvent) {
   align-items: flex-start;
 }
 
+/* The text keeps its height when the window is short, but the hero does not:
+   the shade then holds down to below the text (27rem) instead of fading
+   over its last lines. From a full screen up, the percentages win. */
 .hero--top .hero-shade {
+  --shade-hold: 27rem;
+  --shade-end: 31rem;
   background:
     linear-gradient(
       to bottom,
       rgb(12 8 22 / 0.8) 0%,
-      rgb(12 8 22 / 0.55) 28%,
-      rgb(12 8 22 / 0.15) 46%,
-      transparent 56%
+      rgb(12 8 22 / 0.6) 30%,
+      rgb(12 8 22 / 0.6) max(52%, var(--shade-hold)),
+      transparent max(60%, var(--shade-end))
     ),
     linear-gradient(to top, rgb(12 8 22 / 0.35) 0%, transparent 18%);
 }
@@ -152,6 +175,14 @@ function toProject(e: MouseEvent) {
 /* All of the text in that band: a little tighter than over a calm photo. */
 .hero--top .hero-slogan {
   margin-top: 0.7rem;
+}
+
+.hero--top .hero-message {
+  margin-top: 0.6rem;
+}
+
+.hero--top .hero-actions {
+  margin-top: 1rem;
 }
 
 .hero--top .hero-content {
@@ -177,6 +208,54 @@ function toProject(e: MouseEvent) {
   color: rgb(255 255 255 / 0.92);
   text-shadow: 0 1px 14px rgb(0 0 0 / 0.55);
   animation: rise-in 1s cubic-bezier(0.22, 1, 0.36, 1) 0.45s both;
+}
+
+/* Why it matters, and what can be done here: reading text, under the slogan. */
+.hero-message {
+  margin-top: 1rem;
+  max-width: 32rem;
+  font-size: var(--text-body);
+  line-height: var(--lh-body);
+  color: rgb(255 255 255 / 0.92);
+  text-shadow: 0 1px 14px rgb(0 0 0 / 0.55);
+  animation: rise-in 1s cubic-bezier(0.22, 1, 0.36, 1) 0.65s both;
+}
+
+.hero-message a {
+  color: #fff;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 1.4rem;
+  animation: rise-in 1s cubic-bezier(0.22, 1, 0.36, 1) 0.65s both;
+}
+
+/* On the photo, whatever the theme (as the volunteers' block on its dark ground). */
+.hero-actions .cta-btn--ghost {
+  border-color: rgb(255 255 255 / 0.5);
+  color: #fff;
+}
+
+.hero-actions .cta-btn--ghost:hover {
+  background: rgb(255 255 255 / 0.14);
+}
+
+/* The site's ring colour is weak on the dark shade: white here. */
+.hero :focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+/* The buttons can sit over a bright part of the photo: the ring then gets a
+   dark edge on its inner side. */
+.hero-actions .cta-btn:focus-visible {
+  box-shadow: 0 0 0 5px rgb(12 8 22 / 0.6);
 }
 
 @keyframes rise-in {
@@ -239,12 +318,20 @@ function toProject(e: MouseEvent) {
   .hero--top .hero-content {
     padding-top: calc(var(--header-space) + clamp(1rem, 3vh, 2rem));
   }
+
+  /* The photo takes the whole screen: the shade follows it alone. */
+  .hero--top .hero-shade {
+    --shade-hold: 0rem;
+    --shade-end: 0rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .hero-img,
   .hero-title,
   .hero-slogan,
+  .hero-message,
+  .hero-actions,
   .hero-next svg {
     animation: none;
   }
