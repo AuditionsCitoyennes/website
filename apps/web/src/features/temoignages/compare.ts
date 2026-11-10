@@ -1,7 +1,7 @@
 // The comparer (map phase 1, the "comparer" data source, design A20, E5): the
 // server's pipeline is on screen, today's corpus pipeline runs beside it on
 // the same filters, and every difference is listed in window.__acCompare —
-// a DEV badge counts them (DevDataSwitch). Compared, once the key asked for is
+// a DEV badge counts them (DevOptionsMenu). Compared, once the key asked for is
 // the one on screen and the corpus is in:
 // - every unit of the tree: count, label, level, centre, box, codes,
 //   lieux and their labels, the children's order (geo-nav's compareTrees);

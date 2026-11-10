@@ -26,19 +26,12 @@ export default defineConfig(({ command, mode }) => ({
     // Every component is `<script setup>`, so the Options API runtime is dead
     // weight — flagging it lets the minifier drop that branch of Vue.
     __VUE_OPTIONS_API__: "false",
-    // The testing tools — the outbox (features/outbox), the analyses' DEV
-    // switches (analyses/devSwitch): in local development, and in a build with
-    // VITE_APP_ENV=staging. Any other build has none of them, not a byte.
+    // The testing tools — the outbox (features/outbox), the testing options
+    // menu (features/temoignages/DevOptionsMenu.vue): in local development,
+    // and in a build with VITE_APP_ENV=staging. Any other build has none of
+    // them, not a byte.
     __TEST_TOOLS__: JSON.stringify(
       command === "serve" || loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging",
-    ),
-    // The Analyses (features/analyses: the panel's toggle, the plates and slabs
-    // around the plateau): in local development, and in a build with
-    // VITE_ANALYSES=on (staging). Any other build — production's first release —
-    // has none of their drawing code (a few inert hooks and the framing
-    // settings stay: docs/feature-flags.md).
-    __ANALYSES__: JSON.stringify(
-      command === "serve" || loadEnv(mode, process.cwd(), "VITE_").VITE_ANALYSES === "on",
     ),
     __OUTLINES_BUILD__: JSON.stringify(outlinesBuild()),
   },
