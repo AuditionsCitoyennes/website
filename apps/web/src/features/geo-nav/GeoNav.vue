@@ -157,9 +157,6 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 // when they land).
 const mapPresentable = ref(false);
 const booting = ref(true);
-// The curtain's fade has ended: the map is in sight (the credit's 5 s count
-// from here).
-const curtainGone = ref(false);
 watch(
   () => !mapPresentable.value || props.loading || outlines?.ready.value === "loading",
   (busy) => {
@@ -360,26 +357,13 @@ const {
   onPanelPointerLeave,
   mapPadding,
 } = layout;
-// Desktop: how much of the map's right edge the panel covers, which the map's
-// bottom-right corner (the attribution) is moved clear of: the narrow width
-// when folded (the fold leaves it on screen), the wide one when open wide.
+// Desktop: how much of the map's right edge the panel covers, which the
+// credit's top-left box (desktop) is kept clear of: the narrow width when
+// folded (the fold leaves it on screen), the wide one when open wide.
 const panelCover = computed(() => {
   if (props.preview || !isDesktop.value) return 0;
   return panelWide.value && !panelFolded.value ? panelPx.value : PANEL_BASE_PX;
 });
-// Above mapbox's own 640 px compact line, where it would have shown the full
-// credit, and with the corner in sight, the credit opens at first
-// (GeoDrillMap's `openCredit`); phones in portrait, a raised sheet and the
-// card keep mapbox's closed « i ». The map presentable too: a curtain lifted
-// by its 10 s cap waits for the style (and mapbox's own credits) first.
-const openCredit = computed(
-  () =>
-    !props.preview &&
-    mapPresentable.value &&
-    curtainGone.value &&
-    viewportW.value > 640 &&
-    (isDesktop.value || sheetLowered.value),
-);
 // Back on the map (or the lieu closed): the scope, held still meanwhile,
 // catches up with wherever the view is now.
 watch(readingPlace, (reading) => {
@@ -776,7 +760,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       :scope-pending="scopePending"
       :stable-outline="outlines?.mode.value === 'fichiers'"
       :attribution="attribution"
-      :open-credit="openCredit"
+      :credit-corner="isDesktop ? 'top-left' : 'bottom-right'"
       :hovered-id="hoveredPanelId"
       :active-id="selectedPlaceId"
       :slabs="slabSpec"
@@ -897,7 +881,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
 
     <!-- Boot curtain: covers map AND panel, so nothing half-built is on show.
          Lifts on its own (see `booting`) and is inert once gone. -->
-    <Transition name="boot" @after-leave="curtainGone = true">
+    <Transition name="boot">
       <div v-if="booting" class="boot" role="status" aria-live="polite">
         <span class="spinner spinner-lg" aria-hidden="true"></span>
         <p>Chargement de la carte…</p>
@@ -1010,36 +994,35 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
   }
 }
 
-/* The attribution (bottom right), opened, stays clear of the zoom buttons and
-   the logo (bottom left) and of the panel; its plain text in mapbox's own
-   link colour on its light ground, not the page's. */
+/* Phones: the attribution (bottom right), opened, stays clear of the zoom
+   buttons and the logo (bottom left); its plain text in mapbox's own link
+   colour on its light ground, not the page's. */
 .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
-  max-width: calc(100% - var(--panel-cover, 0px) - 7rem);
+  max-width: calc(100% - 7rem);
 }
 
 .geo-map :deep(.mapboxgl-ctrl-attrib) {
   color: rgb(0 0 0 / 0.75);
 }
 
-/* Opened in the narrow strip left of a wide panel (900-1000 px), the credit is
-   a tall column: past the site header's edge, it scrolls instead. */
+/* Phones: opened, the credit is a tall column on a narrow screen: past the
+   site header's edge, it scrolls instead (desktop's is below). */
 .geo-map :deep(.mapboxgl-ctrl-attrib-inner) {
   max-height: calc(100dvh - var(--header-space) - 3rem);
   overflow-y: auto;
 }
 
 @media (min-width: 900px) {
-  /* The panel is painted over the map's right edge: the attribution, in the
-     bottom-right corner, is moved clear of it, with the panel's slide. */
-  .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
-    right: var(--panel-cover, 0px);
-    transition: right 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  /* The attribution sits top left (GeoDrillMap's `creditCorner`), opened to
+     its right: a readable line, left of the panel painted over the map's right
+     edge, and above the zoom buttons and the logo (bottom left), scrolling
+     past them. */
+  .geo-map :deep(.mapboxgl-ctrl-top-left) {
+    max-width: min(40rem, calc(100% - var(--panel-cover, 0px) - 2rem));
   }
-}
 
-@media (min-width: 900px) and (prefers-reduced-motion: reduce) {
-  .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
-    transition: none;
+  .geo-map :deep(.mapboxgl-ctrl-top-left .mapboxgl-ctrl-attrib-inner) {
+    max-height: calc(100dvh - var(--header-space) - 9rem);
   }
 }
 
