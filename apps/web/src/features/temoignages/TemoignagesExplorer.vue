@@ -75,6 +75,8 @@ const navTestimonies = computed(() => (unitTree ? NO_TESTIMONIES : filteredTesti
 const highlight = computed(() => (serverFilters ? serverFilters.text.value : text.value));
 
 const { analyses, analysesBtn } = useAnalysesToggle(() => Boolean(props.preview));
+// `!!`: a constant the template reads as is, so a build without the analyses drops the button.
+const analysesOn = !!__ANALYSES__;
 
 // The testing tools: the testing options menu, and the comparer (both
 // pipelines side by side, every difference in window.__acCompare). Not in a
@@ -136,6 +138,7 @@ watch(
           <!-- On a phone this row is the sheet's drag handle: a plain click,
                nothing stopped on pointerdown, or the strip no longer drags. -->
           <button
+            v-if="analysesOn"
             ref="analysesBtn"
             type="button"
             class="ac-btn ac-btn--ghost filters-btn analyses-btn"

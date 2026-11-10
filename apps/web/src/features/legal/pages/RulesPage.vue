@@ -4,6 +4,9 @@ import { ROUTE } from "@/shared/routes";
 import LegalLayout from "../LegalLayout.vue";
 
 const reportMail = mailto(CONTACT_EMAIL, "Signalement d'un témoignage");
+// `!!`: a constant the template reads as is, so a build without the analyses
+// (vite.config's __ANALYSES__) drops their clause.
+const analysesOn = !!__ANALYSES__;
 </script>
 
 <template>
@@ -60,9 +63,11 @@ const reportMail = mailto(CONTACT_EMAIL, "Signalement d'un témoignage");
       <p>
         Vous restez l'auteur de votre témoignage. En le publiant, vous autorisez Auditions
         Citoyennes, gratuitement et tant qu'il est en ligne, à l'afficher sur le site et sur la
-        carte, à le classer par thèmes, à le compter dans les analyses d'un territoire et à le
-        diffuser avec les données publiques du site. Vous pouvez le retirer à tout moment (voir la
-        <RouterLink :to="ROUTE.privacy.path">politique de confidentialité</RouterLink>).
+        carte, à le classer par thèmes<template v-if="analysesOn"
+          >, à le compter dans les analyses d'un territoire</template
+        >
+        et à le diffuser avec les données publiques du site. Vous pouvez le retirer à tout moment
+        (voir la <RouterLink :to="ROUTE.privacy.path">politique de confidentialité</RouterLink>).
       </p>
     </section>
 

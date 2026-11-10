@@ -6,6 +6,10 @@ import { ROUTE } from "@/shared/routes";
 
 export function useAnalysesToggle(preview: () => boolean) {
   const analyses = ref(false);
+  const analysesBtn = ref<HTMLButtonElement | null>(null);
+  // A build without the analyses (vite.config's __ANALYSES__) reads and writes
+  // no address and moves no focus: they stay off.
+  if (!__ANALYSES__) return { analyses, analysesBtn };
 
   // Kept in the address (?analyses=1, where the old /analyses page now leads),
   // but only while this is the page: the same map is also the home page's card,
@@ -23,7 +27,6 @@ export function useAnalysesToggle(preview: () => boolean) {
   // and they are gone: it comes back to the toggle, rather than to the top of
   // the page. Only when it has nowhere else to be. (Read before they go: this
   // runs before GeoNav takes them off the page.)
-  const analysesBtn = ref<HTMLButtonElement | null>(null);
   watch(analyses, (on) => {
     if (!on && !preview() && document.activeElement?.closest(".analyses-layer")) {
       void nextTick(() => {
