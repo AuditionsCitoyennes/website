@@ -221,102 +221,102 @@
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "La Tour-du-Pin": {
+    "Place Antonin Dubost, La Tour-du-Pin": {
       "place_unit": "fr:com:38509",
       "place_path": ["FR", "fr:reg:84", "fr:dep:38", "fr:com:38509"],
       "locality_id": "fr:com:38509",
-      "lieu_key": "La Tour-Du-Pin",
-      "lat": 45.573641,
-      "lng": 5.446211,
-      "place_precision": "commune",
+      "lieu_key": "Place Antonin Dubost, La Tour-Du-Pin",
+      "lat": 45.563781,
+      "lng": 5.44514,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Embrun": {
+    "Place Barthelon, Embrun": {
       "place_unit": "fr:com:05046",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05046"],
       "locality_id": "fr:com:05046",
-      "lieu_key": "Embrun",
-      "lat": 44.568046,
-      "lng": 6.484718,
-      "place_precision": "commune",
+      "lieu_key": "Place Barthelon, Embrun",
+      "lat": 44.564073,
+      "lng": 6.495918,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Briançon": {
+    "Place d'Armes, Briançon": {
       "place_unit": "fr:com:05023",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05023"],
       "locality_id": "fr:com:05023",
-      "lieu_key": "Briançon",
-      "lat": 44.896187,
-      "lng": 6.637231,
-      "place_precision": "commune",
+      "lieu_key": "Place D'armes, Briançon",
+      "lat": 44.898878,
+      "lng": 6.64299,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Guillestre": {
+    "Place Joseph Salva, Guillestre": {
       "place_unit": "fr:com:05065",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05065"],
       "locality_id": "fr:com:05065",
-      "lieu_key": "Guillestre",
-      "lat": 44.661765,
-      "lng": 6.64281,
-      "place_precision": "commune",
+      "lieu_key": "Place Joseph Salva, Guillestre",
+      "lat": 44.660554,
+      "lng": 6.650914,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Veynes": {
+    "Avenue Commandant Dumont, Veynes": {
       "place_unit": "fr:com:05179",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05179"],
       "locality_id": "fr:com:05179",
-      "lieu_key": "Veynes",
-      "lat": 44.551832,
-      "lng": 5.833089,
-      "place_precision": "commune",
+      "lieu_key": "Avenue Commandant Dumont, Veynes",
+      "lat": 44.53458,
+      "lng": 5.826455,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Saint-Bonnet-en-Champsaur": {
+    "Place Grenette, Saint-Bonnet-en-Champsaur": {
       "place_unit": "fr:com:05132",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05132"],
       "locality_id": "fr:com:05132",
-      "lieu_key": "Saint-Bonnet-En-Champsaur",
-      "lat": 44.688163,
-      "lng": 6.091089,
-      "place_precision": "commune",
+      "lieu_key": "Place Grenette, Saint-Bonnet-En-Champsaur",
+      "lat": 44.682815,
+      "lng": 6.074572,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "L'Argentière-la-Bessée": {
+    "Rue de la République, L'Argentière-la-Bessée": {
       "place_unit": "fr:com:05006",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05006"],
       "locality_id": "fr:com:05006",
-      "lieu_key": "L'argentière-La-Bessée",
-      "lat": 44.788175,
-      "lng": 6.552248,
-      "place_precision": "commune",
+      "lieu_key": "Rue De La République, L'argentière-La-Bessée",
+      "lat": 44.79496,
+      "lng": 6.559434,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Orpierre": {
+    "Grand Rue, Orpierre": {
       "place_unit": "fr:com:05097",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05097"],
       "locality_id": "fr:com:05097",
-      "lieu_key": "Orpierre",
-      "lat": 44.315881,
-      "lng": 5.707831,
-      "place_precision": "commune",
+      "lieu_key": "Grand Rue, Orpierre",
+      "lat": 44.313295,
+      "lng": 5.691497,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Remollon": {
+    "Rue de l'Église, Remollon": {
       "place_unit": "fr:com:05115",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05115"],
       "locality_id": "fr:com:05115",
-      "lieu_key": "Remollon",
-      "lat": 44.467794,
-      "lng": 6.169663,
-      "place_precision": "commune",
+      "lieu_key": "Rue De L'église, Remollon",
+      "lat": 44.468294,
+      "lng": 6.167746,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
@@ -408,80 +408,80 @@
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Aurillac": {
+    "Place de l'Hôtel de Ville, Aurillac": {
       "place_unit": "fr:com:15014",
       "place_path": ["FR", "fr:reg:84", "fr:dep:15", "fr:com:15014"],
       "locality_id": "fr:com:15014",
-      "lieu_key": "Aurillac",
-      "lat": 44.918771,
-      "lng": 2.435053,
-      "place_precision": "commune",
+      "lieu_key": "Place De L'hôtel De Ville, Aurillac",
+      "lat": 44.930222,
+      "lng": 2.445141,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Mende": {
+    "Place Urbain V, Mende": {
       "place_unit": "fr:com:48095",
       "place_path": ["FR", "fr:reg:76", "fr:dep:48", "fr:com:48095"],
       "locality_id": "fr:com:48095",
-      "lieu_key": "Mende",
-      "lat": 44.52643,
-      "lng": 3.483971,
-      "place_precision": "commune",
+      "lieu_key": "Place Urbain V, Mende",
+      "lat": 44.517264,
+      "lng": 3.497678,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Hautes-Alpes": {
-      "place_unit": "fr:dep:05",
-      "place_path": ["FR", "fr:reg:93", "fr:dep:05"],
-      "locality_id": null,
-      "lieu_key": "Hautes-Alpes",
-      "lat": 44.6638,
-      "lng": 6.265,
-      "place_precision": "departement",
+    "Place Jean Marcellin, Gap, Hautes-Alpes": {
+      "place_unit": "fr:com:05061",
+      "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05061"],
+      "locality_id": "fr:com:05061",
+      "lieu_key": "Place Jean Marcellin, Gap, Hautes-Alpes",
+      "lat": 44.559112,
+      "lng": 6.079634,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Ardèche": {
-      "place_unit": "fr:dep:07",
-      "place_path": ["FR", "fr:reg:84", "fr:dep:07"],
-      "locality_id": null,
-      "lieu_key": "Ardèche",
-      "lat": 44.7527,
-      "lng": 4.4256,
-      "place_precision": "departement",
+    "Place de l'Hôtel de Ville, Privas (Ardèche)": {
+      "place_unit": "fr:com:07186",
+      "place_path": ["FR", "fr:reg:84", "fr:dep:07", "fr:com:07186"],
+      "locality_id": "fr:com:07186",
+      "lieu_key": "Place De L'hôtel De Ville, Privas (ardèche)",
+      "lat": 44.735315,
+      "lng": 4.598631,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Fort-de-France": {
+    "Rue Victor Hugo, Fort-de-France": {
       "place_unit": "fr:com:97209",
       "place_path": ["FR", "fr:reg:02", "fr:dep:972", "fr:com:97209"],
       "locality_id": "fr:com:97209",
-      "lieu_key": "Fort-De-France",
-      "lat": 14.647821,
-      "lng": -61.062126,
-      "place_precision": "commune",
+      "lieu_key": "Rue Victor Hugo, Fort-De-France",
+      "lat": 14.604343,
+      "lng": -61.07106,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Saint-Pierre, La Réunion": {
+    "Boulevard Hubert Delisle, Saint-Pierre, La Réunion": {
       "place_unit": "fr:com:97416",
       "place_path": ["FR", "fr:reg:04", "fr:dep:974", "fr:com:97416"],
       "locality_id": "fr:com:97416",
-      "lieu_key": "Saint-Pierre, La Réunion",
-      "lat": -21.307722,
-      "lng": 55.491803,
-      "place_precision": "commune",
+      "lieu_key": "Boulevard Hubert Delisle, Saint-Pierre, La Réunion",
+      "lat": -21.342253,
+      "lng": 55.469033,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
-    "Cayenne": {
+    "Place des Palmistes, Cayenne": {
       "place_unit": "fr:com:97302",
       "place_path": ["FR", "fr:reg:03", "fr:dep:973", "fr:com:97302"],
       "locality_id": "fr:com:97302",
-      "lieu_key": "Cayenne",
-      "lat": 4.925248,
-      "lng": -52.311583,
-      "place_precision": "commune",
+      "lieu_key": "Place Des Palmistes, Cayenne",
+      "lat": 4.939628,
+      "lng": -52.333803,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     },
@@ -545,14 +545,14 @@
       ],
       "geo_release": null
     },
-    "Serres": {
+    "Rue de l'Église, Serres": {
       "place_unit": "fr:com:05166",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05166"],
       "locality_id": "fr:com:05166",
-      "lieu_key": "Serres",
-      "lat": 44.421403,
-      "lng": 5.714548,
-      "place_precision": "commune",
+      "lieu_key": "Rue De L'église, Serres",
+      "lat": 44.429411,
+      "lng": 5.716004,
+      "place_precision": "address",
       "place_candidates": [
         {
           "name": "Serres",
@@ -561,9 +561,9 @@
           "arrondissement": null,
           "departementName": "Hautes-Alpes",
           "region": "Provence-Alpes-Côte d'Azur",
-          "lat": 44.421403,
-          "lng": 5.714548,
-          "level": "commune",
+          "lat": 44.429411,
+          "lng": 5.716004,
+          "level": "address",
           "population": 1298
         },
         {
@@ -573,9 +573,9 @@
           "arrondissement": null,
           "departementName": "Meurthe-et-Moselle",
           "region": "Grand Est",
-          "lat": 48.691228,
-          "lng": 6.462683,
-          "level": "commune",
+          "lat": 48.690374,
+          "lng": 6.463625,
+          "level": "address",
           "population": 254
         },
         {
@@ -593,14 +593,14 @@
       ],
       "geo_release": "geoapi-2026"
     },
-    "Châteauvieux": {
+    "Chemin du Moulin, Châteauvieux": {
       "place_unit": "fr:com:05037",
       "place_path": ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05037"],
       "locality_id": "fr:com:05037",
-      "lieu_key": "Châteauvieux",
-      "lat": 44.483517,
-      "lng": 6.048613,
-      "place_precision": "commune",
+      "lieu_key": "Chemin Du Moulin, Châteauvieux",
+      "lat": 44.476736,
+      "lng": 6.045053,
+      "place_precision": "address",
       "place_candidates": [
         {
           "name": "Châteauvieux",
@@ -609,9 +609,9 @@
           "arrondissement": null,
           "departementName": "Hautes-Alpes",
           "region": "Provence-Alpes-Côte d'Azur",
-          "lat": 44.483517,
-          "lng": 6.048613,
-          "level": "commune",
+          "lat": 44.476736,
+          "lng": 6.045053,
+          "level": "address",
           "population": 545
         },
         {
@@ -621,9 +621,9 @@
           "arrondissement": null,
           "departementName": "Loir-et-Cher",
           "region": "Centre-Val de Loire",
-          "lat": 47.220191,
-          "lng": 1.365602,
-          "level": "commune",
+          "lat": 47.222963,
+          "lng": 1.385875,
+          "level": "address",
           "population": 514
         },
         {
@@ -663,14 +663,14 @@
       "place_candidates": null,
       "geo_release": null
     },
-    "Parvis de la Maison des Jeunes et de la Culture du quartier des États-Unis, Lyon 8": {
-      "place_unit": "fr:com:69388",
-      "place_path": ["FR", "fr:reg:84", "fr:dep:69", "fr:com:69123", "fr:com:69388"],
-      "locality_id": "fr:com:69123",
-      "lieu_key": "Parvis De La Maison Des Jeunes Et De La Culture Du Quartier Des États-Unis, Lyon 8",
-      "lat": 45.733849,
-      "lng": 4.869511,
-      "place_precision": "commune",
+    "Place de la Résistance et des Martyrs de la Déportation, Chaumont": {
+      "place_unit": "fr:com:52121",
+      "place_path": ["FR", "fr:reg:44", "fr:dep:52", "fr:com:52121"],
+      "locality_id": "fr:com:52121",
+      "lieu_key": "Place De La Résistance Et Des Martyrs De La Déportation, Chaumont",
+      "lat": 48.110443,
+      "lng": 5.137653,
+      "place_precision": "address",
       "place_candidates": null,
       "geo_release": "geoapi-2026"
     }
