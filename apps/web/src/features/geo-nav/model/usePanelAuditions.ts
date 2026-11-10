@@ -41,9 +41,9 @@ export interface PanelAuditionsInputs {
   /** Flies the map onto a lieu — along an arc when asked, for a hop from
    *  another lieu (the camera's spotlightPlace). */
   spotlightPlace: (unit: GeoUnit, arc?: boolean) => void;
-  /** Frames every lieu of the results once the list has stopped changing (the
-   *  camera's). */
-  scheduleResultsFit: () => void;
+  /** Frames the visitor's country once the filters' answer has stopped
+   *  changing (the camera's). */
+  scheduleFilterFrame: () => void;
   /** The end of the open audition's testimonies (AuditionList's): the next
    *  page comes as it nears the bottom (the server's lists). */
   moreTestimoniesEl?: Ref<HTMLElement | null>;
@@ -65,7 +65,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     panelListEl,
     moreEl,
     spotlightPlace,
-    scheduleResultsFit,
+    scheduleFilterFrame,
   } = inputs;
   const server = inputs.server ?? null;
   const { selectedPlaceId, openAuditions, mapEngaged } = nav;
@@ -187,8 +187,8 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   }
 
   // A new list of results (the server's: a new key, order or first page —
-  // never a page appended) is read from its top; a new SET of results is
-  // framed on the map.
+  // never a page appended) is read from its top; a new SET of results frames
+  // the visitor's country again.
   const resultsSig = computed(() => {
     if (!listMode.value) return "";
     if (server) return server.resultsSig.value;
@@ -240,7 +240,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     }
   });
   watch(resultSetSig, (sig) => {
-    if (sig) scheduleResultsFit();
+    if (sig) scheduleFilterFrame();
   });
 
   /**
