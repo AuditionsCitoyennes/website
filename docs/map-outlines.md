@@ -351,11 +351,20 @@ in CI.
 The web reads the files under the server source, the only outlines it has
 (`/api/boundaries` is no longer called; the corpus source and the comparer, the
 testing tools' data sources, draw none). A session whose files are not served
-(`root.json` missing, HTML or another build, the boot past its 6 s cap, or a
-release skew on a later file) falls back for that page load: every unit known
-absent — the box fits, the pins, the panel and its lists unchanged, no plateau
-and no outline line — with one console warning in every build,
-`[outlines] fallback: <reason> <url>`.
+(`root.json` missing, HTML or another build, or a release skew on a later
+file) falls back for that page load: every unit known absent — the box fits,
+the pins, the panel and its lists unchanged, no plateau and no outline line —
+with one console warning in every build, `[outlines] fallback: <reason> <url>`.
+
+A boot (`root.json`, then `k/FR`) still under way 6 s after the explorer asked
+for it is not a failure: the boot curtain lifts, the boot goes on and the
+plateau rises when the files land (the credits turn on then). Until
+2026-11-10 that cap ended the session instead, which lost the outlines on
+about one cold load in forty under load: at boot the main thread is busy with
+the map's own start for seconds at a time, and `root.json`, long arrived,
+waited on it past the cap — one file fetched, no request failed, no plateau.
+`localStorage` `ac:outlines-boot=fallback` (testing tools: the dev server and
+staging) restores that cap, to compare.
 
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps

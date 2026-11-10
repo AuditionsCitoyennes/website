@@ -21,7 +21,7 @@
 // 4. Refinement: the neighbours drawn at a coarser tier than their self, and
 //    the départements of other régions on screen, get their selves in ONE
 //    batch after the scope's bundle, nearest first, capped (REFINE_CAPS).
-// 5. The session falls back at boot (root.json, k/FR, the 6 s cap), or on a
+// 5. The session falls back at boot (root.json or k/FR failing), or on a
 //    release skew of any later file (useOutlineFiles): from then on every
 //    unit is known absent, nothing is held (outlineRules: NO_FILES). A later
 //    file failing is its unit's alone (known absent; on the network, asked
