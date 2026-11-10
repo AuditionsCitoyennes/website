@@ -7,7 +7,7 @@ const auth = useAuthStore();
 </script>
 
 <template>
-  <section id="auditions-publiques" class="band">
+  <section id="auditions-publiques" class="band" tabindex="-1">
     <div class="container-page split">
       <div v-reveal class="copy">
         <p class="eyebrow">Les auditions publiques</p>
