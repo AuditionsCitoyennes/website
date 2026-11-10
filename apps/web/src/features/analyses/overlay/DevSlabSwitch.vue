@@ -3,7 +3,7 @@
 // for each — the lid, the words, their size, the territory's framing, the
 // ring's band. Testing tools only (the dev server, staging): the overlay
 // draws it behind `__TEST_TOOLS__`. Apart from the slabs: on a desktop under
-// the panel, above mapbox's attribution (painted over the panel); on a phone
+// the panel, at the map's bottom right (painted over the panel); on a phone
 // at the safe rect's top right, under the header's tiles, folded until
 // opened: its five rows would cover the themes there, the fold alone stands
 // clear of them (centred, they span at most ~237 px right after a fit, and on
