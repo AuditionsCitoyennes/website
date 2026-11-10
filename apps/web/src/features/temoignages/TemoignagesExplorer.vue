@@ -76,10 +76,11 @@ const highlight = computed(() => (serverFilters ? serverFilters.text.value : tex
 
 const { analyses, analysesBtn } = useAnalysesToggle(() => Boolean(props.preview));
 
-// The testing tools: the data switch, and the comparer (both pipelines side by
-// side, every difference in window.__acCompare). Not in a production build.
-const DevDataSwitch = __TEST_TOOLS__
-  ? defineAsyncComponent(() => import("./DevDataSwitch.vue"))
+// The testing tools: the testing options menu, and the comparer (both
+// pipelines side by side, every difference in window.__acCompare). Not in a
+// production build.
+const DevOptionsMenu = __TEST_TOOLS__
+  ? defineAsyncComponent(() => import("./DevOptionsMenu.vue"))
   : null;
 if (comparing && unitTree) {
   const tree = unitTree;
@@ -166,6 +167,10 @@ watch(
       <template #head-below>
         <FilterChips v-if="chips.length" :chips="chips" class="head-chips" @remove="removeChip" />
       </template>
+
+      <template #map-tools>
+        <DevOptionsMenu v-if="DevOptionsMenu && !preview" />
+      </template>
     </GeoNav>
 
     <FiltersDialog
@@ -188,8 +193,6 @@ watch(
       @remove="removeChip"
       @reset="resetFilters"
     />
-
-    <DevDataSwitch v-if="DevDataSwitch && !preview" />
   </div>
 </template>
 
