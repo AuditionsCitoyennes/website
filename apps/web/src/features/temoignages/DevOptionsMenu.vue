@@ -36,6 +36,8 @@ import {
   setLidMode,
   setMeshMode,
   setReliefPrefetch,
+  setTerrainMode,
+  terrainMode,
 } from "@/features/map";
 import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
 import { compareState } from "./compare";
@@ -72,6 +74,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:slab-text": bind(() => slabTextMode.value, setSlabTextMode),
   "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
+  "ac:terrain": bind(() => terrainMode, setTerrainMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

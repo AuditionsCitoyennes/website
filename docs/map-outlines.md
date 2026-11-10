@@ -490,6 +490,23 @@ release skew, so a cached page never ends a session on its own. No narrower
 that answers 404 itself for unknown `/map-data/` paths would need
 `run_worker_first` in `wrangler.jsonc`; not done here (web code).
 
+## Without elevated terrain
+
+A browser that adds noise to canvas reads (fingerprinting protection: Safari's
+advanced protection or a privacy extension, Brave shields, Firefox strict)
+makes Mapbox GL refuse elevated terrain: it reads a gradient back from an
+OffscreenCanvas once, drops every `setTerrain` and warns « Terrain and
+hillshade are disabled because of Canvas2D limitations when fingerprinting
+protection is enabled (e.g. in private browsing mode). » The web runs the same
+read before the map is made (`map/plateau/terrainSwitch.ts`). With noise it
+draws these same outline files flat: the chosen unit and its children and
+neighbours as the `scope-flat-line` line layer, the grey outside the unit as
+the draped sheet at every zoom, the hover as the plain fill. No plateau, lid,
+wall, slab, DEM source, relief worker or mesh worker is started; the « Contours »
+credit is unchanged. In the console, `__acPlateau()` reads `terrainAvailable`
+and `canvasNoise`. On dev and staging, `localStorage["ac:terrain"] = "off"`
+(the DEV dialog's « Relief » row, « À plat ») forces the flat drawing.
+
 ## Previous source: /api/boundaries (removed in #176)
 
 Before the outline files, the API served the outlines itself:

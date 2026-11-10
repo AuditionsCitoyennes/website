@@ -13,6 +13,7 @@ import type { usePlateau } from "../composables/usePlateau";
 import type { usePlateauLid } from "../composables/usePlateauLid";
 import type { usePlateauSlabs } from "../composables/usePlateauSlabs";
 import { installPerfVocabulary } from "./perfVocabulary";
+import { canvasNoise, terrainAvailable, terrainMode } from "../plateau/terrainSwitch";
 
 type Probes = {
   __acMap?: mapboxgl.Map;
@@ -80,6 +81,10 @@ export function installProbes({
     return {
       zoom: m ? +m.getZoom().toFixed(2) : null,
       terrainActive: !!m?.getTerrain(),
+      // Whether this page load may stand terrain at all (plateau/terrainSwitch).
+      terrainAvailable,
+      canvasNoise,
+      ...(__TEST_TOOLS__ ? { terrainMode } : {}),
       ...plateau.probe(),
       dpr: window.devicePixelRatio || 1,
       canvasDevicePx: m?.getCanvas().width ?? null,

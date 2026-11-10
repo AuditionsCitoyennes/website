@@ -21,6 +21,7 @@ import { planPrefetch, type PrefetchPlan } from "../relief/prefetchPlan";
 import { reliefPrefetch } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
 import { meshMode } from "../plateau/meshSwitch";
+import { terrainAvailable } from "../plateau/terrainSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
 
 export interface PlateauInputs {
@@ -335,13 +336,20 @@ export function usePlateau({
     // `map` is read again after every await: unmounted meanwhile, it is null.
     let map = getMap();
     if (!map || !mapReady() || introPending()) return;
+    // No elevated terrain this page load (plateau/terrainSwitch): no plateau, nothing to compute;
+    // the outline, its grey and the hover are drawn flat (useScopeMask).
+    if (!terrainAvailable) {
+      if (perfOn) perfEnd("select-plateau", undefined, { flat: true });
+      return;
+    }
     const seq = ++plateauSeq;
     // The raised plateau is the SELECTED unit itself (the "scope" feature), not its
     // children — so drilling to a région lifts that whole région.
     const raised = (outline()?.features ?? []).filter((f) => f.properties?.kind === "scope");
     // Child + sibling boundaries — ALWAYS drawn by the GL layer (constant-width
     // vector lines): on the lid when a plateau stands, at ground level otherwise
-    // (there is no draped line layer anymore).
+    // (there is no draped line layer anymore) (with elevated terrain; without it
+    // the guard above returns and useScopeMask's `scope-flat-line` draws them).
     const focus = (outline()?.features ?? []).filter((f) => f.properties?.kind === "focus");
     const context = (outline()?.features ?? []).filter((f) => f.properties?.kind === "context");
     if (!raised.length) {
@@ -666,6 +674,11 @@ export function usePlateau({
       applyMask();
       terrainExag = 0;
       setTerrainRaw(next, 0);
+      if (__TEST_TOOLS__ && !map.getTerrain()) {
+        console.warn(
+          "[plateau] Mapbox refused the terrain although the canvas reads looked clean (plateau/terrainSwitch)",
+        );
+      }
       slots.swapped(map, old);
       if (old !== next) slots.dropDemSourceSoon(map, old);
       // No tile wait (arrival tiles were prefetched during the sink): the rise starts

@@ -4,8 +4,9 @@
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (dataSource.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
-// analyses/devSwitch). Testing tools only: imported by DevOptionsMenu.vue
-// alone, so a production build has none of these strings. French typography:
+// analyses/devSwitch, map/plateau/terrainSwitch). Testing tools only:
+// imported by DevOptionsMenu.vue alone, so a production build has none of
+// these strings. French typography:
 // a no-break space ( ) after « and before », ;, :, ? and %.
 
 export type DevSection = "donnees" | "carte" | "analyses";
@@ -22,7 +23,8 @@ export type DevKey =
   | "ac:slab-lid-verre"
   | "ac:slab-text"
   | "ac:slab-size"
-  | "ac:ring-band";
+  | "ac:ring-band"
+  | "ac:terrain";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -164,6 +166,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "La place que prend un territoire à l'écran quand la carte le cadre (80 % par défaut) : 100 % le fait aller jusqu'aux bords de la partie visible, 70 % laisse plus de carte autour. Avec les analyses ouvertes, la carte se recadre aussitôt ; sinon, au prochain territoire choisi.",
     reloads: false,
     defaultId: "80",
+  },
+  {
+    key: "ac:terrain",
+    section: "carte",
+    label: "Relief",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "off", label: "À plat" },
+    ],
+    explain:
+      "Certains navigateurs protégés contre le pistage (Safari avec sa protection avancée ou une extension, Brave, Firefox en mode strict) empêchent la carte de dessiner le relief. « Auto » (par défaut) soulève le territoire choisi quand le navigateur le permet, et sinon trace ses contours à plat ; « À plat » montre toujours la carte comme ces navigateurs la voient.",
+    reloads: true,
+    defaultId: "auto",
   },
   {
     key: "ac:analyses-pending",

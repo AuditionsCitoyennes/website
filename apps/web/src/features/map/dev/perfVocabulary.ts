@@ -3,7 +3,8 @@
 //
 //   select-plateau    a unit selected (a row, a pin, its territory, a crumb;
 //                     geo-nav/model/useNavActions) → the first frame the
-//                     plateau is drawn at full rise (usePlateauFrames)
+//                     plateau is drawn at full rise (usePlateauFrames), or at
+//                     once with no terrain (detail `flat`)
 //   scope-mask        the scope written (GeoNav.vue) → the grey re-cut around
 //                     it, or found unchanged (useScopeMask)
 //   drill-boundaries  a unit selected → its outline has every geometry it

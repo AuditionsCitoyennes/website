@@ -94,3 +94,25 @@ test("nothing is written when the source already holds the answer", () => {
   assert.equal(nextOutlineUpload(EMPTY, world, false, EMPTY), world);
   assert.equal(nextOutlineUpload(world, world, true, EMPTY), EMPTY);
 });
+
+test("flat (no elevated terrain): every outline goes up, scope feature included", () => {
+  const world = fc("focus");
+  const country = fc("scope", "focus", "context");
+  assert.equal(outlineToUpload(world, false, EMPTY, true), world);
+  assert.equal(outlineToUpload(country, false, EMPTY, true), country);
+  // The pure rule ignores pending; nextOutlineUpload holds.
+  const level = fc("scope", "focus");
+  assert.equal(outlineToUpload(level, true, EMPTY, true), level);
+  assert.equal(outlineToUpload(fc(), false, EMPTY, true), EMPTY);
+  assert.equal(outlineToUpload(null, false, EMPTY, true), EMPTY);
+});
+
+test("flat: pending holds what is up, the same object is not written again", () => {
+  const world = fc("focus");
+  const country = fc("scope", "focus", "context");
+  assert.equal(nextOutlineUpload(world, country, true, EMPTY, true), null);
+  assert.equal(nextOutlineUpload(world, country, false, EMPTY, true), country);
+  assert.equal(nextOutlineUpload(country, country, false, EMPTY, true), null);
+  assert.equal(nextOutlineUpload(country, fc(), false, EMPTY, true), EMPTY);
+  assert.equal(nextOutlineUpload(EMPTY, undefined, false, EMPTY, true), null);
+});

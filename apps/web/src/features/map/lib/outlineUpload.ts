@@ -6,6 +6,10 @@
 // JSON.stringify of the whole outline, a worker parse + re-index, and a reload
 // of every loaded tile, so the outline goes up only when that fallback can
 // use it.
+//
+// Without elevated terrain (`flat`, plateau/terrainSwitch) no plateau ever
+// stands and the source has two readers, the hover fill and the flat outline
+// line ("scope-flat-line"): it holds every outline, scope feature included.
 
 import type { OutlineFC } from "../types";
 
@@ -23,7 +27,9 @@ export function outlineToUpload(
   fc: OutlineFC | null | undefined,
   pending: boolean,
   emptyFc: OutlineFC,
+  flat = false,
 ): OutlineFC {
+  if (flat) return !fc || !fc.features.length ? emptyFc : fc;
   if (!fc || pending || !fc.features.length) return emptyFc;
   if (fc.features.some((f) => f.properties?.kind === "scope")) return emptyFc;
   return fc;
@@ -32,14 +38,17 @@ export function outlineToUpload(
 /**
  * The collection to write to the source, or null when it already holds it.
  * Identity, not content: it relies on the outline being a fresh object on every
- * recompute (useMapFeed) and never mutated in place.
+ * recompute (useMapFeed) and never mutated in place. `flat`, a boundary still
+ * loading holds what is up, as the grey holds.
  */
 export function nextOutlineUpload(
   uploaded: OutlineFC,
   fc: OutlineFC | null | undefined,
   pending: boolean,
   emptyFc: OutlineFC,
+  flat = false,
 ): OutlineFC | null {
-  const wanted = outlineToUpload(fc, pending, emptyFc);
+  if (flat && pending) return null;
+  const wanted = outlineToUpload(fc, pending, emptyFc, flat);
   return wanted === uploaded ? null : wanted;
 }

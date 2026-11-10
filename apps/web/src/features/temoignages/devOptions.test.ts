@@ -18,6 +18,7 @@ const data = await import("./dataSource");
 const lid = await import("../map/plateau/lidSwitch");
 const mesh = await import("../map/plateau/meshSwitch");
 const relief = await import("../map/relief/reliefSwitch");
+const terrain = await import("../map/plateau/terrainSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -25,6 +26,7 @@ const MODULES = {
   mesh: "../map/plateau/meshSwitch.ts",
   relief: "../map/relief/reliefSwitch.ts",
   slabs: "../analyses/devSwitch.ts",
+  terrain: "../map/plateau/terrainSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -47,6 +49,7 @@ const KEYS: readonly DevKey[] = [
   "ac:slab-size",
   "ac:frame-fill",
   "ac:ring-band",
+  "ac:terrain",
 ];
 /** Measurement arms, kept in localStorage only: no row by design. */
 const NO_ROW = [
@@ -58,7 +61,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the three sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 12);
+  assert.equal(DEV_OPTIONS.length, 13);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -127,6 +130,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:slab-text": ["slabs", "setSlabTextMode"],
   "ac:slab-size": ["slabs", "setSlabTextScale"],
   "ac:ring-band": ["slabs", "setRingBandMode"],
+  "ac:terrain": ["terrain", "setTerrainMode"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -150,7 +154,7 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
   }
   assert.deepEqual(
     DEV_OPTIONS.filter((o) => o.reloads).map((o) => o.label),
-    ["Données", "Couvercle", "Contrôle", "Maillage", "Préchargement"],
+    ["Données", "Couvercle", "Contrôle", "Maillage", "Préchargement", "Relief"],
   );
 });
 
@@ -179,6 +183,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
+  assert.deepEqual(ids("ac:terrain"), [...terrain.TERRAIN_MODES]);
   assert.deepEqual(ids("ac:analyses-pending"), storedCall("slabs", '"ac:analyses-pending"').ids);
   const shares = /export const SCALE_CHOICES = \[([^\]]*)\]/.exec(code("slabs"))![1];
   const scale = shares.split(",").map((v) => pct(Number(v)));
@@ -202,6 +207,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:slab-text": storedCall("slabs", "TEXT_KEY").fallback,
     "ac:slab-size": pct(constant("TEXT_SCALE")),
     "ac:ring-band": storedCall("slabs", "RING_KEY").fallback,
+    "ac:terrain": terrain.DEFAULT_TERRAIN_MODE,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
@@ -221,4 +227,8 @@ test("the default marked in each sentence is the module's", () => {
       assert.equal(quoted, label, o.key);
     }
   }
+});
+
+test("the Relief row closes the Carte section", () => {
+  assert.equal(DEV_OPTIONS.filter((o) => o.section === "carte").at(-1)!.key, "ac:terrain");
 });

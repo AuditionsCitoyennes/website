@@ -1,10 +1,14 @@
 // The grey outside the raised unit, and the layers it stands among: the
 // outline source (the draped hover-fill fallback, fed only when no plateau
-// stands or is coming), the draped mask the globe
-// shows, the GL tint sheet the flat view shows, the plateau's wall and slab
-// layers — installed once the style has loaded, in this order (setupLayers).
+// stands or is coming — with terrain; without it (plateau/terrainSwitch) the
+// source always holds the outline, read by `scope-flat-line` too), the draped
+// mask the globe shows, the GL tint sheet the flat view shows, the plateau's
+// wall and slab layers — installed once the style has loaded, in this order
+// (setupLayers).
 // Owns the regime flags: which renderer holds the grey, whether the style is
 // a globe at all (`isGlobeStyle`, which the fit and the slabs' sizing read).
+// Without elevated terrain no plateau stands: the outline is a flat line
+// layer, the grey the draped sheet at every zoom, and the GL tint is not added.
 
 import type mapboxgl from "mapbox-gl";
 import type * as GeoJSON from "geojson";
@@ -12,6 +16,7 @@ import { canonicalCopies, type Bounds, type WrapGeometry } from "@/features/geo"
 import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
 import { nextOutlineUpload } from "../lib/outlineUpload";
+import { terrainAvailable } from "../plateau/terrainSwitch";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { MASK_OPACITY, ScopeTintLayer, sameGeoms, type MaskGeom } from "../gl/ScopeTintLayer";
 
@@ -43,6 +48,8 @@ export function useScopeMask({
 }: ScopeMaskInputs) {
   const EMPTY_FC: OutlineFC = { type: "FeatureCollection", features: [] };
   const OUTLINE_SOURCE = "scope-outline";
+  // No elevated terrain this page load: everything below is drawn flat.
+  const flat = !terrainAvailable;
 
   // ---- "Everything but the plateau" grey: dims the map outside the raised area so
   // the selection reads as the subject.
@@ -189,7 +196,7 @@ export function useScopeMask({
     const src = getMap()?.getSource(MASK_SOURCE) as mapboxgl.GeoJSONSource | undefined;
     if (!src) return;
     const geoms: MaskGeom[] = [];
-    if (plateauActive()) {
+    if (plateauActive() || flat) {
       for (const f of outline()?.features ?? []) {
         if (f.properties?.kind !== "scope") continue;
         const g = f.geometry as MaskGeom | undefined;
@@ -201,7 +208,7 @@ export function useScopeMask({
       // colour until the geometry arrives.
       if (!geoms.length && scopePending()) return;
     }
-    const recut = scopeTint.setSelection(geoms);
+    const recut = flat ? !sameGeoms(geoms, drapedGeoms) : scopeTint.setSelection(geoms);
     // The globe's sheet always holds the current selection, whatever the zoom:
     // re-tiling only costs anything while its tiles are loaded (MASK_ARM_ZOOM), and
     // having the data already indexed is what lets those tiles appear in time
@@ -249,7 +256,10 @@ export function useScopeMask({
     if (!map) return;
     // On every `move`, so the common case must stay this cheap: a zoom read and a
     // comparison. (Both flags are false until setupOutline has added the layer.)
-    const show = regime ?? (globeStyle && map.getZoom() < GLOBE_MAX_ZOOM);
+    // Flat (no terrain), the sheet is the grey at every zoom once its layer is in.
+    const show = flat
+      ? !!map.getLayer(MASK_LAYER)
+      : (regime ?? (globeStyle && map.getZoom() < GLOBE_MAX_ZOOM));
     if (show === drapedShown) return;
     try {
       map.setPaintProperty(MASK_LAYER, "fill-opacity", show ? MASK_OPACITY : 0);
@@ -260,9 +270,11 @@ export function useScopeMask({
   }
 
   function applyOutline() {
-    // The outline source only feeds the draped hover-fill fallback now — the
-    // boundary LINES are GL geometry rebuilt by ensurePlateau (line widths are
-    // per-feature, derived from `level` inside setGeometry). That fallback only
+    // The outline source only feeds the draped hover-fill fallback now — with
+    // terrain; without it (plateau/terrainSwitch) the source always holds the
+    // outline, read by `scope-flat-line` too. With terrain the boundary LINES
+    // are GL geometry rebuilt by ensurePlateau (line widths are per-feature,
+    // derived from `level` inside setGeometry). That fallback only
     // shows when no plateau stands, so the outline goes up only when none is
     // coming: no `kind === "scope"` feature (the predicate ensurePlateau raises
     // on) and no boundary pending. Every other case holds EMPTY_FC, which also
@@ -281,7 +293,7 @@ export function useScopeMask({
     // outline on every recompute and nothing mutates one.
     const src = getMap()?.getSource(OUTLINE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
     if (!src) return;
-    const next = nextOutlineUpload(outlineUploaded, outline(), !!scopePending(), EMPTY_FC);
+    const next = nextOutlineUpload(outlineUploaded, outline(), !!scopePending(), EMPTY_FC, flat);
     if (!next) return;
     outlineUploaded = next;
     const end = perfOn ? perfSpan("outline.setData", { features: next.features.length }) : null;
@@ -314,8 +326,8 @@ export function useScopeMask({
       type: "geojson",
       data: EMPTY_FC as unknown as GeoJSON.FeatureCollection,
       // Only ever SEEN on the globe, whose tiles stop at this zoom anyway — no
-      // point indexing the sheet any deeper.
-      maxzoom: GLOBE_MAX_ZOOM - 1,
+      // point indexing the sheet any deeper. Flat, it is the grey at every zoom.
+      ...(flat ? {} : { maxzoom: GLOBE_MAX_ZOOM - 1 }),
     });
     map.addLayer(
       {
@@ -323,7 +335,7 @@ export function useScopeMask({
         type: "fill",
         source: MASK_SOURCE,
         slot: "middle",
-        maxzoom: MASK_ARM_ZOOM,
+        ...(flat ? {} : { maxzoom: MASK_ARM_ZOOM }),
         paint: {
           "fill-color": MASK_COLOR,
           // Starts hidden: `syncDrapedMask` shows it on the globe only.
@@ -353,8 +365,10 @@ export function useScopeMask({
     globeStyle = map.getProjection()?.name === "globe";
     // The flat view's grey (see ScopeTintLayer). Same anchoring as the draped
     // sheet: the slot on a Standard style, `beforeId` on a classic one.
-    scopeTint.onRegimeChange = syncDrapedMask;
-    map.addLayer(scopeTint, firstSymbol);
+    if (!flat) {
+      scopeTint.onRegimeChange = syncDrapedMask;
+      map.addLayer(scopeTint, firstSymbol);
+    }
     // The plateau's violet wall: our custom WebGL layer (see PlateauWallLayer) —
     // exact quads on the vector boundary, depth-tested against the terrain.
     map.addLayer(wall);
@@ -367,7 +381,8 @@ export function useScopeMask({
     // come from the GL sweep pass in PlateauWallLayer (draped paint can't reach
     // the lid, and the sweep animation only exists there). Its source is empty
     // whenever a plateau stands or is coming (applyOutline), so it draws nothing
-    // then.
+    // then — with terrain; without it (plateau/terrainSwitch) the source always
+    // holds the outline, read by `scope-flat-line` too.
     map.addLayer({
       id: "scope-hover-fill",
       type: "fill",
@@ -375,6 +390,33 @@ export function useScopeMask({
       filter: ["==", ["get", "id"], "__none__"],
       paint: { "fill-color": "#7c5cff", "fill-opacity": 0.6 },
     });
+    // Without elevated terrain the one boundary renderer: nothing is draped on
+    // terrain, so nothing breathes the way the note below warns, and the wall
+    // draws nothing (no plateau ever stands). The chosen unit's rim, its
+    // children and neighbours at the GL lines' widths and alphas; each width
+    // gains the GL shader's 1 device px feather (gl/plateauShaders LINE_FS),
+    // so the line puts down the ink the GL one does.
+    if (flat) {
+      const ink = 1 / (window.devicePixelRatio || 1);
+      map.addLayer({
+        id: "scope-flat-line",
+        type: "line",
+        source: OUTLINE_SOURCE,
+        layout: { "line-join": "round" },
+        paint: {
+          "line-color": "#7c5cff", // the plateau's rim (gl/plateauShaders WALL_FS)
+          "line-width": [
+            "case",
+            ["==", ["get", "kind"], "scope"],
+            2 + ink,
+            ["match", ["get", "level"], ["country", "region"], 0.9 + ink, 1.7 + ink], // gl/meshBuild's widths
+          ],
+          "line-opacity": ["match", ["get", "kind"], "scope", 1, "focus", 0.95, 0.85],
+          // Unlit, as the GL lines are: the Standard style's lights would shade it.
+          "line-emissive-strength": 1,
+        },
+      });
+    }
     // NO draped line layer: with terrain active (which is nearly always — every
     // selection stands a plateau, and even teardown revives the style fragment's
     // own terrain), mapbox rasterises draped lines into per-tile textures at
@@ -391,7 +433,7 @@ export function useScopeMask({
   function onContextRestored() {
     const map = getMap();
     const gl = map?.getCanvas().getContext("webgl2");
-    if (map && gl) scopeTint.onAdd(map, gl);
+    if (map && gl && !flat) scopeTint.onAdd(map, gl);
   }
 
   return {

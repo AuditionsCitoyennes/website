@@ -12,3 +12,10 @@ export { lidCheck, setLidCheck, type LidCheck } from "./plateau/lidSwitch";
 export { meshMode, setMeshMode, type MeshMode } from "./plateau/meshSwitch";
 // How the plateau's DEM tiles are prefetched: its DEV switch (the Témoignages page draws it).
 export { reliefPrefetch, setReliefPrefetch, type ReliefPrefetch } from "./relief/reliefSwitch";
+// Whether the map stands the plateau on elevated terrain this page load, and its DEV switch.
+export {
+  terrainAvailable,
+  terrainMode,
+  setTerrainMode,
+  type TerrainMode,
+} from "./plateau/terrainSwitch";

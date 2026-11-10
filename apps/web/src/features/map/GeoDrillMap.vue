@@ -15,6 +15,7 @@ import { toLngLat } from "./lib/polygon";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import type { MeshClient } from "./gl/meshClientCore";
 import { meshMode } from "./plateau/meshSwitch";
+import { terrainAvailable } from "./plateau/terrainSwitch";
 import { useMapView, type MapView } from "./composables/useMapView";
 import { useScopeMask } from "./composables/useScopeMask";
 import { usePlateauFrames } from "./composables/usePlateauFrames";
@@ -292,17 +293,20 @@ onMounted(() => {
       mask.applyOutline();
       mask.applyMask();
       pins.buildMarkers();
-      lid.warmup(); // hidden lid-snapshot map: pay style init now
-      // The relief worker started now, not on the first selection.
-      void loadReliefClient().then(
-        (c) => c.warmRelief(),
-        () => {},
-      );
+      // No elevated terrain (plateau/terrainSwitch): no plateau, so none of the three below.
+      if (terrainAvailable) {
+        lid.warmup(); // hidden lid-snapshot map: pay style init now
+        // The relief worker started now, not on the first selection.
+        void loadReliefClient().then(
+          (c) => c.warmRelief(),
+          () => {},
+        );
+      }
       // ac:mesh=worker: the mesh worker started now (a fresh worker's first
       // build is its slowest). Only this guard reaches the client: "worker" is
       // the default (plateau/meshSwitch.ts), so every build emits its chunk and
       // the worker, a page on another mode never loads them.
-      if (meshMode === "worker") {
+      if (terrainAvailable && meshMode === "worker") {
         void import("./gl/meshClient").then(
           ({ warmMeshWorker, globeProviderOf }) => {
             if (!map) return; // unmounted meanwhile
