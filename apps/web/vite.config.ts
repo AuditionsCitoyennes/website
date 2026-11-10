@@ -33,6 +33,14 @@ export default defineConfig(({ command, mode }) => ({
     __TEST_TOOLS__: JSON.stringify(
       command === "serve" || loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging",
     ),
+    // The Analyses (features/analyses: the panel's toggle, the plates and slabs
+    // around the plateau): in local development, and in a build with
+    // VITE_ANALYSES=on (staging). Any other build — production's first release —
+    // has none of their drawing code (a few inert hooks and the framing
+    // settings stay: docs/feature-flags.md).
+    __ANALYSES__: JSON.stringify(
+      command === "serve" || loadEnv(mode, process.cwd(), "VITE_").VITE_ANALYSES === "on",
+    ),
     __OUTLINES_BUILD__: JSON.stringify(outlinesBuild()),
   },
   // The app's Web Workers are modules (`new Worker(url, { type: "module" })`,

@@ -2,8 +2,10 @@
 // analyses around the raised territory, the statistics behind them, the
 // plates' content maths and the DEV switch. The content modules are exported
 // name by name: they share helpers of their own (the counts' lines, the text
-// wrapping, the slabs' near-edge growth) that are not the barrel's.
-export { default as ScopeAnalysisOverlay } from "./overlay/ScopeAnalysisOverlay.vue";
+// wrapping, the slabs' near-edge growth) that are not the barrel's. The
+// overlay is a loader: GeoNav mounts it only in a build that has the analyses
+// (__ANALYSES__, see vite.config), so any other build carries none of it.
+export const loadScopeAnalysisOverlay = () => import("./overlay/ScopeAnalysisOverlay.vue");
 export * from "./stats/scopeStats";
 export { buildFactsIndex, figuresHash, figuresOfFacts } from "./stats/factsStats";
 export { countsOf, emptyTextOf, fmtN, plural, shortName, type CountPart } from "./content/text";
@@ -31,4 +33,8 @@ export {
   type ScreenOpts,
 } from "./content/plateRoom";
 export * from "./devSwitch";
-export { useScopeAnalysis, type ScopeAnalysisInputs } from "./composables/useScopeAnalysis";
+export {
+  noScopeAnalysis,
+  useScopeAnalysis,
+  type ScopeAnalysisInputs,
+} from "./composables/useScopeAnalysis";

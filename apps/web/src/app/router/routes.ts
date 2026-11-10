@@ -1,4 +1,4 @@
-import type { RouteRecordRaw } from "vue-router";
+import type { RouteRecordRaw, RouteRecordRedirectOption } from "vue-router";
 import { ROUTE } from "@/shared/routes";
 import { HomePage } from "@/features/home";
 import { AuditionDetailPage } from "@/features/audition";
@@ -17,6 +17,13 @@ declare module "vue-router" {
   }
 }
 
+// The old analyses page's links (below): the map with the analyses on — or,
+// in a build without them (vite.config's __ANALYSES__), the plain map.
+const toAnalyses: RouteRecordRedirectOption = (to) => ({
+  name: ROUTE.temoignages.name,
+  query: __ANALYSES__ ? { ...to.query, analyses: "1" } : to.query,
+});
+
 export const routes: RouteRecordRaw[] = [
   {
     path: ROUTE.home.path,
@@ -32,15 +39,10 @@ export const routes: RouteRecordRaw[] = [
     meta: { bleed: true },
   },
   // The page is gone: its analyses are drawn on the map now, around the
-  // territory it shows. Old links open the map with them on.
-  {
-    path: "/analyses",
-    redirect: (to) => ({ name: ROUTE.temoignages.name, query: { ...to.query, analyses: "1" } }),
-  },
-  {
-    path: "/analyse",
-    redirect: (to) => ({ name: ROUTE.temoignages.name, query: { ...to.query, analyses: "1" } }),
-  },
+  // territory it shows. Old links open the map — with them on where the
+  // build has them (toAnalyses, above).
+  { path: "/analyses", redirect: toAnalyses },
+  { path: "/analyse", redirect: toAnalyses },
   {
     path: ROUTE.auditionDetail.path,
     name: ROUTE.auditionDetail.name,
