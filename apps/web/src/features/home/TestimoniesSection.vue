@@ -28,7 +28,7 @@ const DevHomeMapSwitch = __TEST_TOOLS__
     <div class="container-page split split--reverse">
       <div v-reveal class="copy">
         <p class="eyebrow">Les témoignages</p>
-        <h2 class="title">Une parole publiée,<br />placée sur la carte</h2>
+        <h2 class="title">Des paroles écoutées,<br />qui pèsent ensemble</h2>
         <p class="lead">
           Chaque témoignage recueilli lors d'une audition publique y est rattaché, avec son lieu et
           sa date. Chaque témoignage déposé en ligne rejoint l'audition en ligne de sa commune pour
