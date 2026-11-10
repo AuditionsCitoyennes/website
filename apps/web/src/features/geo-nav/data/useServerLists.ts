@@ -7,10 +7,10 @@
 //   A new answer goes on screen with the tree of its key — the previous one
 //   stays meanwhile (D6) —, read first as far as it must be (resultsPages'
 //   readTarget: the audition being read, or the rows of the same list on
-//   screen). Its first page gives the heading's total and the map's frame. A
-//   key or order come back to is read again from its first page, as the
-//   corpus' reveal restarts. Failed for good, the panel's error line shows,
-//   and the next scope change asks again.
+//   screen). Its first page gives the heading's total (and the results'
+//   frame, which only the probe reads). A key or order come back to is read
+//   again from its first page, as the corpus' reveal restarts. Failed for
+//   good, the panel's error line shows, and the next scope change asks again.
 // - The open lieu's auditions: its row's own list when the tree's answer
 //   embedded it (a complete answer: production's case, nothing is fetched);
 //   else /api/places/lieu, LoadingDots meanwhile (D13).
@@ -37,7 +37,7 @@ import type {
   PublicTestimony,
   TestimonyPageCursor,
 } from "@ac/shared";
-import type { Bounds, GeoUnit } from "@/features/geo";
+import type { GeoUnit } from "@/features/geo";
 import { EMPTY_KEY, placesKeys } from "../keys";
 import type { NavState } from "../navState";
 import { bySort, type AuditionSort } from "../model/auditions";
@@ -340,12 +340,6 @@ export function useServerLists(inputs: ServerListsInputs) {
 
   /** The results' totals (their first page's). */
   const resultsTotal = computed(() => shownResults.value?.pages[0].total ?? null);
-
-  /** The frame of every result's lieu (the server's resultBounds). */
-  function resultsFrame(): Bounds | null {
-    const f = shownResults.value?.pages[0].frame;
-    return f ? { minLat: f[0], maxLat: f[2], minLng: f[1], maxLng: f[3] } : null;
-  }
 
   /** A new list, not a page appended to it (resultsPages' orderSig). */
   const resultsSig = computed(() => {
@@ -674,7 +668,6 @@ export function useServerLists(inputs: ServerListsInputs) {
   return {
     resultRows,
     resultsTotal,
-    resultsFrame,
     resultsSig,
     resultSetSig,
     resultsCurrent,
