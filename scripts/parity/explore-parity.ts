@@ -27,8 +27,8 @@
 //
 // The frozen pipeline knows France only (legacy/hierarchy.ts leaves out a
 // lieu without a région), so the seed profile france-abroad, whose rows
-// abroad are placed, is refused before any comparison: france, world and all
-// are the profiles to compare over.
+// abroad are placed, is refused before any comparison: france and all are the
+// profiles to compare over.
 
 import { writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -843,7 +843,7 @@ function main(argv: string[]): number {
     console.error(
       "This database holds the seed profile france-abroad: db:parity compares against the " +
         "France-only legacy pipeline, which has no place for an audition placed abroad. " +
-        "Reseed with france, world or all.",
+        "Reseed with france or all.",
     );
     return 1;
   }
