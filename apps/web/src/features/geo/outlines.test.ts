@@ -335,6 +335,44 @@ test("globeOf: a country's g/ object, apart from its self; pinned with it", () =
   assert.equal(s.globeOf("ES"), undefined);
 });
 
+test("an overseas région's files are its département's; its row and k/FR entry stay its own", () => {
+  const s = new OutlineStore();
+  const root = ROOT();
+  const row = (id: string, parent: string, level: "region" | "dep", name: string) => ({
+    ...root.units.find((r) => r.id === "fr:dep:69")!,
+    id,
+    parent,
+    level,
+    name,
+  });
+  root.units.push(
+    row("fr:reg:03", "FR", "region", "Guyane"),
+    row("fr:dep:973", "fr:reg:03", "dep", "Guyane"),
+  );
+  s.putRoot(root);
+  assert.equal(s.filesIdOf("fr:reg:03"), "fr:dep:973");
+  // Île-de-France over Paris alone (another name), ARA, a département, a country.
+  for (const id of ["fr:reg:11", "fr:reg:84", "fr:dep:973", "fr:dep:75", "FR"])
+    assert.equal(s.filesIdOf(id), id, id);
+  s.put(kFile("FR", "fr1000", [entry("fr:reg:03", "region")]), raw);
+  const fromFR = s.entryOf("fr:reg:03");
+  assert.ok(fromFR);
+  assert.equal(s.unitsOf("fr:reg:03"), undefined);
+  assert.equal(s.bundleLoaded("fr:reg:03"), false);
+  s.put(kFile("fr:dep:973", "e50", [entry("fr:com:97302", "city")]), raw);
+  assert.ok(s.bundleLoaded("fr:reg:03"));
+  assert.deepEqual([...(s.unitsOf("fr:reg:03")?.keys() ?? [])], ["fr:com:97302"]);
+  assert.equal(s.selfOf("fr:reg:03"), s.selfOf("fr:dep:973"));
+  assert.ok(s.selfOf("fr:reg:03"));
+  assert.equal(s.rowOf("fr:reg:03")?.level, "region");
+  assert.equal(s.rowOf("fr:reg:03")?.name, "Guyane");
+  assert.equal(s.entryOf("fr:reg:03"), fromFR);
+  // Pinned: its entry's file and its département's.
+  s.pin(["fr:reg:03"]);
+  s.put(kFile("fr:reg:84", "e50", [entry("fr:dep:69", "dep", 500_000)]), raw);
+  assert.ok(s.loaded("k", "FR") && s.loaded("k", "fr:dep:973"));
+});
+
 test("file names and URLs", () => {
   assert.equal(keyOf("fr:com:69123"), "fr_com_69123");
   assert.equal(keyOf("FR"), "FR");

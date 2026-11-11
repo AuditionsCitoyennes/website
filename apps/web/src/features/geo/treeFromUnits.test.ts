@@ -9,7 +9,13 @@ import { test } from "node:test";
 import type { LocationGroup, PlaceLieuRow, PlaceUnitRow } from "@ac/shared";
 import { buildGeoHierarchy } from "./hierarchy";
 import { scopeForView } from "./scope";
-import { buildTreeFromUnits, byServerOrder, WORLD, type UnitTreeData } from "./treeFromUnits";
+import {
+  buildTreeFromUnits,
+  byServerOrder,
+  serverChainOf,
+  WORLD,
+  type UnitTreeData,
+} from "./treeFromUnits";
 import type { GeoUnit } from "./types";
 
 /** geo_units as the fixtures need them. */
@@ -29,6 +35,17 @@ const UNITS: Record<
   "fr:com:69266": { parent: "fr:dep:69", level: "locality", name: "Villeurbanne", code: "69266" },
   "fr:com:38185": { parent: "fr:dep:38", level: "locality", name: "Grenoble", code: "38185" },
   "fr:com:97302": { parent: "fr:dep:973", level: "locality", name: "Cayenne", code: "97302" },
+  // Only in the overseas cases' own groups.
+  "fr:reg:11": { parent: "FR", level: "region", name: "Île-de-France", code: "11" },
+  "fr:dep:75": { parent: "fr:reg:11", level: "county", name: "Paris", code: "75" },
+  "fr:reg:977": { parent: "FR", level: "region", name: "Saint-Barthélemy", code: "977" },
+  "fr:dep:977": { parent: "fr:reg:977", level: "county", name: "Saint-Barthélemy", code: "977" },
+  "fr:com:97701": {
+    parent: "fr:dep:977",
+    level: "locality",
+    name: "Saint-Barthélemy",
+    code: "97701",
+  },
 };
 
 let auditionSeq = 0;
@@ -361,4 +378,152 @@ test("a stub whose unit's lieux are known without it is gone: it does not match"
   const withStub = buildTreeFromUnits({ ...data, stubs: new Map([[stub.id, stub]]) });
   assert.equal(withStub.index.has(stub.id), false);
   assert.deepEqual(shape(withStub.root), shape(buildTreeFromUnits(data).root));
+});
+
+// ---- Overseas France: one territory, one level (@ac/shared frOverseas) --------
+
+const GUYANE = ["FR", "fr:reg:03", "fr:dep:973", "fr:com:97302"];
+
+test("an overseas territory is one level: its région, holding its département's communes", () => {
+  const data = serverData(mapOrder(GROUPS));
+  const { index } = buildTreeFromUnits(data);
+  const guyane = index.get("fr:reg:03")!;
+  assert.equal(guyane.foldedDep, "fr:dep:973");
+  assert.equal(guyane.levelKey, "region");
+  assert.equal(guyane.heightClass, "full");
+  assert.equal(guyane.count, data.units.get("fr:reg:03")!.row!.n);
+  assert.equal(guyane.childrenPending, undefined);
+  assert.deepEqual(
+    guyane.children.map((c) => c.label),
+    ["Cayenne"],
+  );
+  assert.equal(index.has("fr:dep:973"), false);
+  const cayenne = index.get("fr:com:97302")!;
+  assert.equal(cayenne.parentId, "fr:reg:03");
+  assert.deepEqual(cayenne.ancestors, ["world", "FR", "fr:reg:03"]);
+  assert.equal(cayenne.depth, 3);
+  assert.equal(cayenne.levelKey, "city");
+  assert.equal(cayenne.insee, "97302");
+  // A metropolitan région is unchanged.
+  const ara = index.get("fr:reg:84")!;
+  assert.equal(ara.foldedDep, undefined);
+  assert.equal(index.get("fr:dep:69")!.parentId, "fr:reg:84");
+  assert.equal(index.get("fr:dep:69")!.heightClass, "half");
+});
+
+test("an overseas territory read lazily: pending until its département's answer, its id unchanged", () => {
+  const groups = mapOrder(GROUPS);
+  // The région loaded (France's answer), its département not.
+  const depPending = buildTreeFromUnits(serverData(groups, (id) => id !== "fr:dep:973")).index;
+  const g = depPending.get("fr:reg:03")!;
+  assert.equal(g.foldedDep, "fr:dep:973");
+  assert.equal(g.childrenPending, true);
+  assert.deepEqual(g.children, []);
+  assert.equal(depPending.has("fr:dep:973"), false);
+  // The région itself not loaded (the world's answer): pending, not folded yet.
+  const regPending = buildTreeFromUnits(serverData(groups, (id) => id !== "fr:reg:03")).index;
+  const r = regPending.get("fr:reg:03")!;
+  assert.equal(r.id, "fr:reg:03");
+  assert.equal(r.childrenPending, true);
+  assert.equal(r.foldedDep, undefined);
+  assert.deepEqual(r.children, []);
+});
+
+test("an overseas territory lists the lieux placed at its département's and its région's level", () => {
+  const groups = mapOrder([
+    ...GROUPS,
+    group("Guyane", ["FR", "fr:reg:03", "fr:dep:973"], [4.5, -53], [["2025-10-01", 5]]),
+    group("Fleuve Maroni", ["FR", "fr:reg:03"], [4.2, -54], [["2025-07-01", 1]]),
+  ]);
+  const data = serverData(groups);
+  const guyane = buildTreeFromUnits(data).index.get("fr:reg:03")!;
+  assert.deepEqual(
+    guyane.children.map((c) => [c.label, c.levelKey]),
+    [
+      ["Guyane", "place"],
+      ["Cayenne", "city"],
+      ["Fleuve Maroni", "place"],
+    ],
+  );
+  assert.equal(guyane.count, data.units.get("fr:reg:03")!.row!.n);
+  assert.equal(guyane.count, 10);
+  // The corpus builds the same tree.
+  assert.deepEqual(shape(buildTreeFromUnits(data).root), shape(buildGeoHierarchy(groups).root));
+});
+
+test("a lieu of Cayenne known from a list only: under Guyane, or Cayenne once listed", () => {
+  const groups = mapOrder(GROUPS);
+  const stub = {
+    id: "l:fedcba9876543210",
+    key: "Place des Palmistes, Cayenne",
+    unit: "fr:com:97302",
+    path: GUYANE,
+    lat: 4.94,
+    lng: -52.33,
+    city: "Cayenne",
+    n: 2,
+  };
+  const stubs = new Map([[stub.id, stub]]);
+  // Neither the département nor the commune loaded: the folded département is
+  // never a parent, the territory is.
+  const both = serverData(groups, (id) => id !== "fr:dep:973" && id !== "fr:com:97302");
+  const under = buildTreeFromUnits({ ...both, stubs }).index;
+  assert.equal(under.get("fr:reg:03")!.foldedDep, "fr:dep:973");
+  assert.equal(under.get("fr:reg:03")!.childrenPending, true);
+  assert.equal(under.get(stub.id)!.parentId, "fr:reg:03");
+  assert.deepEqual(under.get(stub.id)!.ancestors, ["world", "FR", "fr:reg:03"]);
+  // The département loaded: Cayenne is listed (its lieux pending), the stub under it.
+  const commune = serverData(groups, (id) => id !== "fr:com:97302");
+  const inCayenne = buildTreeFromUnits({ ...commune, stubs }).index;
+  assert.equal(inCayenne.get("fr:com:97302")!.childrenPending, true);
+  assert.equal(inCayenne.get("fr:com:97302")!.parentId, "fr:reg:03");
+  assert.equal(inCayenne.get(stub.id)!.parentId, "fr:com:97302");
+  assert.deepEqual(inCayenne.get(stub.id)!.ancestors, ["world", "FR", "fr:reg:03", "fr:com:97302"]);
+});
+
+test("serverChainOf: the server's filing, the folded département included", () => {
+  const data = serverData(mapOrder(GROUPS));
+  const { index } = buildTreeFromUnits(data);
+  assert.deepEqual(serverChainOf(data, "fr:com:97302"), ["world", ...GUYANE]);
+  assert.deepEqual(serverChainOf(data, "fr:reg:03"), ["world", "FR", "fr:reg:03"]);
+  for (const u of [...index.values()].filter((u) => u.levelKey !== "place")) {
+    if (u.id === "fr:com:97302") continue;
+    assert.deepEqual(serverChainOf(data, u.id), [...u.ancestors, u.id], u.id);
+  }
+  assert.deepEqual(serverChainOf(data, "world"), ["world"]);
+  assert.equal(serverChainOf(data, "fr:com:00000"), null);
+});
+
+test("a région whose only département has another name is not folded; a collectivité is", () => {
+  const groups = mapOrder([
+    ...GROUPS,
+    group("Paris", ["FR", "fr:reg:11", "fr:dep:75"], [48.86, 2.35], [["2026-03-01", 2]]),
+    group(
+      "Gustavia",
+      ["FR", "fr:reg:977", "fr:dep:977", "fr:com:97701"],
+      [17.9, -62.85],
+      [["2026-02-01", 1]],
+    ),
+  ]);
+  const data = serverData(groups);
+  const { root, index } = buildTreeFromUnits(data);
+  const idf = index.get("fr:reg:11")!;
+  assert.equal(idf.foldedDep, undefined);
+  assert.deepEqual(
+    idf.children.map((c) => c.id),
+    ["fr:dep:75"],
+  );
+  assert.equal(index.get("fr:dep:75")!.levelKey, "dep");
+  // Saint-Barthélemy: the région/département pair folds, its one commune of
+  // the same name stays (the Paris › Paris shape, one level lower).
+  const sb = index.get("fr:reg:977")!;
+  assert.equal(sb.foldedDep, "fr:dep:977");
+  assert.equal(index.has("fr:dep:977"), false);
+  assert.deepEqual(
+    sb.children.map((c) => [c.id, c.label, c.levelKey]),
+    [["fr:com:97701", "Saint-Barthélemy", "city"]],
+  );
+  assert.deepEqual(index.get("fr:com:97701")!.ancestors, ["world", "FR", "fr:reg:977"]);
+  // The corpus builds the same tree.
+  assert.deepEqual(shape(root), shape(buildGeoHierarchy(groups).root));
 });

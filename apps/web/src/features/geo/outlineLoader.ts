@@ -17,7 +17,8 @@
 // not a failure: `ready` turns "late" (the page stops waiting for it) and the
 // boot goes on — a main thread busy with the map's own start can hold a
 // response that has long arrived (`bootCap: "fallback"` ends the session
-// there instead).
+// there instead). An overseas région's files are its département's
+// (OutlineStore.filesIdOf): each public method reads them by that id.
 
 import {
   checkResponse,
@@ -148,16 +149,18 @@ export class OutlineLoader {
   }
 
   /** The unit's bundle (its self and its children), if its row says k:1. */
-  async ensureBundle(id: string): Promise<OutlineStatus> {
+  async ensureBundle(unit: string): Promise<OutlineStatus> {
     if (await this.stopped()) return "fallback";
+    const id = this.o.store.filesIdOf(unit);
     if (this.o.store.bundleLoaded(id)) return "loaded";
     return this.o.store.rowOf(id)?.k ? this.load("k", id) : "absent";
   }
 
   /** The unit's self: nothing to fetch when it is stored (a département's
    *  entry is its self), else its u/ file, else its bundle. */
-  async ensureSelf(id: string): Promise<OutlineStatus> {
+  async ensureSelf(unit: string): Promise<OutlineStatus> {
     if (await this.stopped()) return "fallback";
+    const id = this.o.store.filesIdOf(unit);
     const row = this.o.store.rowOf(id);
     if (!row) return "absent";
     if (this.o.store.has(id, row.st)) return "loaded";
@@ -172,8 +175,9 @@ export class OutlineLoader {
   }
 
   /** The selves of these units not stored yet, in ONE write. */
-  async batchSelf(ids: string[]): Promise<OutlineStatus[]> {
-    if (await this.stopped()) return ids.map(() => "fallback");
+  async batchSelf(units: string[]): Promise<OutlineStatus[]> {
+    if (await this.stopped()) return units.map(() => "fallback");
+    const ids = units.map((u) => this.o.store.filesIdOf(u));
     return this.many(ids, (id) => {
       const row = this.o.store.rowOf(id);
       return row && this.o.store.has(id, row.st) ? "loaded" : this.selfKind(id);
@@ -197,7 +201,8 @@ export class OutlineLoader {
 
   /** Warms the HTTP cache with a declared file (a hover): never writes, never
    *  fails. Settles with its request (or the one under way for that file). */
-  prefetch(kind: OutlineKind, id: string): Promise<void> {
+  prefetch(kind: OutlineKind, unit: string): Promise<void> {
+    const id = this.o.store.filesIdOf(unit);
     if (
       this.mode !== "fichiers" ||
       !this.declared(kind, id) ||
@@ -213,14 +218,15 @@ export class OutlineLoader {
   }
 
   isFailed(kind: OutlineKind, id: string): boolean {
-    return this.failed.has(fileKey(kind, id));
+    return this.failed.has(fileKey(kind, this.o.store.filesIdOf(id)));
   }
   isGaveUp(kind: OutlineKind, id: string): boolean {
-    return this.gaveUp.has(fileKey(kind, id));
+    return this.gaveUp.has(fileKey(kind, this.o.store.filesIdOf(id)));
   }
   /** Its self is stored, or will not come (failed, given up), or none is declared. */
-  selfSettled(id: string): boolean {
+  selfSettled(unit: string): boolean {
     if (this.off()) return true;
+    const id = this.o.store.filesIdOf(unit);
     const row = this.o.store.rowOf(id);
     if (row && this.o.store.has(id, row.st)) return true;
     const kind = this.selfKind(id);

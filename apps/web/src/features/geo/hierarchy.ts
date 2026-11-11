@@ -2,7 +2,7 @@
 // région → département → ville → arrondissement → lieu), each unit carrying a
 // count, a weighted centroid, and a bounding box so the camera can frame it.
 
-import { FRANCE_CENTER, splitCityNamed, type LocationGroup } from "@ac/shared";
+import { FRANCE_CENTER, isOneTerritory, splitCityNamed, type LocationGroup } from "@ac/shared";
 import { boundsCenter, METRO_FRANCE, pointBounds, unionBounds } from "./bounds";
 import type { GeoLevel, GeoRef, GeoUnit, HeightClass, LevelKey } from "./types";
 
@@ -71,7 +71,8 @@ function chainSteps(g: ChainArea): ChainStep[] | null {
   };
   push("France", "country", "France", "country", "FR");
   push(`r:${g.region}`, "region", g.region, "region");
-  if (g.departementCode) {
+  // An overseas territory is one level: its région (@ac/shared frOverseas).
+  if (g.departementCode && !isOneTerritory(g.region, g.departementName)) {
     const label = g.departementName ?? g.departementCode;
     push(`d:${g.departementCode}`, "dep", label, "county", g.departementCode);
   }
