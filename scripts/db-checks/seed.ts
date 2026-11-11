@@ -12,10 +12,12 @@
 //   settled by what the design says settles it; the rows the old app wrote
 //   are stale, and each can be placed by reuse from a placed row of its lieu
 //   (so the placement job needs no upstream call for them); rows abroad are
-//   unplaced, as after an attempt (so the job never looks them up); the
+//   unplaced, as after an attempt (so the job never looks them up), in the
+//   profiles `world` and `all`, and in `france-abroad` each holds exactly
+//   its lieu's place of the abroad fixture (fixtures/abroad.ts); the
 //   same-named communes settle as pickHomonym settles them against
 //   placement_support() (so the job's retries leave them where they are);
-//   geo_units holds the fixture's units the rows reference, and only those.
+//   geo_units holds the fixtures' units the rows reference, and only those.
 //
 // A database used since the seed was loaded (the job ran, an admin wrote), or
 // seeded before a LOCATION_RULES change, gets its counts reported, and the
@@ -24,6 +26,12 @@
 import { isDeepStrictEqual } from "node:util";
 import { getCanonicalLocation, type PlaceCandidate } from "@ac/shared";
 import { pickHomonym, type Homonyms } from "../../apps/api/src/modules/geo/match";
+import {
+  abroadPlaces,
+  abroadUnits,
+  type AbroadPlace,
+  type AbroadUnit,
+} from "../seed/fixtures/abroad";
 import { readFrFixtures, RULES_HASH, type FrPlace, type FrUnit } from "../seed/fixtures/fr";
 import { PLACES_FINGERPRINT } from "../seed/fingerprint";
 import { FRANCE_CLUSTERS } from "../seed/places";
@@ -163,7 +171,7 @@ export function checkSeed(): string[] {
   const [marker, rows, units, supportObject, fingerprint] = sqlJson<unknown>(READ) as [
     Marker | null,
     Row[],
-    FrUnit[],
+    (FrUnit | AbroadUnit)[],
     Record<string, number>,
     string,
   ];
@@ -178,13 +186,17 @@ export function checkSeed(): string[] {
 
   const fixtures = readFrFixtures();
   const { places } = fixtures;
+  // Only the france-abroad profile places rows abroad: in any other, a row
+  // abroad is held to the unplaced rule whatever its location says.
+  const abroad = new Map(marker.profile === "france-abroad" ? Object.entries(abroadPlaces()) : []);
   const french = (r: Row) => !r.online && r.location in places.lieux;
   const placed = rows.filter((r) => !r.place_stale && r.place_path !== null);
   const unplaced = rows.filter((r) => !r.place_stale && r.place_path === null);
   const stale = rows.filter((r) => r.place_stale);
   console.log(
     `  profile ${marker.profile}: ${rows.length} auditions, ${placed.length} placed ` +
-      `(${placed.filter((r) => r.online).length} online), ${unplaced.length} unplaced ` +
+      `(${placed.filter((r) => r.online).length} online, ` +
+      `${placed.filter((r) => !r.online && !french(r)).length} abroad), ${unplaced.length} unplaced ` +
       `(${unplaced.filter((r) => !r.online && !french(r)).length} abroad), ` +
       `${stale.length} stale (${stale.filter(french).length} in France, ` +
       `${stale.filter((r) => r.online).length} online, ${stale.filter((r) => !r.online && !french(r)).length} abroad)`,
@@ -223,7 +235,7 @@ export function checkSeed(): string[] {
     }
   };
   const never = Object.fromEntries(COLUMNS.map((c) => [c, null]));
-  const stored = (p: FrPlace, location: string) => ({
+  const stored = (p: FrPlace | AbroadPlace, location: string) => ({
     place_unit: p.place_unit,
     place_path: p.place_path,
     locality_id: p.locality_id,
@@ -265,15 +277,19 @@ export function checkSeed(): string[] {
         errors.push(`${label}: not its town hall's label "${p.location}"`);
       continue;
     }
-    const p = places.lieux[row.location];
+    const p = abroad.get(row.location) ?? places.lieux[row.location];
     if (row.place_stale) {
+      if (abroad.has(row.location)) {
+        errors.push(`${label}: stale, where the seed places it at its abroad fixture place`);
+        continue;
+      }
       // Written as the old app writes: never placed.
       if (!p) errors.push(`${label}: stale abroad, where the seed leaves rows unplaced`);
       differ(label, row, never);
       continue;
     }
     if (!p) {
-      // Abroad: unplaced, as after an attempt.
+      // Abroad, in neither fixture: unplaced, as after an attempt.
       differ(label, row, {
         ...never,
         lieu_key: getCanonicalLocation(row.location),
@@ -294,7 +310,7 @@ export function checkSeed(): string[] {
   // The rows the old app wrote: as many as places.ts says, each with a
   // placed, up-to-date row of its lieu to be placed from.
   const legacy = stale.filter(french);
-  const hasFrance = marker.profile === "france" || marker.profile === "all";
+  const hasFrance = ["france", "all", "france-abroad"].includes(marker.profile ?? "");
   if (legacy.length !== (hasFrance ? LEGACY : 0)) {
     errors.push(`${legacy.length} French rows stale, expected ${hasFrance ? LEGACY : 0}`);
   }
@@ -353,24 +369,27 @@ export function checkSeed(): string[] {
     }
   }
 
-  // geo_units: the fixture's units the rows' paths name, as the fixture has
-  // them, and those only.
+  // geo_units: the units of the two fixtures (fr-units.json,
+  // fixtures/abroad.ts) the rows' paths name, as the fixtures have them, and
+  // those only.
   const named = new Set(rows.flatMap((r) => r.place_path ?? []));
   const held = new Map(units.map((u) => [u.id, u]));
-  const fixture = new Map(fixtures.units.map((u) => [u.id, u]));
+  const fixture = new Map<string, FrUnit | AbroadUnit>(
+    [...fixtures.units, ...abroadUnits()].map((u) => [u.id, u]),
+  );
   for (const id of named)
     if (!held.has(id)) errors.push(`unit ${id}: named by a path, not in geo_units`);
   for (const [id, unit] of held) {
     if (!named.has(id)) errors.push(`unit ${id}: in geo_units, named by no path`);
     const want = fixture.get(id);
     if (!want) {
-      errors.push(`unit ${id}: not in fr-units.json`);
+      errors.push(`unit ${id}: in neither fr-units.json nor fixtures/abroad.ts`);
       continue;
     }
     for (const k of Object.keys(want) as (keyof FrUnit)[]) {
       if (!isDeepStrictEqual(unit[k], want[k])) {
         errors.push(
-          `unit ${id}: ${k} is ${JSON.stringify(unit[k])}, fr-units.json has ${JSON.stringify(want[k])}`,
+          `unit ${id}: ${k} is ${JSON.stringify(unit[k])}, its fixture has ${JSON.stringify(want[k])}`,
         );
       }
     }

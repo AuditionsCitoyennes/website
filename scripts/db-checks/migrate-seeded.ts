@@ -3,11 +3,12 @@
 // that rewrites existing rows never meets any there. This rebuilds a local
 // database as it stood before map phase 1, loads the seed into it with psql,
 // in the shape of its rows then (SEED_SHAPE=legacy: no place column, no
-// geo_units; profile SEED_PROFILE, all by default), then applies the newer
-// migrations over the rows, as staging and production will see them, and
-// checks the result: every testimony derived; the auditions the reviewed
-// backfill lists placed exactly as it lists them (online rows at their own
-// point), every other one stale; and the backfill run again changes nothing.
+// geo_units; profile SEED_PROFILE, any of the seed's four, all by default),
+// then applies the newer migrations over the rows, as staging and production
+// will see them, and checks the result: every testimony derived; the
+// auditions the reviewed backfill lists placed exactly as it lists them
+// (online rows at their own point), every other one stale; and the backfill
+// run again changes nothing.
 //
 //   npm run db:check:seeded -- --yes --workdir <dir>
 //     <dir>/supabase/config.toml, migrations/ (a copy, or a symlink)
@@ -34,7 +35,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { seedSql, type Profile } from "../seed/generate";
+import { PROFILES, seedSql, type Profile } from "../seed/generate";
 import { expectedFor } from "./backfill";
 import { sqlJson } from "./psql";
 
@@ -85,8 +86,8 @@ if (process.env.PSQL || process.env.DATABASE_URL) {
 const from = option("--from") ?? BEFORE_PHASE_1;
 const seedFile = option("--seed");
 const profile = (process.env.SEED_PROFILE ?? "all") as Profile;
-if (!seedFile && !["france", "world", "all"].includes(profile)) {
-  fail(`SEED_PROFILE must be france, world or all (got "${profile}")`);
+if (!seedFile && !PROFILES.includes(profile)) {
+  fail(`SEED_PROFILE must be france, world, all or france-abroad (got "${profile}")`);
 }
 const migrations = resolve(workdir, "supabase/migrations");
 let expected: ReturnType<typeof expectedFor>["list"];

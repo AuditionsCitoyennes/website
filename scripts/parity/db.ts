@@ -607,3 +607,13 @@ export function rpcsInstalled(): boolean {
   ).trim();
   return out === "t";
 }
+
+/** The profile of the fake seed loaded last (its fake_seed_loaded entry,
+ *  scripts/seed/generate.ts), or null when the database holds none. */
+export function seedProfile(): string | null {
+  const out = runSql(
+    "select metadata ->> 'profile' from public.audit_log where action = 'fake_seed_loaded' " +
+      "order by created_at desc, id desc limit 1;",
+  ).trim();
+  return out === "" ? null : out;
+}
