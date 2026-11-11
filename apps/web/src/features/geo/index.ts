@@ -28,6 +28,7 @@ export {
 export {
   buildTreeFromUnits,
   byServerOrder,
+  serverChainOf,
   WORLD,
   type LieuStub,
   type ServerOrdered,

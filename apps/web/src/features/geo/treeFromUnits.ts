@@ -4,8 +4,11 @@
 // padded point boxes, France's constant frame, labels, the children's order —
 // so that everything downstream reads it unchanged. Ids are the database's:
 // "world", ISO countries, fr:reg|dep|com:<INSEE>, l:<hash> for a lieu. Pure.
+// An overseas territory is one level: its région, holding its département's
+// children (@ac/shared frOverseas), as the corpus builds it.
 
 import {
+  foldedDepartementOf,
   FRANCE_CENTER,
   type PlaceLieuRow,
   type PlaceResultLieu,
@@ -178,6 +181,19 @@ export function buildTreeFromUnits(data: UnitTreeData): {
     const isFrance = levelKey === "country" && row.id === "FR";
     const bounds = isFrance ? METRO_FRANCE : paddedBox(row);
     const entry = data.units.get(row.id);
+    // One territory (an overseas région over the département of its name): the
+    // région stands, holding what the département holds — its children, its
+    // lieux and the région's own — and the département is folded away.
+    const dep = row.level === "region" && entry?.loaded ? foldedOf(row, entry) : null;
+    const depEntry = dep ? data.units.get(dep) : undefined;
+    const holds: UnitTreeEntry | undefined = dep
+      ? {
+          row,
+          loaded: !!depEntry?.loaded,
+          childIds: depEntry?.childIds,
+          lieuIds: [...(entry?.lieuIds ?? []), ...(depEntry?.lieuIds ?? [])],
+        }
+      : entry;
     const u: GeoUnit = {
       id: row.id,
       depth: parent.depth + 1,
@@ -196,11 +212,22 @@ export function buildTreeFromUnits(data: UnitTreeData): {
           ? (geoRef.code ?? undefined)
           : undefined,
     };
-    if (!entry?.loaded) u.childrenPending = true;
+    if (dep) u.foldedDep = dep;
+    if (!holds?.loaded) u.childrenPending = true;
     index.set(u.id, u);
-    u.children = childrenOf(u, entry);
+    u.children = childrenOf(u, holds);
     return u;
   };
+
+  /** The département a loaded région folds into, or null. */
+  const foldedOf = (row: PlaceUnitRow, entry: UnitTreeEntry): string | null =>
+    foldedDepartementOf(
+      row.name,
+      (entry.childIds ?? []).flatMap((id) => {
+        const r = data.units.get(id)?.row;
+        return r ? [{ id, name: r.name, isDepartement: r.level === "county" }] : [];
+      }),
+    );
 
   const worldEntry = data.units.get(WORLD);
   const root: GeoUnit = {
@@ -244,4 +271,21 @@ export function buildTreeFromUnits(data: UnitTreeData): {
     parent.children.push(lieuUnit(stub, parent));
   }
   return { root, index };
+}
+
+/**
+ * A unit's chain as the server files it, root first ("world", the country,
+ * …, the unit), walked up its rows; null when a row on the way is missing.
+ * The tree's `[...ancestors, id]` for every unit but those under a folded
+ * région, whose chain holds the département the tree folds away.
+ */
+export function serverChainOf(data: UnitTreeData, id: string): string[] | null {
+  const chain: string[] = [];
+  for (let u = id; u !== WORLD;) {
+    const row = data.units.get(u)?.row;
+    if (!row) return null;
+    chain.unshift(u);
+    u = row.parent ?? WORLD;
+  }
+  return [WORLD, ...chain];
 }

@@ -30,6 +30,8 @@
 // 7. A panel row held under the pointer asks for its unit's bundle before the
 //    click (data/hoverPrefetch, GeoNav): a région's self is in it; a
 //    country's, its u/ (outlineRoles' prefetchKind).
+// 8. An overseas territory's région reads its département's files (geo's
+//    OutlineStore.filesIdOf).
 import { countryOutline, lngNear, selfFileOf } from "@/features/geo";
 import type { Bounds, GeoUnit, RoleRow } from "@/features/geo";
 

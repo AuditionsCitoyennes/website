@@ -450,6 +450,91 @@ test("the place picker's tree read lazily: a commune's unloaded arrondissements 
   );
 });
 
+/** data() with Guyane: a région over the département of its name, Cayenne
+ *  in it; `unloaded` as partial() reads them. */
+function withGuyane(unloaded: string[] = []): PlaceTreeData {
+  const base = partial(unloaded);
+  const rows = [
+    row("fr:reg:03", "FR", "region", "Guyane", 2, "2025-09-08", "g"),
+    row("fr:dep:973", "fr:reg:03", "county", "Guyane", 2, "2025-09-08", "g"),
+    row("fr:com:97302", "fr:dep:973", "locality", "Cayenne", 2, "2025-09-08", "g"),
+  ];
+  const cayenne = lieu("l:g", "fr:com:97302", "Place des Palmistes, Cayenne", 2, "2025-09-08", "g");
+  const units = new Map(base.units);
+  const fr = units.get("FR")!;
+  units.set("FR", { ...fr, childIds: [...(fr.childIds ?? []), "fr:reg:03"] });
+  for (const r of rows) {
+    const known = !unloaded.includes(r.id);
+    const childIds = rows.filter((c) => c.parent === r.id).map((c) => c.id);
+    const lieuIds = r.id === "fr:com:97302" ? ["l:g"] : [];
+    units.set(
+      r.id,
+      known ? { row: r, childIds, lieuIds, loaded: true } : { row: r, loaded: false },
+    );
+  }
+  const lieux = new Map(base.lieux);
+  if (!unloaded.includes("fr:com:97302")) lieux.set("l:g", cayenne);
+  return { units, lieux };
+}
+
+test("the place picker lists an overseas territory once: its région, its communes under it", () => {
+  const nodes = (ns: LocNode[]): LocNode[] => ns.flatMap((n) => [n, ...nodes(n.children ?? [])]);
+  for (const arrondissements of [false, true]) {
+    const tree = buildPlaceTree(withGuyane(), { arrondissements });
+    const guyane = tree.find((n) => n.label === "Guyane")!;
+    assert.equal(guyane.token, "fr:reg:03");
+    assert.equal(guyane.count, 2);
+    assert.deepEqual(
+      guyane.children!.map((c) => [c.token, c.label]),
+      [["fr:com:97302", "Cayenne"]],
+    );
+    assert.equal(nodes(tree).filter((n) => n.label === "Guyane").length, 1);
+    assert.equal(
+      nodes(tree).some((n) => n.hint === "973"),
+      false,
+    );
+    // The metropolitan subtree is unchanged.
+    assert.deepEqual(tree[0], buildPlaceTree(data(), { arrondissements })[0]);
+  }
+  // As the corpus' tree (the Filtres picker on the corpus, the admin list's):
+  // labels, hints, counts and order.
+  const area = (canonicalName: string, n: number, more: Partial<LocationGroup>) => ({
+    area: {
+      canonicalName,
+      coordinates: [0, 0] as [number, number],
+      auditions: [],
+      totalTestimonies: n,
+      ...more,
+    },
+    weight: n,
+  });
+  const rhone = { departementCode: "69", departementName: "Rhône", region: "Auvergne-Rhône-Alpes" };
+  const corpus = buildLocationTree([
+    area("Place Jean Macé, Lyon", 4, { city: "Lyon", ...rhone }),
+    area("Place des Terreaux, Lyon", 3, { city: "Lyon", ...rhone }),
+    area("Place Grandclément, Villeurbanne", 5, { city: "Villeurbanne", ...rhone }),
+    area("Place des Palmistes, Cayenne", 2, {
+      city: "Cayenne",
+      departementCode: "973",
+      departementName: "Guyane",
+      region: "Guyane",
+    }),
+  ]);
+  const strip = (n: LocNode): unknown => ({
+    label: n.label,
+    hint: n.hint ?? null,
+    count: n.count,
+    children: n.children?.map(strip) ?? null,
+  });
+  assert.deepEqual(buildPlaceTree(withGuyane()).map(strip), corpus.map(strip));
+  // Read lazily: the région known from France's answer, its département not.
+  const lazy = buildPlaceTree(withGuyane(["fr:dep:973", "fr:com:97302"])).find(
+    (n) => n.token === "fr:reg:03",
+  )!;
+  assert.equal(lazy.lazy, "idle");
+  assert.equal(lazy.children, undefined);
+});
+
 test("the place picker's whole tree has no lazy node", () => {
   const some = (nodes: LocNode[]): boolean =>
     nodes.some((n) => n.lazy !== undefined || some(n.children ?? []));

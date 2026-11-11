@@ -230,8 +230,9 @@ function createOutlineFiles(): OutlineFiles {
       holding.add(id);
       window.setTimeout(() => {
         holding.delete(id);
-        const row = store.rowOf(id);
-        if (row && store.has(id, row.st)) return; // in time: nothing given up
+        const fid = store.filesIdOf(id); // an overseas région's self is its département's
+        const row = store.rowOf(fid);
+        if (row && store.has(fid, row.st)) return; // in time: nothing given up
         heldOut.value = new Set(heldOut.value).add(id);
       }, OUTLINE_WAIT_MS);
     },

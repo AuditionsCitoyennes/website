@@ -1,4 +1,4 @@
-import { themesOf } from "@ac/shared";
+import { isOneTerritory, themesOf } from "@ac/shared";
 import type { LocNode } from "@/shared/ui/select/treeNode";
 
 // The filters of the Témoignages page — place, dates, themes, verified, free
@@ -75,7 +75,8 @@ export function buildLocationTree(items: { area: Area; weight: number }[]): LocN
     const region = ensure(roots, `r:${a.region}`, a.region);
     region.count += n;
     let level = region;
-    if (a.departementCode) {
+    // An overseas territory is one level: its région (@ac/shared frOverseas).
+    if (a.departementCode && !isOneTerritory(a.region, a.departementName)) {
       level = ensure(
         level.children,
         `d:${a.departementCode}`,
