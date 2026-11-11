@@ -24,6 +24,11 @@
 // other difference fails, every order included. Drafts are dropped from the
 // old corpus before the comparison (D1), and the count it changes is listed.
 // Local databases only; every session is rolled back (db.ts).
+//
+// The frozen pipeline knows France only (legacy/hierarchy.ts leaves out a
+// lieu without a région), so the seed profile france-abroad, whose rows
+// abroad are placed, is refused before any comparison: france, world and all
+// are the profiles to compare over.
 
 import { writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -34,6 +39,7 @@ import {
   PLAIN_ADMIN,
   rpcsInstalled,
   runCalls,
+  seedProfile,
   setup,
   type AuditionRow,
   type Call,
@@ -831,6 +837,14 @@ function compareLocationTree(legacy: LocNode[], server: LocNode[], ctx: Ctx, at:
 function main(argv: string[]): number {
   if (!rpcsInstalled()) {
     console.error("The read RPCs are not installed: apply supabase/migrations first.");
+    return 1;
+  }
+  if (seedProfile() === "france-abroad") {
+    console.error(
+      "This database holds the seed profile france-abroad: db:parity compares against the " +
+        "France-only legacy pipeline, which has no place for an audition placed abroad. " +
+        "Reseed with france, world or all.",
+    );
     return 1;
   }
   const started = Date.now();

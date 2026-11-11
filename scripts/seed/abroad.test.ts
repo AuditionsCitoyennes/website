@@ -48,7 +48,12 @@ test("every country has an outline in the map's index, and none is France's or a
 test("the fixture has the size the profile is meant to have, in the words of the world profile", () => {
   assert.ok(ABROAD.length >= 22 && ABROAD.length <= 28, `${ABROAD.length} countries`);
   assert.ok(localities.length >= 45 && localities.length <= 55, `${localities.length} cities`);
+  // A code's outline carries its country's name: the name is the code's French
+  // name (ICU writes the apostrophe curly), and no two countries share one.
+  const french = new Intl.DisplayNames(["fr"], { type: "region" });
+  assert.equal(new Set(ABROAD.map((c) => c.name)).size, ABROAD.length);
   for (const c of ABROAD) {
+    assert.equal(french.of(c.iso)?.replaceAll("’", "'"), c.name, c.iso);
     const known = COUNTRIES.find((k) => k.country === c.name);
     assert.ok(known, `"${c.name}": not a country of places.ts`);
     assert.equal(c.lang, known.lang, c.name);
