@@ -74,9 +74,11 @@ jobs:
         with:
           version: 2.75.0
 
-      # Both profiles, so a schema change that the fake data no longer fits
-      # fails here. French rows come placed, from committed fixtures (no
-      # network): scripts/seed/fixtures.
+      # The france and world profiles together, so a schema change that the
+      # fake data no longer fits fails here. French rows come placed, from
+      # committed fixtures (no network): scripts/seed/fixtures. The
+      # france-abroad profile, whose rows abroad are placed too, is loaded
+      # further down.
       - name: Generate the fake data
         run: npm run db:seed
         env:
@@ -167,6 +169,19 @@ jobs:
       # the report lists them.
       - name: Read RPCs match the client pipeline
         run: npm run db:parity
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # The france-abroad profile replaces the rows above: the france rows,
+      # plus auditions placed at cities abroad (scripts/seed/fixtures/abroad.ts).
+      # Only the two checks the profile changes: place paths against
+      # geo_units, and the seed's places against its fixtures (strict here:
+      # CI=true). The full set ran on `all` above. A few seconds.
+      - name: The france-abroad profile loads and passes the place checks
+        run: |
+          SEED_PROFILE=france-abroad npm run db:seed
+          psql "$DATABASE_URL" -X -q -v ON_ERROR_STOP=1 -f supabase/seed.sql
+          npm run db:check -- paths seed
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 

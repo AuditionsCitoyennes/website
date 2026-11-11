@@ -7,14 +7,20 @@
 //                                        the real corpus, plus edge cases
 //   SEED_PROFILE=world npm run db:seed   every country but France
 //   SEED_PROFILE=all npm run db:seed     both
+//   SEED_PROFILE=france-abroad npm run db:seed
+//                                        "france", plus about 500 testimonies
+//                                        abroad that are on the map
 //
 // Where each audition is (map phase 1): French auditions and online buckets
 // are placed as the API places them, from committed fixtures
 // (fixtures/fr-places.json, fr-units.json: no network), but for a few the old
 // app wrote (places.ts, `legacy`), never placed, so stale. The rows abroad
-// are unplaced, as after an attempt (no point until the world gazetteer
-// places them), so the placement job never looks them up in BAN, which
-// would pin some in France (Grenade is also a commune of Haute-Garonne).
+// of "world" and "all" are unplaced, as after an attempt (no point until the
+// world gazetteer places them), so the placement job never looks them up in
+// BAN, which would pin some in France (Grenade is also a commune of
+// Haute-Garonne). Those of "france-abroad" are placed, as that gazetteer
+// would place them: at a real public place of a city, under a country unit
+// and a locality unit (fixtures/abroad.ts, written by hand: no network).
 // SEED_SHAPE=legacy writes the same rows as they stood before phase 1 (no
 // place column, no geo_units), for loading under the migrations before it
 // (db:check:seeded).
@@ -49,9 +55,16 @@ import {
   type FrPlaces,
   type FrUnit,
 } from "./fixtures/fr";
+import {
+  abroadLieux,
+  abroadPlaces,
+  abroadUnits,
+  type AbroadPlace,
+  type AbroadUnit,
+} from "./fixtures/abroad";
 import { PLACES_FINGERPRINT } from "./fingerprint";
 
-export type Profile = "france" | "world" | "all";
+export type Profile = "france" | "world" | "all" | "france-abroad";
 /** places: with the phase-1 place columns and geo_units; legacy: the rows as before them. */
 export type Shape = "places" | "legacy";
 
@@ -106,7 +119,7 @@ type Random = ReturnType<typeof makeRandom>;
 
 // ---- Rows -------------------------------------------------------------------
 
-interface Audition {
+export interface Audition {
   id: string;
   title: string;
   /** date = current_date - daysAgo */
@@ -116,12 +129,13 @@ interface Audition {
   status: "published" | "draft";
   /**
    * fixture: placed (or unplaced) by the API, as fixtures/fr-places.json says;
-   * legacy: written by the old app, never placed (stale); abroad: unplaced.
+   * legacy: written by the old app, never placed (stale); abroad: unplaced;
+   * placed-abroad: placed at a city abroad, as fixtures/abroad.ts says.
    */
-  placement: "fixture" | "legacy" | "abroad";
+  placement: "fixture" | "legacy" | "abroad" | "placed-abroad";
 }
 
-interface Testimony {
+export interface Testimony {
   id: string;
   auditionId: string;
   personName: string;
@@ -136,19 +150,19 @@ interface Testimony {
   minutesAgo: number;
 }
 
-interface OnlineAudition {
+export interface OnlineAudition {
   id: string;
   hall: (typeof ONLINE_TOWN_HALLS)[number];
   monthsAgo: number;
 }
 
-interface Submission {
+export interface Submission {
   testimonyId: string;
   emailHash: string;
   minutesAgo: number;
 }
 
-interface Dataset {
+export interface Dataset {
   auditions: Audition[];
   online: OnlineAudition[];
   testimonies: Testimony[];
@@ -569,6 +583,57 @@ function worldProfile(): Dataset {
   return { auditions, online: [], testimonies, submissions: [] };
 }
 
+/**
+ * Auditions abroad that are on the map: one or two at every lieu of
+ * fixtures/abroad.ts (so each of its units is named by a path), with
+ * testimonies as worldProfile writes them, some in the country's language.
+ */
+function abroadProfile(): Dataset {
+  const r = makeRandom(20261111);
+  const auditions: Audition[] = [];
+  const testimonies: Testimony[] = [];
+  for (const { country, location } of abroadLieux()) {
+    const { name, lang } = country;
+    const firstNames =
+      lang === "fr" && FRENCH_SPEAKING_NORTH.has(name)
+        ? FIRST_NAMES
+        : (FOREIGN_FIRST_NAMES[lang] ?? FIRST_NAMES);
+    for (let a = r.chance(0.37) ? 2 : 1; a > 0; a--) {
+      const daysAgo = r.int(5, 700);
+      const audition: Audition = {
+        id: r.uuid(),
+        title: `Audition citoyenne - ${location}`,
+        daysAgo,
+        location,
+        content: r.pick(AUDITION_CONTENTS),
+        status: "published",
+        placement: "placed-abroad",
+      };
+      auditions.push(audition);
+      for (let t = r.int(3, 4); t > 0; t--) {
+        const foreign = lang !== "fr" && r.chance(0.4) ? r.pick(FOREIGN[lang]) : null;
+        const testimony = makeTestimony(
+          r,
+          audition.id,
+          daysAgo,
+          {},
+          {
+            target: Math.min(6000, Math.max(80, r.logNormal(6.4, 0.9))),
+            firstNames,
+            anonymous: 0.1,
+          },
+        );
+        if (foreign) {
+          testimony.content = foreign.text;
+          testimony.topics = tagsFor(r, foreign.themes, {});
+        }
+        testimonies.push(testimony);
+      }
+    }
+  }
+  return { auditions, online: [], testimonies, submissions: [] };
+}
+
 // ---- SQL --------------------------------------------------------------------
 
 function str(s: string | null): string {
@@ -659,6 +724,25 @@ function frenchPlaces(data: Dataset, lieux: boolean): { places: FrPlaces; units:
   return { places, units: units.filter((u) => used.has(u.id)) };
 }
 
+/**
+ * The abroad fixture's places for this dataset, and the units they reference:
+ * the countries, then their localities. Null when no row is placed abroad.
+ */
+function placedAbroad(
+  data: Dataset,
+): { places: Record<string, AbroadPlace>; units: AbroadUnit[] } | null {
+  const rows = data.auditions.filter((a) => a.placement === "placed-abroad");
+  if (rows.length === 0) return null;
+  const places = abroadPlaces();
+  const used = new Set<string>();
+  for (const a of rows) {
+    const p = places[a.location];
+    if (!p) throw new Error(`No abroad fixture place for "${a.location}" (fixtures/abroad.ts)`);
+    p.place_path.forEach((id) => used.add(id));
+  }
+  return { places, units: abroadUnits().filter((u) => used.has(u.id)) };
+}
+
 /** Auditions on a point or an area, unplaced after an attempt, never placed (stale). */
 interface Counts {
   placed: number;
@@ -677,6 +761,7 @@ function toSql(
     data.online.length > 0 || (withPlaces && data.auditions.some((a) => a.placement === "fixture"))
       ? frenchPlaces(data, withPlaces)
       : null;
+  const abroad = withPlaces ? placedAbroad(data) : null;
   const out: string[] = [
     `-- Generated by scripts/seed/generate.ts (profile: ${profile}${shape === "legacy" ? ", shape: legacy" : ""}). Do not edit:`,
     "-- run `npm run db:seed` instead. Fake Auditions Citoyennes data only.",
@@ -714,15 +799,31 @@ function toSql(
     );
   }
 
+  if (abroad) {
+    out.push(
+      "-- The units the rows placed abroad reference, countries first (fixtures/abroad.ts).",
+      "insert into public.geo_units (id, parent_id, level, country, name, code, lat, lng, source, geo_release) values",
+      abroad.units
+        .map(
+          (u) =>
+            `  (${str(u.id)}, ${str(u.parent_id)}, ${str(u.level)}, ${str(u.country)}, ${str(u.name)}, ${str(u.code)}, ${num(u.lat)}, ${num(u.lng)}, ${str(u.source)}, ${str(u.geo_release)})`,
+        )
+        .join(",\n") + ";",
+      "",
+    );
+  }
+
   // A row placed, or unplaced after an attempt, holds what the API stores
   // (placed_location = its location, placed_rules = the rules it stands
   // under); one the old app wrote, nothing: stale.
-  const placeOf = (a: Audition): FrPlace | null =>
+  const placeOf = (a: Audition): FrPlace | AbroadPlace | null =>
     a.placement === "fixture"
       ? fr!.places.lieux[a.location]
-      : a.placement === "abroad"
-        ? unplacedAbroad(a.location)
-        : null;
+      : a.placement === "placed-abroad"
+        ? abroad!.places[a.location]
+        : a.placement === "abroad"
+          ? unplacedAbroad(a.location)
+          : null;
   const placeValues = (a: Audition) => {
     const p = placeOf(a);
     if (!p) return NEVER_PLACED;
@@ -857,24 +958,35 @@ function unplacedAbroad(location: string): FrPlace {
 
 // ---- Main -------------------------------------------------------------------
 
-export const PROFILES: Profile[] = ["france", "world", "all"];
+export const PROFILES: Profile[] = ["france", "world", "all", "france-abroad"];
 export const SHAPES: Shape[] = ["places", "legacy"];
+
+/** What each profile is made of, in the order its rows are generated and written. */
+const PARTS: Record<Profile, (() => Dataset)[]> = {
+  france: [franceProfile],
+  world: [worldProfile],
+  all: [franceProfile, worldProfile],
+  "france-abroad": [franceProfile, abroadProfile],
+};
+
+/** The rows of a profile, the same on every call. */
+export function seedData(profile: Profile): Dataset {
+  emailCounter = 0;
+  const parts = PARTS[profile].map((part) => part());
+  return {
+    auditions: parts.flatMap((p) => p.auditions),
+    online: parts.flatMap((p) => p.online),
+    testimonies: parts.flatMap((p) => p.testimonies),
+    submissions: parts.flatMap((p) => p.submissions),
+  };
+}
 
 /** The seed of a profile, in a shape: the SQL, and a line saying what it holds. */
 export function seedSql(
   profile: Profile,
   shape: Shape = "places",
 ): { sql: string; summary: string } {
-  emailCounter = 0;
-  const parts: Dataset[] = [];
-  if (profile !== "world") parts.push(franceProfile());
-  if (profile !== "france") parts.push(worldProfile());
-  const data: Dataset = {
-    auditions: parts.flatMap((p) => p.auditions),
-    online: parts.flatMap((p) => p.online),
-    testimonies: parts.flatMap((p) => p.testimonies),
-    submissions: parts.flatMap((p) => p.submissions),
-  };
+  const data = seedData(profile);
   const { sql, counts } = toSql(profile, shape, data);
   const by = (k: Testimony["verification"]) =>
     data.testimonies.filter((t) => t.verification === k).length;
