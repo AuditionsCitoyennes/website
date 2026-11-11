@@ -7,11 +7,14 @@
 // source and the place tree (dataSource.ts), the plateau's lid, its check, its
 // mesh and the relief's prefetch (map), the framing and the analyses' slabs
 // (analyses/devSwitch) —, each with its sentences for a tester and a mark on
-// the ones that reload the page. In comparer mode a badge counting the
+// the ones that reload the page. A choice that is not its switch's default is
+// marked: a count on the button, « modifié » on its row, and at the top of the
+// dialog the count again with « Tout remettre par défaut », which removes the
+// stored keys and loads the page again. In comparer mode a badge counting the
 // differences (compare.ts: window.__acCompare, the tree's, and
 // window.__acCompareLists, the lists'). The testing tools only: the explorer
 // loads it behind `__TEST_TOOLS__`.
-import { nextTick, ref, useId } from "vue";
+import { computed, nextTick, ref, useId } from "vue";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import {
   frameFill,
@@ -40,9 +43,15 @@ import {
 import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
 import { compareState } from "./compare";
 import {
+  DEV_CHANGED_MARK,
   DEV_DESCRIPTION,
+  DEV_NONE_CHANGED,
   DEV_OPTIONS,
+  DEV_RESET_LABEL,
   DEV_SECTIONS,
+  changedCount,
+  changedOptions,
+  clearOptions,
   type DevKey,
   type DevOption,
 } from "./devOptions";
@@ -80,6 +89,24 @@ const inactive = (o: DevOption) =>
   !!o.inactiveWhen && now(o.inactiveWhen.key) === o.inactiveWhen.id;
 const rowsOf = (section: string) => DEV_OPTIONS.filter((o) => o.section === section);
 
+/** The rows off their default: what this browser shows differently. */
+const changed = computed(() => changedOptions(now));
+const buttonLabel = computed(
+  () =>
+    `Options de test (DEV · ${dataSource})` +
+    (changed.value.length ? `, ${changedCount(changed.value.length)}` : ""),
+);
+
+/** Every stored choice removed, and the page loaded again with the defaults. */
+function resetAll() {
+  try {
+    clearOptions((key) => localStorage.removeItem(key));
+  } catch {
+    /* storage blocked: nothing was kept, the reload alone brings the defaults back */
+  }
+  window.location.reload();
+}
+
 const uid = useId();
 const explainId = (o: DevOption) => `${uid}-${o.key.slice(3)}`;
 
@@ -112,11 +139,13 @@ function showReport() {
       class="dev-options-btn"
       aria-haspopup="dialog"
       :aria-expanded="open"
-      :aria-label="`Options de test (DEV · ${dataSource})`"
+      :aria-label="buttonLabel"
+      :title="buttonLabel"
       @click="open = true"
     >
       DEV · {{ dataSource }}
       <span v-if="dataSource === 'comparer'" class="diff-count">Δ {{ diffCount() }}</span>
+      <span v-if="changed.length" class="changed-count">{{ changed.length }}</span>
     </button>
 
     <ModalDialog
@@ -127,6 +156,20 @@ function showReport() {
       medium
       @close="close"
     >
+      <!-- Always there, at one height: a choice made further down moves nothing. -->
+      <div class="dev-changed" :class="{ on: changed.length }">
+        <span role="status">
+          {{ changed.length ? changedCount(changed.length) : DEV_NONE_CHANGED }}
+        </span>
+        <button
+          v-if="changed.length"
+          type="button"
+          class="ac-btn ac-btn--outline ac-btn--sm"
+          @click="resetAll"
+        >
+          {{ DEV_RESET_LABEL }}
+        </button>
+      </div>
       <section v-for="s in DEV_SECTIONS" :key="s.id" class="dev-section">
         <h3>{{ s.title }}</h3>
         <p class="sec-intro">{{ s.intro }}</p>
@@ -135,11 +178,12 @@ function showReport() {
           :key="o.key"
           class="opt"
           role="group"
-          :aria-label="o.label"
+          :aria-label="changed.includes(o) ? `${o.label} (${DEV_CHANGED_MARK})` : o.label"
           :aria-describedby="explainId(o)"
         >
           <div class="opt-head">
             <span class="opt-name">{{ o.label }}</span>
+            <span v-if="changed.includes(o)" class="opt-changed">{{ DEV_CHANGED_MARK }}</span>
             <span v-if="o.reloads" class="opt-reload">↻ recharge la page</span>
             <button
               v-if="o.key === 'ac:data-source' && dataSource === 'comparer'"
@@ -217,6 +261,44 @@ function showReport() {
 .diff-count {
   color: hsl(var(--primary));
   font-weight: 700;
+}
+
+/* A choice off its default: the button's count, the row's « modifié », the top line. */
+.changed-count,
+.opt-changed {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: hsl(38 92% 50%);
+  color: hsl(240 10% 10%);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+/* One line down to a phone's width: the button never drops under the count. */
+.dev-changed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.8rem;
+  margin-bottom: 1rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.45rem;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-ui);
+  line-height: 1.2;
+}
+
+.dev-changed .ac-btn {
+  flex: none;
+  padding: 0 0.5rem;
+}
+
+.dev-changed.on {
+  background: hsl(38 92% 50% / 0.18);
+  color: hsl(var(--foreground));
+  font-weight: 600;
 }
 
 .diff-badge {
