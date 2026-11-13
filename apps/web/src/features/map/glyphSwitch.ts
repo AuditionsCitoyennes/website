@@ -63,16 +63,23 @@ export function labelsLocal(mode: Glyphs, tier: DeviceTier): boolean {
 // ---- The font the labels are drawn with ---------------------------------------------
 
 /**
- * The family name of the labels' own face: the site's Source Sans 3 files
- * (the same files, so the same download), declared a second time under
- * another name with a narrower weight range. Mapbox asks the canvas for 900
- * for every "Bold" font of the style (and 500 for "Medium", 200 for "Light",
- * 400 for the rest): 900 is Source Sans' Black, far heavier than the style's
- * DIN Pro Bold. Declared up to 700, the face draws a request for 900 at its
- * nearest weight, the Bold, with no synthetic emboldening (700 is a bold face).
+ * The family name of the labels' own faces: the site's Source Sans 3 files
+ * (the same files, so the same download), declared again under another name
+ * with narrower weights. Mapbox asks the canvas for 900 for every "Bold" font
+ * of the style, 500 for "Medium", 200 for "Light" and 400 for the rest; and a
+ * letter it draws itself (a signed distance field cut at a quarter) comes out
+ * a little heavier than the same weight from Mapbox's own letter files. Drawn
+ * as asked, 900 is Source Sans' Black and the medium names look bold beside
+ * the style's DIN Pro.
+ *
+ * Two faces of the family, so the browser's own weight matching maps the
+ * requests a step lighter, the variable font drawn at the weight clamped into
+ * the face's range: 200 and 400 as asked, 500 at 450 (the nearest at or under
+ * 500), 900 at 600 (no face reaches 900: the heaviest one). 600 is a bold face
+ * for the browser: no synthetic emboldening on top.
  */
 export const LABEL_FACE = "AC Map Labels";
-export const LABEL_WEIGHTS = "200 700";
+export const LABEL_WEIGHTS = ["200 450", "600"] as const;
 
 /**
  * What draws the labels for this page load:
