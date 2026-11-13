@@ -11,8 +11,10 @@ import { canonicalCopies, type Bounds, type HeightClass, type WrapGeometry } fro
 import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import { globeSetMode } from "../gl/globeDeferral";
 import type { MeshClient, MeshResult } from "../gl/meshClientCore";
+import { notePlateauRun } from "../dev/motionProbes";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
+import { stillMap } from "../lib/stillMap";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
 import { loadReliefClient } from "../relief/demHook";
@@ -200,6 +202,7 @@ export function usePlateau({
     clearTimeout(exagAnim.timer);
     const r = exagAnim.resolve;
     exagAnim = null;
+    stillMap.plateauMotionEnd();
     r();
   }
 
@@ -227,6 +230,7 @@ export function usePlateau({
         clearTimeout(exagAnim.timer);
         exagAnim = null;
         apply(to);
+        stillMap.plateauMotionEnd();
         resolve();
       };
       const tick = (now: number) => {
@@ -247,6 +251,9 @@ export function usePlateau({
         // Patched to the real promise right below (it doesn't exist yet in here).
         done: Promise.resolve(),
       };
+      // The still-map scheduler (lib/stillMap.ts) is told of the rise or the
+      // sink, from here to its end (finish, or cancelExagAnim).
+      stillMap.plateauMotionBegin();
     });
     if (exagAnim) exagAnim.done = done;
     return done;
@@ -348,6 +355,7 @@ export function usePlateau({
       // The scope's geometry is merely still LOADING (cold cache) → hold the current
       // plateau; the geometry's arrival re-fires this watcher with the real shape.
       if (scopePending()) return;
+      if (perfOn) notePlateauRun(""); // the perf probes: a run, for no unit
       // Nothing selected (world level, or the micropin zone) → sink, then clear the
       // plateau; the outline's own lines (e.g. the country boundary at world
       // scope) stay, grounded.
@@ -380,6 +388,7 @@ export function usePlateau({
       return;
     }
     const scopeId = String(raised[0]?.properties?.id ?? "");
+    if (perfOn) notePlateauRun(scopeId); // the perf probes: a run for this unit
     // If the newly selected unit was the hovered one, its opaque fill drains in
     // reverse (centre → boundary). Must precede any setGeometry rebuild below —
     // the new focus set no longer contains the selected unit's fill.

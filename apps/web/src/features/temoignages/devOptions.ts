@@ -4,11 +4,20 @@
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (dataSource.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
-// analyses/devSwitch). Testing tools only: imported by DevOptionsMenu.vue
+// analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
+// the dialog lists what the page knows of the device (`tierFacts`). Testing
+// tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
 // a no-break space ( ) after « and before », ;, :, ? and %.
 
-export type DevSection = "donnees" | "carte" | "analyses";
+import type {
+  DeviceSignals,
+  DeviceTier,
+  TierReason,
+  TierVerdict,
+} from "@/shared/device/deviceTier";
+
+export type DevSection = "donnees" | "carte" | "analyses" | "appareil";
 
 export type DevKey =
   | "ac:data-source"
@@ -22,7 +31,8 @@ export type DevKey =
   | "ac:slab-lid-verre"
   | "ac:slab-text"
   | "ac:slab-size"
-  | "ac:ring-band";
+  | "ac:ring-band"
+  | "ac:tier";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -67,6 +77,11 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
     id: "analyses",
     title: "Analyses",
     intro: "Ce qui s'affiche quand le bouton Analyses est activé.",
+  },
+  {
+    id: "appareil",
+    title: "Appareil",
+    intro: "Ce que la page sait de la puissance de cet appareil.",
   },
 ];
 
@@ -236,6 +251,21 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     reloads: false,
     defaultId: "moyen",
   },
+  {
+    key: "ac:tier",
+    section: "appareil",
+    label: "Niveau",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "full", label: "Complet" },
+      { id: "light", label: "Léger" },
+      { id: "minimal", label: "Minimal" },
+    ],
+    explain:
+      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Rien ne lit encore ce niveau : la carte ne change pas.",
+    reloads: true,
+    defaultId: "auto",
+  },
 ];
 
 /** The rows whose choice now (`read`: a key's value, as its switch stores it)
@@ -248,4 +278,68 @@ export function changedOptions(read: (key: DevKey) => string): DevOption[] {
  *  localStorage's). The caller loads the page again, once. */
 export function clearOptions(remove: (key: DevKey) => void) {
   for (const o of DEV_OPTIONS) remove(o.key);
+}
+
+/** A line of the « Appareil » section: something the page knows of the device. */
+export interface DevFact {
+  label: string;
+  value: string;
+}
+
+const TIER_LABELS: Record<DeviceTier, string> = {
+  full: "Complet",
+  light: "Léger",
+  minimal: "Minimal",
+};
+const REASON_LABELS: Record<TierReason, string> = {
+  forced: "imposé",
+  memory: "peu de mémoire",
+  cores: "peu de cœurs",
+  "save-data": "économie de données",
+  link: "connexion lente",
+  renderer: "affichage sans puce graphique",
+  frames: "images lentes mesurées",
+};
+const KIND_LABELS = { cpu: "processeur", gpu: "affichage", unknown: "cause non mesurée" } as const;
+const yesNo = (v: boolean) => (v ? "oui" : "non");
+
+/** What the page knows of the device, for the dialog: the tier detected
+ *  (`detected`: the signals read with « Auto ») and why, the tier in force
+ *  when the switch forces another, the two kinds of weak, then each signal. */
+export function tierFacts(
+  signals: DeviceSignals,
+  detected: TierVerdict,
+  inForce: TierVerdict,
+): DevFact[] {
+  const why = detected.reasons.map((r) => REASON_LABELS[r]).join(", ");
+  const m = signals.measured;
+  return [
+    {
+      label: "Niveau détecté",
+      value: TIER_LABELS[detected.tier] + (why ? ` (${why})` : ""),
+    },
+    ...(inForce.reasons.includes("forced")
+      ? [{ label: "Niveau imposé", value: TIER_LABELS[inForce.tier] }]
+      : []),
+    { label: "Processeur lent", value: yesNo(inForce.cpuWeak) },
+    { label: "Affichage lent", value: yesNo(inForce.gpuWeak) },
+    {
+      label: "Mémoire",
+      value: signals.deviceMemory === null ? "non indiquée" : `${signals.deviceMemory} Go`,
+    },
+    {
+      label: "Cœurs",
+      value:
+        signals.hardwareConcurrency === null ? "non indiqué" : String(signals.hardwareConcurrency),
+    },
+    { label: "Économie de données", value: yesNo(signals.saveData) },
+    { label: "Connexion", value: signals.effectiveType ?? "non indiquée" },
+    { label: "Puce graphique", value: signals.renderer ?? "non lue" },
+    {
+      label: "Images mesurées",
+      value: m
+        ? `${TIER_LABELS[m.tier]} (${KIND_LABELS[m.kind]}), le ${new Date(m.at).toLocaleDateString("fr-FR")}`
+        : "aucune descente",
+    },
+  ];
 }
