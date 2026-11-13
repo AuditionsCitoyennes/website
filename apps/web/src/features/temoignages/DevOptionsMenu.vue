@@ -250,13 +250,14 @@ function showReport() {
             </button>
           </div>
           <p :id="explainId(o)" class="opt-explain">{{ o.explain }}</p>
+          <!-- What the page knows of the device, under the « Niveau » row. -->
+          <dl v-if="o.key === 'ac:tier'" class="dev-facts">
+            <div v-for="f in deviceFacts" :key="f.label">
+              <dt>{{ f.label }}</dt>
+              <dd>{{ f.value }}</dd>
+            </div>
+          </dl>
         </div>
-        <dl v-if="s.id === 'appareil'" class="dev-facts">
-          <div v-for="f in deviceFacts" :key="f.label">
-            <dt>{{ f.label }}</dt>
-            <dd>{{ f.value }}</dd>
-          </div>
-        </dl>
       </section>
     </ModalDialog>
   </div>

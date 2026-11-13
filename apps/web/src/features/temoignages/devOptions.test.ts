@@ -215,7 +215,7 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
       "Police des noms",
       "Code de la carte",
       "Niveau",
-      "Verre",
+      "Verre dépoli",
       "Connexion",
     ],
   );
