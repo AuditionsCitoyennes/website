@@ -1,7 +1,8 @@
 // The page's mesh worker (ac:mesh=worker, plateau/meshSwitch.ts): the client
 // core (meshClientCore.ts) over a module Worker running meshWorker.ts, the
-// same builder (meshBuild.ts) as its fallback here. One per map: created at
-// the map's load, so the worker's first build does not pay its start-up,
+// same builder (meshBuild.ts) as its fallback here. One per map: created with
+// the map object (or at its load: ac:boot-workers, bootWorkersSwitch.ts), so
+// the worker's first build does not pay its start-up,
 // disposed with the map. A Worker that cannot be made leaves the session
 // building here from the start.
 //

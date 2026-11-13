@@ -12,3 +12,5 @@ export { lidCheck, setLidCheck, type LidCheck } from "./plateau/lidSwitch";
 export { meshMode, setMeshMode, type MeshMode } from "./plateau/meshSwitch";
 // How the plateau's DEM tiles are prefetched: its DEV switch (the Témoignages page draws it).
 export { reliefPrefetch, setReliefPrefetch, type ReliefPrefetch } from "./relief/reliefSwitch";
+// When the map's two workers start: its DEV switch (the Témoignages page draws it).
+export { bootWorkers, setBootWorkers, BOOT_WORKERS, type BootWorkers } from "./bootWorkersSwitch";

@@ -43,10 +43,12 @@ import {
   slabTextScale,
 } from "@/features/analyses";
 import {
+  bootWorkers,
   lidCheck,
   lidMode,
   meshMode,
   reliefPrefetch,
+  setBootWorkers,
   setLidCheck,
   setLidMode,
   setMeshMode,
@@ -97,6 +99,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
   "ac:boot-list": bind(() => bootList, setBootList),
+  "ac:boot-workers": bind(() => bootWorkers, setBootWorkers),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
