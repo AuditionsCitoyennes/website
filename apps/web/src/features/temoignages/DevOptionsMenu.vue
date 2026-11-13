@@ -5,7 +5,7 @@
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the data
 // source and the place tree (dataSource.ts), the plateau's lid, its check, the
-// pictures of it that are kept, its mesh, the relief's prefetch and the answer to a tap
+// pictures of it that are kept, its mesh, its ground, the relief's prefetch and the answer to a tap
 // (map), the boot curtain's cover (geo-nav/bootListSwitch), what a pan does to the
 // selected zone, the files a touch screen asks ahead and the sign of a long wait
 // (geo-nav), the framing and the analyses' slabs
@@ -61,6 +61,7 @@ import {
   meshMode,
   outlineWait,
   regionSelfMode,
+  reliefGround,
   reliefPrefetch,
   setBootWorkers,
   setGlyphs,
@@ -74,6 +75,7 @@ import {
   setMeshMode,
   setOutlineWait,
   setRegionSelfMode,
+  setReliefGround,
   setReliefPrefetch,
   setTapAnswerMode,
   setTapFrameMode,
@@ -165,6 +167,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:recover": bind(() => recover, setRecover),
   "ac:filters-load": bind(() => filtersLoad, setFiltersLoad),
   "ac:prefetch": bind(() => prefetch, setPrefetch),
+  "ac:relief-ground": bind(() => reliefGround.value, setReliefGround),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

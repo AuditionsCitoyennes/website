@@ -58,3 +58,5 @@ export {
   type OutlineWait,
   type RegionSelfMode,
 } from "./plateau/coldTapSwitch";
+// What the plateau stands on, raised ground or flat: its DEV switch (the Témoignages page draws it).
+export { reliefGround, setReliefGround, type ReliefGround } from "./relief/groundSwitch";
