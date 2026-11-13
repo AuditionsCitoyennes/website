@@ -4,7 +4,7 @@
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (dataSource.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
-// geo-nav/bootListSwitch,
+// geo-nav/bootListSwitch, map/bootWorkersSwitch, geo-nav/data/outlinesDecorSwitch,
 // analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -34,7 +34,9 @@ export type DevKey =
   | "ac:slab-size"
   | "ac:ring-band"
   | "ac:tier"
-  | "ac:boot-list";
+  | "ac:boot-list"
+  | "ac:boot-workers"
+  | "ac:outlines-decor";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -205,6 +207,32 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Pendant que la carte se prépare à l'ouverture de la page. « D'abord » (par défaut) montre la liste des lieux dès qu'elle est prête, et la carte seule reste couverte jusqu'à ce qu'elle soit dessinée : un lieu choisi entre-temps s'ouvre aussitôt dans la liste, puis sur la carte. « Rideau », l'ancien comportement, couvre la liste et la carte ensemble jusqu'à ce que tout soit prêt.",
     reloads: true,
     defaultId: "first",
+  },
+  {
+    key: "ac:boot-workers",
+    section: "carte",
+    label: "Assistants",
+    choices: [
+      { id: "early", label: "Tôt" },
+      { id: "load", label: "Au chargement" },
+    ],
+    explain:
+      "Deux calculs en arrière-plan préparent le territoire en relief : sa forme et son relief. « Tôt » (par défaut) les lance dès l'ouverture de la page, pendant que la carte se charge, et le premier territoire se soulève plus vite ; « Au chargement », l'ancien comportement, attend que la carte ait fini de se charger.",
+    reloads: true,
+    defaultId: "early",
+  },
+  {
+    key: "ac:outlines-decor",
+    section: "carte",
+    label: "Contours voisins",
+    choices: [
+      { id: "after", label: "Après" },
+      { id: "boot", label: "Au début" },
+    ],
+    explain:
+      "Les traits fins des autres pays, autour du pays choisi, ne servent qu'au décor. « Après » (par défaut) les charge une fois le premier territoire soulevé, sans gêner ce qu'il lui faut, et les pose quand la carte est immobile : ils arrivent un peu plus tard. « Au début », l'ancien comportement, les charge tous dès que la carte apparaît.",
+    reloads: true,
+    defaultId: "after",
   },
   {
     key: "ac:analyses-pending",

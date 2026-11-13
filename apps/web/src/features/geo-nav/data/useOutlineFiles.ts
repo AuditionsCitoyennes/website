@@ -33,10 +33,12 @@ import {
   type OutlineRow,
   type OutlineStatus,
 } from "@/features/geo";
+import { whenMapStill } from "@/features/map/lib";
 import { absoluteBase } from "@/shared/absoluteUrl";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BundleState } from "../model/outlineRules";
 import { outlinesBuild } from "./outlinesBuild";
+import { DECOR_PARALLEL, outlinesDecor, stillApply } from "./outlinesDecorSwitch";
 
 export { OUTLINE_WAIT_MS };
 
@@ -96,9 +98,10 @@ export interface OutlineFiles {
   ensureRoot(): Promise<OutlineFilesStatus>;
   ensureBundle(id: string): Promise<OutlineFilesStatus>;
   ensureSelf(id: string): Promise<OutlineFilesStatus>;
-  /** Their g/, and the u/ of `selves` (micro-states), in one write. */
-  ensureGlobe(ids: string[], selves?: string[]): Promise<OutlineFilesStatus[]>;
-  batchSelf(ids: string[]): Promise<OutlineFilesStatus[]>;
+  /** Their g/, and the u/ of `selves` (micro-states), in one write
+   *  (`decor`: a decorative batch, see outlinesDecorSwitch.ts). */
+  ensureGlobe(ids: string[], selves?: string[], decor?: boolean): Promise<OutlineFilesStatus[]>;
+  batchSelf(ids: string[], decor?: boolean): Promise<OutlineFilesStatus[]>;
   /** Settles with its request (at once when nothing is asked). */
   prefetch(kind: OutlineKind, id: string): Promise<void>;
   /** For the probe: the store's counters and its loaded files. */
@@ -137,6 +140,9 @@ function createOutlineFiles(): OutlineFiles {
   };
   const store = new OutlineStore();
   let conflicts = 0;
+  // ac:outlines-decor "after" (the default): the decorative batches at low
+  // priority, a few at a time, written when the map is still; "boot": as before.
+  const decorLow = outlinesDecor === "after";
   const loader: OutlineLoader = new OutlineLoader({
     store,
     fetchFn: (url, init) => fetch(url, init),
@@ -178,6 +184,14 @@ function createOutlineFiles(): OutlineFiles {
     span: perfOn ? perfSpan : undefined,
     bootMs: BOOT_MS,
     bootCap: __TEST_TOOLS__ ? storedBootCap() : "late",
+    lowParallel: decorLow ? DECOR_PARALLEL : undefined,
+    applyLow: decorLow
+      ? stillApply({
+          whenStill: whenMapStill,
+          setTimer: (fn, ms) => window.setTimeout(fn, ms),
+          clearTimer: (timer) => window.clearTimeout(timer as number),
+        })
+      : undefined,
   });
 
   // Reads version first: a computed calling an accessor tracks the store.
@@ -239,8 +253,9 @@ function createOutlineFiles(): OutlineFiles {
     ensureRoot: () => loader.ensureRoot(),
     ensureBundle: (id) => loader.ensureBundle(id),
     ensureSelf: (id) => loader.ensureSelf(id),
-    ensureGlobe: (ids, selves = []) => loader.ensureGlobe(ids, selves),
-    batchSelf: (ids) => loader.batchSelf(ids),
+    ensureGlobe: (ids, selves = [], decor = false) =>
+      loader.ensureGlobe(ids, selves, decor && decorLow),
+    batchSelf: (ids, decor = false) => loader.batchSelf(ids, decor && decorLow),
     prefetch: (kind, id) => loader.prefetch(kind, id),
     stats: () => read((s) => s.stats()),
     loadedKeys: () => read((s) => s.loadedKeys()),

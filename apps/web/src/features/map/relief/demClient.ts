@@ -7,7 +7,8 @@
 // on the main thread (demGround.ts), any other the worker's render
 // (demRaster.ts) → `{ url: <data: PNG> }`, through the frame budget.
 //
-// The worker is created at the map's load (`warmRelief`). Its health: an
+// The worker is created when the map starts (`warmRelief`: with the map
+// object, or at its load under ac:boot-workers=load). Its health: an
 // `error` or `messageerror` → it is terminated and every pending call
 // replayed on the main thread (`failover`, for the rest of the session); so
 // is a worker that has said nothing at all (not even its `ready`) 10 s after
@@ -177,7 +178,7 @@ export function createReliefClient(deps: ReliefClientDeps) {
   });
 
   return {
-    /** The worker, created now (the map's load) rather than on the first selection. */
+    /** The worker, created now (the map's start) rather than on the first selection. */
     warm(): void {
       start();
     },
@@ -219,7 +220,7 @@ const relief = createReliefClient({
   },
 });
 
-/** Creates the relief worker (the map's load). */
+/** Creates the relief worker (the map's start). */
 export const warmRelief = relief.warm;
 /** The answer to one `ac-dem://` request (demHook.ts). */
 export const answer = relief.answer;

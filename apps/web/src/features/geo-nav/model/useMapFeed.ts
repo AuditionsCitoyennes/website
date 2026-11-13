@@ -4,7 +4,7 @@
 // région border too —, every lieu in sight deep in the lieu zone), and the
 // outline files fetched ahead for what is shown (`outlines`, outlineRules.ts):
 // the scope's chain of bundles and its neighbours' selves.
-import { computed, onScopeDispose, watch, type ComputedRef, type Ref } from "vue";
+import { computed, onScopeDispose, shallowRef, watch, type ComputedRef, type Ref } from "vue";
 import {
   type Bounds,
   centerInBounds,
@@ -15,9 +15,11 @@ import {
   unitsByLevelKey,
 } from "@/features/geo";
 import type { MapUnit, OutlineFC } from "@/features/map";
+import { onPlateauStood, plateauHasStood } from "@/features/map/lib";
 import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
 import type { OutlineFiles } from "../data/useOutlineFiles";
+import { DECOR_CAP_MS, decorOpen, outlinesDecor } from "../data/outlinesDecorSwitch";
 import type { GeoHierarchy } from "./useGeoHierarchy";
 import { bundlesFor, outlineReadyFiles, refinementBatch } from "./outlineRules";
 
@@ -283,6 +285,32 @@ export function useMapFeed(inputs: MapFeedInputs) {
   if (outlines) {
     const files = outlines;
     const view = outlineView!;
+    // The decorative batches below (the neighbour countries' selves, the
+    // world outlines) under ac:outlines-decor "after" (the default): once the
+    // map's first plateau stood, or DECOR_CAP_MS after the boot curtain lifted
+    // (data/outlinesDecorSwitch.ts). "boot": as soon as the curtain lifts.
+    const decorStood = shallowRef(plateauHasStood());
+    const decorCapPassed = shallowRef(false);
+    if (outlinesDecor === "after") {
+      onScopeDispose(onPlateauStood(() => (decorStood.value = true)));
+      let capTimer: ReturnType<typeof setTimeout> | undefined;
+      onScopeDispose(() => clearTimeout(capTimer));
+      watch(
+        () => !!inputs.booting?.value,
+        (booting) => {
+          if (booting || capTimer !== undefined) return;
+          capTimer = setTimeout(() => (decorCapPassed.value = true), DECOR_CAP_MS);
+        },
+        { immediate: true },
+      );
+    }
+    const decorGo = (level: string) =>
+      decorOpen({
+        mode: outlinesDecor,
+        level,
+        plateauStood: decorStood.value,
+        capPassed: decorCapPassed.value,
+      });
     // The scope's chain (rule 6): its bundles root first, each awaited — a
     // commune's row comes with its département's bundle, an arrondissement's
     // with its ville's. A newer scope runs its own chain: this one stops at
@@ -323,14 +351,18 @@ export function useMapFeed(inputs: MapFeedInputs) {
         // is in (or given up on): their lines beside its raised edge.
         if (s.levelKey === "country") {
           if (raisedOutlineDue(s) || inputs.booting?.value) return "";
+          if (!decorGo(s.levelKey)) return "";
           const countries = root.value.children.filter((c) => c.levelKey === "country");
-          return siblingSelves(s, countries, files.rowOf).join(",");
+          const ids = siblingSelves(s, countries, files.rowOf).join(",");
+          return ids ? `decor|${ids}` : ""; // decoration (outlinesDecorSwitch.ts)
         }
         const landed = !nav.scopePinned.value;
         return refinementBatch(view, s, parent?.children ?? [], landed ? cross : []).join(",");
       },
-      (ids) => {
-        if (ids) void files.batchSelf(ids.split(","));
+      (key) => {
+        if (!key) return;
+        const decor = key.startsWith("decor|");
+        void files.batchSelf((decor ? key.slice(6) : key).split(","), decor);
       },
     );
     // The countries' world outlines (geo's globeBatch), in ONE write, at the
@@ -347,16 +379,19 @@ export function useMapFeed(inputs: MapFeedInputs) {
         const s = currentScope.value;
         if (!filesActive() || inputs.booting?.value) return "";
         if (s.levelKey !== "world" && s.levelKey !== "country") return "";
+        if (!decorGo(s.levelKey)) return ""; // decoration: after the first plateau
         if (raisedOutlineDue(s)) return ""; // a country's own u/ first
         const countries = root.value.children.filter((c) => c.levelKey === "country");
         const { g, u } = globeBatch(countries, files.rowOf, mapView.value?.screen);
-        return g.length || u.length ? `${g.join(",")}|${u.join(",")}` : "";
+        // At a country they are decoration; at the world's scope, its content.
+        const decor = s.levelKey === "country" ? "decor" : "";
+        return g.length || u.length ? `${decor}|${g.join(",")}|${u.join(",")}` : "";
       },
       (key) => {
         clearTimeout(globeTimer);
         if (!key) return;
-        const [g, u] = key.split("|").map((ids) => (ids ? ids.split(",") : []));
-        const ask = () => void files.ensureGlobe(g, u);
+        const [decor, g, u] = key.split("|").map((ids) => (ids ? ids.split(",") : []));
+        const ask = () => void files.ensureGlobe(g, u, decor.length > 0);
         if (mapView.value?.byUser) globeTimer = setTimeout(ask, GLOBE_REST_MS);
         else ask();
       },
