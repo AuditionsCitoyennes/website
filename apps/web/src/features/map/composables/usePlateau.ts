@@ -16,11 +16,21 @@
 // outline on its way (`scopePending`) starts what needs no outline — the
 // standing plateau's sink, the coming unit's lid over its box (`coming`,
 // lib/coldStart.ts) — so the run that raises it finds both done.
+//
+// On flat ground (relief/groundSwitch.ts: a weak device's, or the DEV
+// switch's) the same wall, lid and rise stand over a ground that stays where
+// it is: no DEM, no relief worker, and a flat terrain of ours in place of the
+// style's own — so mapbox runs none on the flat map. A plateau keeps the
+// ground it was raised on; the next selection reads the switch again. A flat
+// run tells the same verdicts (`onSettled`), and a plateau over flat ground
+// is judged standing as one on its DEM slot is.
 
 import type mapboxgl from "mapbox-gl";
 import { canonicalCopies, type Bounds, type HeightClass, type WrapGeometry } from "@/features/geo";
 import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
+import { deviceTier } from "@/shared/device/deviceTier";
 import { globeSetMode } from "../gl/globeDeferral";
+import { WALL_OVERSHOOT } from "../gl/mesh";
 import type { MeshClient, MeshResult } from "../gl/meshClientCore";
 import { notePlateauRun } from "../dev/motionProbes";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
@@ -38,9 +48,12 @@ import { stillMap } from "../lib/stillMap";
 import { markPlateauStood } from "../lib/plateauStood";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
+import { liftOf, type PlateauLift } from "../plateau/lift";
+import { GROUND_DATA_URL } from "../relief/demGround";
 import { loadReliefClient } from "../relief/demHook";
 import { demTemplate } from "../relief/demTiles";
 import { planPrefetch, type PrefetchPlan } from "../relief/prefetchPlan";
+import { groundFor, reliefGround, type Ground } from "../relief/groundSwitch";
 import { reliefPrefetch } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
 import { coldStartMode } from "../plateau/coldTapSwitch";
@@ -83,6 +96,9 @@ export interface PlateauInputs {
    *  a tapped unit's pending mark waits for. Called in the block that applies
    *  the mesh, before the rise's first frame. */
   onSettled?: (scopeId: string, how: PlateauSettle) => void;
+  /** What stands above flat ground changed (`lift()`): the pins are brought
+   *  in line (useMapPins). */
+  onLift?: () => void;
 }
 
 /**
@@ -116,6 +132,7 @@ export function usePlateau({
   forgetLidExtra,
   meshClient,
   onSettled,
+  onLift,
 }: PlateauInputs) {
   // Whether a plateau is currently standing — the draped hover-fill fallback only
   // applies when none stands or is coming (the world, or a scope with no boundary
@@ -148,17 +165,51 @@ export function usePlateau({
   // slot while the old plateau is still sinking, so the rise starts without waiting.
   let terrainSrc: DemSlot = "plateau-dem-a";
 
+  // ---- Flat ground (relief/groundSwitch.ts) ----
+  // Whether the map's terrain is the flat one below: laid at the map's load
+  // or by a flat run's commit, until a relief run puts a DEM slot in its
+  // place or a clear on raised ground takes the terrain off. A plateau
+  // standing while it is true stands over flat ground.
+  let flatGround = false;
+  const FLAT_SRC = "plateau-flat";
+  // The flat terrain: the ground tile (0 m everywhere) as the map's own (root)
+  // terrain, in place of the style import's, which would otherwise raise the
+  // real relief between zoom 6 and 13.7 with its DEM tiles. Its exaggeration
+  // is 0 from zoom 6 up, the flat map: for a zoom-dependent exaggeration that
+  // evaluates to 0 there, mapbox runs no terrain at all (nothing is draped,
+  // nothing is sampled, `queryTerrainElevation` answers null). Below zoom 6
+  // the style draws a globe, where mapbox always drapes: there it drapes over
+  // this flat tile, and its exaggeration changes no pixel (a flat tile times
+  // anything is flat). It is 1 up to zoom 5 so that the expression has a zoom
+  // where it drops to 0: from the end of such a drop on, mapbox 3.34 reads the
+  // expression as it is; without one it eases its last exaggeration toward
+  // the new one over the next camera moves, and a plateau that just left
+  // raised ground would keep a terrain running for a while.
+  const FLAT_TERRAIN = {
+    source: FLAT_SRC,
+    exaggeration: ["interpolate", ["linear"], ["zoom"], 5, 1, 6, 0],
+  } as unknown as mapboxgl.TerrainSpecification;
+
+  /** The ground a plateau raised now stands on: the switch, and under "auto"
+   *  the device's tier of the moment. */
+  const groundNow = (): Ground => groundFor(reliefGround.value, deviceTier());
+
   // setTerrain with the exaggeration transition ZEROED. Terrain exaggeration is a
   // transitionable style property (default ~300 ms ease): each per-frame setTerrain
   // would otherwise start a NEW internal transition, so the terrain lagged our rAF
   // animation and visibly "caught up" in steps after the loop ended — while the wall
   // (a raw shader uniform) moved true. Zeroing it puts both in lockstep.
   function setTerrainRaw(src: string, v: number) {
+    // A DEM slot's from here: no longer the flat terrain, if it was (the
+    // pins it lifted come down).
+    const wasFlat = flatGround;
+    flatGround = false;
     getMap()?.setTerrain({
       source: src,
       exaggeration: v,
       "exaggeration-transition": { duration: 0 },
     } as unknown as mapboxgl.TerrainSpecification);
+    if (wasFlat) onLift?.();
   }
 
   // The slots' lifecycle (plateau/demSlots): the slot a swap left is dropped
@@ -168,7 +219,7 @@ export function usePlateau({
   // however long it takes.
   const slots = createDemSlots({
     getMap,
-    terrainSrc: () => terrainSrc,
+    terrainSrc: () => (flatGround ? null : terrainSrc),
     onDrop: (id) => relief?.releaseSlot(id),
   });
   // The client relief, once a run has loaded it. It holds each standing
@@ -277,7 +328,8 @@ export function usePlateau({
       const ease = (t: number) => 1 - Math.pow(1 - t, 3); // easeOutCubic
       const apply = (v: number) => {
         terrainExag = v;
-        if (getMap()?.getSource(terrainSrc)) setTerrainRaw(terrainSrc, v);
+        // On flat ground only the wall and the lid move.
+        if (!flatGround && getMap()?.getSource(terrainSrc)) setTerrainRaw(terrainSrc, v);
         // The violet wall sheet rises/sinks with the plateau (one uniform, no
         // geometry rebuild).
         plateauWall.setScale(v);
@@ -330,6 +382,67 @@ export function usePlateau({
   /** The standing plateau's unit and box, as last given to setGeometry. */
   let plateauRaised: OutlineFC["features"] = [];
   let plateauBbox: Bounds | null = null;
+
+  /** The flat terrain made the map's, if it is not already. The DEM slots it
+   *  leaves are dropped later (demSlots: never in the tick of a terrain
+   *  change), and their keys let go with them. */
+  function layFlatGround(map: mapboxgl.Map) {
+    const on = map.getTerrain()?.source;
+    if (flatGround && on === FLAT_SRC) return;
+    if (!map.getSource(FLAT_SRC)) {
+      map.addSource(FLAT_SRC, {
+        type: "raster-dem",
+        tiles: [GROUND_DATA_URL],
+        tileSize: 256,
+        // One tile for the whole world, and only the globe ever asks for it.
+        maxzoom: 0,
+        encoding: "mapbox",
+      });
+    }
+    if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
+    // A copy: mapbox writes its defaults into the object it is given.
+    map.setTerrain({ ...FLAT_TERRAIN });
+    flatGround = true;
+    earlyTerrainSlot = null;
+    // A terrain change: no slot leaves before a frame has rendered since.
+    slots.swapped(map, on === "plateau-dem-a" || on === "plateau-dem-b" ? on : terrainSrc);
+    slots.dropDemSourceSoon(map, "plateau-dem-a");
+    slots.dropDemSourceSoon(map, "plateau-dem-b");
+  }
+
+  /** The map has loaded: on a device (or a switch) that asks for flat ground,
+   *  the flat terrain from the first frame on, and no relief worker; else the
+   *  relief worker started now, not on the first selection (a no-op where it
+   *  started with the map object, ac:boot-workers). */
+  function prepareGround() {
+    const map = getMap();
+    if (!map) return;
+    if (groundNow() === "flat") {
+      layFlatGround(map);
+      return;
+    }
+    void loadReliefClient().then(
+      (c) => c.warmRelief(),
+      () => {},
+    );
+  }
+
+  // What stands above flat ground (plateau/lift.ts), made once per standing
+  // plateau: null on raised ground and with no plateau.
+  let liftCache: { raised: OutlineFC["features"]; heightM: number; lift: PlateauLift } | null =
+    null;
+  function lift(): PlateauLift | null {
+    if (!flatGround || !plateauActive || !plateauRaised.length) return null;
+    const heightM = plateauWall.heightM;
+    if (liftCache?.raised !== plateauRaised || liftCache.heightM !== heightM) {
+      liftCache = {
+        raised: plateauRaised,
+        heightM,
+        lift: liftOf(plateauRaised, heightM * WALL_OVERSHOOT),
+      };
+    }
+    return liftCache.lift;
+  }
 
   // The DEM's canonical tile zoom for a selection: one level past its fit zoom. The
   // source is capped there (maxzoom), so flying/zooming NEVER requests new terrain
@@ -437,10 +550,21 @@ export function usePlateau({
         __TEST_TOOLS__ &&
         earlyTerrainSlot !== null &&
         map.getTerrain()?.source === earlyTerrainSlot;
-      if ((plateauVersion || earlyStands) && map.getTerrain()) {
+      // Over flat ground the wall and the lid sink alone.
+      const stood = flatGround
+        ? !!plateauVersion
+        : !!(plateauVersion || earlyStands) && !!map.getTerrain();
+      if (stood) {
         await animateTerrain(0, SINK_MS);
         map = getMap();
         if (seq !== plateauSeq || !map) return;
+      }
+      // With nothing standing the ground follows the switch at once: the flat
+      // terrain laid (or kept), else the terrain taken off — the style's own
+      // comes back, as after every clear on raised ground.
+      if (groundNow() === "flat") layFlatGround(map);
+      else if (stood || flatGround) {
+        flatGround = false;
         map.setTerrain(null);
       }
       earlyTerrainSlot = null;
@@ -453,6 +577,7 @@ export function usePlateau({
       plateauScopeId = "";
       plateauActive = false;
       applyMask();
+      onLift?.();
       // No lid any more — forget its resolution so a later plateau starts fresh.
       lid.reset();
       // The perf probes: a selection with no plateau (Monde) shows as the map cleared.
@@ -521,29 +646,16 @@ export function usePlateau({
     // (A different scope id always hashes to a different DEM version, so this never
     // sinks a plateau that the same-version path would have kept up.)
     const sinkP =
-      changed && plateauVersion && map.getTerrain()
+      changed && plateauVersion && (flatGround || map.getTerrain())
         ? animateTerrain(0, SINK_MS)
         : Promise.resolve();
-    try {
-      // The version key from the relief worker, no request: the same geometry
-      // objects the wall meshes (for an outline past ±180, their canonical
-      // copy), at this height. The worker keeps the selection. Any rejection
-      // (too large, the client lost) takes the catch below: no plateau.
-      const demRaised = demFeatures(raised);
-      const endKey = perfOn ? perfSpan("dem.key", { scope: scopeId }) : null;
-      const c = await loadReliefClient();
-      relief = c;
-      c.onReliefLost(() => void ensurePlateau());
-      const { key } = await c.registerSelection(demRaised, heightM);
-      if (endKey) endKey();
-      // Nothing standing, so no sink to wait for: a fixed hold after the
-      // registration, timed against the lid shot's settle wait so the commit
-      // lands just before its readback, not frames ahead of it with GPU work
-      // for it to wait on (reliefSwitch DEFAULT_RELIEF_COMMIT_HOLD_MS).
-      if (!plateauVersion) await c.commitHold();
-      if (!key) throw new Error("dem version missing");
-      map = getMap();
-      if (seq !== plateauSeq || !map) return; // superseded by a newer selection
+    // The ground of this run: a plateau standing keeps its own (the same unit
+    // again: its outline refined, or a watcher re-run), a new one reads the
+    // switch.
+    const flat = changed ? groundNow() === "flat" : flatGround;
+    // What puts this run's mesh up, made where the run is about to (after its
+    // awaits): `early`, and `putMesh`.
+    const meshPutter = () => {
       // ac:mesh=merc (plateau/meshSwitch.ts): the canonical zoom first — with the
       // camera at each setGeometry below, it says whether the globe set can wait
       // (gl/globeDeferral.ts). The other modes pass nothing and compute it below.
@@ -575,6 +687,96 @@ export function usePlateau({
         if (client && import.meta.env.DEV) console.warn("[plateau] no worker mesh: built here");
         plateauWall.setGeometry(raised, heightM, focus, context, opts);
       };
+      return { early, putMesh };
+    };
+    try {
+      if (flat) {
+        // FLAT GROUND: no version key, no DEM slot, no tiles, no hold — the
+        // mesh, the mask, the slabs and the rise as below, over a ground that
+        // stays where it is.
+        if (!changed && plateauVersion) {
+          // The same unit, standing: its outline refined (boundary data after
+          // a cold load) or a watcher re-run. Reshaped in place at the height
+          // it is at, and brought back up after an interrupted sink.
+          let res: MeshResult | null = null;
+          if (job) {
+            res = await meshWait(job, scopeId, "same");
+            map = getMap();
+            if (seq !== plateauSeq || !map) return;
+          }
+          // ac:late-files "quiet": a refined shape standing (not the watcher's
+          // re-run on the very shape) is put up when the map is still, as the
+          // quiet swap below does on raised ground, LATE_CAP_MS at the latest.
+          const up = raisedShapeOf(plateauRaised);
+          const refined = !up || !runFor || !sameShape(runFor, up);
+          const upNow = terrainExag === 1 || exagAnim?.target === 1;
+          if (refined && upNow && lateFilesMode === "quiet") {
+            await new Promise<void>((done) => stillMap.whenStill(done, { timeoutMs: LATE_CAP_MS }));
+            map = getMap();
+            if (seq !== plateauSeq || !map) return;
+          }
+          meshPutter().putMesh(res);
+          plateauRaised = raised;
+          plateauBbox = boundsOfFeatures(raised);
+          syncSlabs();
+          plateauActive = true;
+          applyMask();
+          onLift?.();
+          settled(scopeId, refined ? "quiet" : "same");
+          if (terrainExag !== 1) await animateTerrain(1, RISE_MS);
+          if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
+          return;
+        }
+        // ac:mesh=worker: the sink and the mesh both, the commit below one block.
+        let res: MeshResult | null = null;
+        if (job) res = await sinkAndMesh(sinkP, job, scopeId);
+        else await sinkP;
+        map = getMap();
+        if (seq !== plateauSeq || !map) return;
+        // The ground first: a plateau that stood on raised ground has sunk,
+        // the terrain leaves its DEM slot for the flat one.
+        layFlatGround(map);
+        plateauVersion = `flat:${scopeId}`;
+        plateauScopeId = scopeId;
+        meshPutter().putMesh(res);
+        plateauRaised = raised;
+        plateauBbox = boundsOfFeatures(raised);
+        // Its slabs (the analyses on) rise with it, from 0.
+        syncSlabs(true);
+        plateauActive = true;
+        applyMask();
+        onLift?.();
+        terrainExag = 0;
+        plateauWall.setScale(0);
+        // The commit is whole: a pending mark on this unit goes as it rises.
+        settled(scopeId, "rise");
+        const endFlatRise = perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
+        await animateTerrain(1, RISE_MS);
+        if (endFlatRise) endFlatRise();
+        // The map's first plateau stood (lib/plateauStood.ts), as on raised ground.
+        if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
+        return;
+      }
+      // The version key from the relief worker, no request: the same geometry
+      // objects the wall meshes (for an outline past ±180, their canonical
+      // copy), at this height. The worker keeps the selection. Any rejection
+      // (too large, the client lost) takes the catch below: no plateau.
+      const demRaised = demFeatures(raised);
+      const endKey = perfOn ? perfSpan("dem.key", { scope: scopeId }) : null;
+      const c = await loadReliefClient();
+      relief = c;
+      c.onReliefLost(() => void ensurePlateau());
+      const { key } = await c.registerSelection(demRaised, heightM);
+      if (endKey) endKey();
+      // Nothing standing, so no sink to wait for: a fixed hold after the
+      // registration, timed against the lid shot's settle wait so the commit
+      // lands just before its readback, not frames ahead of it with GPU work
+      // for it to wait on (reliefSwitch DEFAULT_RELIEF_COMMIT_HOLD_MS).
+      if (!plateauVersion) await c.commitHold();
+      if (!key) throw new Error("dem version missing");
+      map = getMap();
+      if (seq !== plateauSeq || !map) return; // superseded by a newer selection
+      const { early, putMesh } = meshPutter();
       if (key === plateauVersion && map.getSource(terrainSrc)) {
         // Same selection → just make sure it's up (e.g. after an interrupted sink).
         let res: MeshResult | null = null;
@@ -813,9 +1015,11 @@ export function usePlateau({
         plateauBbox = null;
         clearSlabs();
         plateauWall.setLidTexture(null);
-        if (map?.getTerrain()) map.setTerrain(null);
+        // The flat terrain stays: it is the ground, not the plateau.
+        if (!flatGround && map?.getTerrain()) map.setTerrain(null);
         plateauActive = false;
         applyMask();
+        onLift?.();
         settled(scopeId, "failed");
       }
     } finally {
@@ -834,7 +1038,7 @@ export function usePlateau({
       mode: coldStartMode.value,
       coming: next,
       standingId: plateauScopeId,
-      standingUp: !!plateauVersion && !!map.getTerrain() && terrainExag > 0,
+      standingUp: !!plateauVersion && (flatGround || !!map.getTerrain()) && terrainExag > 0,
     });
     if (!next || (!plan.sink && !plan.lid)) return;
     if (earlyLid?.id !== next.id) {
@@ -864,13 +1068,15 @@ export function usePlateau({
   }
 
   /** The plateau standing whole: active, one raised unit, up (or rising to
-   *  it), on its own terrain. Null otherwise — a plateau cleared, failed or
+   *  it), on its own terrain (its DEM slot's, or over flat ground the flat
+   *  one). Null otherwise — a plateau cleared, failed or
    *  torn down, a sink cut short —, and the next outline is a pipeline run. */
   function standing(): RaisedShape | null {
     const map = getMap();
     if (!map || !plateauActive || plateauRaised.length !== 1) return null;
     if (terrainExag !== 1 && exagAnim?.target !== 1) return null;
-    if (!map.getSource(terrainSrc) || map.getTerrain()?.source !== terrainSrc) return null;
+    const ground = flatGround ? FLAT_SRC : terrainSrc;
+    if (!map.getSource(ground) || map.getTerrain()?.source !== ground) return null;
     return raisedShapeOf(plateauRaised);
   }
 
@@ -1003,6 +1209,12 @@ export function usePlateau({
     return {
       plateauActive,
       scope: plateauScopeId,
+      // What the plateau stands on, what the switch asks of the next one, and
+      // mapbox's terrain under the camera's centre, m — null: it runs none
+      // there (the flat map over flat ground), or its tile is not in yet.
+      ground: flatGround ? "flat" : "relief",
+      groundWanted: groundNow(),
+      centreElevation: map ? (map.queryTerrainElevation(map.getCenter()) ?? null) : null,
       demSource: terrainSrc,
       demMaxzoom: (map?.getStyle().sources?.[terrainSrc] as { maxzoom?: number })?.maxzoom,
       // The dem.tilesReady spans begun and ended, and the listener up (≤ 1).
@@ -1029,6 +1241,14 @@ export function usePlateau({
     /** The standing plateau's unit and box, as last given to setGeometry. */
     raised: () => plateauRaised,
     bbox: () => plateauBbox,
+    /** The map's load: the flat terrain laid, or the relief worker started. */
+    prepareGround,
+    /** Whether a plateau raised now stands over flat ground (the camera then
+     *  comes to rest on the ground, not on the plateau). */
+    flatWanted: () => groundNow() === "flat",
+    /** What stands above flat ground (plateau/lift.ts); null on raised ground
+     *  and with no plateau. */
+    lift,
     probe,
   };
 }

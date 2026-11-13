@@ -44,6 +44,9 @@ export interface MapCameraInputs {
   afterFit: () => void;
   /** The intro reveals the map: the `ready` emit. */
   onReady: () => void;
+  /** Whether a plateau raised now stands over flat ground (usePlateau): a fit
+   *  then comes to rest on the ground, not on its plateau. Absent: never. */
+  flatWanted?: () => boolean;
 }
 
 export function useMapCamera({
@@ -57,6 +60,7 @@ export function useMapCamera({
   mapReady,
   afterFit,
   onReady,
+  flatWanted,
 }: MapCameraInputs) {
   // Cold-load INTRO: the refresh shows the FINISHED flat basemap first (instant
   // flat fit, wait for the first idle = tiles painted), THEN one animated tilt to
@@ -304,7 +308,8 @@ export function useMapCamera({
         shape = {
           pts,
           liftM: heightM * WALL_OVERSHOOT,
-          restM: heightM,
+          // Over flat ground no terrain rises under the camera's centre.
+          restM: flatWanted?.() ? 0 : heightM,
           holds,
           lands: cmd.shape.lands ?? holds,
         };

@@ -42,8 +42,9 @@ export const DROP_FLOOR_MS = 500;
 export interface DemSlotsInputs<Spec> {
   /** The map of the moment: null once unmounted, another one after a remount. */
   getMap: () => DemSlotMap<Spec> | null;
-  /** The slot the terrain is on (usePlateau's `terrainSrc`). */
-  terrainSrc: () => DemSlot;
+  /** The slot the terrain is on (usePlateau's `terrainSrc`); null: on neither
+   *  (the plateau stands over flat ground, relief/groundSwitch.ts). */
+  terrainSrc: () => DemSlot | null;
   /** A slot the swap left, removed by its drop (the client relief lets its key go). */
   onDrop?: (id: DemSlot) => void;
 }
