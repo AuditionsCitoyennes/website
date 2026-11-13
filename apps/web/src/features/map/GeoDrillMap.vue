@@ -35,7 +35,7 @@ import { usePlateauSlabs } from "./composables/usePlateauSlabs";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { noteRenderer } from "@/shared/device/deviceTier";
-import { antialiasNow } from "./graphicsSwitch";
+import { antialiasNow, capMapsNow } from "./graphicsSwitch";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import { rendererOf } from "./relief/groundSwitch";
 import type { MarkGeometry } from "./gl/pendingMark";
@@ -414,6 +414,7 @@ function mountMap() {
   try {
     mapboxgl.accessToken = TOKEN;
     resetPlateauStood(); // a new map: its first plateau is still to come
+    capMapsNow(); // ac:dpr (testing tools): the maps' pixel ratio, before the first is created
     map = new mapboxgl.Map({
       container: el.value,
       style: STYLE,

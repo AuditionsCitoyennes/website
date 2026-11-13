@@ -179,3 +179,39 @@ test("pixelRatioCapFor: only « 1.5 » caps; « auto » never does", async () =>
   assert.equal(m.pixelRatioCapFor("native"), null);
   assert.equal(m.pixelRatioCapFor("1.5"), 1.5);
 });
+
+test("capMapsNow: « 1.5 » caps the window's ratio, the testing tools only; nothing else does", async () => {
+  const ratio = () => (g.window as { devicePixelRatio: number }).devicePixelRatio;
+  const screenAt3 = () => {
+    const w = { location: { reload: () => reloads++ } };
+    Object.defineProperty(w, "devicePixelRatio", { configurable: true, get: () => 3 });
+    g.window = w;
+  };
+  // Every choice but « 1.5 », and « 1.5 » itself without the testing tools: untouched.
+  for (const [kept, tools] of [
+    ["auto", true],
+    ["native", true],
+    ["1.5", false],
+  ] as const) {
+    screenAt3();
+    stored = { "ac:dpr": kept };
+    (await load(tools)).capMapsNow();
+    assert.equal(ratio(), 3, `${kept} ${tools}`);
+  }
+  // « auto » on a device whose graphics are slow: still untouched.
+  screenAt3();
+  stored = {};
+  tier.noteRenderer(SWIFTSHADER);
+  const weak = await load(true);
+  assert.equal(weak.antialiasNow(), false);
+  weak.capMapsNow();
+  assert.equal(ratio(), 3);
+  tier.noteRenderer(METAL);
+  // « 1.5 » with the testing tools: capped. (The cap's own module is loaded
+  // once here: it keeps this cap, as a page does until it is loaded again.)
+  screenAt3();
+  stored = { "ac:dpr": "1.5" };
+  (await load(true)).capMapsNow();
+  assert.equal(ratio(), 1.5);
+  stored = {};
+});
