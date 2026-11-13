@@ -1,7 +1,7 @@
 // The plateau's violet wall and everything drawn with it — the lid, the
 // boundary lines, the hover fill and its retract, the halo, the analyses'
-// slabs' pieces (and their own layer, slabLayer) — in both of mapbox's
-// regimes: the custom WebGL layer the map's whole raised look comes from. The
+// slabs' pieces (and their own layer, slabLayer), a tapped unit's pending
+// mark (its own pass, ./PendingMarkPass) — in both of mapbox's regimes: the custom WebGL layer the map's whole raised look comes from. The
 // documented exemption to the file-size rule (docs/architecture-proposal-
 // 2026-10-20.md): a GL class, kept whole; the SlabPieces collaborator is a
 // later option. Its collaborators: ../lib/projection (the per-geometry
@@ -50,6 +50,8 @@ import {
   type PendingFill,
 } from "./meshBuild";
 import { digestParts } from "./meshDigest";
+import { PendingMarkPass } from "./PendingMarkPass";
+import type { MarkGeometry } from "./pendingMark";
 import {
   FILL_FS,
   FILL_VS,
@@ -616,6 +618,55 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (lid === this.slabLid) return;
     this.slabLid = lid;
     this.map?.triggerRepaint();
+  }
+
+  // ---- a tapped unit's PENDING mark, from the tap until its plateau commits
+  // (./PendingMarkPass): buffers of its own, so neither a mesh rebuild, nor
+  // the hover fill's single buffer, nor the rise's scale gates take it away ----
+  private readonly pendingMark = new PendingMarkPass(() => this.map?.triggerRepaint());
+
+  /** The unit wearing the pending mark, "" when none. */
+  get pendingId(): string {
+    return this.pendingMark.id;
+  }
+
+  /** What the testing tools read of the pending mark (null: none). */
+  pendingState() {
+    return this.pendingMark.state();
+  }
+
+  /**
+   * Mark unit `id` as tapped, with its outline `g` as it is in memory now:
+   * a stroke along its boundary and/or a flat fill, held until
+   * commitPending or clearPending — whatever the mesh does meanwhile. It
+   * stands where the unit does: on the standing plateau's lid for one of its
+   * children (riding its sink), on the ground otherwise. A newer mark
+   * replaces this one. With the fill, the unit's hover fill (a mouse's) is
+   * handed over rather than drained under it.
+   */
+  setPending(id: string, g: MarkGeometry, want: { stroke: boolean; fill: boolean }) {
+    const at = this.pendingFills.get(id);
+    this.pendingMark.set({
+      id,
+      g,
+      stroke: want.stroke,
+      fill: want.fill,
+      raised: !!at?.raised,
+      lidM: this.heightM * WALL_OVERSHOOT,
+    });
+    if (want.fill && this.hoveredFillId === id) this.hoveredFillId = "";
+  }
+
+  /** The marked unit's plateau has just been applied (applyMesh): the mark
+   *  moves onto its lid and fades as it rises; `animate` false (reduced
+   *  motion): it goes at once. */
+  commitPending(animate: boolean) {
+    this.pendingMark.commit(this.heightM * WALL_OVERSHOOT, animate);
+  }
+
+  /** No pending mark, at once. */
+  clearPending() {
+    this.pendingMark.clear();
   }
 
   /** Highlight (or clear) the hovered unit's fill (restarts the inward sweep). */
@@ -1315,6 +1366,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     );
     this.haloBuffer = gl.createBuffer();
     this.gHaloBuffer = gl.createBuffer();
+    this.pendingMark.onAdd(gl);
     // The slabs' pieces: each vertex in its colour — the ring's parts and the
     // bar their theme's, the words' boxes' walls the plateau's violet —, or
     // the one colour uTint gives where its alpha is 1 (the words' boxes'
@@ -1351,6 +1403,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       this.cancelGlobePass();
       this.globeDefer.cancel();
     }
+    this.pendingMark.onRemove(gl);
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
     if (this.lidProgram) gl.deleteProgram(this.lidProgram);
@@ -1460,8 +1513,14 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       pixelsPerMeterRatio,
     );
     // Boundary lines render even with no plateau standing (world scope / sunk),
-    // so only bail when there is nothing at all to draw.
-    if ((!this.vertexCount || this.scale <= 0.001) && !this.lineVertexCount) return;
+    // and so does a pending mark: only bail when there is nothing at all to draw.
+    if (
+      (!this.vertexCount || this.scale <= 0.001) &&
+      !this.lineVertexCount &&
+      !this.pendingMark.active
+    ) {
+      return;
+    }
     // Upload a freshly captured snapshot (bitmap → texture) whichever regime draws.
     if (this.lidPending) {
       const snap = this.lidPending;
@@ -1649,6 +1708,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       gl.drawArrays(gl.TRIANGLES, 0, this.retractPositions.length / 4);
       gl.enable(gl.DEPTH_TEST);
     }
+    // ---- the pending mark's flat fill (a tapped unit, until its plateau commits) ----
+    this.pendingMark.drawMercator(gl, matrix, this.scale, "fill", this.fillProg);
 
     // ---- boundary lines (constant screen width; focus on the lid, context and
     // the world-scope outline on the ground) ----
@@ -1687,6 +1748,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       }
       gl.enable(gl.DEPTH_TEST);
     }
+    // ---- the pending mark's stroke, over the unit's own boundary line ----
+    this.pendingMark.drawMercator(gl, matrix, this.scale, "stroke", null);
 
     // ---- halo (static ribbon from the wall base outward) ----
     if (this.haloProg && this.haloBuffer && this.haloVertexCount && this.scale >= 0.15) {
@@ -1896,14 +1959,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // occlusion (walls → lid → lines), and a France-scoped plateau is always on
     // the camera-facing side of the sphere.
     gl.disable(gl.DEPTH_TEST);
-    const { setCommon, bindTriple } = this.globeBinders(
-      gl,
-      matrix,
-      globeToMerc,
-      t,
-      center,
-      pxRatio,
-    );
+    const binders = this.globeBinders(gl, matrix, globeToMerc, t, center, pxRatio);
+    const { setCommon, bindTriple } = binders;
     // The plateau's depth can't be tested against (see above), so GROUND-level
     // geometry (context fills/lines, the world-scope outline) draws FIRST and
     // the plateau (walls + lid) paints OVER it — that is what keeps neighbour
@@ -1980,7 +2037,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // ---- GROUND pass (hidden behind the plateau by paint order) ----
     if (hovRange && !hovRange.raised) drawHoverFill();
     if (this.retractActive && !this.retractRaised) drawRetract();
+    this.pendingMark.drawGlobe(gl, binders, false, "fill", this.gFillProg);
     drawLines(false);
+    this.pendingMark.drawGlobe(gl, binders, false, "stroke", null);
     // ---- walls ----
     if (this.gWallProg && this.gWallBuffer && this.vertexCount) {
       setCommon(this.gWallProg);
@@ -2018,7 +2077,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // ---- RAISED pass (on the plateau top) ----
     if (hovRange && hovRange.raised) drawHoverFill();
     if (this.retractActive && this.retractRaised) drawRetract();
+    this.pendingMark.drawGlobe(gl, binders, true, "fill", this.gFillProg);
     drawLines(true);
+    this.pendingMark.drawGlobe(gl, binders, true, "stroke", null);
 
     // ---- halo (static ribbon from the wall base outward) ----
     if (this.gHaloProg && this.gHaloBuffer && this.haloVertexCount && this.scale >= 0.15) {
