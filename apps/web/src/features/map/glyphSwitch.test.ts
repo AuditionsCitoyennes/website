@@ -91,11 +91,19 @@ test("the plan and the map options: today's for mapbox, the site's face or the s
   assert.ok(!LABEL_FAMILIES.site.includes("Source Sans"), "its own name, not the page's face");
 });
 
-test("the face stops at the Bold: Mapbox's 900 for a bold font is not drawn Black", () => {
-  const [lo, hi] = LABEL_WEIGHTS.split(" ").map(Number);
-  assert.equal(lo, 200); // Mapbox's "Light"
-  assert.equal(hi, 700);
-  assert.ok(hi >= 600, "a bold face: no synthetic emboldening");
+test("two faces: the light-to-medium one stops under 500, the bold one is a bold face", () => {
+  // The browser's matching itself was checked in a page (canvas widths: a
+  // request of 500 measures as Source Sans at 450, of 900 as at 600).
+  const [light, bold] = LABEL_WEIGHTS.map((w) => w.split(" ").map(Number));
+  assert.equal(LABEL_WEIGHTS.length, 2);
+  // Mapbox's "Light" (200) and regular (400) drawn as asked; its "Medium"
+  // (500) finds nothing between 500 and itself, then the nearest under it.
+  assert.equal(light[0], 200);
+  assert.ok(light.at(-1)! >= 400 && light.at(-1)! < 500);
+  // Its "Bold" (900) finds nothing over it, then the heaviest face: at 600 or
+  // more the browser adds no synthetic bold.
+  assert.equal(bold.length, 1);
+  assert.ok(bold[0] >= 600 && bold[0] < 900);
 });
 
 test("the face's subsets and ranges are the site stylesheet's own", () => {

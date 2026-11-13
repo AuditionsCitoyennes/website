@@ -49,17 +49,19 @@ function wantLocal(): boolean {
 let faces: FontFace[] = [];
 let loading: Promise<boolean> | null = null;
 
-/** The labels' face declared and its two files loaded (once). True when both are in. */
+/** The labels' faces declared and their two files loaded (once). True when all are in. */
 function loadFace(): Promise<boolean> {
   if (loading) return loading;
   try {
-    faces = LABEL_SUBSETS.map(
-      ({ subset, unicodeRange }) =>
-        new FontFace(LABEL_FACE, `url(${URLS[subset]}) format("woff2")`, {
-          weight: LABEL_WEIGHTS,
-          unicodeRange,
-          display: "block",
-        }),
+    faces = LABEL_SUBSETS.flatMap(({ subset, unicodeRange }) =>
+      LABEL_WEIGHTS.map(
+        (weight) =>
+          new FontFace(LABEL_FACE, `url(${URLS[subset]}) format("woff2")`, {
+            weight,
+            unicodeRange,
+            display: "block",
+          }),
+      ),
     );
     for (const f of faces) document.fonts.add(f);
     loading = Promise.all(faces.map((f) => f.load())).then(
