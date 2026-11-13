@@ -16,3 +16,5 @@ export { placeLabel } from "@/features/geo";
 if (__TEST_TOOLS__) void import("./data/outlinesProbe");
 // The boot curtain's switch (testing tools: the DEV dialog's « Liste » row).
 export { bootList, setBootList, BOOT_LISTS, DEFAULT_BOOT_LIST } from "./bootListSwitch";
+// When the decorative outlines come (testing tools: the DEV dialog's « Contours voisins » row).
+export { outlinesDecor, setOutlinesDecor, OUTLINES_DECORS } from "./data/outlinesDecorSwitch";
