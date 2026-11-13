@@ -35,6 +35,7 @@ import { usePlateauSlabs } from "./composables/usePlateauSlabs";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { noteRenderer } from "@/shared/device/deviceTier";
+import { antialiasNow } from "./graphicsSwitch";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import { rendererOf } from "./relief/groundSwitch";
 import type { MarkGeometry } from "./gl/pendingMark";
@@ -420,8 +421,8 @@ function mountMap() {
       zoom: 4.5,
       // MSAA for the custom layers: mapbox's own layers anti-alias analytically
       // in-shader, but the plateau wall/lid/lines are raw geometry and alias
-      // hard without it.
-      antialias: true,
+      // hard without it. Off where the graphics are slow (graphicsSwitch.ts).
+      antialias: antialiasNow(),
       // Its own resize watching off: ours (below) resizes, re-frames AND draws
       // at once. With both, mapbox's could clear the canvas after ours drew it.
       trackResize: false,

@@ -12,7 +12,8 @@
 // map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
-// geo-nav/model/slowSignSwitch, map/relief/groundSwitch, analyses/devSwitch,
+// geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
+// analyses/devSwitch,
 // shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -67,7 +68,10 @@ export type DevKey =
   | "ac:recover"
   | "ac:filters-load"
   | "ac:prefetch"
-  | "ac:relief-ground";
+  | "ac:relief-ground"
+  | "ac:msaa"
+  | "ac:dpr"
+  | "ac:frame-measure";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -580,6 +584,47 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Quand on touche la carte de l'accueil, elle grandit jusqu'à occuper la page des témoignages (« Grandir », comme avant) ou la page apparaît aussitôt (« Directe », comme quand le système demande moins d'animations). « Auto » (par défaut) fait grandir la carte sur un appareil de niveau « Complet » et ouvre la page aussitôt sur un appareil « Léger » ou « Minimal » (voir « Niveau »), où chaque image de l'agrandissement redessine toute la carte.",
     reloads: true,
     defaultId: "auto",
+  },
+  {
+    key: "ac:msaa",
+    section: "appareil",
+    label: "Lissage",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "on", label: "Activé" },
+      { id: "off", label: "Coupé" },
+    ],
+    explain:
+      "Le lissage, par la puce graphique, des bords du territoire en relief (ses parois, son dessus, ses traits). « Auto » (par défaut) le coupe seulement quand l'affichage est lent (ligne « Affichage lent » ci-dessous) ; « Activé » le garde toujours, comme avant ; « Coupé » l'enlève toujours : ces bords sont alors un peu en escalier, le fond de carte et ses textes ne changent pas.",
+    reloads: true,
+    defaultId: "auto",
+  },
+  {
+    key: "ac:dpr",
+    section: "appareil",
+    label: "Finesse",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "native", label: "Écran" },
+      { id: "1.5", label: "1,5" },
+    ],
+    explain:
+      "Le nombre de points que la carte dessine pour chaque point de la page. « Auto » (par défaut) et « Écran » suivent la finesse de l'écran, comme avant ; « 1,5 » s'arrête à une fois et demie : sur un écran très fin, la carte et ses textes sont un peu plus flous et demandent moins de calcul, le reste de la page ne change pas. Pour l'instant « Auto » ne réduit jamais, même quand l'affichage est lent : la carte n'a pas de réglage prévu pour cela, ce choix sert à juger l'effet à l'œil.",
+    reloads: true,
+    defaultId: "auto",
+  },
+  {
+    key: "ac:frame-measure",
+    section: "appareil",
+    label: "Mesure",
+    choices: [
+      { id: "on", label: "Activée" },
+      { id: "off", label: "Coupée" },
+    ],
+    explain:
+      "Au premier déplacement animé de la carte vers un territoire, la page chronomètre les images. « Activée » (par défaut) : si elles sont trop lentes, le niveau de l'appareil descend, et ce résultat est gardé trente jours dans ce navigateur (ligne « Images mesurées » ci-dessous). « Coupée » : rien n'est chronométré, comme avant.",
+    reloads: true,
+    defaultId: "on",
   },
   {
     key: "ac:auth-client",
