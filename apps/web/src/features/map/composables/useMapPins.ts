@@ -359,6 +359,7 @@ export function useMapPins({
     const s = id ? sticky.find((x) => x.id === id) : undefined;
     if (!s) return;
     const view = screenBoundsInset(STICKY_MARGIN);
+    s.onScreen = false; // out of view: no pill (the cached value may be a hover's)
     if (s.geometry && s.bounds && view && boundsIntersect(s.bounds, view)) {
       const hit = interiorInView(s.geometry, s.bounds, view);
       s.onScreen = !!hit;

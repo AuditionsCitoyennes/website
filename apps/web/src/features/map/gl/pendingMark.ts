@@ -27,8 +27,11 @@ export const markLidFillM = (h: number) => h * 1.001;
 export const markLidLineM = (h: number) => h * 1.002;
 
 /** Past this many boundary vertices the fill is left out (the stroke alone
- *  stands): its triangulation runs on the page, in the tap's own frame. */
-export const MARK_FILL_MAX_VERTICES = 30_000;
+ *  stands): its triangulation runs on the page, in the frame that answers the
+ *  tap. A unit's outline in memory at a tap is nearly always under it (a
+ *  région's coarse entry a few hundred vertices, a département's about two
+ *  thousand); a large country's fine outline (up to 13,445) is not. */
+export const MARK_FILL_MAX_VERTICES = 4000;
 
 /** The stroke, CSS px: a violet band with a light core — lighter and thicker
  *  than a boundary line (0.9 to 1.7 px of plain violet), and not a hover (a
