@@ -97,8 +97,10 @@ jobs:
           VITE_MAPBOX_STYLE: ${{ vars.MAPBOX_STYLE }}
         run: |
           npm run build --workspace=@ac/web
-          # Staging is not for search engines.
-          printf '/*\n  X-Robots-Tag: noindex, nofollow\n' > apps/web/dist/_headers
+          # Staging is not for search engines. Appended: the build's own
+          # _headers (apps/web/public/_headers: the cache rule of /assets/*)
+          # comes first.
+          printf '\n/*\n  X-Robots-Tag: noindex, nofollow\n' >> apps/web/dist/_headers
           printf 'User-agent: *\nDisallow: /\n' > apps/web/dist/robots.txt
 
       # Same origin: the app reads /map-data/outlines/<build>/ (VITE_MAP_DATA_BASE
