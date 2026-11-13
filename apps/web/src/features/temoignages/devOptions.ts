@@ -549,7 +549,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "minimal", label: "Minimal" },
     ],
     explain:
-      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte, le verre des panneaux, l'ouverture de la carte de l'accueil et la carte de l'accueil elle-même (une image sur un appareil faible) en dépendent (voir « Police des noms », « Verre dépoli » et « Ouverture de la carte »).",
+      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte, le sol sous le territoire choisi, le verre des panneaux, l'ouverture de la carte de l'accueil et la carte de l'accueil elle-même (une image sur un appareil faible) en dépendent (voir « Police des noms », « Sol », « Verre dépoli » et « Ouverture de la carte »).",
     reloads: true,
     defaultId: "auto",
   },
