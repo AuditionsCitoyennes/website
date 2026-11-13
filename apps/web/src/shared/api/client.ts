@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { loadSupabase, supabaseIfMade, visitMayHaveSession } from "./supabaseLazy";
 import { outboxNudge, outboxViewer } from "./outbox";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
@@ -38,8 +38,10 @@ export async function apiFetch<T = unknown>(path: string, options: ApiOptions = 
   }
 
   if (options.auth) {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
+    // No client made and no session kept: nobody is signed in, and the
+    // client is not downloaded for that (supabaseLazy.ts).
+    const client = supabaseIfMade() ?? (visitMayHaveSession() ? await loadSupabase() : null);
+    const token = client ? (await client.auth.getSession()).data.session?.access_token : undefined;
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
