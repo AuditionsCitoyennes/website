@@ -8,7 +8,8 @@
 //   under the panel (the side panel on a desktop, the bottom sheet on a
 //   phone), so the list of places is usable as soon as its rows are in, while
 //   the map behind it finishes its first paint. It lifts by the same rule as
-//   before (GeoNav's `booting`), so the map's entrance is unchanged. A row
+//   before (GeoNav's `booting`), so the map's entrance is unchanged. Under it
+//   the map is inert (no focus stop hidden behind the curtain). A row
 //   chosen before the map is ready moves the panel at once; the camera
 //   command it gives is a prop of the map, which the map plays at its load.
 // - "curtain": as before — one curtain over the map AND the panel until the

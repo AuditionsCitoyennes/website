@@ -778,9 +778,12 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
     :inert="preview || undefined"
     :style="{ '--sheet-peek': `${sheetPeekPx}px`, '--panel-cover': `${panelCover}px` }"
   >
+    <!-- Under a curtain over its box alone, the map takes no focus (inert): the
+         keyboard goes from the header straight to the usable panel. -->
     <GeoDrillMap
       ref="mapCmp"
       class="geo-map"
+      :inert="(booting && bootCover === 'map') || undefined"
       :units="mapUnits"
       :camera="camera"
       :outline="outline"
