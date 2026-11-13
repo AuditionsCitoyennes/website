@@ -40,6 +40,30 @@
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
 }
 
+/* The pill of a territory just tapped, while its plateau is on its way
+   (useMapPins.setPendingPin): pressed back onto its territory (no lift),
+   filled with the primary colour under a light edge — the same two tones as
+   the stroke drawn along the territory's boundary. Still: no animation. Out
+   of the pointer's way: the territory under it is what a second tap reaches
+   (`!important`: mapbox writes pointer-events on the marker itself). */
+.geo-pin.geo-pin-pending {
+  pointer-events: none !important;
+}
+
+.geo-pin-pending .geo-pin-bubble,
+.geo-pin-pending:hover .geo-pin-bubble {
+  transform: none;
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary-foreground) / 0.9);
+  box-shadow:
+    0 0 0 2px hsl(var(--primary) / 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.geo-pin-pending .geo-pin-name {
+  color: hsl(var(--primary-foreground));
+}
+
 .geo-pin-name {
   max-width: 140px;
   overflow: hidden;

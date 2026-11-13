@@ -39,6 +39,7 @@ import { groupOwnAuditions } from "./model/auditions";
 import { usePanelAuditions } from "./model/usePanelAuditions";
 import { useCamera } from "./model/useCamera";
 import { useNavActions } from "./model/useNavActions";
+import { useTapPending } from "./model/useTapPending";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
 import { PANEL_BASE_PX, usePanelLayout } from "./panel/usePanelLayout";
@@ -412,6 +413,12 @@ const {
   mapViewPadding,
 } = ring;
 
+// ---- The answer to a tap (model/useTapPending): the territory tapped is
+// marked on the map from the tap until its plateau commits, the list is busy
+// meanwhile and one sentence says when it stands ----
+const tap = useTapPending({ nav, mapCmp });
+const { pendingUnit, live: tapLive } = tap;
+
 // ---- Actions (model/useNavActions): pins, rows, breadcrumb all fly the map ----
 const { activate, onUnitClick, drillToCrumb } = useNavActions({
   nav,
@@ -420,6 +427,7 @@ const { activate, onUnitClick, drillToCrumb } = useNavActions({
   camera: cam,
   panel,
   engageMap,
+  tap,
 });
 
 // ---- Analyses ----------------------------------------------------------------
@@ -806,6 +814,7 @@ function retryAll() {
     :class="{ preview }"
     :inert="preview || undefined"
     :style="{ '--sheet-peek': `${sheetPeekPx}px`, '--panel-cover': `${panelCover}px` }"
+    @pointerdown.capture.passive="tap.onPointerDown"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the
          keyboard goes from the header straight to the usable panel. -->
@@ -827,6 +836,7 @@ function retryAll() {
       :slabs="slabSpec"
       @ready="mapPresentable = true"
       @unit-click="onUnitClick"
+      @plateau-settled="tap.settled"
       @view-change="onViewChange"
       @user-gesture="onUserGesture"
     />
@@ -847,6 +857,8 @@ function retryAll() {
       @close="analyses = false"
     />
     <p class="analyses-live" aria-live="polite">{{ analysesLive }}</p>
+    <!-- The territory just tapped stands on the map (model/useTapPending). -->
+    <p class="analyses-live" aria-live="polite">{{ tapLive }}</p>
 
     <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over
          the map's box only (`bootCover` "map", bootListSwitch): no z-index of
@@ -887,6 +899,7 @@ function retryAll() {
         :sheet-open="sheetOpen"
         :sheet-hidden="sheetHidden"
         :crumbs="listMode ? null : breadcrumb"
+        :busy="pendingUnit !== null"
         @toggle-sheet="sheetOpen = !sheetOpen"
         @sheet-pointerdown="onSheetPointerDown"
         @sheet-pointermove="onSheetPointerMove"
@@ -1069,7 +1082,8 @@ function retryAll() {
   inset: 0;
 }
 
-/* Read out, not shown: the plates themselves are on screen. */
+/* Read out, not shown: the plates themselves are on screen, and so is the
+   territory just tapped. */
 .analyses-live {
   position: absolute;
   width: 1px;
