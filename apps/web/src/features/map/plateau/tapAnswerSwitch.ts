@@ -37,7 +37,6 @@ export const TAP_ANSWER_MODES: readonly TapAnswerMode[] = ["auto", "stroke", "fi
 export const TAP_FRAME_MODES: readonly TapFrameMode[] = ["same", "own"];
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-  if (!__TEST_TOOLS__) return fallback;
   try {
     const raw = localStorage.getItem(key);
     return (allowed as readonly string[]).includes(raw ?? "") ? (raw as T) : fallback;
@@ -54,12 +53,15 @@ function store(key: string, value: string) {
   }
 }
 
-/** The modes now (refs: the DEV dialog redraws its rows from them). */
+/** The modes now (refs: the DEV dialog redraws its rows from them). A build
+ *  without the testing tools reads no key: the defaults. */
 export const tapAnswerMode = ref<TapAnswerMode>(
-  stored("ac:tap-answer", TAP_ANSWER_MODES, DEFAULT_TAP_ANSWER),
+  __TEST_TOOLS__
+    ? stored("ac:tap-answer", TAP_ANSWER_MODES, DEFAULT_TAP_ANSWER)
+    : DEFAULT_TAP_ANSWER,
 );
 export const tapFrameMode = ref<TapFrameMode>(
-  stored("ac:tap-frame", TAP_FRAME_MODES, DEFAULT_TAP_FRAME),
+  __TEST_TOOLS__ ? stored("ac:tap-frame", TAP_FRAME_MODES, DEFAULT_TAP_FRAME) : DEFAULT_TAP_FRAME,
 );
 
 /** Another mark: kept, and in force from the next tap. */

@@ -202,6 +202,8 @@ export function useMapPins({
           : { element: el };
         const marker = new mapboxgl.Marker(opts).setLngLat([lng, lat]).addTo(map);
         entry = { marker, el, sig, lng, lat, halfW: 0, halfH: 0 };
+        // A pill made anew for the pending unit wears its look from the start.
+        if (!unit.isLeaf && unit.id === pendingPinId) el.classList.add("geo-pin-pending");
         if (!unit.isLeaf) {
           // The pin element sits ABOVE the canvas: hovering it fires the canvas
           // mouseout, which must not clear the hover that revealed this very pin.
@@ -353,6 +355,7 @@ export function useMapPins({
       const was = sticky.find((x) => x.id === prev);
       if (was) {
         was.el.classList.remove("geo-pin-pending");
+        was.el.classList.toggle("geo-pin-hover", hoveredUnitId === prev);
         applyPinVisibility(was);
       }
     }
