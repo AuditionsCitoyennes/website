@@ -34,10 +34,11 @@
 // Each is read once per page load: switching reloads the page. Production has
 // neither keys nor switches: the three defaults.
 //
-// No import but the device's tier (itself loadable under node) and nothing
-// run at load but the switches' reads: loadable under node
+// No import but the device's tier and the cap (themselves loadable under
+// node) and nothing run at load but the switches' reads: loadable under node
 // (graphicsSwitch.test.ts).
 import { gpuWeak, probeRenderer } from "../../shared/device/deviceTier";
+import { capPixelRatio } from "./pixelRatio";
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -115,6 +116,14 @@ export function setDprChoice(choice: DprChoice) {
  *  ratio. "auto" never caps, slow graphics or not (see the header). */
 export function pixelRatioCapFor(choice: DprChoice): number | null {
   return choice === "1.5" ? DPR_CAP : null;
+}
+
+/** This page load's cap put in force, if any: called before the first map is
+ *  created (pixelRatio.ts). The testing tools only. */
+export function capMapsNow() {
+  if (!__TEST_TOOLS__) return;
+  const cap = pixelRatioCapFor(dprChoice);
+  if (cap !== null) capPixelRatio(cap);
 }
 
 // ---- ac:frame-measure --------------------------------------------------------------

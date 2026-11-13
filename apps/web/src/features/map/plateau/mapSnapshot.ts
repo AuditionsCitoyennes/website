@@ -8,8 +8,9 @@ import {
   type ShotEnd,
   type ShotIO,
 } from "./lidShot";
-import { lidTier, type LidTier } from "./lidTier";
+import { lidTier, shotPixels, type LidTier } from "./lidTier";
 import { labelGlyphOptions } from "../labelFont";
+import { nativePixelRatio, screenPerMapPixel } from "../pixelRatio";
 
 // One persistent HIDDEN Mapbox map used to snapshot the basemap for the plateau's
 // map-textured top ("lid"). The lid mesh is vector-crisp (it shares the selection's
@@ -65,12 +66,13 @@ function ceilingForDevice(): number {
 }
 
 /** "ecran": the floor and the ceiling from this window (lidTier.ts), read at
- *  each ask so a rotated phone or a resized window gets its own. */
+ *  each ask so a rotated phone or a resized window gets its own. In screen
+ *  pixels: the screen's ratio, whatever the maps draw at (pixelRatio.ts). */
 function tierForScreen(): LidTier {
   return lidTier({
     innerW: window.innerWidth,
     innerH: window.innerHeight,
-    dpr: window.devicePixelRatio || 1,
+    dpr: nativePixelRatio(),
     deviceMemory: (navigator as { deviceMemory?: number }).deviceMemory,
     coarse: window.matchMedia?.("(pointer: coarse)").matches ?? false,
   });
@@ -119,16 +121,16 @@ export class SnapshotManager {
    * Backing-store size this manager will capture at, given what the caller wants.
    * Rounded to a multiple of 256 so ordinary window resizes don't churn the
    * hidden map, and clamped by both the device's memory tier and `hardMax`
-   * (GL_MAX_TEXTURE_SIZE — a larger bitmap simply fails to upload).
+   * (GL_MAX_TEXTURE_SIZE — a larger bitmap simply fails to upload). Settled
+   * in screen pixels (lidTier.ts shotPixels): the same number as ever while
+   * the maps draw at the screen's ratio.
    */
   private budget(wantPx: number, hardMax: number): number {
     const tier =
       this.mode === "ancien"
         ? { floor: SNAP_PX_FLOOR, ceiling: ceilingForDevice() }
         : tierForScreen();
-    const ceil = Math.min(tier.ceiling, hardMax > 0 ? hardMax : SNAP_PX_FLOOR);
-    const want = Math.ceil(Math.max(wantPx, 1) / 256) * 256;
-    return Math.max(Math.min(want, ceil), Math.min(tier.floor, ceil));
+    return shotPixels(wantPx, hardMax, tier, SNAP_PX_FLOOR, screenPerMapPixel());
   }
 
   private ensureMap(style: string, px: number): mapboxgl.Map {
@@ -211,7 +213,9 @@ export class SnapshotManager {
   warmup(style: string) {
     this.ensureMap(
       style,
-      this.mode === "ancien" ? this.budget(SNAP_PX_FLOOR, SNAP_PX_CEIL) : WARM_PX,
+      this.mode === "ancien"
+        ? this.budget(SNAP_PX_FLOOR, SNAP_PX_CEIL)
+        : Math.round(WARM_PX / screenPerMapPixel()),
     );
   }
 

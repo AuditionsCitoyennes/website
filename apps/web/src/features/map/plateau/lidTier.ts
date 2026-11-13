@@ -62,3 +62,32 @@ export function lidTier({ innerW, innerH, dpr, deviceMemory, coarse }: LidTierIn
   if (coarse && short < PHONE_SHORT_CSS) ceiling = Math.min(ceiling, PHONE_CEILING);
   return { floor, ceiling };
 }
+
+/**
+ * The backing-store size of a shot, in pixels of the hidden map's canvas:
+ * what the caller wants (`wantPx`, sized against the main map's canvas),
+ * rounded up to a multiple of 256 so ordinary window resizes do not churn
+ * the hidden map, and held between the tier's floor and its ceiling and
+ * under `hardMax` (GL_MAX_TEXTURE_SIZE: a larger bitmap fails to upload;
+ * `noHardMax` when the layer has not read it yet).
+ *
+ * The tier is in SCREEN pixels. `screenPerMapPx` (pixelRatio.ts) is how many
+ * of them a pixel of the maps' canvases covers along a side: 1 everywhere,
+ * unless the maps draw under the screen's ratio. The size is settled in
+ * screen pixels and comes back in the canvas's own, so the hidden map keeps
+ * the CSS size, the zoom, the tiles and the labels it has at the screen's
+ * ratio, with fewer pixels — as the main map does.
+ */
+export function shotPixels(
+  wantPx: number,
+  hardMax: number,
+  tier: LidTier,
+  noHardMax: number,
+  screenPerMapPx = 1,
+): number {
+  const k = screenPerMapPx > 1 ? screenPerMapPx : 1;
+  const ceil = Math.min(tier.ceiling, hardMax > 0 ? hardMax * k : noHardMax);
+  const want = roundUp256(wantPx * k);
+  const screenPx = Math.max(Math.min(want, ceil), Math.min(tier.floor, ceil));
+  return k === 1 ? screenPx : Math.round(screenPx / k);
+}
