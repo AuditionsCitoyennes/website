@@ -28,6 +28,9 @@ import {
   setTierChoice,
   tierChoice,
 } from "@/shared/device/deviceTier";
+import { glass, setGlass } from "@/shared/device/glassSwitch";
+import { mapPreload, setMapPreload } from "@/shared/boot/mapPreload";
+import { authClient, setAuthClient } from "@/shared/api/authClientSwitch";
 import {
   frameFill,
   pendingAnalysesMode,
@@ -104,6 +107,9 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:boot-workers": bind(() => bootWorkers, setBootWorkers),
   "ac:outlines-decor": bind(() => outlinesDecor, setOutlinesDecor),
   "ac:glyphs": bind(() => glyphs, setGlyphs),
+  "ac:map-preload": bind(() => mapPreload, setMapPreload),
+  "ac:glass": bind(() => glass, setGlass),
+  "ac:auth-client": bind(() => authClient, setAuthClient),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
@@ -244,13 +250,14 @@ function showReport() {
             </button>
           </div>
           <p :id="explainId(o)" class="opt-explain">{{ o.explain }}</p>
+          <!-- What the page knows of the device, under the « Niveau » row. -->
+          <dl v-if="o.key === 'ac:tier'" class="dev-facts">
+            <div v-for="f in deviceFacts" :key="f.label">
+              <dt>{{ f.label }}</dt>
+              <dd>{{ f.value }}</dd>
+            </div>
+          </dl>
         </div>
-        <dl v-if="s.id === 'appareil'" class="dev-facts">
-          <div v-for="f in deviceFacts" :key="f.label">
-            <dt>{{ f.label }}</dt>
-            <dd>{{ f.value }}</dd>
-          </div>
-        </dl>
       </section>
     </ModalDialog>
   </div>

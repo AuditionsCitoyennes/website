@@ -437,8 +437,8 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
     right: 0;
     padding-top: env(safe-area-inset-top, 0px);
     background: transparent;
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     border-color: transparent;
     /* Taps between the tiles fall through to the page; the tiles take theirs. */
     pointer-events: none;

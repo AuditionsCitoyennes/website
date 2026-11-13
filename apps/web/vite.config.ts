@@ -1,7 +1,8 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
+import { mapPreloadFiles, mapPreloadScript } from "./src/shared/boot/mapPreloadPlan";
 
 // The outline build the site reads (features/geo-nav/data/useOutlineFiles):
 // the lock's, read once at start, so a lock bump needs a dev-server restart.
@@ -20,8 +21,41 @@ function outlinesBuild(): string {
   }
 }
 
+// The map page's code asked for from the HTML (shared/boot/mapPreload.ts): the
+// built page is told the names of the map page's chunks and stylesheets, in a
+// small inline script that asks for them on the map page alone. A build only:
+// the dev server has no chunks to name. `testTools`: the script reads the DEV
+// switch (a staging build); otherwise it has the default baked in.
+function mapPreloadHtml(mode: string): Plugin {
+  const testTools = loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging";
+  return {
+    name: "ac-map-preload",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler(_html, ctx) {
+        const chunks = Object.values(ctx.bundle ?? {}).flatMap((c) =>
+          c.type === "chunk"
+            ? [
+                {
+                  fileName: c.fileName,
+                  isEntry: c.isEntry,
+                  facadeModuleId: c.facadeModuleId,
+                  imports: c.imports,
+                  css: [...(c.viteMetadata?.importedCss ?? [])],
+                },
+              ]
+            : [],
+        );
+        const script = mapPreloadScript(mapPreloadFiles(chunks), testTools);
+        return script ? [{ tag: "script", children: script, injectTo: "head" }] : [];
+      },
+    },
+  };
+}
+
 export default defineConfig(({ command, mode }) => ({
-  plugins: [vue()],
+  plugins: [vue(), mapPreloadHtml(mode)],
   define: {
     // Every component is `<script setup>`, so the Options API runtime is dead
     // weight — flagging it lets the minifier drop that branch of Vue.
@@ -47,6 +81,32 @@ export default defineConfig(({ command, mode }) => ({
   // map/relief/demClient.ts): their bundles must be ES too (Vite's default is
   // iife). Only a build that emits a worker sees it.
   worker: { format: "es" },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          // Mapbox GL in a file of its own (mapbox-gl-<hash>.js), apart from
+          // the map page's own code: its name changes only when Mapbox's
+          // version does, so a returning visitor keeps it in the browser's
+          // cache across the site's releases (the files under /assets/ are
+          // cached for a year: public/_headers). Still lazy: only the map
+          // page's chunks import it.
+          // The library's code alone: its stylesheet stays with the map's
+          // own (GeoDrillMap.vue imports it), and what it imports (the
+          // bundler's helpers) stays in the files the entry already loads —
+          // with its dependencies pulled in, the group took Vite's preload
+          // helper, and the entry then loaded all of Mapbox on every page.
+          groups: [
+            {
+              name: "mapbox-gl",
+              test: /[\\/]node_modules[\\/]mapbox-gl[\\/].*\.js$/,
+              includeDependenciesRecursively: false,
+            },
+          ],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

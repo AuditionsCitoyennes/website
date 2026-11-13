@@ -9,6 +9,9 @@
 // never wrapped in ref/reactive.
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import mapboxgl from "mapbox-gl";
+// Mapbox's own stylesheet, with the map's code rather than in the stylesheet
+// every page waits for (main.ts): Vite loads it before this chunk runs.
+import "mapbox-gl/dist/mapbox-gl.css";
 import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
 import { toLngLat } from "./lib/polygon";
