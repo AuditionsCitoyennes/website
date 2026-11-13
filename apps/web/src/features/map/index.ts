@@ -31,3 +31,11 @@ export {
   type TapFrameMode,
   type TapMark,
 } from "./plateau/tapAnswerSwitch";
+// What a late outline file does to the map: its DEV switch (the Témoignages
+// page draws it; geo-nav's outline files and the map's outline watcher read it).
+export {
+  LATE_CAP_MS,
+  lateFilesMode,
+  setLateFilesMode,
+  type LateFilesMode,
+} from "./plateau/lateFilesSwitch";
