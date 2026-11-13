@@ -22,6 +22,7 @@ import {
   changedCount,
   changedOptions,
   clearOptions,
+  tierFacts,
   type DevKey,
 } from "./devOptions";
 
@@ -30,6 +31,7 @@ const data = await import("./dataSource");
 const lid = await import("../map/plateau/lidSwitch");
 const mesh = await import("../map/plateau/meshSwitch");
 const relief = await import("../map/relief/reliefSwitch");
+const tier = await import("../../shared/device/deviceTier");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -37,6 +39,7 @@ const MODULES = {
   mesh: "../map/plateau/meshSwitch.ts",
   relief: "../map/relief/reliefSwitch.ts",
   slabs: "../analyses/devSwitch.ts",
+  tier: "../../shared/device/deviceTier.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -59,25 +62,28 @@ const KEYS: readonly DevKey[] = [
   "ac:slab-size",
   "ac:frame-fill",
   "ac:ring-band",
+  "ac:tier",
 ];
-/** Measurement arms, kept in localStorage only: no row by design. */
+/** Measurement arms, kept in localStorage only, and the device tier's kept
+ *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
 const NO_ROW = [
   "ac:relief-budget",
   "ac:relief-budget-ground",
   "ac:relief-delay",
   "ac:relief-commit-hold",
+  "ac:tier-measured",
 ];
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
-test("every switch key has exactly one row, in the three sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 12);
+test("every switch key has exactly one row, in the four sections in order", () => {
+  assert.equal(DEV_OPTIONS.length, 13);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
   for (const o of DEV_OPTIONS) assert.ok(KEYS.includes(o.key), o.key);
   assert.deepEqual(
     DEV_SECTIONS.map((s) => s.title),
-    ["Données", "Carte", "Analyses"],
+    ["Données", "Carte", "Analyses", "Appareil"],
   );
   const ids = DEV_SECTIONS.map((s) => s.id);
   const order = DEV_OPTIONS.map((o) => ids.indexOf(o.section));
@@ -144,6 +150,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:slab-text": ["slabs", "setSlabTextMode"],
   "ac:slab-size": ["slabs", "setSlabTextScale"],
   "ac:ring-band": ["slabs", "setRingBandMode"],
+  "ac:tier": ["tier", "setTierChoice"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -167,7 +174,7 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
   }
   assert.deepEqual(
     DEV_OPTIONS.filter((o) => o.reloads).map((o) => o.label),
-    ["Données", "Couvercle", "Contrôle", "Maillage", "Préchargement"],
+    ["Données", "Couvercle", "Contrôle", "Maillage", "Préchargement", "Niveau"],
   );
 });
 
@@ -193,6 +200,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:lid-check"), [...lid.LID_CHECKS]);
   assert.deepEqual(ids("ac:mesh"), [...mesh.MESH_MODES]);
   assert.deepEqual(ids("ac:relief-prefetch"), [...relief.RELIEF_PREFETCHES]);
+  assert.deepEqual(ids("ac:tier"), [...tier.TIER_CHOICES]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -219,6 +227,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:slab-text": storedCall("slabs", "TEXT_KEY").fallback,
     "ac:slab-size": pct(constant("TEXT_SCALE")),
     "ac:ring-band": storedCall("slabs", "RING_KEY").fallback,
+    "ac:tier": tier.DEFAULT_TIER_CHOICE,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
@@ -281,4 +290,69 @@ test("« Données » says what the map loses with the corpus and the comparer", 
     /Avec «\u00a0Corpus\u00a0» et «\u00a0Comparer\u00a0», la carte ne montre que les points des lieux/,
   );
   for (const lost of ["contour", "relief", "analyses"]) assert.ok(after.includes(lost), lost);
+});
+
+test("« Appareil » lists the tier detected, the two kinds of weak and every signal", () => {
+  const strong = {
+    deviceMemory: 8,
+    hardwareConcurrency: 10,
+    saveData: false,
+    effectiveType: "4g",
+    renderer: "ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)",
+    measured: null,
+  };
+  const auto = tier.decideTier(strong);
+  assert.deepEqual(tierFacts(strong, auto, auto), [
+    { label: "Niveau détecté", value: "Complet" },
+    { label: "Processeur lent", value: "non" },
+    { label: "Affichage lent", value: "non" },
+    { label: "Mémoire", value: "8 Go" },
+    { label: "Cœurs", value: "10" },
+    { label: "Économie de données", value: "non" },
+    { label: "Connexion", value: "4g" },
+    { label: "Puce graphique", value: strong.renderer },
+    { label: "Images mesurées", value: "aucune descente" },
+  ]);
+  // A phone that says nothing, a slow first flight kept, the switch forcing « Minimal ».
+  const silent = {
+    deviceMemory: null,
+    hardwareConcurrency: null,
+    saveData: true,
+    effectiveType: null,
+    renderer: null,
+    measured: { tier: "light" as const, kind: "unknown" as const, at: Date.UTC(2026, 10, 13, 12) },
+  };
+  const facts = tierFacts(silent, tier.decideTier(silent), tier.decideTier(silent, "minimal"));
+  const value = (label: string) => facts.find((f) => f.label === label)?.value;
+  assert.equal(value("Niveau détecté"), "Léger (économie de données, images lentes mesurées)");
+  assert.equal(value("Niveau imposé"), "Minimal");
+  assert.equal(value("Processeur lent"), "oui");
+  assert.equal(value("Affichage lent"), "oui");
+  assert.equal(value("Mémoire"), "non indiquée");
+  assert.equal(value("Cœurs"), "non indiqué");
+  assert.equal(value("Économie de données"), "oui");
+  assert.equal(value("Connexion"), "non indiquée");
+  assert.equal(value("Puce graphique"), "non lue");
+  assert.match(value("Images mesurées")!, /^Léger \(cause non mesurée\), le \d{2}\/11\/2026$/);
+  // Every reason and every kind has its words, with no loose space.
+  const every = tierFacts(
+    { ...silent, measured: { ...silent.measured, kind: "gpu" } },
+    {
+      tier: "minimal",
+      cpuWeak: true,
+      gpuWeak: true,
+      reasons: ["memory", "cores", "save-data", "link", "renderer", "frames"],
+    },
+    tier.decideTier(silent, "full"),
+  );
+  assert.equal(
+    every[0].value,
+    "Minimal (peu de mémoire, peu de cœurs, économie de données, connexion lente, affichage sans puce graphique, images lentes mesurées)",
+  );
+  assert.equal(every[1].value, "Complet");
+  assert.match(every.at(-1)!.value, /^Léger \(affichage\)/);
+  for (const f of [...facts, ...every]) {
+    assert.doesNotMatch(f.label, LOOSE_SPACE);
+    assert.doesNotMatch(f.value, LOOSE_SPACE);
+  }
 });

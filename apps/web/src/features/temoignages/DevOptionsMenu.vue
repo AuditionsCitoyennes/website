@@ -6,16 +6,27 @@
 // « Options de test », a row for each switch of devOptions.ts — the data
 // source and the place tree (dataSource.ts), the plateau's lid, its check, its
 // mesh and the relief's prefetch (map), the framing and the analyses' slabs
-// (analyses/devSwitch) —, each with its sentences for a tester and a mark on
-// the ones that reload the page. A choice that is not its switch's default is
-// marked: a count on the button, « modifié » on its row, and at the top of the
-// dialog the count again with « Tout remettre par défaut », which removes the
-// stored keys and loads the page again. In comparer mode a badge counting the
-// differences (compare.ts: window.__acCompare, the tree's, and
+// (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
+// what the page knows of the device listed under it —, each with its
+// sentences for a tester and a mark on the ones that reload the page. A choice
+// that is not its switch's default is marked: a count on the button,
+// « modifié » on its row, and at the top of the dialog the count again with
+// « Tout remettre par défaut », which removes the stored keys (and the device
+// tier's kept measure) and loads the page again. In comparer mode a badge
+// counting the differences (compare.ts: window.__acCompare, the tree's, and
 // window.__acCompareLists, the lists'). The testing tools only: the explorer
 // loads it behind `__TEST_TOOLS__`.
 import { computed, nextTick, ref, useId } from "vue";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
+import {
+  decideTier,
+  deviceSignals,
+  deviceVerdict,
+  forgetMeasuredStep,
+  probeRenderer,
+  setTierChoice,
+  tierChoice,
+} from "@/shared/device/deviceTier";
 import {
   frameFill,
   pendingAnalysesMode,
@@ -52,6 +63,7 @@ import {
   changedCount,
   changedOptions,
   clearOptions,
+  tierFacts,
   type DevKey,
   type DevOption,
 } from "./devOptions";
@@ -81,6 +93,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:slab-text": bind(() => slabTextMode.value, setSlabTextMode),
   "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
+  "ac:tier": bind(() => tierChoice, setTierChoice),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
@@ -104,6 +117,7 @@ function resetAll() {
   } catch {
     /* storage blocked: nothing was kept, the reload alone brings the defaults back */
   }
+  forgetMeasuredStep(); // the device is judged again
   window.location.reload();
 }
 
@@ -112,6 +126,14 @@ const explainId = (o: DevOption) => `${uid}-${o.key.slice(3)}`;
 
 const open = ref(false);
 const btn = ref<HTMLButtonElement | null>(null);
+
+/** What the page knows of the device, read each time the dialog opens (the
+ *  graphics chip's name from a throwaway context, once per page). */
+const deviceFacts = computed(() => {
+  if (!open.value) return [];
+  const signals = deviceSignals(probeRenderer());
+  return tierFacts(signals, decideTier(signals), deviceVerdict());
+});
 
 // Back on the button once closed. ModalDialog puts the focus back where it
 // was at the opening, but WebKit does not focus a button on a click: there it
@@ -211,6 +233,12 @@ function showReport() {
           </div>
           <p :id="explainId(o)" class="opt-explain">{{ o.explain }}</p>
         </div>
+        <dl v-if="s.id === 'appareil'" class="dev-facts">
+          <div v-for="f in deviceFacts" :key="f.label">
+            <dt>{{ f.label }}</dt>
+            <dd>{{ f.value }}</dd>
+          </div>
+        </dl>
       </section>
     </ModalDialog>
   </div>
@@ -390,5 +418,33 @@ function showReport() {
   color: hsl(var(--muted-foreground));
   font-size: var(--text-ui);
   line-height: 1.4;
+}
+
+/* What the page knows of the device: a name and its value per line. */
+.dev-facts {
+  margin: 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px solid hsl(var(--border));
+  font-size: var(--text-ui);
+  line-height: 1.4;
+}
+
+.dev-facts > div {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.1rem 0;
+}
+
+.dev-facts dt {
+  flex: none;
+  color: hsl(var(--muted-foreground));
+}
+
+.dev-facts dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 </style>
