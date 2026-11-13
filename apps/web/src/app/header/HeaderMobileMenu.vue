@@ -134,8 +134,8 @@ const legal = [
   position: absolute;
   inset: 0;
   background: hsl(var(--background) / 0.55);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .nav-popup {

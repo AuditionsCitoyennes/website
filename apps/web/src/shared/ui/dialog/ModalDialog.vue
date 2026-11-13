@@ -239,8 +239,8 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 1rem;
   background: rgb(0 0 0 / 0.55);
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .dialog {
