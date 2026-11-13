@@ -16,6 +16,7 @@ import { stillMap } from "./lib/stillMap";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import type { MeshClient } from "./gl/meshClientCore";
 import { meshMode } from "./plateau/meshSwitch";
+import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
 import { useMapView, type MapView } from "./composables/useMapView";
 import { useScopeMask } from "./composables/useScopeMask";
 import { usePlateauFrames } from "./composables/usePlateauFrames";
@@ -235,6 +236,33 @@ function onCameraSettled() {
 
 let uninstallProbes: () => void = () => {};
 
+/** The relief worker and the mesh worker, started once per mount, before the
+ *  first selection needs them: with the map object (ac:boot-workers "early",
+ *  the default) or in its `load` handler ("load", as before). */
+let workersStarted = false;
+function startWorkers() {
+  if (workersStarted) return;
+  workersStarted = true;
+  void loadReliefClient().then(
+    (c) => c.warmRelief(),
+    () => {},
+  );
+  // ac:mesh=worker: the mesh worker started now (a fresh worker's first
+  // build is its slowest). Only this guard reaches the client: "worker" is
+  // the default (plateau/meshSwitch.ts), so every build emits its chunk and
+  // the worker, a page on another mode never loads them.
+  if (meshMode === "worker") {
+    void import("./gl/meshClient").then(
+      ({ warmMeshWorker, globeProviderOf }) => {
+        if (!map) return; // unmounted meanwhile (or the map was declared unavailable)
+        meshClient = warmMeshWorker();
+        plateauWall.setGlobeProvider(globeProviderOf(meshClient));
+      },
+      () => {},
+    );
+  }
+}
+
 onMounted(() => {
   if (!el.value || !TOKEN) {
     emitReady(); // no map will ever load — release the boot overlay
@@ -269,6 +297,9 @@ onMounted(() => {
       // at runtime (`params || {url}`): one cast.
       transformRequest: demTransformRequest as unknown as mapboxgl.MapOptions["transformRequest"],
     });
+    // The two workers start with the map object (ac:boot-workers, default
+    // "early"): neither touches the style, so neither waits for its load.
+    if (workersStartAt(bootWorkers) === "mount") startWorkers();
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-left");
     attrib = newAttribution();
     map.addControl(attrib, creditCorner());
@@ -297,25 +328,8 @@ onMounted(() => {
       mask.applyMask();
       pins.buildMarkers();
       lid.warmup(); // hidden lid-snapshot map: pay style init now
-      // The relief worker started now, not on the first selection.
-      void loadReliefClient().then(
-        (c) => c.warmRelief(),
-        () => {},
-      );
-      // ac:mesh=worker: the mesh worker started now (a fresh worker's first
-      // build is its slowest). Only this guard reaches the client: "worker" is
-      // the default (plateau/meshSwitch.ts), so every build emits its chunk and
-      // the worker, a page on another mode never loads them.
-      if (meshMode === "worker") {
-        void import("./gl/meshClient").then(
-          ({ warmMeshWorker, globeProviderOf }) => {
-            if (!map) return; // unmounted meanwhile
-            meshClient = warmMeshWorker();
-            plateauWall.setGlobeProvider(globeProviderOf(meshClient));
-          },
-          () => {},
-        );
-      }
+      // ac:boot-workers=load: the two workers start only now.
+      if (workersStartAt(bootWorkers) === "load") startWorkers();
       // Testing tools: a PMTiles archive named in the address, laid over the map.
       if (__TEST_TOOLS__) {
         const m = getMap();
