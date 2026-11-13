@@ -85,6 +85,10 @@ export function useMapFeed(inputs: MapFeedInputs) {
   // landed on the same content never re-fired that watcher, so after a teardown
   // (style reload, layer re-add) nothing rose again. Rebuilds are cheap now — the
   // per-geometry projection/mesh caches in GeoDrillMap absorb the real cost.
+  // The map does not run its pipeline for each of them all the same: it judges
+  // every fresh outline against the plateau that STANDS (ac:late-files "quiet",
+  // map/lib/outlineChange.ts) — the same content does nothing while it stands
+  // and raises it again once it does not, which a memoised identity could not.
   const outline = computed<OutlineFC>(() => {
     // Deep in the micropin zone → no plateau, no boundaries: the empty outline
     // drives the map's animated teardown (sink, then clear). An open lieu does
