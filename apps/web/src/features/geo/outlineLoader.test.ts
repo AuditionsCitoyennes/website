@@ -2,7 +2,8 @@
 // clock: one request per URL, declared files only, one write per batch, the
 // failure classes and the session fallback, the timeout, the give-up timer,
 // the prefetch, the low (decorative) batches: their turns, their priority,
-// their deferred write. Run with `node --import tsx --test` (root "test:scripts").
+// their deferred write, the late files kept until the map is still. Run with
+// `node --import tsx --test` (root "test:scripts").
 // Pure: no Vue, no DOM, no alias.
 
 import assert from "node:assert/strict";
@@ -95,7 +96,7 @@ function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoader
   const deferred: (() => void)[] = [];
   const fetchFn = async (
     u: string,
-    init: { signal: AbortSignal; cache?: "reload"; priority?: "low" },
+    init: { signal: AbortSignal; cache?: "reload"; priority?: "high" | "low" },
   ) => {
     requests.push({ url: u, cache: init.cache, priority: init.priority, signal: init.signal });
     const path = u.slice(`${BASE}outlines/${BUILD}/`.length, -".json".length);
@@ -189,6 +190,7 @@ function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoader
     tick,
     boot,
     written,
+    spans: () => spans,
     release,
     sets: () => sets,
   };
@@ -784,4 +786,338 @@ test("(20d) reconnect(): a file failed on the network is asked again by the next
   assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed", "a missing file stays failed");
   t.loader.reconnect(); // nothing waits: a no-op
   assert.equal(t.loader.mode, "fichiers");
+});
+
+// ---- The late files (`late`: the page's ac:late-files "quiet") ----
+
+/** A loader with the late rules: `urgent` the keys a plateau waits for,
+ *  `still()` the map coming to rest (the jobs asked of whenStill run). */
+function quiet(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoaderOptions> = {}) {
+  const urgent = new Set<string>();
+  const jobs: (() => void)[] = [];
+  let heldChanges = 0;
+  const t = setup(script, {
+    late: {
+      urgent: (key) => urgent.has(key),
+      whenStill: (job) => void jobs.push(job),
+      onHeld: () => void heldChanges++,
+    },
+    ...more,
+  });
+  const still = async () => {
+    for (const job of jobs.splice(0)) job();
+    await t.tick(0);
+  };
+  const parsed = () =>
+    t
+      .spans()
+      .filter((s) => s.name === "outline.parse")
+      .map((s) => s.key);
+  return { ...t, urgent, still, parsed, armed: () => jobs.length, heldChanges: () => heldChanges };
+}
+
+test("(L1) without the late rules no request carries a fetch priority", async () => {
+  const t = setup();
+  await t.boot();
+  await Promise.all([t.loader.ensureBundle("fr:dep:69", true), t.tick(0)]);
+  await Promise.all([t.loader.batchSelf(["fr:dep:01"]), t.tick(0)]);
+  assert.deepEqual(
+    t.requests.map((r) => r.priority),
+    [undefined, undefined],
+  );
+});
+
+test("(L2) fetch priority: none at boot, high for a due file, low for the others", async () => {
+  const t = quiet();
+  const boot = t.loader.ensureRoot();
+  await t.tick(0);
+  assert.equal(await boot, "loaded");
+  assert.deepEqual(
+    t.requests.map((r) => r.priority),
+    [undefined, undefined], // root.json, k/FR: as before
+  );
+  t.requests.length = 0;
+  t.urgent.add("u/fr_dep_07");
+  void t.loader.ensureSelf("fr:dep:07"); // a plateau waits for it
+  void t.loader.ensureBundle("fr:dep:69"); // a unit's children
+  void t.loader.batchSelf(["fr:dep:01"]); // a neighbour
+  void t.loader.ensureGlobe(["ES"]); // the world's outlines
+  void t.loader.prefetch("u", "fr:dep:03"); // a hover
+  await t.tick(0);
+  assert.deepEqual(t.requests.map((r) => [r.url, r.priority]).sort(), [
+    [url("g/ES"), "low"],
+    [url("k/fr_dep_69"), "low"],
+    [url("u/fr_dep_01"), "low"],
+    [url("u/fr_dep_03"), "low"],
+    [url("u/fr_dep_07"), "high"],
+  ]);
+  await t.still();
+});
+
+test("(L3) a file nothing waits for is kept as text: parsed and written when the map is still", async () => {
+  const t = quiet();
+  await t.boot();
+  let status = "";
+  void t.loader.ensureBundle("fr:dep:69").then((s) => (status = s));
+  await t.tick(0);
+  // Landed: neither parsed nor written, its caller still waiting.
+  assert.deepEqual([...t.loader.held], ["k/fr_dep_69"]);
+  assert.equal(t.store.bundleLoaded("fr:dep:69"), false);
+  assert.ok(!t.parsed().includes("k/fr_dep_69"));
+  assert.equal(status, "");
+  assert.equal(t.armed(), 1);
+  const writes = t.writes.length;
+  await t.still();
+  assert.equal(status, "loaded");
+  assert.equal(t.store.bundleLoaded("fr:dep:69"), true);
+  assert.ok(t.parsed().includes("k/fr_dep_69"));
+  assert.equal(t.writes.length, writes + 1);
+  assert.deepEqual([...t.loader.held], []);
+});
+
+test("(L4) the kept files are written in ONE write, whoever asked them", async () => {
+  const t = quiet();
+  await t.boot();
+  const all = Promise.all([
+    t.loader.ensureBundle("fr:dep:69"),
+    t.loader.batchSelf(["fr:dep:01", "fr:dep:03"]),
+  ]);
+  await t.tick(0);
+  assert.equal(t.loader.held.size, 3);
+  assert.equal(t.writes.length, 0);
+  assert.equal(t.armed(), 1); // one flush asked for the three
+  await t.still();
+  assert.deepEqual(await all, ["loaded", ["loaded", "loaded"]]);
+  assert.equal(t.writes.length, 1);
+  assert.deepEqual(
+    t.written().map((s) => s.key),
+    ["k/fr_dep_69 u/fr_dep_01 u/fr_dep_03"],
+  );
+});
+
+test("(L5) a file a plateau waits for is written as it lands", async () => {
+  const t = quiet();
+  await t.boot();
+  t.urgent.add("k/fr_reg_84");
+  const r = t.loader.ensureBundle("fr:reg:84", true);
+  await t.tick(0);
+  assert.equal(await r, "loaded");
+  assert.equal(t.store.bundleLoaded("fr:reg:84"), true);
+  assert.equal(t.armed(), 0);
+  assert.equal(t.loader.abandonedDone, 0);
+});
+
+test("(L6) a file asked due for a unit since left is kept too, and counted as abandoned", async () => {
+  const t = quiet({ "k/fr_reg_84": ["defer"] });
+  await t.boot();
+  t.urgent.add("k/fr_reg_84");
+  let status = "";
+  void t.loader.ensureBundle("fr:reg:84", true).then((s) => (status = s));
+  await t.tick(0);
+  assert.equal(t.loader.abandoned(), false); // on the network, and waited for
+  t.urgent.clear(); // the visitor went elsewhere
+  assert.equal(t.loader.abandoned(), true);
+  t.release();
+  await t.tick(0);
+  assert.equal(t.loader.abandoned(), false);
+  assert.equal(t.loader.abandonedDone, 1);
+  assert.deepEqual([...t.loader.held], ["k/fr_reg_84"]);
+  assert.equal(t.store.bundleLoaded("fr:reg:84"), false);
+  assert.equal(t.requests.filter((q) => q.signal.aborted).length, 0); // nothing aborted
+  await t.still();
+  assert.equal(status, "loaded");
+});
+
+test("(L7) a kept file a plateau comes to wait for is written at once: a due ask, or flushDue", async () => {
+  const t = quiet();
+  await t.boot();
+  void t.loader.ensureBundle("fr:reg:84");
+  void t.loader.batchSelf(["fr:dep:01"]);
+  await t.tick(0);
+  assert.equal(t.loader.held.size, 2);
+  // The selection comes back: its chain asks it due.
+  const r = t.loader.ensureBundle("fr:reg:84", true);
+  await t.tick(0);
+  assert.equal(await r, "loaded");
+  assert.deepEqual([...t.loader.held], ["u/fr_dep_01"]); // the other stays kept
+  assert.equal(t.requests.filter((q) => q.url === url("k/fr_reg_84")).length, 1);
+  // …or the rule turns, with no new ask.
+  t.urgent.add("u/fr_dep_01");
+  t.loader.flushDue();
+  await t.tick(0);
+  assert.equal(t.loader.held.size, 0);
+  assert.equal(t.store.has("fr:dep:01", "e50"), true);
+  // The flush asked earlier finds nothing left.
+  const writes = t.writes.length;
+  await t.still();
+  assert.equal(t.writes.length, writes);
+});
+
+test("(L8) the flush waits once for the late files still on the network: one write for the batch", async () => {
+  const t = quiet({ "u/fr_dep_03": ["defer"] });
+  await t.boot();
+  void t.loader.ensureBundle("fr:reg:84");
+  await t.tick(0);
+  t.writes.length = 0;
+  void t.loader.ensureBundle("fr:dep:69");
+  const batch = t.loader.batchSelf(["fr:dep:01", "fr:dep:03"]);
+  await t.tick(0);
+  await t.still(); // still, but u/fr_dep_03 is on its way: not yet
+  assert.equal(t.writes.length, 0);
+  t.release();
+  await t.tick(399);
+  assert.equal(t.armed(), 0);
+  await t.tick(1);
+  assert.equal(t.armed(), 1); // asked again after LATE_BATCH_MS
+  await t.still();
+  assert.deepEqual(await batch, ["loaded", "loaded"]);
+  assert.equal(t.writes.length, 1);
+  assert.deepEqual(
+    t.written().map((s) => s.key),
+    ["k/fr_reg_84 k/fr_dep_69 u/fr_dep_01 u/fr_dep_03"],
+  );
+});
+
+test("(L8b) …and only once: a file still not in after the wait comes with the next flush", async () => {
+  const t = quiet({ "u/fr_dep_03": ["defer"] });
+  await t.boot();
+  void t.loader.ensureBundle("fr:reg:84");
+  void t.loader.batchSelf(["fr:dep:03"]);
+  await t.tick(0);
+  t.writes.length = 0;
+  await t.still();
+  await t.tick(400);
+  await t.still(); // the second still moment: whatever is in
+  assert.equal(t.writes.length, 1);
+  assert.equal(t.store.bundleLoaded("fr:reg:84"), true);
+  t.release();
+  await t.tick(0);
+  await t.still();
+  assert.equal(t.writes.length, 2);
+});
+
+test("(L9) a request only a prefetch made is never kept and never writes", async () => {
+  const t = quiet();
+  await t.boot();
+  await Promise.all([t.loader.prefetch("k", "fr:reg:84"), t.tick(0)]);
+  assert.equal(t.loader.held.size, 0);
+  assert.equal(t.armed(), 0);
+  assert.equal(t.store.bundleLoaded("fr:reg:84"), false);
+  assert.equal(t.writes.length, 0);
+});
+
+test("(L10) a session that falls back drops the kept files: their callers answer fallback", async () => {
+  const t = quiet({ "u/fr_dep_01": ["html"] });
+  await t.boot();
+  const kept = t.loader.ensureBundle("fr:dep:69");
+  await t.tick(0);
+  assert.equal(t.loader.held.size, 1);
+  // A release skew on another file (confirmed past the cache) ends the session.
+  t.urgent.add("u/fr_dep_01");
+  const skew = t.loader.ensureSelf("fr:dep:01");
+  await t.tick(0);
+  assert.equal(await skew, "fallback");
+  await t.still();
+  assert.equal(await kept, "fallback");
+  assert.equal(t.store.bundleLoaded("fr:dep:69"), false);
+  assert.equal(t.loader.held.size, 0);
+});
+
+test("(L11) a kept self is not given up; a wait an abandoned file crossed goes on once", async () => {
+  const t = quiet({ "k/fr_reg_84": ["defer"], "u/fr_dep_01": ["defer"] });
+  await t.boot();
+  // A neighbour's self kept as text past the wait: in, not given up.
+  void t.loader.batchSelf(["fr:dep:03"]);
+  await t.tick(1300);
+  assert.deepEqual([...t.loader.held], ["u/fr_dep_03"]);
+  assert.equal(t.loader.isGaveUp("u", "fr:dep:03"), false);
+  // A due file abandoned on the network while another self is waited for.
+  t.urgent.add("k/fr_reg_84");
+  void t.loader.ensureBundle("fr:reg:84", true);
+  await t.tick(0);
+  t.urgent.clear();
+  t.urgent.add("u/fr_dep_01");
+  void t.loader.ensureSelf("fr:dep:01");
+  await t.tick(1200);
+  assert.equal(t.loader.isGaveUp("u", "fr:dep:01"), false); // one more wait
+  await t.tick(1200);
+  assert.equal(t.loader.isGaveUp("u", "fr:dep:01"), true); // bounded
+});
+
+// ---- The low batches and the late files together ----
+
+test("(LD1) a low request whose text is kept gives its turn back: the next starts before the map is still", async () => {
+  const pending: (() => void)[] = [];
+  const t = quiet({}, { lowParallel: 1, applyLow: (write) => void pending.push(write) });
+  await t.boot();
+  t.requests.length = 0;
+  let settled = false;
+  const r = t.loader.ensureGlobe(["ES", "IT", "DE"], [], true).then((s) => {
+    settled = true;
+    return s;
+  });
+  await t.tick(0);
+  // One at a time, yet all three went out, the map never still: each kept
+  // text gave its turn back as it landed.
+  assert.deepEqual(
+    t.requests.map((q) => [q.url, q.priority]),
+    [
+      [url("g/ES"), "low"],
+      [url("g/IT"), "low"],
+      [url("g/DE"), "low"],
+    ],
+  );
+  assert.deepEqual([...t.loader.held].sort(), ["g/DE", "g/ES", "g/IT"]);
+  assert.equal(settled, false);
+  const writes = t.writes.length;
+  await t.still(); // the flush: ONE write for the three
+  assert.equal(t.writes.length, writes + 1);
+  assert.ok(t.store.loaded("g", "ES") && t.store.loaded("g", "IT") && t.store.loaded("g", "DE"));
+  // The batch's own write is still asked of the page, and finds them stored.
+  assert.equal(pending.length, 1);
+  pending.shift()!();
+  assert.deepEqual(await r, ["loaded", "loaded", "loaded"]);
+  assert.equal(t.writes.length, writes + 1);
+  // Every turn went back: a next low batch runs.
+  const next = t.loader.batchSelf(["fr:dep:01"], true);
+  await t.tick(0);
+  assert.equal(t.requests.at(-1)?.url, url("u/fr_dep_01"));
+  await t.still();
+  pending.shift()!();
+  assert.deepEqual(await next, ["loaded"]);
+});
+
+test("(LD2) a low request waiting its turn that a plateau comes to wait for starts at once, at high priority, and is written as it lands", async () => {
+  const pending: (() => void)[] = [];
+  const t = quiet(
+    { "u/fr_dep_01": ["defer"] },
+    { lowParallel: 1, applyLow: (write) => void pending.push(write) },
+  );
+  await t.boot();
+  t.requests.length = 0;
+  const batch = t.loader.batchSelf(["fr:dep:01", "fr:dep:07"], true);
+  await t.tick(0);
+  assert.deepEqual(
+    t.requests.map((q) => [q.url, q.priority]),
+    [[url("u/fr_dep_01"), "low"]],
+  );
+  // The visitor selects fr:dep:07: its plateau waits for the file.
+  t.urgent.add("u/fr_dep_07");
+  const self = t.loader.ensureSelf("fr:dep:07");
+  await t.tick(0);
+  assert.deepEqual(
+    t.requests.map((q) => [q.url, q.priority]),
+    [
+      [url("u/fr_dep_01"), "low"],
+      [url("u/fr_dep_07"), "high"],
+    ],
+  );
+  assert.equal(await self, "loaded"); // not kept: written as it landed
+  assert.ok(t.store.loaded("u", "fr:dep:07"));
+  t.release();
+  await t.tick(0);
+  await t.still();
+  pending.shift()!();
+  assert.deepEqual(await batch, ["loaded", "loaded"]);
+  assert.equal(t.requests.length, 2); // one request per URL still
 });
