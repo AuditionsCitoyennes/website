@@ -13,6 +13,7 @@ import { globeSetMode } from "../gl/globeDeferral";
 import type { MeshClient, MeshResult } from "../gl/meshClientCore";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
+import { stillMap } from "../lib/stillMap";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
 import { loadReliefClient } from "../relief/demHook";
@@ -200,6 +201,7 @@ export function usePlateau({
     clearTimeout(exagAnim.timer);
     const r = exagAnim.resolve;
     exagAnim = null;
+    stillMap.plateauMotionEnd();
     r();
   }
 
@@ -227,6 +229,7 @@ export function usePlateau({
         clearTimeout(exagAnim.timer);
         exagAnim = null;
         apply(to);
+        stillMap.plateauMotionEnd();
         resolve();
       };
       const tick = (now: number) => {
@@ -247,6 +250,9 @@ export function usePlateau({
         // Patched to the real promise right below (it doesn't exist yet in here).
         done: Promise.resolve(),
       };
+      // The still-map scheduler (lib/stillMap.ts) is told of the rise or the
+      // sink, from here to its end (finish, or cancelExagAnim).
+      stillMap.plateauMotionBegin();
     });
     if (exagAnim) exagAnim.done = done;
     return done;
