@@ -5,7 +5,8 @@
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the data
 // source and the place tree (dataSource.ts), the plateau's lid, its check, its
-// mesh and the relief's prefetch (map), the framing and the analyses' slabs
+// mesh and the relief's prefetch (map), the boot curtain's cover
+// (geo-nav/bootListSwitch), the framing and the analyses' slabs
 // (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
 // what the page knows of the device listed under it —, each with its
 // sentences for a tester and a mark on the ones that reload the page. A choice
@@ -51,6 +52,7 @@ import {
   setMeshMode,
   setReliefPrefetch,
 } from "@/features/map";
+import { bootList, setBootList } from "@/features/geo-nav";
 import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
 import { compareState } from "./compare";
 import {
@@ -94,6 +96,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
+  "ac:boot-list": bind(() => bootList, setBootList),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
