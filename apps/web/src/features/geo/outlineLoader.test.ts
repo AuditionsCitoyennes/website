@@ -1,7 +1,8 @@
 // The outline loader (outlineLoader.ts) against a scripted host and a fake
 // clock: one request per URL, declared files only, one write per batch, the
 // failure classes and the session fallback, the timeout, the give-up timer,
-// the prefetch. Run with `node --import tsx --test` (root "test:scripts").
+// the prefetch, the low (decorative) batches: their turns, their priority,
+// their deferred write. Run with `node --import tsx --test` (root "test:scripts").
 // Pure: no Vue, no DOM, no alias.
 
 import assert from "node:assert/strict";
@@ -81,7 +82,7 @@ type Reply = number | "html" | "hang" | "late" | "defer" | "reject" | "json" | {
 
 /** A scripted host (each URL's replies in turn, the last one repeats) and a fake clock. */
 function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoaderOptions> = {}) {
-  const requests: { url: string; cache?: string; signal: AbortSignal }[] = [];
+  const requests: { url: string; cache?: string; priority?: string; signal: AbortSignal }[] = [];
   const timers = new Map<number, { at: number; fn: () => void; ms: number }>();
   const armed: number[] = [];
   let now = 0;
@@ -92,8 +93,11 @@ function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoader
   let sets = 0;
   /** "defer" replies waiting for release(). */
   const deferred: (() => void)[] = [];
-  const fetchFn = async (u: string, init: { signal: AbortSignal; cache?: "reload" }) => {
-    requests.push({ url: u, cache: init.cache, signal: init.signal });
+  const fetchFn = async (
+    u: string,
+    init: { signal: AbortSignal; cache?: "reload"; priority?: "low" },
+  ) => {
+    requests.push({ url: u, cache: init.cache, priority: init.priority, signal: init.signal });
     const path = u.slice(`${BASE}outlines/${BUILD}/`.length, -".json".length);
     const list = script[path] ?? ["json"];
     const at = Math.min(requests.filter((q) => q.url === u).length, list.length) - 1;
@@ -560,4 +564,135 @@ test("(15) an overseas région reads its département's files: its bundle, its s
   assert.deepEqual(await p.loader.batchSelf(["fr:reg:03"]), ["loaded"]);
   assert.ok(p.requests.every((r) => !r.url.includes("fr_reg_03")));
   assert.equal(p.requests[p.requests.length - 1].url, url("u/fr_dep_973"));
+});
+
+test("(16) a low batch: low priority, at most lowParallel at once, each timer armed at its start", async () => {
+  const t = setup({ "g/ES": ["defer"], "g/IT": ["defer"], "g/DE": ["hang"] }, { lowParallel: 2 });
+  await t.boot();
+  t.armed.length = 0;
+  const r = t.loader.ensureGlobe(["ES", "IT", "DE"], [], true);
+  await t.tick(0);
+  assert.deepEqual(
+    t.requests.map((q) => [q.url, q.priority]),
+    [
+      [url("g/ES"), "low"],
+      [url("g/IT"), "low"],
+    ],
+  );
+  // DE waits its turn: no request, no abort timer for it yet.
+  assert.equal(t.armed.filter((ms) => ms === 15_000).length, 2);
+  await t.tick(14_000);
+  assert.equal(t.requests.length, 2);
+  t.release(); // ES and IT land at 14 s: DE's turn
+  await t.tick(0);
+  assert.deepEqual(t.requests.at(-1)?.url, url("g/DE"));
+  assert.equal(t.requests.at(-1)?.priority, "low");
+  assert.equal(t.armed.filter((ms) => ms === 15_000).length, 3);
+  // Its 15 s count from its start (14 s), not from the batch's (0 s).
+  await t.tick(1_500);
+  assert.equal(t.requests.at(-1)?.signal.aborted, false);
+  await t.tick(13_600); // 15 s after DE started: aborted, retried once 1 s later
+  assert.equal(t.requests.filter((q) => q.url === url("g/DE"))[0].signal.aborted, true);
+  await t.tick(16_000);
+  assert.deepEqual(await r, ["loaded", "loaded", "failed"]);
+  assert.equal(t.writes.length, 1);
+});
+
+test("(16b) without lowParallel a low batch is not capped; a batch not low has no priority", async () => {
+  const t = setup();
+  await t.boot();
+  const low = t.loader.ensureGlobe(["ES", "IT", "DE"], [], true);
+  await t.tick(0);
+  assert.deepEqual(await low, ["loaded", "loaded", "loaded"]);
+  assert.deepEqual(
+    t.requests.map((q) => q.priority),
+    ["low", "low", "low"],
+  );
+  t.requests.length = 0;
+  const plain = t.loader.batchSelf(["fr:dep:01", "fr:dep:03"]);
+  await t.tick(0);
+  assert.deepEqual(await plain, ["loaded", "loaded"]);
+  assert.deepEqual(
+    t.requests.map((q) => q.priority),
+    [undefined, undefined],
+  );
+});
+
+test("(17) applyLow: a low batch is written when the page says, a batch not low at once", async () => {
+  const pending: (() => void)[] = [];
+  const t = setup({}, { applyLow: (write) => void pending.push(write) });
+  await t.boot();
+  let settled = false;
+  const r = t.loader.batchSelf(["fr:dep:01", "fr:dep:03"], true).then((s) => {
+    settled = true;
+    return s;
+  });
+  await t.tick(0);
+  assert.equal(t.requests.length, 2);
+  assert.equal(pending.length, 1);
+  assert.equal(t.writes.length, 0);
+  assert.equal(settled, false);
+  assert.ok(!t.store.loaded("u", "fr:dep:01"));
+  pending.shift()!();
+  assert.deepEqual(await r, ["loaded", "loaded"]);
+  assert.equal(t.writes.length, 1);
+  assert.ok(t.store.loaded("u", "fr:dep:01") && t.store.loaded("u", "fr:dep:03"));
+  // Not low: written at once, applyLow never asked.
+  const plain = t.loader.ensureGlobe(["ES"]);
+  await t.tick(0);
+  assert.deepEqual(await plain, ["loaded"]);
+  assert.equal(pending.length, 0);
+  assert.equal(t.writes.length, 2);
+  // A low batch with nothing to write does not ask either.
+  assert.deepEqual(await t.loader.ensureGlobe(["ES"], [], true), ["loaded"]);
+  assert.equal(pending.length, 0);
+});
+
+test("(18) a caller that is not low starts a low request still waiting its turn, at the default priority", async () => {
+  const t = setup({ "u/fr_dep_01": ["defer"] }, { lowParallel: 1 });
+  await t.boot();
+  const batch = t.loader.batchSelf(["fr:dep:01", "fr:dep:69"], true);
+  await t.tick(0);
+  assert.deepEqual(
+    t.requests.map((q) => q.url),
+    [url("u/fr_dep_01")],
+  );
+  // The visitor's own selection asks fr:dep:69's self: it starts now.
+  const self = t.loader.ensureSelf("fr:dep:69");
+  await t.tick(0);
+  assert.deepEqual(
+    t.requests.map((q) => [q.url, q.priority]),
+    [
+      [url("u/fr_dep_01"), "low"],
+      [url("u/fr_dep_69"), undefined],
+    ],
+  );
+  assert.equal(await self, "loaded");
+  t.release();
+  await t.tick(0);
+  assert.deepEqual(await batch, ["loaded", "loaded"]);
+  assert.equal(t.requests.length, 2); // one request per URL still
+  // The turn held by fr:dep:01 was given back: a next low batch runs.
+  const next = t.loader.ensureGlobe(["ES"], [], true);
+  await t.tick(0);
+  assert.deepEqual(await next, ["loaded"]);
+});
+
+test("(19) a low request waiting its turn when the session falls back is never sent", async () => {
+  const t = setup({ "g/ES": ["defer"], "k/fr_reg_84": ["html"] }, { lowParallel: 1 });
+  await t.boot();
+  const first = t.loader.ensureGlobe(["ES"], [], true);
+  const second = t.loader.ensureGlobe(["IT"], [], true);
+  await t.tick(0);
+  assert.deepEqual(
+    t.requests.map((q) => q.url),
+    [url("g/ES")],
+  );
+  // A release skew elsewhere ends the session while g/IT waits its turn.
+  assert.equal(await t.loader.ensureBundle("fr:reg:84"), "fallback");
+  t.release();
+  await t.tick(0);
+  assert.deepEqual(await first, ["fallback"]);
+  assert.deepEqual(await second, ["fallback"]);
+  assert.ok(!t.requests.some((q) => q.url === url("g/IT")));
 });

@@ -4,6 +4,8 @@
 // spaces a slab is laid out in) that are not the entry's. With it, the
 // still-map scheduler (stillMap.ts): work that waits for the map to be at rest.
 export { whenMapStill, type StillJobOptions } from "./stillMap";
+// The latch of the map's first standing plateau (what waits for it hears it).
+export { onPlateauStood, plateauHasStood } from "./plateauStood";
 export {
   FIT_PITCH_DEG,
   FRAME_FILL,

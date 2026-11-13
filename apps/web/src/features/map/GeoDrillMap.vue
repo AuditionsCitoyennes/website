@@ -13,6 +13,7 @@ import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
 import { toLngLat } from "./lib/polygon";
 import { stillMap } from "./lib/stillMap";
+import { resetPlateauStood } from "./lib/plateauStood";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import type { MeshClient } from "./gl/meshClientCore";
 import { meshMode } from "./plateau/meshSwitch";
@@ -270,6 +271,7 @@ onMounted(() => {
   }
   try {
     mapboxgl.accessToken = TOKEN;
+    resetPlateauStood(); // a new map: its first plateau is still to come
     map = new mapboxgl.Map({
       container: el.value,
       style: STYLE,

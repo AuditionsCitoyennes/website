@@ -15,6 +15,7 @@ import { notePlateauRun } from "../dev/motionProbes";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import { riseProgress } from "../lib/rise";
 import { stillMap } from "../lib/stillMap";
+import { markPlateauStood } from "../lib/plateauStood";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
 import { loadReliefClient } from "../relief/demHook";
@@ -500,6 +501,7 @@ export function usePlateau({
         applyMask();
         if (!map.getTerrain()) setTerrainRaw(terrainSrc, terrainExag);
         if (terrainExag !== 1) await animateTerrain(1, RISE_MS);
+        if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
         return;
       }
       // PREFETCH: stand the new DEM up in the spare slot while the old one sinks
@@ -683,6 +685,9 @@ export function usePlateau({
       const endRise = perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
       await animateTerrain(1, RISE_MS);
       if (endRise) endRise();
+      // The map's first plateau stood (a latch, lib/plateauStood.ts): what
+      // waited for it (the decorative outlines) may come now.
+      if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
       map = getMap();
       if (import.meta.env.DEV && seq === plateauSeq && map) {
         const c = boundsOfFeatures(raised);
