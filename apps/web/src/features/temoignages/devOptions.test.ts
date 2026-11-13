@@ -36,6 +36,9 @@ const bootListSwitch = await import("../geo-nav/bootListSwitch");
 const bootWorkersSwitch = await import("../map/bootWorkersSwitch");
 const outlinesDecorSwitch = await import("../geo-nav/data/outlinesDecorSwitch");
 const glyphSwitch = await import("../map/glyphSwitch");
+const mapPreloadPlan = await import("../../shared/boot/mapPreloadPlan");
+const glassSwitch = await import("../../shared/device/glassSwitch");
+const authClientSwitch = await import("../../shared/api/authClientSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -48,6 +51,10 @@ const MODULES = {
   bootWorkers: "../map/bootWorkersSwitch.ts",
   outlinesDecor: "../geo-nav/data/outlinesDecorSwitch.ts",
   glyphs: "../map/glyphSwitch.ts",
+  mapPreloadPlan: "../../shared/boot/mapPreloadPlan.ts",
+  mapPreload: "../../shared/boot/mapPreload.ts",
+  glass: "../../shared/device/glassSwitch.ts",
+  authClient: "../../shared/api/authClientSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -75,6 +82,9 @@ const KEYS: readonly DevKey[] = [
   "ac:boot-workers",
   "ac:outlines-decor",
   "ac:glyphs",
+  "ac:map-preload",
+  "ac:glass",
+  "ac:auth-client",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -88,14 +98,14 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 17);
+  assert.equal(DEV_OPTIONS.length, 20);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
   for (const o of DEV_OPTIONS) assert.ok(KEYS.includes(o.key), o.key);
   assert.deepEqual(
     DEV_SECTIONS.map((s) => s.title),
-    ["Données", "Carte", "Analyses", "Appareil"],
+    ["Données", "Carte", "Analyses", "Appareil", "Site"],
   );
   const ids = DEV_SECTIONS.map((s) => s.id);
   const order = DEV_OPTIONS.map((o) => ids.indexOf(o.section));
@@ -167,6 +177,9 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:boot-workers": ["bootWorkers", "setBootWorkers"],
   "ac:outlines-decor": ["outlinesDecor", "setOutlinesDecor"],
   "ac:glyphs": ["glyphs", "setGlyphs"],
+  "ac:map-preload": ["mapPreload", "setMapPreload"],
+  "ac:glass": ["glass", "setGlass"],
+  "ac:auth-client": ["authClient", "setAuthClient"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -200,7 +213,10 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
       "Assistants",
       "Contours voisins",
       "Police des noms",
+      "Code de la carte",
       "Niveau",
+      "Verre",
+      "Connexion",
     ],
   );
 });
@@ -232,6 +248,9 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:boot-workers"), [...bootWorkersSwitch.BOOT_WORKERS]);
   assert.deepEqual(ids("ac:outlines-decor"), [...outlinesDecorSwitch.OUTLINES_DECORS]);
   assert.deepEqual(ids("ac:glyphs"), [...glyphSwitch.GLYPHS]);
+  assert.deepEqual(ids("ac:map-preload"), [...mapPreloadPlan.MAP_PRELOADS]);
+  assert.deepEqual(ids("ac:glass"), [...glassSwitch.GLASSES]);
+  assert.deepEqual(ids("ac:auth-client"), [...authClientSwitch.AUTH_CLIENTS]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -263,6 +282,9 @@ test("the default marked in each sentence is the module's", () => {
     "ac:boot-workers": bootWorkersSwitch.DEFAULT_BOOT_WORKERS,
     "ac:outlines-decor": outlinesDecorSwitch.DEFAULT_OUTLINES_DECOR,
     "ac:glyphs": glyphSwitch.DEFAULT_GLYPHS,
+    "ac:map-preload": mapPreloadPlan.DEFAULT_MAP_PRELOAD,
+    "ac:glass": glassSwitch.DEFAULT_GLASS,
+    "ac:auth-client": authClientSwitch.DEFAULT_AUTH_CLIENT,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);

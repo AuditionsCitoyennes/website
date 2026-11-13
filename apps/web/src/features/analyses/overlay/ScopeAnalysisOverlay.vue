@@ -647,6 +647,13 @@ onBeforeUnmount(() => {
   }
 }
 
+/* Glass without blur (shared/device/glassSwitch.ts: a weak device, or the DEV
+   choice « Plein »; the filter itself goes in shared/styles/utilities.css):
+   the frosted white above, as for a browser without the filter. */
+html[data-glass="plein"] .verre .lid-glass {
+  background-color: hsl(0 0% 100% / 0.74);
+}
+
 /* Less transparency asked for: no blur, a white the words read on, barely
    letting the map through. */
 @media (prefers-reduced-transparency: reduce) {
