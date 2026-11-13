@@ -44,11 +44,13 @@ import {
 } from "@/features/analyses";
 import {
   bootWorkers,
+  glyphs,
   lidCheck,
   lidMode,
   meshMode,
   reliefPrefetch,
   setBootWorkers,
+  setGlyphs,
   setLidCheck,
   setLidMode,
   setMeshMode,
@@ -101,6 +103,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:boot-list": bind(() => bootList, setBootList),
   "ac:boot-workers": bind(() => bootWorkers, setBootWorkers),
   "ac:outlines-decor": bind(() => outlinesDecor, setOutlinesDecor),
+  "ac:glyphs": bind(() => glyphs, setGlyphs),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
