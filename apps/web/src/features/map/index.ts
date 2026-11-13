@@ -60,3 +60,7 @@ export {
 } from "./plateau/coldTapSwitch";
 // What the plateau stands on, raised ground or flat: its DEV switch (the Témoignages page draws it).
 export { reliefGround, setReliefGround, type ReliefGround } from "./relief/groundSwitch";
+// What the map does where the graphics are slow, and whether it times its first flight: their DEV switches (the Témoignages page draws them).
+export { msaaChoice, setMsaaChoice, type MsaaChoice } from "./graphicsSwitch";
+export { dprChoice, setDprChoice, type DprChoice } from "./graphicsSwitch";
+export { frameMeasure, setFrameMeasure, type FrameMeasure } from "./graphicsSwitch";
