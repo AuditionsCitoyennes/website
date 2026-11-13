@@ -134,6 +134,8 @@ const deviceFacts = computed(() => {
   const signals = deviceSignals(probeRenderer());
   return tierFacts(signals, decideTier(signals), deviceVerdict());
 });
+/** A measured step down is kept: the reset is offered for it alone too. */
+const measureKept = computed(() => open.value && deviceSignals().measured !== null);
 
 // Back on the button once closed. ModalDialog puts the focus back where it
 // was at the opening, but WebKit does not focus a button on a click: there it
@@ -184,7 +186,7 @@ function showReport() {
           {{ changed.length ? changedCount(changed.length) : DEV_NONE_CHANGED }}
         </span>
         <button
-          v-if="changed.length"
+          v-if="changed.length || measureKept"
           type="button"
           class="ac-btn ac-btn--outline ac-btn--sm"
           @click="resetAll"
