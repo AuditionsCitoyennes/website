@@ -26,6 +26,7 @@ import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
 import { createNavState } from "./navState";
+import { bootCurtainCover, bootList } from "./bootListSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
@@ -149,7 +150,9 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 
 // ---- Boot overlay ------------------------------------------------------------
 // A cold load shows an unstyled map, tiles popping in, and an empty panel before
-// anything is presentable. Cover all of it, and lift once the pieces the FIRST
+// anything is presentable. Cover the map (and the panel too, with the switch's
+// « Rideau » or on the home page's card: `bootCover` below), and lift once the
+// pieces the FIRST
 // view needs are in: the basemap painted (GeoDrillMap's `ready`), the
 // testimonies, and the outline files that view is drawn from — their boot
 // (root.json, k/FR: the country and its régions). Départements and communes
@@ -174,6 +177,9 @@ watch(
 // a loading screen is worse than a rough first paint.
 const bootCap = window.setTimeout(() => (booting.value = false), 10_000);
 onBeforeUnmount(() => clearTimeout(bootCap));
+// What the curtain covers: the map's box alone, the panel usable over it as
+// soon as its rows are in (`ac:boot-list`, bootListSwitch), or the whole page.
+const bootCover = computed(() => bootCurtainCover(bootList, props.preview));
 
 // Direction of the level swap, from how deep the new scope sits in the
 // hierarchy: going deeper brings the new list in from the right, stepping back
@@ -810,6 +816,27 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
     />
     <p class="analyses-live" aria-live="polite">{{ analysesLive }}</p>
 
+    <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over
+         the map's box only (`bootCover` "map", bootListSwitch): no z-index of
+         its own and before the panel in the page, so it lies under the panel,
+         which is usable as soon as its rows are in; its words centred in the
+         part of the map the panel leaves free. Over map AND panel ("all": the
+         card, or the switch's « Rideau »): above everything, so nothing
+         half-built is on show. One element, so a card that becomes the page
+         mid-boot only narrows it. -->
+    <Transition name="boot">
+      <div
+        v-if="booting"
+        class="boot"
+        :class="{ 'boot-map': bootCover === 'map', sheet: !isDesktop }"
+        role="status"
+        aria-live="polite"
+      >
+        <span class="spinner spinner-lg" aria-hidden="true"></span>
+        <p>Chargement de la carte…</p>
+      </div>
+    </Transition>
+
     <!-- Away while the map is a card; slides in when the card becomes the page.
          The aside's own listeners — a click, a key, the wheel or the pointer
          resting on it bring a folded panel back (usePanelLayout) — are attached
@@ -906,15 +933,6 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
          tools' menu, not in production): inside the page, so it follows
          --panel-cover. -->
     <slot name="map-tools" />
-
-    <!-- Boot curtain: covers map AND panel, so nothing half-built is on show.
-         Lifts on its own (see `booting`) and is inert once gone. -->
-    <Transition name="boot">
-      <div v-if="booting" class="boot" role="status" aria-live="polite">
-        <span class="spinner spinner-lg" aria-hidden="true"></span>
-        <p>Chargement de la carte…</p>
-      </div>
-    </Transition>
   </div>
 </template>
 
@@ -932,6 +950,18 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
   background: hsl(var(--background));
   color: hsl(var(--muted-foreground));
   font-size: var(--text-body);
+}
+
+/* Over the map's box only: under the panel (no z-index, earlier in the page),
+   its words centred in the part of the map the panel leaves free. */
+.boot.boot-map {
+  z-index: auto;
+  padding-right: var(--panel-cover, 0px);
+}
+
+.boot.boot-map.sheet {
+  padding-right: 0;
+  padding-bottom: var(--sheet-peek, 0px);
 }
 
 /* Fade the curtain out only — it is covering the entrance animation, so it must

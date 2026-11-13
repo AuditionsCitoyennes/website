@@ -4,6 +4,7 @@
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (dataSource.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
+// geo-nav/bootListSwitch,
 // analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -32,7 +33,8 @@ export type DevKey =
   | "ac:slab-text"
   | "ac:slab-size"
   | "ac:ring-band"
-  | "ac:tier";
+  | "ac:tier"
+  | "ac:boot-list";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -72,7 +74,11 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
     title: "Données",
     intro: "D'où viennent les chiffres, et la liste des lieux des Filtres.",
   },
-  { id: "carte", title: "Carte", intro: "Le relief du territoire choisi et son cadrage." },
+  {
+    id: "carte",
+    title: "Carte",
+    intro: "Son chargement, le relief du territoire choisi et son cadrage.",
+  },
   {
     id: "analyses",
     title: "Analyses",
@@ -186,6 +192,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "La place que prend un territoire à l'écran quand la carte le cadre (80 % par défaut) : 100 % le fait aller jusqu'aux bords de la partie visible, 70 % laisse plus de carte autour. Avec les analyses ouvertes, la carte se recadre aussitôt ; sinon, au prochain territoire choisi.",
     reloads: false,
     defaultId: "80",
+  },
+  {
+    key: "ac:boot-list",
+    section: "carte",
+    label: "Liste",
+    choices: [
+      { id: "first", label: "D'abord" },
+      { id: "curtain", label: "Rideau" },
+    ],
+    explain:
+      "Pendant que la carte se prépare à l'ouverture de la page. « D'abord » (par défaut) montre la liste des lieux dès qu'elle est prête, et la carte seule reste couverte jusqu'à ce qu'elle soit dessinée : un lieu choisi entre-temps s'ouvre aussitôt dans la liste, puis sur la carte. « Rideau », l'ancien comportement, couvre la liste et la carte ensemble jusqu'à ce que tout soit prêt.",
+    reloads: true,
+    defaultId: "first",
   },
   {
     key: "ac:analyses-pending",
