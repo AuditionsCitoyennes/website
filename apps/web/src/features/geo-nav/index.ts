@@ -14,3 +14,5 @@ export { placeLabel } from "@/features/geo";
 
 // `window.__acOutlines()`: the outline files in the page (testing tools only).
 if (__TEST_TOOLS__) void import("./data/outlinesProbe");
+// The boot curtain's switch (testing tools: the DEV dialog's « Liste » row).
+export { bootList, setBootList, BOOT_LISTS, DEFAULT_BOOT_LIST } from "./bootListSwitch";

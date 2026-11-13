@@ -32,6 +32,7 @@ const lid = await import("../map/plateau/lidSwitch");
 const mesh = await import("../map/plateau/meshSwitch");
 const relief = await import("../map/relief/reliefSwitch");
 const tier = await import("../../shared/device/deviceTier");
+const bootListSwitch = await import("../geo-nav/bootListSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -40,6 +41,7 @@ const MODULES = {
   relief: "../map/relief/reliefSwitch.ts",
   slabs: "../analyses/devSwitch.ts",
   tier: "../../shared/device/deviceTier.ts",
+  bootList: "../geo-nav/bootListSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -63,6 +65,7 @@ const KEYS: readonly DevKey[] = [
   "ac:frame-fill",
   "ac:ring-band",
   "ac:tier",
+  "ac:boot-list",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -76,7 +79,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 13);
+  assert.equal(DEV_OPTIONS.length, 14);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -151,6 +154,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:slab-size": ["slabs", "setSlabTextScale"],
   "ac:ring-band": ["slabs", "setRingBandMode"],
   "ac:tier": ["tier", "setTierChoice"],
+  "ac:boot-list": ["bootList", "setBootList"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -174,7 +178,7 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
   }
   assert.deepEqual(
     DEV_OPTIONS.filter((o) => o.reloads).map((o) => o.label),
-    ["Données", "Couvercle", "Contrôle", "Maillage", "Préchargement", "Niveau"],
+    ["Données", "Couvercle", "Contrôle", "Maillage", "Préchargement", "Liste", "Niveau"],
   );
 });
 
@@ -201,6 +205,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:mesh"), [...mesh.MESH_MODES]);
   assert.deepEqual(ids("ac:relief-prefetch"), [...relief.RELIEF_PREFETCHES]);
   assert.deepEqual(ids("ac:tier"), [...tier.TIER_CHOICES]);
+  assert.deepEqual(ids("ac:boot-list"), [...bootListSwitch.BOOT_LISTS]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -228,6 +233,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:slab-size": pct(constant("TEXT_SCALE")),
     "ac:ring-band": storedCall("slabs", "RING_KEY").fallback,
     "ac:tier": tier.DEFAULT_TIER_CHOICE,
+    "ac:boot-list": bootListSwitch.DEFAULT_BOOT_LIST,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
