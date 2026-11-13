@@ -346,14 +346,14 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "minimal", label: "Minimal" },
     ],
     explain:
-      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte et le verre des panneaux en dépendent (voir « Police des noms » et « Verre »).",
+      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte et le verre des panneaux en dépendent (voir « Police des noms » et « Verre dépoli »).",
     reloads: true,
     defaultId: "auto",
   },
   {
     key: "ac:glass",
     section: "appareil",
-    label: "Verre",
+    label: "Verre dépoli",
     choices: [
       { id: "auto", label: "Auto" },
       { id: "flou", label: "Flou" },
