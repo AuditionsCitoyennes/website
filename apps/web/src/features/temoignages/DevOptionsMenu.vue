@@ -5,7 +5,7 @@
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the data
 // source and the place tree (dataSource.ts), the plateau's lid, its check, its
-// mesh and the relief's prefetch (map), the boot curtain's cover
+// mesh, the relief's prefetch and the answer to a tap (map), the boot curtain's cover
 // (geo-nav/bootListSwitch), the framing and the analyses' slabs
 // (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
 // what the page knows of the device listed under it —, each with its
@@ -63,6 +63,10 @@ import {
   setMapFallback,
   setMeshMode,
   setReliefPrefetch,
+  setTapAnswerMode,
+  setTapFrameMode,
+  tapAnswerMode,
+  tapFrameMode,
 } from "@/features/map";
 import {
   bootList,
@@ -112,6 +116,8 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:mesh": bind(() => meshMode, setMeshMode),
   "ac:relief-prefetch": bind(() => reliefPrefetch, setReliefPrefetch),
   "ac:frame-fill": share(() => frameFill.value, setFrameFill),
+  "ac:tap-answer": bind(() => tapAnswerMode.value, setTapAnswerMode),
+  "ac:tap-frame": bind(() => tapFrameMode.value, setTapFrameMode),
   "ac:analyses-pending": bind(() => pendingAnalysesMode.value, setPendingAnalysesMode),
   "ac:slab-lid-verre": bind(() => slabLidMode.value, setSlabLidMode),
   "ac:slab-text": bind(() => slabTextMode.value, setSlabTextMode),
