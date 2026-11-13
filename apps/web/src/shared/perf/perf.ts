@@ -23,8 +23,13 @@
 // Safari a requestAnimationFrame delta loop that only runs while an
 // interaction is open. An interaction nothing ends times out after 10 s.
 //
+// A feature can also hang a probe of its own on the dump (`perfProbe`): a
+// name and a function that reads it — a counter, a summary. The dump carries
+// each under `probes`, `__acPerf.probes()` reads them alone, `reset()` clears
+// them too.
+//
 // In the console: `__acPerf.last()`, `__acPerf.table()`, `__acPerf.dump()`
-// (JSON — what a report wants), `__acPerf.reset()`.
+// (JSON — what a report wants), `__acPerf.probes()`, `__acPerf.reset()`.
 
 export const perfOn: boolean = __TEST_TOOLS__;
 
@@ -94,6 +99,8 @@ const tasks: TaskEntry[] = [];
 let hasLoaf = false;
 let hasLongTask = false;
 let vocabulary: PerfVocabulary = {};
+/** The features' own probes (perfProbe), by name. */
+const probes = new Map<string, { read: () => unknown; reset?: () => void }>();
 /** An interaction's attribution as settled a second after it closed: the
  *  spans and frames arrays keep filling (every long frame of a free pan is
  *  kept), so an old interaction read late would otherwise see its window
@@ -112,16 +119,18 @@ export function perfVocabulary(v: PerfVocabulary) {
   vocabulary = { ...vocabulary, ...v };
 }
 
-/** An interaction begins: whatever was open under the same kind is superseded. */
-export function perfBegin(kind: PerfKind, id: string, detail: Detail = {}) {
+/** An interaction begins: whatever was open under the same kind is superseded.
+ *  `t0`: when the act happened, for one that is known later than it was made
+ *  (a pointer event's timeStamp); left out, now. */
+export function perfBegin(kind: PerfKind, id: string, detail: Detail = {}, t0?: number) {
   if (!perfOn) return;
   const t = now();
   const prev = open.get(kind);
   if (prev) close(prev, t, "superseded");
-  const it: Interaction = { kind, id, t0: t, t1: null, status: "open", detail };
+  const it: Interaction = { kind, id, t0: t0 ?? t, t1: null, status: "open", detail };
   open.set(kind, it);
   try {
-    performance.mark(`ac:${kind}:start`, { detail: { id } });
+    performance.mark(`ac:${kind}:start`, { detail: { id }, startTime: it.t0 });
   } catch {
     /* an old User Timing: no detail */
   }
@@ -159,6 +168,21 @@ export function perfSpan(name: string, detail?: Detail): (more?: Detail) => void
 export function perfNote(name: string, ms: number, detail?: Detail) {
   if (!perfOn) return;
   pushSpan({ name, t0: now() - ms, ms, detail });
+}
+
+/** A feature's own probe on the dump: `read` gives its value now (JSON),
+ *  `reset` clears it with `__acPerf.reset()`. A name registered again replaces
+ *  the first (a map mounted again). */
+export function perfProbe(name: string, probe: { read: () => unknown; reset?: () => void }) {
+  if (!perfOn) return;
+  probes.set(name, probe);
+}
+
+/** Every probe's value now, by name. */
+function readProbes(): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [name, p] of probes) out[name] = p.read();
+  return out;
 }
 
 function pushSpan(s: PerfSpan) {
@@ -439,12 +463,16 @@ function install() {
       frameSource,
       interactions: done.map(attributed),
       frames: { count: frames.length, longest: Math.max(0, ...frames.map((f) => f.ms)) },
+      probes: readProbes(),
     }),
+    /** The features' own probes (perfProbe), read now. */
+    probes: readProbes,
     reset: () => {
       done.length = 0;
       spans.length = 0;
       frames.length = 0;
       tasks.length = 0;
+      for (const p of probes.values()) p.reset?.();
       performance.clearResourceTimings();
       performance.clearMarks();
       performance.clearMeasures();

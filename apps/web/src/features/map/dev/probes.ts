@@ -4,14 +4,17 @@
 // browser, never in a headless preview, so diagnosing "the map looks
 // low-detail" needs a way to read the live state from the console) and
 // `__acFrame` (the frame bus, DEV). Testing tools only (__TEST_TOOLS__): the
-// map's idleness check, `__acPerf.rendersIn(ms)`, and the plateau mesh's
-// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest).
+// map's idleness check, `__acPerf.rendersIn(ms)`, the plateau mesh's
+// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest), and the two
+// motion counters of `__acPerf.dump().probes` (motionProbes.ts:
+// `motion-mutations`, `plateau-runs`).
 
 import type mapboxgl from "mapbox-gl";
 import type { usePlateauFrames } from "../composables/usePlateauFrames";
 import type { usePlateau } from "../composables/usePlateau";
 import type { usePlateauLid } from "../composables/usePlateauLid";
 import type { usePlateauSlabs } from "../composables/usePlateauSlabs";
+import { installMotionProbes } from "./motionProbes";
 import { installPerfVocabulary } from "./perfVocabulary";
 
 type Probes = {
@@ -93,9 +96,12 @@ export function installProbes({
   const rendersInProbe = __TEST_TOOLS__ ? (ms = 1000) => rendersIn(getMap(), ms) : null;
   if (rendersInProbe && w.__acPerf) w.__acPerf.rendersIn = rendersInProbe;
   if (__TEST_TOOLS__ && meshDigest) w.__acMeshHash = meshDigest;
+  // The map's mutators wrapped and counted while the map moves (testing tools).
+  const uninstallMotion = __TEST_TOOLS__ && map ? installMotionProbes(map) : null;
   return () => {
     if (import.meta.env.DEV && w.__acFrame === frames.probe) delete w.__acFrame;
     if (__TEST_TOOLS__ && w.__acPerf?.rendersIn === rendersInProbe) delete w.__acPerf.rendersIn;
     if (__TEST_TOOLS__ && meshDigest && w.__acMeshHash === meshDigest) delete w.__acMeshHash;
+    if (uninstallMotion) uninstallMotion();
   };
 }

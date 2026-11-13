@@ -9,6 +9,16 @@
 //   drill-boundaries  a unit selected → its outline has every geometry it
 //                     will get (GeoNav.vue, useMapFeed.outlineReady)
 //   lieu-pins         a lieu opened → the dots around it placed (useMapPins)
+//   tap-answer        a tap's pointer event → the first frame painted after
+//                     the app issued its answer (shared/perf/tapAnswer.ts;
+//                     the answer: geo-nav/model/useNavActions; detail:
+//                     target — canvas, pin, pill, row, other —, pointer,
+//                     pressMs, answerMs, via)
+//
+// Counters, under `__acPerf.dump().probes` (motionProbes.ts): motion-mutations
+// (the map mutations the app issued while the camera moved, a plateau rose or
+// sank or a pointer was down), plateau-runs (the plateau pipeline's runs per
+// selection), and tap-answer's taps seen and answered by target.
 //
 // Spans: plateau.rise, plateau.setGeometry, projection.ringBases,
 // projection.lidBases, tint.setSelection, mask.setData, mask.drapedIndexed, outline.setData,
@@ -58,6 +68,7 @@
 // need a CDP trace with the workers attached.
 
 import { perfOn, perfVocabulary } from "@/shared/perf/perf";
+import { perfTapTargets } from "@/shared/perf/tapAnswer";
 import { netKind } from "./netKind";
 
 /** Register the map's vocabulary (once; a no-op without the testing tools). */
@@ -67,4 +78,11 @@ export function installPerfVocabulary() {
     net: netKind,
     script: (url) => (/mapbox-gl/.test(url) ? "mapbox-gl" : null),
   });
+  // The map's tap targets (tap-answer): its canvas, a lieu's dot, a unit's pill
+  // (useMapPins.makePin: a dot is a `.geo-pin` too, so it is tried first).
+  perfTapTargets([
+    { kind: "canvas", selector: ".mapboxgl-canvas" },
+    { kind: "pin", selector: ".geo-pin-leaf" },
+    { kind: "pill", selector: ".geo-pin" },
+  ]);
 }
