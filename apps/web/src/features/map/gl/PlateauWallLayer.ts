@@ -1,7 +1,8 @@
 // The plateau's violet wall and everything drawn with it — the lid, the
 // boundary lines, the hover fill and its retract, the halo, the analyses'
 // slabs' pieces (and their own layer, slabLayer), a tapped unit's pending
-// mark (its own pass, ./PendingMarkPass) — in both of mapbox's regimes: the custom WebGL layer the map's whole raised look comes from. The
+// mark (its own pass, ./PendingMarkPass) — in both of mapbox's regimes: the
+// custom WebGL layer the map's whole raised look comes from. The
 // documented exemption to the file-size rule (docs/architecture-proposal-
 // 2026-10-20.md): a GL class, kept whole; the SlabPieces collaborator is a
 // later option. Its collaborators: ../lib/projection (the per-geometry
@@ -624,11 +625,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // (./PendingMarkPass): buffers of its own, so neither a mesh rebuild, nor
   // the hover fill's single buffer, nor the rise's scale gates take it away ----
   private readonly pendingMark = new PendingMarkPass(() => this.map?.triggerRepaint());
-
-  /** The unit wearing the pending mark, "" when none. */
-  get pendingId(): string {
-    return this.pendingMark.id;
-  }
 
   /** What the testing tools read of the pending mark (null: none). */
   pendingState() {

@@ -256,12 +256,13 @@ const slabs = usePlateauSlabs({
  * `mark.fill` on its territory, from its outline as it is in `units` NOW (so
  * before the selection replaces them), `mark.pill` on its pill. One repaint;
  * nothing moves until `endPending`. A newer mark replaces this one. Answers
- * "shown", "none" (nothing could be shown: no map yet, a unit with no outline
- * in memory and no pill) or "standing" (the unit's plateau stands already:
- * nothing is on its way, no verdict will come).
+ * "shown", "none" (nothing could be shown: a unit with no outline in memory
+ * and no pill), or that no verdict will follow (`plateauSettled`): "standing"
+ * (the unit's plateau stands already) and "unavailable" (no map, or its
+ * style not loaded yet).
  */
-function markPending(id: string, mark: TapMark): "shown" | "none" | "standing" {
-  if (!map || !mapReady) return "none";
+function markPending(id: string, mark: TapMark): "shown" | "none" | "standing" | "unavailable" {
+  if (!map || !mapReady) return "unavailable";
   if (plateau.active() && plateauWall.scopeId === id) {
     endPending("off");
     return "standing";

@@ -21,7 +21,7 @@ export interface TapPendingInputs {
   nav: NavState;
   /** GeoDrillMap, once mounted: its pending mark. */
   mapCmp: Ref<{
-    markPending: (id: string, mark: TapMark) => "shown" | "none" | "standing";
+    markPending: (id: string, mark: TapMark) => "shown" | "none" | "standing" | "unavailable";
     endPending: (how: "rise" | "off") => void;
   } | null>;
 }
@@ -54,8 +54,10 @@ export function useTapPending({ nav, mapCmp }: TapPendingInputs) {
       if (!mark.stroke && !mark.fill && !mark.pill) return false;
       // Pending whether or not the map could draw it (a row of a unit with no
       // outline in memory): the list is busy and the sentence is said alike.
-      // Not for a unit whose plateau stands: no verdict would end it.
-      return mapCmp.value?.markPending(unit.id, mark) !== "standing";
+      // Not when no verdict would end it: the unit's plateau stands, or
+      // there is no map.
+      const shown = mapCmp.value?.markPending(unit.id, mark) ?? "unavailable";
+      return shown === "shown" || shown === "none";
     },
     unmark: (how) => mapCmp.value?.endPending(how),
     scopeId: () => nav.currentScope.value.id,
