@@ -9,6 +9,7 @@ import {
   type ShotIO,
 } from "./lidShot";
 import { lidTier, type LidTier } from "./lidTier";
+import { labelGlyphOptions } from "../labelFont";
 
 // One persistent HIDDEN Mapbox map used to snapshot the basemap for the plateau's
 // map-textured top ("lid"). The lid mesh is vector-crisp (it shares the selection's
@@ -154,6 +155,8 @@ export class SnapshotManager {
       // Always mercator (the main map runs the style's globe, this one must not): a globe-rendered capture below ~z6 would be curved and useless as a
       // flat mercator lid texture.
       projection: "mercator",
+      // The main map's labels (ac:glyphs): the picture shows the letters the map shows.
+      ...labelGlyphOptions(),
     });
     map.on("load", () => {
       this.loaded = true;

@@ -5,7 +5,7 @@
 // modules own the keys, the defaults and the reads (dataSource.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
 // geo-nav/bootListSwitch, map/bootWorkersSwitch, geo-nav/data/outlinesDecorSwitch,
-// analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
+// map/glyphSwitch, analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
@@ -36,7 +36,8 @@ export type DevKey =
   | "ac:tier"
   | "ac:boot-list"
   | "ac:boot-workers"
-  | "ac:outlines-decor";
+  | "ac:outlines-decor"
+  | "ac:glyphs";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -235,6 +236,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     defaultId: "after",
   },
   {
+    key: "ac:glyphs",
+    section: "carte",
+    label: "Police des noms",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "mapbox", label: "Mapbox" },
+      { id: "local", label: "Site" },
+    ],
+    explain:
+      "Les lettres des noms de lieux écrits sur la carte. « Auto » (par défaut) prend la police du site sur un appareil de niveau « Léger » ou « Minimal » (voir « Niveau »), et celle de Mapbox sur les autres. « Mapbox », comme avant, télécharge les lettres de la carte en une douzaine de fichiers avant de l'afficher ; « Site » les dessine avec la police du site, déjà chargée : la carte s'affiche plus tôt, mais les noms changent d'allure (gras plus marqués, noms des mers et des fleuves sans italique).",
+    reloads: true,
+    defaultId: "auto",
+  },
+  {
     key: "ac:analyses-pending",
     section: "analyses",
     label: "Analyses en attente",
@@ -309,7 +324,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "minimal", label: "Minimal" },
     ],
     explain:
-      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Rien ne lit encore ce niveau : la carte ne change pas.",
+      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, seule la police des noms de la carte en dépend (voir « Police des noms »).",
     reloads: true,
     defaultId: "auto",
   },

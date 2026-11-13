@@ -14,3 +14,5 @@ export { meshMode, setMeshMode, type MeshMode } from "./plateau/meshSwitch";
 export { reliefPrefetch, setReliefPrefetch, type ReliefPrefetch } from "./relief/reliefSwitch";
 // When the map's two workers start: its DEV switch (the Témoignages page draws it).
 export { bootWorkers, setBootWorkers, BOOT_WORKERS, type BootWorkers } from "./bootWorkersSwitch";
+// Where the labels' letters come from: its DEV switch (the Témoignages page draws it).
+export { glyphs, setGlyphs, GLYPHS, type Glyphs } from "./glyphSwitch";
