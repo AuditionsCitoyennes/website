@@ -170,7 +170,7 @@ export function createStillMap(options: StillMapOptions = {}) {
     touched();
   };
 
-  /** The map to watch (one at a time: another replaces it). `pointers`: where
+  /** The map to watch (one at a time: another replaces it). `targets`: where
    *  the presses and the releases are heard — the map's canvas container and
    *  the window unless given. */
   function attach(
