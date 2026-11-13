@@ -258,7 +258,7 @@ export class PendingMarkPass {
    * The mercator draw of one phase. `scale`: the plateau's rise this frame
    * (a raised mark rides it; a ground one stands at its own height).
    * `fillProg`: the layer's hover-fill program, which draws the flat fill.
-   * Leaves the depth test on, as the layer's other passes do.
+   * Leaves the depth test and the depth writes on, as it found them.
    */
   drawMercator(
     gl: WebGL2RenderingContext,
@@ -284,6 +284,10 @@ export class PendingMarkPass {
     // far side.
     if (s.raised) gl.disable(gl.DEPTH_TEST);
     else gl.enable(gl.DEPTH_TEST);
+    // Read, never written: the band and the core are the same segments at two
+    // widths, and the second would tie with the depth the first wrote and
+    // lose half its fragments. Nothing drawn after the mark needs its depth.
+    gl.depthMask(false);
     gl.useProgram(p.prog);
     gl.uniformMatrix4fv(p.uni.uMatrix, false, mat);
     gl.uniform1f(p.uni.uScale, rise);
@@ -315,6 +319,8 @@ export class PendingMarkPass {
       this.strokes(gl, p, count, opacity);
       if (!s.raised) gl.disable(gl.POLYGON_OFFSET_FILL);
     }
+    // As mapbox hands a "3d" layer its frame: tested and written.
+    gl.depthMask(true);
     gl.enable(gl.DEPTH_TEST);
   }
 
