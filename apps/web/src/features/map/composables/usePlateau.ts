@@ -5,6 +5,12 @@
 // selection's tiles prefetch while the old plateau sinks, and the ensurePlateau
 // state machine (its run counter `plateauSeq` aborts superseded runs). Owns
 // `plateauActive`, exposed as a getter.
+//
+// ac:late-files "quiet" (plateau/lateFilesSwitch.ts): a new outline is first
+// judged against what stands (`outlineChanged`, lib/outlineChange.ts). Only a
+// new unit, a new shape, or nothing standing runs the pipeline; lines that
+// changed around the standing plateau are one mesh applied in place when the
+// map is still (`redress`); an outline that changes nothing does nothing.
 
 import type mapboxgl from "mapbox-gl";
 import { canonicalCopies, type Bounds, type HeightClass, type WrapGeometry } from "@/features/geo";
@@ -13,6 +19,13 @@ import { globeSetMode } from "../gl/globeDeferral";
 import type { MeshClient, MeshResult } from "../gl/meshClientCore";
 import { notePlateauRun } from "../dev/motionProbes";
 import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
+import {
+  outlineVerdict,
+  raisedShapeOf,
+  sameShape,
+  type OutlineVerdict,
+  type RaisedShape,
+} from "../lib/outlineChange";
 import { riseProgress } from "../lib/rise";
 import { stillMap } from "../lib/stillMap";
 import { markPlateauStood } from "../lib/plateauStood";
@@ -23,6 +36,7 @@ import { demTemplate } from "../relief/demTiles";
 import { planPrefetch, type PrefetchPlan } from "../relief/prefetchPlan";
 import { reliefPrefetch } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
+import { LATE_CAP_MS } from "../plateau/lateFilesSwitch";
 import { meshMode } from "../plateau/meshSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
 
@@ -103,6 +117,16 @@ export function usePlateau({
   let plateauVersion = "";
   let plateauScopeId = ""; // selection identity — detects a change before any network
   let plateauSeq = 0; // guards overlapping ensurePlateau runs (fast drills)
+  // What `outlineChanged` judges a new outline against: the shape the run
+  // under way raises (null: none past its first checks), the lines the wall
+  // was last given (focus, then context), whether the outline must be read
+  // again once that run has ended, and the reshapes in place — their counter
+  // (a newer one drops the one before it) and how many were applied.
+  let runFor: RaisedShape | null = null;
+  let dressed: OutlineFC["features"] = [];
+  let owed = false;
+  let redressSeq = 0;
+  let redresses = 0;
   // Double-buffered DEM source slots: the NEW selection's tiles prefetch in the spare
   // slot while the old plateau is still sinking, so the rise starts without waiting.
   let terrainSrc: DemSlot = "plateau-dem-a";
@@ -370,6 +394,7 @@ export function usePlateau({
     let map = getMap();
     if (!map || !mapReady() || introPending()) return;
     const seq = ++plateauSeq;
+    runFor = null;
     // The raised plateau is the SELECTED unit itself (the "scope" feature), not its
     // children — so drilling to a région lifts that whole région.
     const raised = (outline()?.features ?? []).filter((f) => f.properties?.kind === "scope");
@@ -417,6 +442,12 @@ export function usePlateau({
     }
     const scopeId = String(raised[0]?.properties?.id ?? "");
     if (perfOn) notePlateauRun(scopeId); // the perf probes: a run for this unit
+    // The shape this run raises, until it ends (outlineChanged reads it).
+    runFor = raisedShapeOf(raised) ?? {
+      scopeId,
+      geometry: raised[0]?.geometry,
+      heightClass: raised[0]?.properties?.heightClass,
+    };
     // If the newly selected unit was the hovered one, its opaque fill drains in
     // reverse (centre → boundary). Must precede any setGeometry rebuild below —
     // the new focus set no longer contains the selected unit's fill.
@@ -495,6 +526,7 @@ export function usePlateau({
       // The mesh standing: the worker's (its globe set's mode for the camera
       // now), else built here.
       const putMesh = (res: MeshResult | null) => {
+        dressed = [...focus, ...context];
         const opts = globeOpts();
         if (client && res && opts) {
           plateauWall.applyBuilt(
@@ -746,7 +778,129 @@ export function usePlateau({
         applyMask();
         settled(scopeId, "failed");
       }
+    } finally {
+      if (seq === plateauSeq) runEnded();
     }
+  }
+
+  /** The current run has ended (stood, failed, or returned): an outline that
+   *  came meanwhile for the very shape it raised is read again, once the map
+   *  is still (its lines may have changed: one reshape in place). */
+  function runEnded() {
+    runFor = null;
+    if (!owed) return;
+    owed = false;
+    stillMap.whenStill(
+      () => {
+        if (getMap()) outlineChanged();
+      },
+      { timeoutMs: LATE_CAP_MS },
+    );
+  }
+
+  /** The plateau standing whole: active, one raised unit, up (or rising to
+   *  it), on its own terrain. Null otherwise — a plateau cleared, failed or
+   *  torn down, a sink cut short —, and the next outline is a pipeline run. */
+  function standing(): RaisedShape | null {
+    const map = getMap();
+    if (!map || !plateauActive || plateauRaised.length !== 1) return null;
+    if (terrainExag !== 1 && exagAnim?.target !== 1) return null;
+    if (!map.getSource(terrainSrc) || map.getTerrain()?.source !== terrainSrc) return null;
+    return raisedShapeOf(plateauRaised);
+  }
+
+  /** ac:late-files "quiet": the outline changed (GeoDrillMap's watcher). What
+   *  it asks of the plateau, judged against what stands (lib/outlineChange.ts),
+   *  and done: a pipeline run, a reshape in place, nothing, or — a run for
+   *  this very shape being under way — a second look once it has ended. */
+  function outlineChanged(): OutlineVerdict {
+    const features = outline()?.features ?? [];
+    const verdict = outlineVerdict(features, { standing: standing(), running: runFor, dressed });
+    if (perfOn) perfNote("plateau.outline", 0, { verdict });
+    if (verdict === "run") void ensurePlateau();
+    else if (verdict === "redress") void redress();
+    else if (verdict === "owed") owed = true;
+    return verdict;
+  }
+
+  /** The standing plateau's lines brought in line with the outline (its
+   *  children's, its neighbours'): one mesh, built off the page when the
+   *  worker is there, applied in place when the map is still. The unit, its
+   *  shape, its height, its relief, its lid are untouched: no sink, no rise,
+   *  no run of the pipeline. Anything else than "the same shape, standing"
+   *  when the mesh is ready goes back to `outlineChanged`. */
+  async function redress() {
+    const map = getMap();
+    if (!map || !mapReady()) return;
+    const seq = plateauSeq;
+    const mine = ++redressSeq;
+    const features = outline()?.features ?? [];
+    const raised = features.filter((f) => f.properties?.kind === "scope");
+    const focus = features.filter((f) => f.properties?.kind === "focus");
+    const context = features.filter((f) => f.properties?.kind === "context");
+    const shape = raisedShapeOf(raised);
+    const up = standing();
+    if (!shape || !up || !sameShape(shape, up)) return void outlineChanged();
+    const t0 = performance.now();
+    const heightM = plateauHeightM(
+      raised[0]?.properties?.heightClass as HeightClass | undefined,
+      raised,
+    );
+    // The mesh, as a pipeline run builds it (ac:mesh): the worker's, its globe
+    // set's mode for the camera now, else built here at the apply.
+    const client = meshMode === "worker" ? (meshClient?.() ?? null) : null;
+    const early = meshMode === "merc" || meshMode === "worker" ? canonicalOf(raised) : null;
+    const startMode = client && early ? globeSetMode(early.zCanon, map.getZoom()) : "eager";
+    const res = client
+      ? await client.build(
+          { features: raised, heightM, focus, context },
+          { merc: true, globe: startMode === "eager" },
+        )
+      : null;
+    const current = () => {
+      const now = standing();
+      return seq === plateauSeq && mine === redressSeq && !runFor && !!now && sameShape(shape, now);
+    };
+    if (!current()) return;
+    // Applied at a still moment (the mesh's upload is not for a flight, a
+    // rise or a gesture), LATE_CAP_MS at the latest.
+    stillMap.whenStill(
+      () => {
+        const m = getMap();
+        if (!m || !current()) return;
+        const zoom = m.getZoom();
+        const opts = early
+          ? { globe: globeSetMode(early.zCanon, zoom), zCanon: early.zCanon, zoom }
+          : undefined;
+        try {
+          if (client && res && opts) {
+            plateauWall.applyBuilt(
+              res.mesh,
+              { features: raised, heightM, focus, context },
+              { ...opts, start: startMode, via: res.via },
+            );
+            client.applied(res);
+            workerApplies++;
+          } else plateauWall.setGeometry(raised, heightM, focus, context, opts);
+        } catch (err) {
+          // The wall is in an unknown state: the pipeline sets it right.
+          if (import.meta.env.DEV) console.warn("[plateau] redress failed:", err);
+          void ensurePlateau();
+          return;
+        }
+        dressed = [...focus, ...context];
+        syncSlabs();
+        applyMask();
+        redresses++;
+        if (perfOn) {
+          perfNote("plateau.redress", performance.now() - t0, {
+            scope: shape.scopeId,
+            lines: dressed.length,
+          });
+        }
+      },
+      { timeoutMs: LATE_CAP_MS },
+    );
   }
 
   /** Unmount: the rise/sink animation stops where it is. */
@@ -773,6 +927,8 @@ export function usePlateau({
       demMaxzoom: (map?.getStyle().sources?.[terrainSrc] as { maxzoom?: number })?.maxzoom,
       // The dem.tilesReady spans begun and ended, and the listener up (≤ 1).
       ...(perfOn ? { demReady: { ...demReady, live: offTilesReady ? 1 : 0 } } : {}),
+      // The reshapes in place applied (ac:late-files "quiet").
+      ...(perfOn ? { redresses } : {}),
       // The spare slot's path (ac:relief-prefetch): re-points, keeps, early terrains.
       ...(perfOn ? { prefetch: { mode: reliefPrefetch, ...prefetchRuns } } : {}),
     };
@@ -780,6 +936,7 @@ export function usePlateau({
 
   return {
     ensurePlateau,
+    outlineChanged,
     cancelAnimation,
     abort,
     /** Whether a plateau is standing. */
