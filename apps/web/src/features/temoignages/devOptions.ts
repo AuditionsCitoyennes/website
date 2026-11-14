@@ -323,7 +323,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "essai", label: "Essai" },
     ],
     explain:
-      "Ce que montre le cadre de la carte quand elle ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée). « Visiteur » (par défaut) montre la France en image, en retrait, sous une phrase simple ; « Ancien » affiche la phrase destinée aux développeurs, comme avant ; « Essai » ne démarre pas la carte du tout, pour voir ce cadre sur n'importe quel appareil.",
+      "Ce que montre le cadre de la carte quand elle ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée). « Visiteur » (par défaut) montre la France en image, en retrait, sous une phrase simple ; « Ancien » affiche la phrase destinée aux développeurs, comme avant ; « Essai » ne démarre pas la carte du tout, pour voir ce cadre sur n'importe quel appareil. Le même cadre, avec un bouton « Réessayer », sert quand le fond de carte n'arrive pas malgré les nouveaux essais (ligne « Reprise après coupure ») : l'image de la France et la phrase simple, ou « Carte indisponible. » seul avec « Ancien ».",
     reloads: true,
     defaultId: "visiteur",
   },
@@ -825,7 +825,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "ancien", label: "Ancien" },
     ],
     explain:
-      "Ce que fait la page des témoignages quand le réseau manque. « Auto » (par défaut) redemande d'elle-même ce qui n'a pas pu venir, après 2, 5, 10, 20 puis 30 secondes, puis dès que le navigateur retrouve le réseau ou que la page revient à l'écran : les contours de la carte, la liste des lieux, les résultats. En attendant, le panneau le dit en une phrase, avec un bouton « Réessayer ». « Ancien », comme avant : la carte reste sans contours jusqu'au prochain chargement de la page, et le reste n'est redemandé qu'en changeant de lieu.",
+      "Ce que fait la page des témoignages quand le réseau manque. « Auto » (par défaut) redemande d'elle-même ce qui n'a pas pu venir, après 2, 5, 10, 20 puis 30 secondes, puis dès que le navigateur retrouve le réseau ou que la page revient à l'écran : les contours de la carte, la liste des lieux, les résultats. En attendant, le panneau le dit en une phrase, avec un bouton « Réessayer ». Le fond de carte, quand il n'arrive pas, est redemandé trois fois, après 1, 2 puis 4 secondes ; ensuite le cadre de la carte le dit (ligne « Carte indisponible ») avec son propre bouton « Réessayer », et la liste des lieux reste utilisable pendant tout ce temps. « Ancien », comme avant : la carte reste sans contours jusqu'au prochain chargement de la page, un fond de carte qui n'arrive pas laisse un cadre vide, et le reste n'est redemandé qu'en changeant de lieu.",
     reloads: true,
     defaultId: "auto",
   },

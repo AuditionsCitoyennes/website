@@ -7,7 +7,15 @@
 // callbacks, never this component; the hot per-frame state (the map, the GL
 // layer, typed arrays, frame buffers) is plain `let`s owned by one module and
 // never wrapped in ref/reactive.
-import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+  type Component,
+} from "vue";
 import mapboxgl from "mapbox-gl";
 // Mapbox's own stylesheet, with the map's code rather than in the stylesheet
 // every page waits for (main.ts): Vite loads it before this chunk runs.
@@ -38,6 +46,8 @@ import { useContextRestore } from "./composables/useContextRestore";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { noteRenderer } from "@/shared/device/deviceTier";
+import { onReconnect } from "@/shared/net/reconnect";
+import { recover } from "@/shared/net/recoverSwitch";
 import { antialiasNow, capMapsNow } from "./graphicsSwitch";
 import { cacheBudgetAtCreation, tileCacheOption } from "./cacheBudget";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
@@ -48,10 +58,23 @@ import type { TapMark } from "./plateau/tapAnswerSwitch";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 import { fallbackForced, fallbackView, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
+import {
+  createStyleRecovery,
+  finalStatus,
+  isStyleRequestError,
+  type StyleRecovery,
+} from "./lib/styleRecovery";
 
 // The picture of France under the fallback sentence: a rare path (the map
-// nearly always starts), so its file is asked for only when it shows.
-const FrancePoster = defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"));
+// nearly always starts), so its file is asked for only when it shows. Where
+// that file cannot come either (no network), the sentence stands alone.
+const NO_POSTER: Component = { render: () => null };
+const FrancePoster = defineAsyncComponent((): Promise<Component> =>
+  import("@/shared/ui/FrancePoster.vue").then(
+    (m) => m.default,
+    () => NO_POSTER,
+  ),
+);
 
 const props = defineProps<{
   units: MapUnit[];
@@ -135,6 +158,18 @@ const el = ref<HTMLElement | null>(null);
 // shows: fallbackSwitch.ts.
 const unavailable = ref(!TOKEN || fallbackForced(mapFallback));
 const fallback = fallbackView(mapFallback);
+// The style's request failed and the attempts made by themselves did too
+// (`ac:recover` "auto", lib/styleRecovery.ts): the box says so over the map,
+// which stays, with a « Réessayer ». "asking": pressed, the style on its way.
+const styleDown = ref<false | "down" | "asking">(false);
+/** The style's document is in (mapbox's first `styledata`). */
+let styleIn = false;
+let styleRecovery: StyleRecovery | null = null;
+let stopStyleReconnect: () => void = () => {};
+/** The fallback's « Réessayer ». */
+function retryStyle() {
+  styleRecovery?.retry();
+}
 
 // The map, a plain variable: the composables read it through `getMap`, never
 // hold it. Null before mount and after unmount.
@@ -487,6 +522,42 @@ function mountMap() {
     // The slabs' opaque lids take the site's card colour, and follow the theme.
     slabs.observeTheme();
 
+    // The style's request failing (ac:recover "auto"): asked again by itself
+    // a few times, then the box says so, with a button (lib/styleRecovery.ts).
+    // The map stays as it is meanwhile: a new style on the same map, not a
+    // new map. Everything below waits for `load` as ever, whichever attempt
+    // brings it.
+    if (recover === "auto") {
+      styleRecovery = createStyleRecovery({
+        ask: () => {
+          styleIn = false;
+          try {
+            // No diff against the style that never came. The label fonts
+            // left out are the map's own (mapbox fills them in; its .d.ts
+            // wants them spelt): one cast.
+            getMap()?.setStyle(STYLE, { diff: false } as Parameters<mapboxgl.Map["setStyle"]>[1]);
+          } catch {
+            styleRecovery?.failed();
+          }
+        },
+        setTimer: (fn, ms) => window.setTimeout(fn, ms),
+        clearTimer: (timer) => window.clearTimeout(timer as number),
+        onState: (state) => {
+          styleDown.value = state === "down" || state === "asking" ? state : false;
+          // The message is up: nothing more comes by itself — never strand a boot overlay.
+          if (state === "down") emitReady();
+          if (perfOn) perfNote("style.state", 0, { state });
+        },
+      });
+      map.on("styledata", () => {
+        if (styleIn) return;
+        styleIn = true;
+        styleRecovery?.arrived();
+      });
+      // The browser back online, the page shown again: an attempt now.
+      stopStyleReconnect = onReconnect(retryStyle);
+    }
+
     let initialLoadDone = false;
     map.once("load", () => {
       initialLoadDone = true;
@@ -559,10 +630,18 @@ function mountMap() {
         );
         unavailable.value = true;
         emitReady(); // nothing more is coming — never strand a boot overlay
+        styleRecovery?.stop();
+        styleDown.value = false;
         pins.clear();
         stillMap.detach(map);
         map.remove();
         map = null;
+      } else if (
+        styleRecovery &&
+        isStyleRequestError(e as { sourceId?: unknown; tile?: unknown; source?: unknown }, styleIn)
+      ) {
+        // The style's own request failed (the network, or the server): see above.
+        styleRecovery.failed(finalStatus(status));
       }
     });
 
@@ -712,6 +791,8 @@ onBeforeUnmount(() => {
   plateauWall.setGlobeProvider(null);
   mask.setTintCutter(null);
   lid.destroy();
+  styleRecovery?.stop();
+  stopStyleReconnect();
   resizeObserver?.disconnect();
   resizeObserver = null;
   pins.clear();
@@ -859,7 +940,34 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
     <FrancePoster class="map-fallback-poster" />
     <p class="map-fallback-text">{{ MAP_FALLBACK_TEXT }}</p>
   </div>
-  <div v-else ref="el" class="map-root"></div>
+  <div v-else class="map-root">
+    <!-- The map's own box: mapbox wants its container empty. -->
+    <div ref="el" class="map-box"></div>
+    <!-- The style could not be had (ac:recover, lib/styleRecovery.ts): the
+         fallback of ac:map-fallback over the map, which stays under it, and
+         a button that asks for the style again. No developer's hint here: a
+         network's failure is not the token's. -->
+    <div
+      v-if="styleDown"
+      class="map-fallback map-down"
+      :class="{ 'map-fallback--poster': fallback.poster }"
+    >
+      <FrancePoster v-if="fallback.poster" class="map-fallback-poster" />
+      <div class="map-down-say">
+        <p :class="{ 'map-fallback-text': fallback.poster }" role="status">
+          {{ fallback.poster ? MAP_FALLBACK_TEXT : "Carte indisponible." }}
+        </p>
+        <button
+          type="button"
+          class="ac-btn ac-btn--outline ac-btn--sm map-down-retry"
+          :aria-disabled="styleDown === 'asking' || undefined"
+          @click="retryStyle"
+        >
+          Réessayer
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -868,6 +976,11 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
   height: 100%;
   position: relative;
   z-index: 0;
+}
+
+.map-box {
+  position: absolute;
+  inset: 0;
 }
 
 .map-fallback {
@@ -897,6 +1010,34 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
   width: calc(84% - var(--panel-cover, 0px));
   height: 84%;
   opacity: 0.55;
+}
+
+/* Over the map that could not get its style, its controls included. */
+.map-down {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background-color: hsl(var(--background));
+}
+
+.map-down-say {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+}
+
+.map-down-say p {
+  margin: 0;
+}
+
+.map-down-retry {
+  background: hsl(var(--background) / 0.9);
+}
+
+.map-down-retry[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 .map-fallback-text {
