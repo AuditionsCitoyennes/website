@@ -13,6 +13,7 @@ import mapboxgl from "mapbox-gl";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import { deviceTier } from "@/shared/device/deviceTier";
 import type { Snapshot } from "../plateau/mapSnapshot";
+import { leanLines, lineMesh } from "../plateau/lineMeshSwitch";
 import { meshMode } from "../plateau/meshSwitch";
 import { globeLate, lateGlobeFor } from "../threadSwitch";
 import { pieceOutline, ringSectorArcs, slabPointPx, type PieceBox, type SlabRect } from "../lib";
@@ -47,6 +48,7 @@ import {
   pushWallRing,
 } from "./mesh";
 import { GLOBE_PASS_DELAY_MS, createGlobeDeferral, type GlobeSetMode } from "./globeDeferral";
+import { G_LEAN_FLOATS, LEAN_FLOATS, LINE_CORNERS, SEGMENT_VERTICES } from "./lineSegments";
 import {
   buildPlateauMesh,
   fillsFromRecords,
@@ -63,6 +65,7 @@ import {
   G_FILL_VS,
   G_HALO_VS,
   G_LID_VS,
+  G_LINE_LEAN_VS,
   G_LINE_VS,
   G_PIECE_VS,
   G_WALL_VS,
@@ -71,6 +74,8 @@ import {
   LID_FS,
   LID_VS,
   LINE_FS,
+  LINE_LEAN_FS,
+  LINE_LEAN_VS,
   LINE_VS,
   PIECE_FS,
   PIECE_VS,
@@ -248,6 +253,16 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // concatenated buffer per regime; each group is a vertex RANGE drawn with its
   // own uniforms.
   private lineGroups: LineRange[] = [];
+  // ac:line-mesh=lean (plateau/lineMeshSwitch.ts, gl/lineSegments.ts): the
+  // two line buffers hold one record per segment, drawn as instances of the
+  // six corners in lineCornerBuffer by these programs — the mercator one
+  // here, the globe one in gLineProg — and the full layout's are not
+  // compiled. The instanced attributes' locations, in buffer order (a vec3
+  // each).
+  private leanLineProg: GlProg | null = null;
+  private lineCornerBuffer: WebGLBuffer | null = null;
+  private leanLineLocs: number[] = [];
+  private gLeanLineLocs: number[] = [];
   // ---- GLOBE regime (zoom < 6, experimental custom-layer API) ----
   // Below the globe→mercator transition, mapbox calls render() with extra args
   // (projection, globeToMercMatrix, transition t, centerInMercator, pxPerMeterRatio)
@@ -816,6 +831,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         merc: true,
         globe: !lazy,
         concat: meshMode !== "ancien",
+        lean: leanLines,
       }),
       { features, focus, context },
     );
@@ -916,6 +932,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     const { rim, positions, lidPositions, linePositions, haloPositions } = m;
     if (!rim || !positions || !lidPositions || !linePositions || !haloPositions) {
       throw new Error("applyMesh: a mesh without its mercator set");
+    }
+    // The line programs compiled are one layout's (ac:line-mesh): the other's
+    // buffers would be read with the wrong stride.
+    if (m.lineLayout !== lineMesh) {
+      throw new Error(`applyMesh: lines laid out "${m.lineLayout}", drawn "${lineMesh}"`);
     }
     this.scopeId = m.scopeId;
     // The kept lid set aside for this unit shows with its mesh (showKeptLid).
@@ -1119,6 +1140,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       merc: false,
       globe: true,
       concat: true,
+      lean: leanLines,
     });
     const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = m;
     if (!gWallPositions || !gLidPositions || !gLinePositions || !gHaloPositions) return null;
@@ -1227,6 +1249,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         lines: this.lineVertexCount,
         halo: this.haloVertexCount,
         rim: this.rimCount,
+      },
+      // What the two line buffers weigh, as handed to the GPU, and their
+      // layout (ac:line-mesh); the globe's is 0 while it is deferred.
+      lineMesh,
+      lineBytes: {
+        merc: this.linePositions.byteLength,
+        globe: this.gLinePositions?.byteLength ?? 0,
       },
       scopeId: this.scopeId,
       setGeometryCalls: this.meshProbe?.calls ?? 0,
@@ -1468,9 +1497,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // quad is 1 px wider each side and the fragment alpha feathers over that
     // pixel (vSide interpolates -1…1 across the width) — analytic anti-aliasing,
     // since hard quad edges alias badly on dense commune contours.
-    const nvs = compile(gl.VERTEX_SHADER, LINE_VS);
-    const nfs = compile(gl.FRAGMENT_SHADER, LINE_FS);
-    const np = gl.createProgram();
+    // ac:line-mesh=lean: the lean programs instead (below), not these.
+    const nvs = leanLines ? null : compile(gl.VERTEX_SHADER, LINE_VS);
+    const nfs = leanLines ? null : compile(gl.FRAGMENT_SHADER, LINE_FS);
+    const np = leanLines ? null : gl.createProgram();
     if (np && nvs && nfs) {
       gl.attachShader(np, nvs);
       gl.attachShader(np, nfs);
@@ -1503,13 +1533,44 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       ["aMerc", "aEcefLo", "aEcefHi"],
       [...GLOBE_UNIS, "uTexOrigin", "uTexSpan"],
     );
-    this.gLineProg = buildProgram(
-      gl,
-      G_LINE_VS,
-      LINE_FS,
-      ["aMerc", "aEcefLo", "aEcefHi", "aOMerc", "aOEcefLo", "aOEcefHi", "aSide", "aGeomSide"],
-      [...GLOBE_UNIS, "uViewport", "uWidth", "uAlpha"],
-    );
+    if (leanLines) {
+      // The lean line programs: a segment's two ends per instance, the quad's
+      // six corners (LINE_CORNERS) per vertex, from one small static buffer.
+      this.leanLineProg = buildProgram(
+        gl,
+        LINE_LEAN_VS,
+        LINE_LEAN_FS,
+        ["aA", "aB", "aCorner"],
+        ["uMatrix", "uScale", "uViewport", "uWidth", "uAlpha", "uTwice"],
+      );
+      this.gLineProg = buildProgram(
+        gl,
+        G_LINE_LEAN_VS,
+        LINE_LEAN_FS,
+        ["aAMerc", "aAEcefLo", "aAEcefHi", "aBMerc", "aBEcefLo", "aBEcefHi", "aCorner"],
+        [...GLOBE_UNIS, "uViewport", "uWidth", "uAlpha", "uTwice"],
+      );
+      const lp = this.leanLineProg;
+      const gp = this.gLineProg;
+      this.leanLineLocs = lp ? [lp.attr.aA, lp.attr.aB] : [];
+      this.gLeanLineLocs = gp
+        ? ["aAMerc", "aAEcefLo", "aAEcefHi", "aBMerc", "aBEcefLo", "aBEcefHi"].map(
+            (name) => gp.attr[name],
+          )
+        : [];
+      this.lineBuffer = gl.createBuffer();
+      this.lineCornerBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineCornerBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, LINE_CORNERS, gl.STATIC_DRAW);
+    } else {
+      this.gLineProg = buildProgram(
+        gl,
+        G_LINE_VS,
+        LINE_FS,
+        ["aMerc", "aEcefLo", "aEcefHi", "aOMerc", "aOEcefLo", "aOEcefHi", "aSide", "aGeomSide"],
+        [...GLOBE_UNIS, "uViewport", "uWidth", "uAlpha"],
+      );
+    }
     this.gWallBuffer = gl.createBuffer();
     this.gLidBuffer = gl.createBuffer();
     this.gLineBuffer = gl.createBuffer();
@@ -1592,6 +1653,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.lids.dispose(gl);
     if (this.lineProgram) gl.deleteProgram(this.lineProgram);
     if (this.lineBuffer) gl.deleteBuffer(this.lineBuffer);
+    if (this.leanLineProg) gl.deleteProgram(this.leanLineProg.prog);
+    if (this.lineCornerBuffer) gl.deleteBuffer(this.lineCornerBuffer);
     for (const p of [
       this.gWallProg,
       this.gLidProg,
@@ -1640,6 +1703,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.maxAniso = 0;
     this.lineProgram = null;
     this.lineBuffer = null;
+    this.leanLineProg = null;
+    this.lineCornerBuffer = null;
     this.gWallProg = null;
     this.gLidProg = null;
     this.gLineProg = null;
@@ -1912,6 +1977,20 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       }
       gl.enable(gl.DEPTH_TEST);
     }
+    // ac:line-mesh=lean: the same groups under the same rules, each segment
+    // an instance of the six corners.
+    if (this.leanLineProg && this.lineBuffer && this.lineVertexCount) {
+      const p = this.leanLineProg;
+      gl.useProgram(p.prog);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
+      if (this.lineDirty) {
+        gl.bufferData(gl.ARRAY_BUFFER, this.linePositions, gl.STATIC_DRAW);
+        this.lineDirty = false;
+      }
+      gl.uniformMatrix4fv(p.uni.uMatrix, false, mat);
+      this.drawLineInstances(gl, p, this.lineBuffer, this.leanLineLocs, LEAN_FLOATS, null);
+      gl.enable(gl.DEPTH_TEST);
+    }
     // ---- the pending mark's stroke, over the unit's own boundary line ----
     this.pendingMark.drawMercator(gl, matrix, this.scale, "stroke", null);
 
@@ -2100,6 +2179,56 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     gl.drawArrays(gl.TRIANGLES, 0, this.slabHaloCount);
   }
 
+  /** ac:line-mesh=lean: the line groups drawn from `buffer` (one record of
+   *  `floats` floats a segment: a vec3 per location of `locs`, in order) by
+   *  program `p`, in use, its matrices set — each segment an instance of the
+   *  quad's six corners. `pass` null (the flat view): every group, the raised
+   *  ones without the depth test, the ground ones with it; true or false (the
+   *  globe, which tests no depth): the groups raised or not. WebGL 2 has no
+   *  first-instance argument, so a group's range is reached by pointing the
+   *  instanced attributes at its first record. The divisors are put back to
+   *  0: they belong to the default vertex array object, which every other
+   *  draw of the layers uses. */
+  private drawLineInstances(
+    gl: WebGL2RenderingContext,
+    p: GlProg,
+    buffer: WebGLBuffer,
+    locs: readonly number[],
+    floats: number,
+    pass: boolean | null,
+  ) {
+    const corner = p.attr.aCorner;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineCornerBuffer);
+    gl.enableVertexAttribArray(corner);
+    gl.vertexAttribPointer(corner, 3, gl.FLOAT, false, 12, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    for (let i = 0; i < locs.length; i++) {
+      gl.enableVertexAttribArray(locs[i]);
+      gl.vertexAttribDivisor(locs[i], 1);
+    }
+    gl.uniform2f(p.uni.uViewport, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    const dpr = window.devicePixelRatio || 1;
+    const stride = floats * 4;
+    for (const grp of this.lineGroups) {
+      if (pass === null) {
+        if (grp.raised) gl.disable(gl.DEPTH_TEST);
+        else gl.enable(gl.DEPTH_TEST);
+      } else if (grp.raised !== pass) {
+        continue;
+      }
+      const first = (grp.start / SEGMENT_VERTICES) * stride;
+      for (let i = 0; i < locs.length; i++) {
+        gl.vertexAttribPointer(locs[i], 3, gl.FLOAT, false, stride, first + i * 12);
+      }
+      gl.uniform1f(p.uni.uScale, grp.raised ? this.scale : 1);
+      gl.uniform1f(p.uni.uWidth, grp.width * dpr);
+      gl.uniform1f(p.uni.uAlpha, grp.alpha);
+      gl.uniform1f(p.uni.uTwice, grp.twice ? 1 : 0);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, SEGMENT_VERTICES, grp.count / SEGMENT_VERTICES);
+    }
+    for (let i = 0; i < locs.length; i++) gl.vertexAttribDivisor(locs[i], 0);
+  }
+
   /** The globe-regime draw: same three passes, positions morphed sphere↔mercator
    *  in-shader. Attributes are ABSOLUTE (no origin fold — float32 is plenty below
    *  z6, where a pixel is kilometres). */
@@ -2177,6 +2306,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         this.gLineDirty = false;
       }
       const p = this.gLineProg;
+      if (leanLines) {
+        this.drawLineInstances(gl, p, this.gLineBuffer, this.gLeanLineLocs, G_LEAN_FLOATS, raised);
+        return;
+      }
       bindTriple(p, 80);
       gl.enableVertexAttribArray(p.attr.aOMerc);
       gl.vertexAttribPointer(p.attr.aOMerc, 3, gl.FLOAT, false, 80, 36);
