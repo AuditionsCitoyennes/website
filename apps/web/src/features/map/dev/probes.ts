@@ -21,6 +21,7 @@ import type { usePlateauSlabs } from "../composables/usePlateauSlabs";
 import { stillMap, whenMapStill } from "../lib/stillMap";
 import { installMotionProbes } from "./motionProbes";
 import { installPerfVocabulary } from "./perfVocabulary";
+import { cacheBudgetNow, mapCaches } from "../cacheBudget";
 
 type Probes = {
   __acMap?: mapboxgl.Map;
@@ -122,6 +123,9 @@ export function installProbes({
       slabs: slabs.probe(),
       // A tapped unit's pending mark (gl/PendingMarkPass), null when none.
       pendingMark: pendingMark(),
+      // What the map keeps in memory (../cacheBudget.ts): the switch, and
+      // the sizes in force now (the tiles' are read when a map is created).
+      caches: { choice: mapCaches, ...cacheBudgetNow() },
     };
   };
   if (import.meta.env.DEV) w.__acFrame = frames.probe;
