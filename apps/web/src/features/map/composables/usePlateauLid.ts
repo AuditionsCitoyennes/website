@@ -249,8 +249,9 @@ export function usePlateauLid({
     force = false,
   ) {
     // A new selection (or the load's first): the plan is read again. "none"
-    // from here on: the hidden map goes, and the lid showing with it.
-    plan = planNow();
+    // from here on: the hidden map goes, and the lid showing with it. The
+    // DEV "Carte" shot (`force`) is the standing plateau's: its plan stays.
+    if (!force) plan = planNow();
     if (plan === "none") return dropLid();
     if (force || before) return shootLid(seq, raised, over, force, true, true, !over);
     // A select asks from the outline's watcher, which runs before the camera's
