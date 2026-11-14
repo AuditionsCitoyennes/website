@@ -14,6 +14,7 @@ import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
+import { deviceSignals, deviceTier } from "@/shared/device/deviceTier";
 import {
   analysisSummary,
   buildFactsIndex,
@@ -31,6 +32,8 @@ import { bootCurtainCover, bootList } from "./bootListSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
+import { idlePrefetch, pickPrefetch, prefetchAllowed, prefetchUnits } from "./data/idlePrefetch";
+import { prefetchMode } from "./data/prefetchSwitch";
 import { liftCheck } from "./model/outlineCheck";
 import { useGeoHierarchy } from "./model/useGeoHierarchy";
 import { useScope } from "./model/useScope";
@@ -40,6 +43,7 @@ import { usePanelAuditions } from "./model/usePanelAuditions";
 import { useCamera } from "./model/useCamera";
 import { useNavActions } from "./model/useNavActions";
 import { useTapPending } from "./model/useTapPending";
+import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
 import { PANEL_BASE_PX, usePanelLayout } from "./panel/usePanelLayout";
@@ -219,17 +223,19 @@ watch(panelUnits, (units) => {
 // country's u/: the file its row declares its self in (geo's prefetchKind).
 // Not on a touch screen (a tap's focus can hover the row it opens) nor under Save-Data.
 // The map's own hover is not emitted: a pin gets none.
+/** The files a tap on unit `id` will ask, asked ahead (the HTTP cache only). */
+function prefetchUnit(id: string): Promise<void> {
+  const kind = outlines ? prefetchKind(outlines.rowOf(id)) : null;
+  if (!outlines || !kind) return Promise.resolve();
+  // A self the click will ask ahead of its bundle (ac:region-self): the
+  // same two files, in the same order.
+  if (kind === "k" && outlines.selfAhead(id))
+    return outlines.prefetch("u", id).then(() => outlines.prefetch("k", id));
+  return outlines.prefetch(kind, id);
+}
 if (outlines) {
   const rowHover = hoverPrefetch({
-    prefetch: (id) => {
-      const kind = prefetchKind(outlines.rowOf(id));
-      if (!kind) return Promise.resolve();
-      // A self the click will ask ahead of its bundle (ac:region-self): the
-      // same two files, in the same order.
-      if (kind === "k" && outlines.selfAhead(id))
-        return outlines.prefetch("u", id).then(() => outlines.prefetch("k", id));
-      return outlines.prefetch(kind, id);
-    },
+    prefetch: prefetchUnit,
     allowed: () =>
       outlines.mode.value === "fichiers" &&
       window.matchMedia("(hover: hover)").matches &&
@@ -424,6 +430,42 @@ const {
 // meanwhile and one sentence says when it stands ----
 const tap = useTapPending({ nav, mapCmp });
 const { pendingUnit, live: tapLive } = tap;
+
+// ---- The files asked ahead on a touch screen (data/idlePrefetch, ac:outlines-ahead):
+// no pointer hovers a row there. Once the first plateau stands, its lid has
+// landed and the map is at rest, the one or two units under it that hold the
+// most testimonies have their files asked, one per rest: France's top
+// régions. Not under Save-Data, not on a link the browser calls slow, never
+// while the map moves or a finger is on it; one unit on a weak device.
+const ahead = outlines
+  ? idlePrefetch({
+      allowed: () => {
+        const signals = deviceSignals();
+        return prefetchAllowed({
+          mode: prefetchMode.value,
+          files: outlines.mode.value === "fichiers",
+          hover: window.matchMedia("(hover: hover)").matches,
+          saveData: signals.saveData,
+          effectiveType: signals.effectiveType,
+        });
+      },
+      targets: (scopeId) =>
+        pickPrefetch(
+          index.value.get(scopeId)?.children ?? [],
+          prefetchUnits(deviceTier()),
+          (id) => prefetchKind(outlines.rowOf(id)) !== null,
+        ),
+      prefetch: prefetchUnit,
+      whenAtRest: (job) => mapCmp.value?.whenAtRest(job) ?? (() => {}),
+    })
+  : null;
+if (ahead) onBeforeUnmount(ahead.stop);
+/** GeoDrillMap's `plateauSettled`: the pending mark's verdict, and the first
+ *  plateau the idle prefetch waits for. */
+function onPlateauSettled(scopeId: string, how: SettleHow) {
+  tap.settled(scopeId, how);
+  ahead?.settled(scopeId, how);
+}
 
 // ---- Actions (model/useNavActions): pins, rows, breadcrumb all fly the map ----
 const { activate, onUnitClick, drillToCrumb } = useNavActions({
@@ -843,7 +885,7 @@ function retryAll() {
       :slabs="slabSpec"
       @ready="mapPresentable = true"
       @unit-click="onUnitClick"
-      @plateau-settled="tap.settled"
+      @plateau-settled="onPlateauSettled"
       @view-change="onViewChange"
       @user-gesture="onUserGesture"
     />

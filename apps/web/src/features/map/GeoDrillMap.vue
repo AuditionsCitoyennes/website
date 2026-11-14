@@ -306,6 +306,37 @@ function onCameraSettled() {
   view.emitView();
 }
 
+/**
+ * Runs `job` once the map is at rest: no lid shot running (the hidden map
+ * asks for tiles too), the camera not moving, no plateau rising or sinking,
+ * no pointer down on the map (lib/stillMap.ts), and the map's own tiles in.
+ * Each of these is waited for through its own event: no polling, no frame
+ * asked for. A map that never comes to rest never runs it. Returns the
+ * cancellation.
+ */
+function whenAtRest(job: () => void): () => void {
+  let cancel: () => void = () => {};
+  let off = false;
+  const attempt = () => {
+    if (off) return;
+    cancel = stillMap.whenStill(() => {
+      const m = map;
+      if (off || !m) return;
+      if (lid.busy()) {
+        cancel = lid.whenIdle(attempt);
+      } else if (!m.loaded()) {
+        m.once("idle", attempt);
+        cancel = () => void m.off("idle", attempt);
+      } else job();
+    });
+  };
+  attempt();
+  return () => {
+    off = true;
+    cancel();
+  };
+}
+
 let uninstallProbes: () => void = () => {};
 
 /** The relief worker and the mesh worker, started once per mount, before the
@@ -662,6 +693,8 @@ defineExpose({
   /** A tapped unit's pending mark, set and ended (see the functions). */
   markPending,
   endPending,
+  /** Work that waits for a map at rest (see the function). */
+  whenAtRest,
   /** A wheel turned over something laid on the map (the analyses' plates):
    *  mapbox listens on its canvas container only, so it is handed
    *  over there as the map's own — deltas, mode, position and modifier keys,
