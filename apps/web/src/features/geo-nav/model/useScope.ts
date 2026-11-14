@@ -83,6 +83,7 @@ export function useScope(inputs: ScopeInputs) {
     const view = mapView.value.bounds;
     currentScope.value = scopeForView(root.value, view, prefer, containsPoint, held);
     if (end) end();
+    hold.derived(currentScope.value.id);
     if (perfOn) {
       counts.derivations++;
       if (currentScope.value.id !== before) counts.changes++;
@@ -147,7 +148,7 @@ export function useScope(inputs: ScopeInputs) {
     // The scope a camera command was sent for (a tap, a crumb, the boot's
     // frame) is the zone held from here: its flight has landed, or the user
     // has taken the camera over.
-    if (nav.scopePinned.value) hold.landed(currentScope.value.id);
+    hold.view(currentScope.value.id, nav.scopePinned.value, view.byUser);
     nav.scopePinned.value = false; // the flight landed (or the user moved) — the view is fresh
     // The zone tracks EVERY emit (pinned included — a spotlight landing inside
     // it must flatten the map exactly like a manual zoom would).
