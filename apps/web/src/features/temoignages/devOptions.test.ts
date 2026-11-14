@@ -57,6 +57,7 @@ const graphics = await import("../map/graphicsSwitch");
 const thread = await import("../map/threadSwitch");
 const lidMap = await import("../map/plateau/lidMapSwitch");
 const caches = await import("../map/cacheBudget");
+const lineMesh = await import("../map/plateau/lineMeshSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -92,6 +93,7 @@ const MODULES = {
   thread: "../map/threadSwitch.ts",
   lidMap: "../map/plateau/lidMapSwitch.ts",
   caches: "../map/cacheBudget.ts",
+  lineMesh: "../map/plateau/lineMeshSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -150,6 +152,7 @@ const KEYS: readonly DevKey[] = [
   "ac:pins-rebuild",
   "ac:lid-map",
   "ac:map-caches",
+  "ac:line-mesh",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -163,7 +166,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 48);
+  assert.equal(DEV_OPTIONS.length, 49);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -273,6 +276,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:pins-rebuild": ["thread", "setPinsRebuild"],
   "ac:lid-map": ["lidMap", "setLidMap"],
   "ac:map-caches": ["caches", "setMapCaches"],
+  "ac:line-mesh": ["lineMesh", "setLineMesh"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -311,6 +315,7 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
       "Image d'attente",
       "Fichiers tardifs",
       "Carte cachée",
+      "Traits",
       "Niveau",
       "Verre dépoli",
       "Ouverture de la carte",
@@ -386,6 +391,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:pins-rebuild"), [...thread.PINS_REBUILDS]);
   assert.deepEqual(ids("ac:lid-map"), [...lidMap.LID_MAPS]);
   assert.deepEqual(ids("ac:map-caches"), [...caches.MAP_CACHES]);
+  assert.deepEqual(ids("ac:line-mesh"), [...lineMesh.LINE_MESHES]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -451,6 +457,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:pins-rebuild": thread.DEFAULT_PINS_REBUILD,
     "ac:lid-map": lidMap.DEFAULT_LID_MAP,
     "ac:map-caches": caches.DEFAULT_MAP_CACHES,
+    "ac:line-mesh": lineMesh.DEFAULT_LINE_MESH,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);

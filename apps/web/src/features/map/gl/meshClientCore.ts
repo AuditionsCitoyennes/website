@@ -94,6 +94,9 @@ export interface MeshClientDeps {
   schedule(fn: () => void, ms: number): () => void;
   /** The same mesh, built here (gl/meshBuild.ts). */
   fallbackBuild(inputs: MeshInputs, want: MeshWant): MeshOut;
+  /** Every build's boundary lines in the lean layout (ac:line-mesh,
+   *  plateau/lineMeshSwitch.ts): the worker's and the fallback's alike. */
+  leanLines?: boolean;
   /** Read at every request (the testing tools' override). */
   capVertices?: () => number;
   /** The testing tools' worker knobs, read at every request. */
@@ -509,6 +512,9 @@ export function createMeshClient(deps: MeshClientDeps) {
     }
   }
 
+  /** `want`, with the session's line layout. */
+  const laidOut = (want: MeshWant): MeshWant => (deps.leanLines ? { ...want, lean: true } : want);
+
   function request(inputs: MeshInputs, want: MeshWant, globe: boolean): Promise<MeshResult | null> {
     if (disposed) return Promise.resolve(null);
     if (mode === "main") return Promise.resolve(onMain(inputs, want, globe));
@@ -557,9 +563,10 @@ export function createMeshClient(deps: MeshClientDeps) {
 
   return {
     /** The mesh of `inputs`: the sets `want` names. Never rejects. */
-    build: (inputs: MeshInputs, want: MeshWant) => request(inputs, want, false),
+    build: (inputs: MeshInputs, want: MeshWant) => request(inputs, laidOut(want), false),
     /** The globe set alone of a mesh already applied (its deferred pass). */
-    buildGlobe: (inputs: MeshInputs) => request(inputs, { merc: false, globe: true }, true),
+    buildGlobe: (inputs: MeshInputs) =>
+      request(inputs, laidOut({ merc: false, globe: true }), true),
     /** The flat view's grey sheet cut around `geoms`. Never rejects; null:
      *  no sheet from the worker (the caller cuts it). */
     cutTint: (geoms: readonly Geom[]) => requestTint(geoms),

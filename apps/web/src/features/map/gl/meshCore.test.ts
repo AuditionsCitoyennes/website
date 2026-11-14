@@ -195,6 +195,34 @@ test("the sets asked for, and the same digest as the page's own build", () => {
   }
 });
 
+test("a request for the lean line layout: the page's own lean build, the other arrays unchanged", () => {
+  const { core } = harness();
+  const fx = fixture();
+  const want = { merc: true, globe: true, lean: true };
+  const r = core.build(requestOf(fixture(), { want }));
+  assert.equal(r.t, "mesh");
+  if (r.t !== "mesh") return;
+  assert.equal(r.mesh.lineLayout, "lean");
+  // One record a segment: 4 raised + 4 on the ground, 6 floats and 18.
+  assert.equal(r.mesh.linePositions!.length, 8 * 6);
+  assert.equal(r.mesh.gLinePositions!.length, 8 * 18);
+  const page = buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, {
+    ...want,
+    concat: true,
+  });
+  assert.deepEqual(digestOf(r.mesh), digestOf(page));
+  const full = core.build(requestOf(fixture(), { id: 2 }));
+  assert.equal(full.t, "mesh");
+  if (full.t !== "mesh") return;
+  assert.equal(full.mesh.lineLayout, "full");
+  const a = digestOf(r.mesh).parts;
+  const b = digestOf(full.mesh).parts;
+  for (const k of Object.keys(a)) {
+    const lines = k === "linePositions" || k === "gLinePositions";
+    assert.equal(a[k] === b[k], !lines, k);
+  }
+});
+
 test("the queue: one build per task, superseded ones skipped, puts kept", () => {
   const { core, replies, flush } = harness();
   const a = requestOf(fixture(), { id: 1 });
