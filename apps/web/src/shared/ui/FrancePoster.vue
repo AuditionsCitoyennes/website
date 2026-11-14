@@ -24,7 +24,9 @@ import { POSTER_REGIONS, POSTER_VIEWBOX } from "./francePoster";
 </template>
 
 <style scoped>
-.france-poster {
+/* Its box is the caller's: these lose to any class of the caller's, whichever
+   stylesheet comes last (this file is loaded on demand). */
+:where(.france-poster) {
   display: block;
   width: 100%;
   height: 100%;

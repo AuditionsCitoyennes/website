@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import FrancePoster from "@/shared/ui/FrancePoster.vue";
+import { defineAsyncComponent } from "vue";
 import { curtainPoster, poster } from "@/shared/ui/posterSwitch";
 
 // The stage while the map's code is still coming (MapStage's async explorer):
@@ -17,12 +17,16 @@ defineOptions({ inheritAttrs: false });
 defineProps<{ preview?: boolean }>();
 
 // France behind the spinner, as GeoNav's curtain (`ac:poster`, shared/ui/posterSwitch).
+// Its own small file, asked for only then: this curtain is in every page's code.
 const withPoster = curtainPoster(poster);
+const FrancePoster = withPoster
+  ? defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"))
+  : null;
 </script>
 
 <template>
   <div class="stage-loading" aria-hidden="true">
-    <FrancePoster v-if="withPoster" class="loading-poster" />
+    <FrancePoster v-if="FrancePoster" class="loading-poster" />
     <span class="spinner spinner-lg"></span>
     <p>Chargement de la carte…</p>
   </div>
@@ -47,9 +51,10 @@ const withPoster = curtainPoster(poster);
 /* GeoNav.vue's .boot-poster, verbatim: under the spinner and its words. */
 .loading-poster {
   position: absolute;
-  inset: 10%;
-  width: auto;
-  height: auto;
+  top: 10%;
+  left: 10%;
+  width: 80%;
+  height: 80%;
   opacity: 0.45;
 }
 

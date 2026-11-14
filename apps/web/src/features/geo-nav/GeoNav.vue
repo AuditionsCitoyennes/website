@@ -22,7 +22,6 @@ import {
   useScopeAnalysis,
 } from "@/features/analyses";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
-import FrancePoster from "@/shared/ui/FrancePoster.vue";
 import { curtainPoster, poster } from "@/shared/ui/posterSwitch";
 import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
@@ -183,7 +182,9 @@ onBeforeUnmount(() => clearTimeout(bootCap));
 // soon as its rows are in (`ac:boot-list`, bootListSwitch), or the whole page.
 const bootCover = computed(() => bootCurtainCover(bootList, props.preview));
 /** France under the curtain's spinner (`ac:poster`, shared/ui/posterSwitch). */
-const withPoster = curtainPoster(poster);
+const FrancePoster = curtainPoster(poster)
+  ? defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"))
+  : null;
 
 // Direction of the level swap, from how deep the new scope sits in the
 // hierarchy: going deeper brings the new list in from the right, stepping back
@@ -839,7 +840,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
         role="status"
         aria-live="polite"
       >
-        <FrancePoster v-if="withPoster" class="boot-poster" />
+        <FrancePoster v-if="FrancePoster" class="boot-poster" />
         <span class="spinner spinner-lg" aria-hidden="true"></span>
         <p>Chargement de la carte…</p>
       </div>
@@ -976,19 +977,20 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
    map the panel leaves free. */
 .boot-poster {
   position: absolute;
-  inset: 10%;
-  width: auto;
-  height: auto;
+  top: 10%;
+  left: 10%;
+  width: 80%;
+  height: 80%;
   opacity: 0.45;
 }
 
 .boot.boot-map .boot-poster {
-  right: calc(10% + var(--panel-cover, 0px));
+  width: calc(80% - var(--panel-cover, 0px));
 }
 
 .boot.boot-map.sheet .boot-poster {
-  right: 10%;
-  bottom: calc(10% + var(--sheet-peek, 0px));
+  width: 80%;
+  height: calc(80% - var(--sheet-peek, 0px));
 }
 
 .boot > :not(.boot-poster) {
