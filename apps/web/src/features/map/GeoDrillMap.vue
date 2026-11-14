@@ -14,7 +14,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
-import { toLngLat } from "./lib/polygon";
+import { boundsOfFeatures, toLngLat } from "./lib/polygon";
 import { stillMap } from "./lib/stillMap";
 import { resetPlateauStood } from "./lib/plateauStood";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
@@ -489,7 +489,16 @@ function mountMap() {
       mask.applyOutline();
       mask.applyMask();
       pins.buildMarkers();
-      lid.warmup(); // hidden lid-snapshot map: pay style init now
+      // The lid's hidden map (plateau/lidMapSwitch.ts): created now on the
+      // first place a plateau will stand on — the scope's outline when it is
+      // in, else what the first camera command frames — so the tiles it
+      // loads are the first lid's; with no place known, at the first shot.
+      lid.warmup(
+        boundsOfFeatures(
+          (props.outline?.features ?? []).filter((f) => f.properties?.kind === "scope"),
+        ),
+        props.camera?.type === "fit" ? (props.camera.bounds ?? null) : null,
+      );
       // ac:boot-workers=load: the two workers start only now.
       if (workersStartAt(bootWorkers) === "load") startWorkers();
       // The ground the plateaus will stand on (usePlateau): where it stays
