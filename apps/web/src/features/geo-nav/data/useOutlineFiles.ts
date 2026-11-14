@@ -104,6 +104,9 @@ export interface OutlineFiles {
   holdSelf(id: string): void;
   pin(ids: Iterable<string>): number;
   ensureRoot(): Promise<OutlineFilesStatus>;
+  /** The network may be back (the panel's « Réessayer »): a start waiting
+   *  for its next attempt makes it now (OutlineLoader.reconnect). */
+  reconnect(): void;
   ensureBundle(id: string): Promise<OutlineFilesStatus>;
   ensureSelf(id: string): Promise<OutlineFilesStatus>;
   /** Their g/, and the u/ of `selves` (micro-states), in one write
@@ -265,6 +268,7 @@ function createOutlineFiles(): OutlineFiles {
       }, OUTLINE_WAIT_MS);
     },
     ensureRoot: () => loader.ensureRoot(),
+    reconnect: () => loader.reconnect(),
     ensureBundle: (id) => loader.ensureBundle(id),
     ensureSelf: (id) => loader.ensureSelf(id),
     ensureGlobe: (ids, selves = [], decor = false) =>
