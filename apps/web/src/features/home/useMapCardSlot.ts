@@ -1,5 +1,15 @@
-import { onBeforeUnmount, onMounted, watch, type Ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import { useMapStage } from "@/features/map-stage";
+import { deviceTier } from "@/shared/device/deviceTier";
+import {
+  DEFAULT_HOME_MAP,
+  HOME_MAP_KEY,
+  needsProbe,
+  resolveHomeMap,
+  storedHomeMap,
+  type HomeMapPolicy,
+} from "./homeMapPolicy";
+import { probeWebgl2 } from "./webglProbe";
 
 // The map card: lent to the one testimonies map (MapStage) — and lending it is
 // what loads the map: its code, both Mapbox maps, the map's data. So it is
@@ -7,8 +17,7 @@ import { useMapStage } from "@/features/map-stage";
 // the project and leaves, loads none of it.
 // - Reached (within NEAR_MARGIN of the screen: a quick scroll, a reload half
 //   way down): at once, whatever the policy — even before the page is in.
-// - Heading there ("proche", the policy of every build without the testing
-//   tools): from the visitor's first scroll away from the top on, a screen
+// - Heading there ("proche", what "auto" is on a strong device): from the visitor's first scroll away from the top on, a screen
 //   ahead (LEAD_MARGIN) — the map loads while the copy beside it is read, and
 //   is ready to be opened into the testimonies page by the time it is
 //   reached. Never on the layout alone, nor on the router's own scroll to the
@@ -18,64 +27,45 @@ import { useMapStage } from "@/features/map-stage";
 //   straight back into its card).
 //
 // Compared live in the builds with the testing tools (the dev server and
-// staging, __TEST_TOOLS__), kept in localStorage like the Témoignages page's
-// data switches (temoignages/dataSource.ts) and read once per page load —
-// switching reloads the page (DevHomeMapSwitch, window.__acHomeMap):
-// - "proche": as above;
-// - "tot": as before — taken as well once the page itself is in (the document
-//   loaded, the hero photograph shown: the map must not compete with it) and
-//   the browser has a moment, whether the visitor heads there or not;
-// - "contact": reached only (NEAR_MARGIN) — the least loaded, the latest.
+// staging, __TEST_TOOLS__) through `ac:home-map`, with "auto" the default: on
+// a weak device, or one without WebGL 2, the card is never lent and shows a
+// still picture (homeMapPolicy.ts has every policy and the rule).
 
-export type HomeMapPolicy = "proche" | "tot" | "contact";
-
-/** The policy of a build without the testing tools, and the switch's default. */
-export const DEFAULT_HOME_MAP: HomeMapPolicy = "proche";
-
-export const HOME_MAP_POLICIES: readonly HomeMapPolicy[] = ["proche", "tot", "contact"];
-const POLICY_KEY = "ac:home-map";
+export { DEFAULT_HOME_MAP, HOME_MAP_POLICIES, type HomeMapPolicy } from "./homeMapPolicy";
 
 /** Reached: the card this close to the screen is lent at once, in every policy. */
 const NEAR_MARGIN = "300px 0px";
 /** Heading there ("proche"): a screen ahead — to tune once phones are measured. */
 const LEAD_MARGIN = "100% 0px";
 
-function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return (allowed as readonly string[]).includes(raw ?? "") ? (raw as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function store(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* storage blocked (a private window): the choice lasts for this page */
-  }
-}
-
-/** This page load's policy. */
-export const homeMapPolicy: HomeMapPolicy = __TEST_TOOLS__
-  ? stored(POLICY_KEY, HOME_MAP_POLICIES, DEFAULT_HOME_MAP)
-  : DEFAULT_HOME_MAP;
+/** This page load's policy (the switch's choice; "auto" is resolved per card). */
+export const homeMapPolicy: HomeMapPolicy = __TEST_TOOLS__ ? storedHomeMap() : DEFAULT_HOME_MAP;
 
 /** Another policy: kept, and the page loaded again with it. */
 export function setHomeMapPolicy(policy: HomeMapPolicy) {
   if (!__TEST_TOOLS__ || policy === homeMapPolicy) return;
-  store(POLICY_KEY, policy);
+  try {
+    localStorage.setItem(HOME_MAP_KEY, policy);
+  } catch {
+    /* storage blocked (a private window): the choice lasts for this page */
+  }
   window.location.reload();
 }
 
 /**
  * Lends `mapCard` to the map for as long as the calling component is mounted.
  * `heroReady`: the hero photograph is shown (HeroSection's `ready`) — what the
- * "tot" policy waits for.
+ * "tot" policy waits for. Returns `still`: the card is not lent and shows its
+ * still picture instead ("statique", or "auto" on a weak device).
  */
 export function useMapCardSlot(mapCard: Ref<HTMLElement | null>, heroReady: Ref<boolean>) {
   const stage = useMapStage();
+  /** The policy now: "auto" read from the browser's hints, probed later. */
+  const hintTier = deviceTier();
+  let policy = resolveHomeMap(homeMapPolicy, hintTier);
+  // Back from the map page, "auto" lends the map that is there (nothing more
+  // to download); "statique" chosen never lends it.
+  const still = ref(policy === "statique" && !(homeMapPolicy === "auto" && stage.alive.value));
   let cardIO: IntersectionObserver[] = [];
   let idleId = 0;
   let timerId = 0;
@@ -115,13 +105,24 @@ export function useMapCardSlot(mapCard: Ref<HTMLElement | null>, heroReady: Ref<
 
   onMounted(() => {
     const el = mapCard.value;
-    if (!el) return;
+    if (!el || still.value) return; // never lent
     if (stage.alive.value) {
       stage.card.value = el;
       return;
     }
     const take = () => {
       stopWaiting();
+      // "auto" on a device the hints call strong: the browser is probed once,
+      // here, before the map's download starts (a software renderer, or no
+      // WebGL 2: the still picture after all).
+      if (needsProbe(homeMapPolicy, hintTier)) {
+        const webgl2 = probeWebgl2();
+        policy = resolveHomeMap(homeMapPolicy, deviceTier(), webgl2);
+        if (policy === "statique") {
+          still.value = true;
+          return;
+        }
+      }
       if (mapCard.value === el && !stage.card.value) {
         // What the testing tools' walks time the lending by.
         if (__TEST_TOOLS__) performance.mark("ac:home-card-lent");
@@ -140,8 +141,8 @@ export function useMapCardSlot(mapCard: Ref<HTMLElement | null>, heroReady: Ref<
       cardIO.push(io);
     };
     takeWithin(NEAR_MARGIN);
-    if (homeMapPolicy === "contact") return;
-    if (homeMapPolicy === "proche") {
+    if (policy === "contact") return;
+    if (policy === "proche") {
       // Passive: the page's scrolling never waits on it. Only a scroll that
       // leaves the top counts: the router's own scroll-to-top, on arriving
       // from a page that was scrolled, is not the visitor heading down.
@@ -184,4 +185,5 @@ export function useMapCardSlot(mapCard: Ref<HTMLElement | null>, heroReady: Ref<
     stopWaiting();
     stage.release(stage.card, mapCard.value);
   });
+  return { still };
 }
