@@ -662,7 +662,7 @@ export function usePlateau({
     // the other modes build it, after their awaits, never between the commit
     // and the old slot's drop. Without the client the run is merc's.
     // The grey around the unit, asked ahead of the applyMask that lays it
-    // (ac:tint-cut=worker; nothing for a unit whose grey is laid or asked).
+    // (ac:tint-cut; nothing for a unit whose grey is laid or asked).
     prepareMask?.(raised);
     const client = meshMode === "worker" ? (meshClient?.() ?? null) : null;
     const workerEarly = client ? canonicalOf(raised) : null;

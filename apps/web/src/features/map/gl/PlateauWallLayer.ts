@@ -382,7 +382,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private globeSkipped = false;
   /** The testing tools' count of setGeometry calls and the last call's input,
    *  for meshDigest (declared only: a build without them has no field). */
-  declare private meshProbe?: { calls: number; input: OutlineFC["features"][] };
+  declare private meshProbe?: {
+    calls: number;
+    input: OutlineFC["features"][];
+    /** The globe frames that drew no plateau, waiting for the worker's set (ac:globe-late). */
+    globeWaits?: number;
+  };
   // ---- the analyses' SLABS: pieces raised beside the territory (see setSlabs).
   // Their own small mesh — never part of setGeometry, whose rebuild is the
   // map's costliest step — at the plateau's lid height, rising with it
@@ -1141,6 +1146,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     const gen = this.globeDefer.current;
     if (!force && this.globeFrameWaits(gen)) {
       this.globeSkipped = true;
+      if (__TEST_TOOLS__) {
+        const probe = (this.meshProbe ??= { calls: 0, input: [] });
+        probe.globeWaits = (probe.globeWaits ?? 0) + 1;
+      }
       return null;
     }
     return this.buildGlobe(gen, true);
@@ -1168,8 +1177,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  setGeometry calls and the last call's input (ids, ring and vertex
    *  counts), so two runs are compared only on the same input. A globe set
    *  still deferred (ac:mesh=merc) hashes as absent; `globe` builds it first
-   *  (as a globe frame would: a `plateau.globeLate` span). Null without the
-   *  tools. */
+   *  (as a globe frame would: a `plateau.globeLate` span). `globeWaits`: the
+   *  globe frames that drew no plateau while the worker built the set
+   *  (ac:globe-late). Null without the tools. */
   meshDigest(opts?: { globe?: boolean }) {
     if (!__TEST_TOOLS__) return null;
     if (opts?.globe) this.ensureGlobe(true);
@@ -1220,6 +1230,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       },
       scopeId: this.scopeId,
       setGeometryCalls: this.meshProbe?.calls ?? 0,
+      globeWaits: this.meshProbe?.globeWaits ?? 0,
       inputSig: { scope: sigOf(features), focus: sigOf(focus), context: sigOf(context) },
     };
   }

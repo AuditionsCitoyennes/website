@@ -4,8 +4,9 @@
 // opacity, and what the draped sheet's colour looks like on screen.
 
 import type mapboxgl from "mapbox-gl";
+import { deviceTier } from "@/shared/device/deviceTier";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
-import { tintCut } from "../threadSwitch";
+import { tintCut, tintCutFor } from "../threadSwitch";
 import { digestParts } from "./meshDigest";
 import { buildProgram, type GlProg, type MapFogInternals } from "./program";
 import { createTintCuts, type TintCutFn } from "./tintCuts";
@@ -14,7 +15,7 @@ import { cutTintSheet, type MaskGeom, type TintSheet } from "./tintSheet";
 export type { MaskGeom } from "./tintSheet";
 export { sameGeoms } from "./tintCuts";
 
-/** ac:tint-cut=worker: who cuts the sheet off the page (the mesh worker,
+/** ac:tint-cut: who cuts the sheet off the page (the mesh worker,
  *  gl/meshClient.ts; `ms`: the cut's own time). Null: no sheet (the worker
  *  lost, or the cut superseded) — cut here if it is still wanted. `live()`
  *  false before the worker is there and once it is lost. */
@@ -85,13 +86,16 @@ export class ScopeTintLayer implements mapboxgl.CustomLayerInterface {
   /** Called when a sheet cut off the page is laid (setSelection had answered
    *  false: on its way). */
   onLaid: (() => void) | null = null;
-  /** ac:tint-cut=worker: who cuts the sheet off the page (null: this layer). */
+  /** ac:tint-cut: who cuts the sheet off the page (null: this layer). */
   private cutter: TintCutter | null = null;
   /** Testing tools: who cut the sheet laid, and how many were laid. */
   private laid = { via: "page" as "page" | "worker", count: 0 };
   /** Which sheet is laid and which is on its way (gl/tintCuts.ts). */
   private cuts = createTintCuts({
-    cutter: () => (tintCut.value === "worker" && this.cutter?.live() ? this.cutter.cut : null),
+    cutter: () =>
+      this.cutter?.live() && tintCutFor(tintCut.value, deviceTier()) === "worker"
+        ? this.cutter.cut
+        : null,
     cutHere: (geoms) => {
       const end = perfOn ? perfSpan("tint.setSelection") : null;
       const sheet = cutTintSheet(geoms);
@@ -105,14 +109,14 @@ export class ScopeTintLayer implements mapboxgl.CustomLayerInterface {
     },
   });
 
-  /** ac:tint-cut=worker: who cuts the sheet off the page. Null (the map's
+  /** ac:tint-cut: who cuts the sheet off the page. Null (the map's
    *  unmount): nobody, and a cut on its way is forgotten. */
   setCutter(c: TintCutter | null) {
     this.cutter = c;
     if (!c) this.cuts.drop();
   }
 
-  /** ac:tint-cut=worker: the sheet around `geoms` asked of the cutter ahead
+  /** ac:tint-cut: the sheet around `geoms` asked of the cutter ahead
    *  of the setSelection that will lay it (a plateau about to stand: the
    *  grey changes in the block that puts its mesh up). Nothing without a
    *  live cutter, for no geometry, or for the selection laid or on its way. */
@@ -124,7 +128,7 @@ export class ScopeTintLayer implements mapboxgl.CustomLayerInterface {
    *  geometry OBJECTS change: boundary data is identity-stable, and this is
    *  called on every pass of the plateau pipeline. Returns whether the sheet
    *  laid changed in this call — false too when its cut is on its way from
-   *  the cutter (ac:tint-cut=worker): `onLaid` is called when it lands. */
+   *  the cutter (ac:tint-cut): `onLaid` is called when it lands. */
   setSelection(geoms: MaskGeom[]): boolean {
     return this.cuts.select(geoms);
   }
