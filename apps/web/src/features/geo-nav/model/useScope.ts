@@ -1,11 +1,13 @@
 // The scope: the unit the viewport is "inside", read off the live view with
 // hysteresis, held still while a lieu is read, pinned while a flight is in the
 // air; the lieu zone's hysteresis at the bottom of the zoom range; the open
-// lieu, the breadcrumb and the list of units the panel shows.
+// lieu, the breadcrumb and the list of units the panel shows. A zone that was
+// selected is held through a pan while it is in view (scopeHold.ts).
 import { computed, watch, type ComputedRef, type Ref } from "vue";
-import { ancestorsOf, scopeForView, type GeoUnit } from "@/features/geo";
-import { perfOn, perfSpan } from "@/shared/perf/perf";
+import { ancestorsOf, keptInView, scopeForView, type GeoUnit } from "@/features/geo";
+import { perfOn, perfProbe, perfSpan } from "@/shared/perf/perf";
 import type { Insets, MapView, NavState } from "../navState";
+import { createScopeHold, dragKeepsZone, scopeDragMode } from "./scopeHold";
 
 export interface ScopeInputs {
   nav: NavState;
@@ -22,6 +24,23 @@ export interface ScopeInputs {
 export function useScope(inputs: ScopeInputs) {
   const { nav, root, index, containsPoint, isDesktop, mapInsets } = inputs;
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, inMicroZone, mapView } = nav;
+
+  // The zone a selection holds (scopeHold.ts), and whether a pan keeps it:
+  // the switch, on the device's main pointer as it is now.
+  const hold = createScopeHold();
+  const keepsZone = () =>
+    dragKeepsZone(scopeDragMode.value, window.matchMedia?.("(pointer: coarse)").matches ?? false);
+  // The testing tools: the derivations, those that changed the scope, and
+  // those in which the hold kept the selected zone.
+  const counts = { derivations: 0, changes: 0, held: 0 };
+  if (perfOn) {
+    perfProbe("scope-drag", {
+      read: () => ({ mode: scopeDragMode.value, keeps: keepsZone(), zone: hold.id(), ...counts }),
+      reset: () => {
+        counts.derivations = counts.changes = counts.held = 0;
+      },
+    });
+  }
 
   /** A lieu is open and the reader is on the panel: the map is not being used. */
   function readingPlace(): boolean {
@@ -58,8 +77,17 @@ export function useScope(inputs: ScopeInputs) {
     // held sticky in the walk (horizontal + vertical hysteresis — see scopeForView).
     const end = perfOn ? perfSpan("vue.deriveScope") : null;
     const prefer = new Set(ancestorsOf(index.value, currentScope.value.id).map((u) => u.id));
-    currentScope.value = scopeForView(root.value, mapView.value.bounds, prefer, containsPoint);
+    // The scope, when it is the zone a selection holds and a pan keeps it.
+    const held = keepsZone() ? hold.of(currentScope.value) : null;
+    const before = currentScope.value.id;
+    const view = mapView.value.bounds;
+    currentScope.value = scopeForView(root.value, view, prefer, containsPoint, held);
     if (end) end();
+    if (perfOn) {
+      counts.derivations++;
+      if (currentScope.value.id !== before) counts.changes++;
+      else if (held && keptInView(held.bounds, view)) counts.held++;
+    }
   }
   // Re-derive when the map settles or the hierarchy reloads, which it does on
   // every outline file write (`hierarchy` reads `outlines.version`): the
@@ -116,6 +144,10 @@ export function useScope(inputs: ScopeInputs) {
   const MICRO_ZONE_ENTER = 15;
 
   function onViewChange(view: MapView) {
+    // The scope a camera command was sent for (a tap, a crumb, the boot's
+    // frame) is the zone held from here: its flight has landed, or the user
+    // has taken the camera over.
+    if (nav.scopePinned.value) hold.landed(currentScope.value.id);
     nav.scopePinned.value = false; // the flight landed (or the user moved) — the view is fresh
     // The zone tracks EVERY emit (pinned included — a spotlight landing inside
     // it must flatten the map exactly like a manual zoom would).
