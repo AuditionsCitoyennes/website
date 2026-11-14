@@ -90,11 +90,11 @@ class FakeMap implements DemSlotMap {
 function setup(onDrop?: (id: DemSlot) => void) {
   mock.timers.enable({ apis: ["setTimeout"] });
   const map = new FakeMap();
-  const state: { map: FakeMap | null; src: DemSlot } = { map, src: A };
+  const state: { map: FakeMap | null; src: DemSlot | null } = { map, src: A };
   const slots = createDemSlots({ getMap: () => state.map, terrainSrc: () => state.src, onDrop });
   /** usePlateau's swap: the spare slot added, the terrain moved onto it, the old one dropped. */
   const swap = () => {
-    const old = state.src;
+    const old = state.src ?? A;
     const next = old === A ? B : A;
     slots.addDemSlot(map, next, {});
     state.src = next;
@@ -171,6 +171,30 @@ test("a slot the terrain is on is not dropped", (t) => {
     mock.timers.tick(DROP_FLOOR_MS);
     assert.deepEqual(map.removed, []);
   }
+});
+
+test("the terrain moved off both slots (flat ground): the one it left is dropped, and the spare", (t) => {
+  t.after(() => mock.timers.reset());
+  const dropped: DemSlot[] = [];
+  const { map, state, slots, swap } = setup((id) => dropped.push(id));
+  swap(); // a (never added) → b
+  map.render();
+  // A run's prefetch stood the spare slot up, then the ground went flat: the
+  // terrain is on a source that is neither slot.
+  slots.addDemSlot(map, A, {});
+  state.src = null;
+  map.terrain = { source: "plateau-flat" };
+  slots.swapped(map, B);
+  slots.dropDemSourceSoon(map, B);
+  slots.dropDemSourceSoon(map, A);
+  // No frame since the swap: nothing leaves yet.
+  mock.timers.tick(DROP_FLOOR_MS);
+  assert.deepEqual(map.removed, []);
+  map.render();
+  mock.timers.tick(0);
+  assert.deepEqual([...map.removed].sort(), [A, B]);
+  assert.deepEqual([...dropped].sort(), [A, B]);
+  assert.equal(map.staleRemovals, 0);
 });
 
 test("no map, or another map instance (a remount), drops nothing", (t) => {

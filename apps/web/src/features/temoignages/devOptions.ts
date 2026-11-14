@@ -12,7 +12,7 @@
 // map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
-// geo-nav/model/slowSignSwitch, analyses/devSwitch,
+// geo-nav/model/slowSignSwitch, map/relief/groundSwitch, analyses/devSwitch,
 // shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -66,7 +66,8 @@ export type DevKey =
   | "ac:hero"
   | "ac:recover"
   | "ac:filters-load"
-  | "ac:prefetch";
+  | "ac:prefetch"
+  | "ac:relief-ground";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -460,6 +461,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
+    key: "ac:relief-ground",
+    section: "carte",
+    label: "Sol",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "relief", label: "Relief" },
+      { id: "flat", label: "Plat" },
+    ],
+    explain:
+      "Ce qui se passe sous le territoire choisi quand il se soulève. « Auto » (par défaut) suit le niveau de l'appareil (section Appareil) : « Relief » au niveau complet, « Plat » aux niveaux léger et minimal. Avec « Relief », le sol monte avec le territoire. Avec « Plat », le sol reste en bas : seuls les parois et le dessus montent, ce qui demande moins de calcul, et les points des lieux sont posés sur le dessus. Le choix vaut à partir du prochain territoire choisi.",
+    reloads: false,
+    defaultId: "auto",
+  },
+  {
     key: "ac:analyses-pending",
     section: "analyses",
     label: "Analyses en attente",
@@ -534,7 +549,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "minimal", label: "Minimal" },
     ],
     explain:
-      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte, le verre des panneaux, l'ouverture de la carte de l'accueil et la carte de l'accueil elle-même (une image sur un appareil faible) en dépendent (voir « Police des noms », « Verre dépoli » et « Ouverture de la carte »).",
+      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte, le sol sous le territoire choisi, le verre des panneaux, l'ouverture de la carte de l'accueil et la carte de l'accueil elle-même (une image sur un appareil faible) en dépendent (voir « Police des noms », « Sol », « Verre dépoli » et « Ouverture de la carte »).",
     reloads: true,
     defaultId: "auto",
   },

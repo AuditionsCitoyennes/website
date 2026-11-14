@@ -34,7 +34,9 @@ import { usePlateau, type PlateauSettle } from "./composables/usePlateau";
 import { usePlateauSlabs } from "./composables/usePlateauSlabs";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
+import { noteRenderer } from "@/shared/device/deviceTier";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
+import { rendererOf } from "./relief/groundSwitch";
 import type { MarkGeometry } from "./gl/pendingMark";
 import type { ComingUnit } from "./lib/coldStart";
 import type { TapMark } from "./plateau/tapAnswerSwitch";
@@ -213,6 +215,7 @@ const camera = useMapCamera({
   // its unit's slabs are sized for it now.
   afterFit: () => slabs.syncSlabs(),
   onReady: emitReady,
+  flatWanted: () => plateau.flatWanted(),
 });
 const pins = useMapPins({
   getMap,
@@ -225,6 +228,7 @@ const pins = useMapPins({
   occlusion,
   onUnitClick: (id) => emit("unitClick", id),
   smallerWins: () => !!props.stableOutline,
+  lift: () => plateau.lift(),
 });
 const plateau = usePlateau({
   getMap,
@@ -242,6 +246,7 @@ const plateau = usePlateau({
   forgetLidExtra: () => slabs.forgetLidExtra(),
   meshClient: () => meshClient,
   onSettled: (scopeId, how) => emit("plateauSettled", scopeId, how),
+  onLift: pins.syncLift,
 });
 const slabs = usePlateauSlabs({
   getMap,
@@ -363,10 +368,14 @@ let workersStarted = false;
 function startWorkers() {
   if (workersStarted) return;
   workersStarted = true;
-  void loadReliefClient().then(
-    (c) => c.warmRelief(),
-    () => {},
-  );
+  // The relief worker: not where the ground stays flat (a weak device,
+  // relief/groundSwitch.ts), no plateau there asks anything of it.
+  if (!plateau.flatWanted()) {
+    void loadReliefClient().then(
+      (c) => c.warmRelief(),
+      () => {},
+    );
+  }
   // ac:mesh=worker: the mesh worker started now (a fresh worker's first
   // build is its slowest). Only this guard reaches the client: "worker" is
   // the default (plateau/meshSwitch.ts), so every build emits its chunk and
@@ -434,6 +443,11 @@ function mountMap() {
       // the site's font (ac:glyphs, labelFont.ts). The lid's map gets the same.
       ...labelGlyphOptions(),
     });
+    // The device's tier (shared/device/deviceTier) is told the graphics chip's
+    // name from the map's own context: a software renderer is a weak device.
+    // Before the workers start: the ground a weak device stands its plateaus
+    // on needs no relief worker.
+    noteRenderer(rendererOf(map.getCanvas().getContext("webgl2")));
     // The two workers start with the map object (ac:boot-workers, default
     // "early"): neither touches the style, so neither waits for its load.
     if (workersStartAt(bootWorkers) === "mount") startWorkers();
@@ -468,6 +482,11 @@ function mountMap() {
       lid.warmup(); // hidden lid-snapshot map: pay style init now
       // ac:boot-workers=load: the two workers start only now.
       if (workersStartAt(bootWorkers) === "load") startWorkers();
+      // The ground the plateaus will stand on (usePlateau): where it stays
+      // flat (a weak device, relief/groundSwitch.ts), the flat terrain from
+      // here on; elsewhere the relief worker, started above or with the map
+      // object already (asked twice, it is started once).
+      plateau.prepareGround();
       // Testing tools: a PMTiles archive named in the address, laid over the map.
       if (__TEST_TOOLS__) {
         const m = getMap();
