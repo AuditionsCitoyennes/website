@@ -318,16 +318,17 @@ export function useMapFeed(inputs: MapFeedInputs) {
     // The late files' rule (ac:late-files, data/useOutlineFiles): a file is
     // urgent — stored as it lands, asked at high priority — only while the
     // scope's plateau is pending and the file is on its chain (its bundles,
-    // a country's u/). Every other file (a standing scope's children, its
+    // a country's u/, the u/ a région's or a département's self is asked
+    // from ahead of its bundle). Every other file (a standing scope's children, its
     // neighbours, the world's outlines, the file of a scope since left) is
     // kept and stored when the map is still.
     const urgent = (key: string): boolean => {
       if (!filesActive() || !scopePending.value) return false;
       const s = currentScope.value;
       if (
-        s.levelKey === "country" &&
-        selfFileOf(files.rowOf(s.id)) === "u" &&
-        key === files.keyOf("u", s.id)
+        key === files.keyOf("u", s.id) &&
+        (files.selfAhead(s.id) ||
+          (s.levelKey === "country" && selfFileOf(files.rowOf(s.id)) === "u"))
       )
         return true;
       return bundlesFor(view, chainOf(s)).some((b) => files.keyOf("k", b) === key);
@@ -337,7 +338,10 @@ export function useMapFeed(inputs: MapFeedInputs) {
     // The scope's chain (rule 6): its bundles root first, each awaited — a
     // commune's row comes with its département's bundle, an arrondissement's
     // with its ville's. A newer scope runs its own chain: this one stops at
-    // its next step. A self due from the start is waited for OUTLINE_WAIT_MS.
+    // its next step. A self due from the start is waited for OUTLINE_WAIT_MS
+    // — or, with a coarser outline of the scope in memory to rise on, for
+    // what ac:outline-wait says (at 0: not at all, it rises on that one in
+    // this very flush).
     watch(
       () => currentScope.value.id,
       async (id, left) => {
@@ -345,7 +349,7 @@ export function useMapFeed(inputs: MapFeedInputs) {
         if (left) files.leaveSelf(left);
         if (!filesActive()) return;
         const scope = currentScope.value;
-        if (raisedOutlineDue(scope)) files.holdSelf(id);
+        if (raisedOutlineDue(scope)) files.holdSelf(id, !!raisedGeometryFor(scope));
         // A file of this scope's chain kept as text (it landed while the
         // scope was elsewhere) and now waited for: stored at once.
         files.flushDue();
@@ -355,9 +359,15 @@ export function useMapFeed(inputs: MapFeedInputs) {
             if (currentScope.value.id === id && selfFileOf(files.rowOf(id)) === "u")
               void files.ensureSelf(id);
           });
+        // A scope whose self is declared alone in a u/ (ac:region-self
+        // "first"): that file first, due — its plateau rises on it, or, risen
+        // on a coarser shape already (ac:outline-wait), is reshaped with it —
+        // and its chain's bundles then bring lines only.
+        const ahead = !files.selfOf(id) && files.selfAhead(id);
+        if (ahead) void files.ensureSelf(id);
         for (const b of bundlesFor(view, chainOf(scope))) {
           // Due while the scope's plateau waits (its fetch priority).
-          await files.ensureBundle(b, scopePending.value);
+          await files.ensureBundle(b, !ahead && scopePending.value);
           if (currentScope.value.id !== id) return;
         }
       },

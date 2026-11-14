@@ -9,7 +9,13 @@
 // (`abandoned` at its start or its end, or one landed meanwhile:
 // `abandonedDone`) goes on once, `extraMs` more; and if the unit is held out
 // after that, it is for this visit only (`session` false): the slowness was
-// not its file's. Pure: timers and reads injected (selfHold.test.ts).
+// not its file's.
+//
+// A wait can be shorter than `waitMs` (ac:outline-wait, the map's
+// coldTapSwitch: a coarser outline of the unit is in memory to rise on). It
+// then goes on by its own length when crossed. A wait of 0 holds the unit
+// out at once, in the caller's own task, and for this visit only: nothing
+// was found slow. Pure: timers and reads injected (selfHold.test.ts).
 
 export interface SelfHoldOptions {
   waitMs: number;
@@ -28,9 +34,15 @@ export interface SelfHoldOptions {
 
 export function createSelfHold(o: SelfHoldOptions) {
   const holding = new Set<string>();
-  /** Starts the unit's wait (one at a time per unit). */
-  function hold(id: string): void {
+  /** Starts the unit's wait (one at a time per unit), `waitMs` long (the
+   *  options' by default). */
+  function hold(id: string, waitMs = o.waitMs): void {
     if (holding.has(id)) return;
+    if (waitMs <= 0) {
+      if (!o.stored(id)) o.onHeldOut(id, false);
+      return;
+    }
+    const extraMs = waitMs === o.waitMs ? o.extraMs : waitMs;
     holding.add(id);
     const done0 = o.abandonedDone();
     let crossed = o.abandoned();
@@ -41,13 +53,13 @@ export function createSelfHold(o: SelfHoldOptions) {
       }
       crossed ||= o.abandoned() || o.abandonedDone() !== done0;
       if (crossed && !extended) {
-        o.setTimer(() => end(true), o.extraMs);
+        o.setTimer(() => end(true), extraMs);
         return;
       }
       holding.delete(id);
       o.onHeldOut(id, !crossed);
     };
-    o.setTimer(() => end(false), o.waitMs);
+    o.setTimer(() => end(false), waitMs);
   }
   return { hold, holding: (id: string) => holding.has(id) };
 }
