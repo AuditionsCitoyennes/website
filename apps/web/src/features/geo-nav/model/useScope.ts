@@ -31,11 +31,19 @@ export function useScope(inputs: ScopeInputs) {
   const keepsZone = () =>
     dragKeepsZone(scopeDragMode.value, window.matchMedia?.("(pointer: coarse)").matches ?? false);
   // The testing tools: the derivations, those that changed the scope, and
-  // those in which the hold kept the selected zone.
+  // those in which the hold kept the selected zone; the scope now and the
+  // view it was read off (a walk steers by them).
   const counts = { derivations: 0, changes: 0, held: 0 };
   if (perfOn) {
     perfProbe("scope-drag", {
-      read: () => ({ mode: scopeDragMode.value, keeps: keepsZone(), zone: hold.id(), ...counts }),
+      read: () => ({
+        mode: scopeDragMode.value,
+        keeps: keepsZone(),
+        zone: hold.id(),
+        scope: currentScope.value.id,
+        view: mapView.value ? { ...mapView.value.bounds, zoom: mapView.value.zoom } : null,
+        ...counts,
+      }),
       reset: () => {
         counts.derivations = counts.changes = counts.held = 0;
       },
