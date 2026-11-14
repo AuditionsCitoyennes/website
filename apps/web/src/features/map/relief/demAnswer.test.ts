@@ -292,6 +292,42 @@ test("records: a held key survives the 40-entry LRU, an unheld one is evicted", 
   const last = r.sets().at(-1) as Extract<DemJob, { t: "set" }>;
   assert.deepEqual(last.pins, [first]);
   r.a.releaseSlot("a");
+  // No sizes given: a set carries none, the worker keeps its own bounds.
+  assert.ok(!("caps" in last));
+});
+
+test("caps: the sizes of the moment bound the records and the tile answers, and go with each set", async () => {
+  const caps = { records: 2, tiles: 2, versions: 12, vertices: 250_000 };
+  const r = rig({ caps: () => caps });
+  const first = await registered(r, [rect(0, 0, 0.5, 0.5)]);
+  const second = await registered(r, [rect(1, 0, 1.5, 0.5)]);
+  r.a.holdSlot("a", first);
+  const third = await registered(r, [rect(2, 0, 2.5, 0.5)]);
+  // Two records: the held one and the newest; the unheld older one went.
+  assert.equal(await answered(r, url(first, 0, 0, 0)), `w:${first}/0/0/0`);
+  assert.equal(await answered(r, url(third, 0, 0, 0)), `w:${third}/0/0/0`);
+  assert.equal(await answered(r, url(second, 0, 0, 0)), "G");
+  assert.equal(r.a.stats()!.orphan, 1);
+  for (const m of r.sets()) {
+    assert.deepEqual((m as Extract<DemJob, { t: "set" }>).caps, {
+      versions: 12,
+      vertices: 250_000,
+    });
+  }
+  // Two tile answers kept: a third one pushes the oldest out, which is rendered again.
+  assert.equal(r.a.cacheSize(), 2);
+  const before = r.tiles().length;
+  await answered(r, url(first, 1, 1, 0));
+  assert.equal(r.a.cacheSize(), 2);
+  await answered(r, url(first, 0, 0, 0));
+  assert.equal(r.tiles().length, before + 2);
+  // The sizes are read at each use: a larger one from now on.
+  caps.records = 40;
+  caps.versions = 40;
+  await registered(r, [rect(3, 0, 3.5, 0.5)]);
+  const last = r.sets().at(-1) as Extract<DemJob, { t: "set" }>;
+  assert.deepEqual(last.caps, { versions: 40, vertices: 250_000 });
+  r.a.releaseSlot("a");
 });
 
 test("stats off: no counters", async () => {

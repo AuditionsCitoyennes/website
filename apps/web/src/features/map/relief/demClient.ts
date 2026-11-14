@@ -31,6 +31,7 @@ import type { DemSelection } from "./demRaster";
 import { FrameBudget } from "./demTiles";
 import type { DemJob, DemReply } from "./demWorkerCore";
 import { reliefBudget, reliefBudgetGround, reliefCommitHold, reliefDelay } from "./reliefSwitch";
+import { cacheBudgetNow } from "../cacheBudget";
 
 type Raster = typeof import("./demRaster");
 
@@ -58,6 +59,8 @@ export interface ReliefClientDeps {
   groundFree?: boolean;
   delayMs?: number;
   stats?: boolean;
+  /** The sizes in force now (demAnswer.ts `caps`); absent: the modules' own. */
+  caps?(): { records: number; tiles: number; versions: number; vertices: number };
   /** Both renderers failed a tile: called once. */
   onLost(): void;
 }
@@ -170,6 +173,7 @@ export function createReliefClient(deps: ReliefClientDeps) {
     groundFree: deps.groundFree,
     delayMs: deps.delayMs,
     stats: deps.stats,
+    caps: deps.caps,
     onClientLost() {
       if (lost) return;
       lost = true;
@@ -212,6 +216,17 @@ const relief = createReliefClient({
   groundFree: reliefBudgetGround === "exempt",
   delayMs: reliefDelay,
   stats: __TEST_TOOLS__,
+  // What the page and the worker keep of the selections already raised: less
+  // on a weak device (../cacheBudget.ts), read at each use.
+  caps() {
+    const b = cacheBudgetNow();
+    return {
+      records: b.reliefRecords,
+      tiles: b.reliefTiles,
+      versions: b.reliefVersions,
+      vertices: b.reliefVertices,
+    };
+  },
   onLost() {
     if (import.meta.env.DEV) console.warn("[relief] client lost: no plateau from now on");
     // Out of the answer's chain: the plateau standing again, which now takes

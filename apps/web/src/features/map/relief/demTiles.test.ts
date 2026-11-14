@@ -82,6 +82,26 @@ test("TileCache: same promise back, a hit refreshes recency, eviction at the cap
   assert.equal(big.get("k0"), undefined);
 });
 
+test("TileCache: a size read at each set, and a smaller one brings the cache down to it", () => {
+  let max = 4;
+  const c = new TileCache(() => max);
+  const p = Promise.resolve("p");
+  for (const k of ["a", "b", "c", "d", "e"]) c.set(k, p);
+  assert.equal(c.size, 4);
+  assert.equal(c.get("a"), undefined);
+  max = 2; // the device's tier fell meanwhile
+  c.set("f", p);
+  assert.equal(c.size, 2);
+  assert.equal(c.get("e"), p);
+  assert.equal(c.get("f"), p);
+  assert.equal(c.get("d"), undefined);
+  // Never below the entry just set.
+  max = 0;
+  c.set("g", p);
+  assert.equal(c.size, 1);
+  assert.equal(c.get("g"), p);
+});
+
 function fakeScheduler() {
   const frames = new Map<number, () => void>();
   const timers = new Map<number, () => void>();

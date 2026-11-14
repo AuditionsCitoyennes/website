@@ -61,11 +61,13 @@ export function fnv1a64(s: string): string {
 /**
  * The answers by `key/z/x/y`, the promise itself (a request arriving while the
  * first is still rendering shares it). LRU: a hit refreshes recency. The a/b
- * slots and a repeated ensurePlateau of one selection share it.
+ * slots and a repeated ensurePlateau of one selection share it. `max`: how
+ * many it keeps, a number or what says it now (a weak device keeps fewer:
+ * ../cacheBudget.ts).
  */
 export class TileCache {
   private readonly map = new Map<string, Promise<string>>();
-  constructor(private readonly max = 2000) {}
+  constructor(private readonly max: number | (() => number) = 2000) {}
   get size(): number {
     return this.map.size;
   }
@@ -80,7 +82,10 @@ export class TileCache {
   set(k: string, p: Promise<string>): void {
     this.map.delete(k);
     this.map.set(k, p);
-    if (this.map.size > this.max) this.map.delete(this.map.keys().next().value as string);
+    // Down to the size of the moment (it can have shrunk): oldest first,
+    // never the one just set.
+    const max = Math.max(1, typeof this.max === "number" ? this.max : this.max());
+    while (this.map.size > max) this.map.delete(this.map.keys().next().value as string);
   }
   /** With `only`, deletes the entry only while it is still that promise. */
   delete(k: string, only?: Promise<string>): void {

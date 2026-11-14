@@ -1,5 +1,6 @@
 import mapboxgl from "mapbox-gl";
 import { DEFAULT_LID_CHECK, type LidCheck, type LidMode } from "./lidSwitch";
+import { cameraOver } from "./lidMapSwitch";
 import {
   settleAndGrab,
   settleAndGrabPixels,
@@ -84,9 +85,17 @@ function tierForScreen(): LidTier {
 // Not right after a shot: a select's refine follows it within seconds, and
 // parked in between it paid the resize and the re-render back (phones: ~1 s
 // more to the lid). LID_PARK_DELAY_MS without a new shot, then it parks.
+// A hidden map warmed up on its first place (lidMapSwitch.ts "first-place")
+// is created at its first shot's size instead, on that shot's rectangle: the
+// tiles and the frame it prepares are the first lid's. It waits for that shot
+// up to WARM_PARK_DELAY_MS (a slow boot's first selection comes long after
+// the load), then parks like any other.
 const WARM_PX = 512;
 const PARK_CSS = 64;
 const LID_PARK_DELAY_MS = 6000;
+const WARM_PARK_DELAY_MS = 30000;
+/** The margin around a shot's rectangle, css px of the hidden map. */
+const SHOT_PADDING = 8;
 
 export class SnapshotManager {
   private map: mapboxgl.Map | null = null;
@@ -110,11 +119,21 @@ export class SnapshotManager {
   };
   readbacks = 0;
 
+  /** What created the hidden map, for diagnostics: the load's warm-up on the
+   *  world ("boot") or on the first place ("place"), or a shot ("shot"). */
+  createdBy: "boot" | "place" | "shot" | null = null;
+  /** Hidden maps created by this manager so far (each one is a Mapbox map). */
+  created = 0;
+
   /** `mode`: "ecran" sizes from the screen and parks; "ancien" is the lid as before.
-   *  `check`: how a shot is judged before it is returned (lidSwitch.ts). */
+   *  `check`: how a shot is judged before it is returned (lidSwitch.ts).
+   *  `tileCache`: the most tiles the hidden map keeps per source once they
+   *  leave its view, read when it is created (../cacheBudget.ts); null:
+   *  Mapbox's own sizing. */
   constructor(
     private readonly mode: LidMode = "ecran",
     private readonly check: LidCheck = DEFAULT_LID_CHECK,
+    private readonly tileCache: () => number | null = () => null,
   ) {}
 
   /**
@@ -133,12 +152,23 @@ export class SnapshotManager {
     return shotPixels(wantPx, hardMax, tier, SNAP_PX_FLOOR, screenPerMapPixel());
   }
 
-  private ensureMap(style: string, px: number): mapboxgl.Map {
+  /** The hidden map, created if there is none: on `place` when one is given
+   *  (the camera a shot of that rectangle takes), else on Mapbox's default
+   *  view. `by`: who asks, kept for diagnostics. */
+  private ensureMap(
+    style: string,
+    px: number,
+    place: SnapshotBounds | null,
+    by: "boot" | "place" | "shot",
+  ): mapboxgl.Map {
     if (this.map) {
       this.resizeTo(px);
       return this.map;
     }
     this.px = px;
+    this.createdBy = by;
+    this.created++;
+    const tiles = this.tileCache();
     const cssPx = Math.round(px / (window.devicePixelRatio || 1));
     const el = document.createElement("div");
     el.style.cssText = `position:fixed;left:-10000px;top:0;width:${cssPx}px;height:${cssPx}px;`;
@@ -159,6 +189,14 @@ export class SnapshotManager {
       projection: "mercator",
       // The main map's labels (ac:glyphs): the picture shows the letters the map shows.
       ...labelGlyphOptions(),
+      // Created on its first shot's rectangle: the tiles it asks for from its
+      // first frame are that shot's, not the world's. As a centre and a zoom
+      // (lidMapSwitch.ts cameraOver), not as `bounds` with a padding: Mapbox
+      // would keep that padding as the map's, and `getBounds()`, which a
+      // shot reads as what its picture covers, would answer the padded part.
+      ...(place ? cameraOver(place, cssPx, SHOT_PADDING) : {}),
+      // A weak device keeps fewer of the tiles its past shots used.
+      ...(tiles !== null ? { maxTileCacheSize: tiles } : {}),
     });
     map.on("load", () => {
       this.loaded = true;
@@ -209,14 +247,36 @@ export class SnapshotManager {
   }
 
   /** Create the hidden map ahead of time (style + workers warm), so the first
-   *  real capture doesn't pay initialisation. */
-  warmup(style: string) {
-    this.ensureMap(
-      style,
-      this.mode === "ancien"
-        ? this.budget(SNAP_PX_FLOOR, SNAP_PX_CEIL)
-        : Math.round(WARM_PX / screenPerMapPixel()),
-    );
+   *  real capture doesn't pay initialisation. With a `place` ("ecran" only):
+   *  created on that rectangle at `px`, the size of the shot expected first,
+   *  so that shot's tiles and frame are being made ready too. */
+  warmup(style: string, place: SnapshotBounds | null = null, px = 0) {
+    if (this.map) return;
+    if (!place || this.mode === "ancien" || px <= 0) {
+      this.ensureMap(
+        style,
+        this.mode === "ancien"
+          ? this.budget(SNAP_PX_FLOOR, SNAP_PX_CEIL)
+          : Math.round(WARM_PX / screenPerMapPixel()),
+        null,
+        "boot",
+      );
+      return;
+    }
+    this.ensureMap(style, px, place, "place");
+    // No shot may come for it (a visit that never selects): its drawing
+    // buffer is given back as after a shot, only later.
+    const seq = this.seq;
+    this.cancelPark();
+    this.parkTimer = setTimeout(() => {
+      if (seq === this.seq && !this.shooting) this.park();
+      else this.parkTimer = null;
+    }, WARM_PARK_DELAY_MS);
+  }
+
+  /** Whether the hidden map exists. */
+  has(): boolean {
+    return !!this.map;
   }
 
   /** The hidden map's drawing-buffer width (device px) — for diagnostics. */
@@ -270,9 +330,13 @@ export class SnapshotManager {
     wantPx: number,
     hardMax: number,
   ): Promise<Snapshot | null> {
-    const map = this.ensureMap(style, this.budget(wantPx, hardMax));
+    // No hidden map yet (no place was known at the load, lidMapSwitch.ts):
+    // created here, on this shot's rectangle.
+    const map = this.ensureMap(style, this.budget(wantPx, hardMax), bounds, "shot");
     // Wait for the style (first capture only; later ones resolve immediately).
-    await this.until(() => this.loaded, 15000);
+    // A shot superseded meanwhile (a newer one, or the hidden map removed)
+    // stops waiting at once.
+    await this.until(() => this.loaded || seq !== this.seq, 15000);
     if (seq !== this.seq || !this.map) return null;
     map.jumpTo(
       map.cameraForBounds(
@@ -280,9 +344,12 @@ export class SnapshotManager {
           [bounds.minLng, bounds.minLat],
           [bounds.maxLng, bounds.maxLat],
         ],
-        { padding: 8 },
+        { padding: SHOT_PADDING },
       ) as mapboxgl.CameraOptions,
     );
+    // A frame after the jump even when the camera did not move (the hidden
+    // map was created on this very rectangle): the shot is judged on one.
+    map.triggerRepaint();
     const at = { renders: this.sig.renders, errors: this.sig.errors };
     // Let tiles + outline settle. `idle` can be flaky right after jumpTo — poll
     // loaded() with a hard timeout instead of trusting a single event, then the
@@ -381,6 +448,8 @@ export class SnapshotManager {
     this.container?.remove();
     this.container = null;
     this.loaded = false;
+    this.px = 0;
+    this.createdBy = null;
     // A new hidden map counts from 0.
     Object.assign(this.sig, { renders: 0, clearedAt: 0, lost: false, errors: 0 });
   }
