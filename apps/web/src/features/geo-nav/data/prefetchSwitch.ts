@@ -5,9 +5,9 @@
 // DEV dialog's "Contours d'avance" row:
 //
 // - "idle" (the default): on a screen no pointer hovers, once the first
-//   plateau and its lid have landed and the map is at rest, the files of the
-//   one or two units under it that hold the most testimonies are asked ahead
-//   (data/idlePrefetch.ts, GeoNav).
+//   plateau and its lid have landed and the map is at rest, the one or two
+//   units under it that hold the most testimonies have the file their plateau
+//   would wait for asked ahead (data/idlePrefetch.ts, GeoNav).
 // - "off": nothing is asked ahead on a touch screen, as before.
 //
 // A mouse's row hover asks ahead either way (data/hoverPrefetch.ts).
