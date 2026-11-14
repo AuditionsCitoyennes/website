@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   HERO_GROUND,
+  afterCharset,
   HOME_SHELL_CLASS,
   homeBootScript,
   homePreloadFiles,
@@ -246,4 +247,24 @@ test("the home page's files are its chunk's closure beyond the entry's", () => {
     js: ["/HomePage.js", "/answers.js"],
     css: ["/HomePage.css"],
   });
+});
+
+test("a build without the testing tools carries no photograph links (dead code there)", () => {
+  assert.doesNotMatch(script(false), /imagesrcset|preconnect|images\.unsplash/);
+  assert.match(script(true), /imagesrcset/);
+});
+
+test("the script goes right after <meta charset>, which stays in the first 1024 bytes", () => {
+  const html =
+    '<!doctype html>\n<html lang="fr">\n  <head>\n    <meta charset="UTF-8" />\n' +
+    '    <link rel="stylesheet" href="/a.css">\n  </head>\n</html>';
+  const out = afterCharset(html, script(true));
+  const charsetAt = out.indexOf("<meta charset");
+  assert.ok(charsetAt >= 0 && charsetAt < 1024);
+  assert.ok(out.indexOf("<script>") > charsetAt);
+  assert.ok(out.indexOf("<script>") < out.indexOf("<link"));
+  assert.ok(out.includes(`<script>${script(true)}</script>`));
+  // No charset: the script still lands first in <head>.
+  const bare = afterCharset("<html><head><title>x</title></head></html>", "S");
+  assert.equal(bare, "<html><head><script>S</script><title>x</title></head></html>");
 });
