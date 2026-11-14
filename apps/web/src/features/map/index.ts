@@ -64,3 +64,8 @@ export { reliefGround, setReliefGround, type ReliefGround } from "./relief/groun
 export { msaaChoice, setMsaaChoice, type MsaaChoice } from "./graphicsSwitch";
 export { dprChoice, setDprChoice, type DprChoice } from "./graphicsSwitch";
 export { frameMeasure, setFrameMeasure, type FrameMeasure } from "./graphicsSwitch";
+// Where the map's work runs during a selection, on the page's thread or off it: their DEV switches (the Témoignages page draws them).
+export { linesMesh, setLinesMesh, type LinesMesh } from "./threadSwitch";
+export { globeLate, setGlobeLate, type GlobeLate } from "./threadSwitch";
+export { tintCut, setTintCut, type TintCut } from "./threadSwitch";
+export { pinsRebuild, setPinsRebuild, type PinsRebuild } from "./threadSwitch";

@@ -13,7 +13,13 @@ import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { OutlineFC } from "../types";
 import { nextOutlineUpload } from "../lib/outlineUpload";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
-import { MASK_OPACITY, ScopeTintLayer, sameGeoms, type MaskGeom } from "../gl/ScopeTintLayer";
+import {
+  MASK_OPACITY,
+  ScopeTintLayer,
+  sameGeoms,
+  type MaskGeom,
+  type TintCutter,
+} from "../gl/ScopeTintLayer";
 
 export interface ScopeMaskInputs {
   getMap: () => mapboxgl.Map | null;
@@ -177,24 +183,40 @@ export function useScopeMask({
     } as unknown as GeoJSON.FeatureCollection;
   }
 
+  /** The geometries the grey is cut around: the raised unit's (multi)polygons. */
+  function scopeGeoms(features: OutlineFC["features"]): MaskGeom[] {
+    const geoms: MaskGeom[] = [];
+    for (const f of features) {
+      if (f.properties?.kind !== "scope") continue;
+      const g = f.geometry as MaskGeom | undefined;
+      if (g?.type === "Polygon" || g?.type === "MultiPolygon") geoms.push(g);
+    }
+    return geoms;
+  }
+
+  /** ac:tint-cut: a plateau is about to stand for these features —
+   *  the flat view's grey around them is asked of the worker now, so the
+   *  applyMask that follows its mesh lays it in that same block. */
+  function prepareMask(features: OutlineFC["features"]) {
+    scopeTint.prepare(scopeGeoms(features));
+  }
+
   /**
    * Grey outside the plateau, cut around the current selection.
    *
    * Keyed on `plateauActive` (and held as-is while the next scope's boundary is
    * still loading). The hole is what keeps the selection clear, so this needs
    * nothing from the lid: in the flat view the sheet is re-cut right here,
-   * synchronously, and clicking a zone colours it in that frame.
+   * synchronously, and clicking a zone colours it in that frame — or, with
+   * ac:tint-cut (../threadSwitch.ts), it is cut by the mesh worker
+   * and laid when it answers, a frame or two after the click.
    */
   function applyMask() {
     const src = getMap()?.getSource(MASK_SOURCE) as mapboxgl.GeoJSONSource | undefined;
     if (!src) return;
-    const geoms: MaskGeom[] = [];
+    let geoms: MaskGeom[] = [];
     if (plateauActive()) {
-      for (const f of outline()?.features ?? []) {
-        if (f.properties?.kind !== "scope") continue;
-        const g = f.geometry as MaskGeom | undefined;
-        if (g?.type === "Polygon" || g?.type === "MultiPolygon") geoms.push(g);
-      }
+      geoms = scopeGeoms(outline()?.features ?? []);
       // The new scope's boundary is still loading: ensurePlateau keeps the old
       // plateau standing meanwhile, so keep the grey that is up too (normally cut
       // around that plateau). Clearing it here would flash the whole map in full
@@ -354,6 +376,12 @@ export function useScopeMask({
     // The flat view's grey (see ScopeTintLayer). Same anchoring as the draped
     // sheet: the slot on a Standard style, `beforeId` on a classic one.
     scopeTint.onRegimeChange = syncDrapedMask;
+    // The perf probes: a sheet the worker cut is laid — the late end of
+    // "scope change → mask updated" (applyMask's pass could not end it).
+    if (perfOn) {
+      scopeTint.onLaid = () =>
+        perfEnd("scope-mask", undefined, { holes: drapedGeoms.length, via: "worker" });
+    }
     map.addLayer(scopeTint, firstSymbol);
     // The plateau's violet wall: our custom WebGL layer (see PlateauWallLayer) —
     // exact quads on the vector boundary, depth-tested against the terrain.
@@ -398,6 +426,11 @@ export function useScopeMask({
     setupLayers,
     applyOutline,
     applyMask,
+    prepareMask,
+    /** ac:tint-cut: who cuts the flat view's grey off the page (null: nobody). */
+    setTintCutter: (c: TintCutter | null) => scopeTint.setCutter(c),
+    /** The testing tools' fingerprint of the grey sheet laid (`__acTintHash`). */
+    tintDigest: () => scopeTint.digest(),
     syncDrapedMask,
     /** Whether the style renders a globe at all (decided once it has loaded). */
     isGlobeStyle: () => globeStyle,

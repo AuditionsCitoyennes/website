@@ -9,6 +9,10 @@
 // Over flat ground (plateau/lift.ts) the pins of the raised unit stand at the
 // lid's height and a pointer over the lid reads the lid: on raised ground
 // mapbox's terrain does both.
+// When the units to plot change, the markers and the hit rings are brought in
+// line after the frame that follows (`unitsChanged`, ac:pins-rebuild), not in
+// the act's own task; until then the pins and the click targets are the
+// previous units'.
 
 import mapboxgl from "mapbox-gl";
 import { lngNear, type Bounds } from "@/features/geo";
@@ -23,8 +27,10 @@ import {
   type InteriorHit,
 } from "../lib/polygon";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
+import { createAfterFrame } from "../lib/afterFrame";
 import { canvasHoverGate } from "../lib/canvasHover";
 import { altitudeAt, pointerLngLat, type PlateauLift } from "../plateau/lift";
+import { pinsRebuild } from "../threadSwitch";
 import type { MapUnit } from "../types";
 import type { useSlabOcclusion } from "./useSlabOcclusion";
 
@@ -150,6 +156,7 @@ export function useMapPins({
   }
 
   function clearMarkers() {
+    rebuildLater.cancel();
     heldPin?.marker.remove();
     heldPin = null;
     pendingPinId = "";
@@ -175,7 +182,25 @@ export function useMapPins({
     return hit;
   }
 
+  // ac:pins-rebuild (../threadSwitch.ts): the rebuild a change of the units
+  // asked for, waiting for the frame that follows the act to be drawn.
+  const rebuildLater = createAfterFrame();
+
+  /** The units to plot changed (the `units` watcher). "next": the markers are
+   *  rebuilt after the next frame, so the act's task and its frame do not
+   *  carry it — several changes before then make one rebuild, from the units
+   *  of that moment. "now": rebuilt here, in the act. */
+  function unitsChanged() {
+    if (pinsRebuild.value === "now" || !getMap()) {
+      buildMarkers();
+      return;
+    }
+    rebuildLater.schedule(buildMarkers);
+  }
+
   function buildMarkers() {
+    // The rebuild waiting, if any, is this one.
+    rebuildLater.cancel();
     const map = getMap();
     if (!map) return;
     const end = perfOn ? perfSpan("pins.buildMarkers") : null;
@@ -726,12 +751,15 @@ export function useMapPins({
 
   /** Unmount: the pending frames. */
   function dispose() {
+    rebuildLater.cancel();
     if (stickyRaf) cancelAnimationFrame(stickyRaf);
     if (hoverRaf) cancelAnimationFrame(hoverRaf);
   }
 
   return {
     buildMarkers,
+    /** The units to plot changed: the markers rebuilt, now or after the next frame. */
+    unitsChanged,
     /** Every marker gone (unmount, the map declared unavailable). */
     clear: clearMarkers,
     applyActivePin,

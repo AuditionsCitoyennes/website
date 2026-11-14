@@ -29,11 +29,27 @@
 //   a busy page left queued get their turn) end the worker for the
 //   session: every pending request is built here, the worker is terminated,
 //   its late replies ignored, and every later build runs here at once.
+// - The grey sheet (ac:tint-cut, gl/tintSheet.ts). `cutTint()` asks the
+//   worker for the flat view's grey cut around a selection: its geometries
+//   travel under the same tokens as a build's, pinned while it is in flight
+//   and watched by the same watchdog. It supersedes the cuts before it and
+//   no build, and no build supersedes it. It never rejects and is never cut
+//   here: it resolves null — superseded, a second miss, the worker lost,
+//   disposed — and the caller cuts the sheet itself if it still wants it.
 
 import type { OutlineFC } from "../types";
 import type { MeshOut } from "./meshBuild";
-import type { MeshMessage, MeshPut, MeshReply, MeshRequest, MeshSet, MeshWant } from "./meshCore";
+import type {
+  MeshMessage,
+  MeshPut,
+  MeshReply,
+  MeshRequest,
+  MeshSet,
+  MeshWant,
+  TintRequest,
+} from "./meshCore";
 import { flatBuffers, flatVertices, flatten, type Geom } from "./meshFlat";
+import type { TintSheet } from "./tintSheet";
 
 /** The vertices the worker may hold before the page releases some. */
 export const MESH_TOKEN_CAP_VERTICES = 300_000;
@@ -60,6 +76,9 @@ export interface MeshResult {
   tokens: readonly number[];
 }
 
+/** A grey sheet the worker cut; `ms` the cut's own time. */
+export type TintResult = TintSheet & { ms: number };
+
 /** What the client needs of a worker. */
 export interface MeshTransport {
   post(msg: MeshMessage, transfer: Transferable[]): void;
@@ -79,9 +98,10 @@ export interface MeshClientDeps {
   capVertices?: () => number;
   /** The testing tools' worker knobs, read at every request. */
   knobs?: () => Pick<MeshRequest, "delayMs" | "slow" | "fail">;
-  /** Probes: a reply's round trip (request posted → reply received, here)
-   *  and the build's own time (the worker's). */
+  /** Probes: a reply's round trip (request posted → reply received, here),
+   *  the build's own time (the worker's), and a grey sheet's round trip. */
   trace?: {
+    tintRoundTrip?(ms: number, detail: { puts: number; cloneMs: number }): void;
     roundTrip?(
       ms: number,
       detail: { scope: string; first: boolean; puts: number; cloneMs: number },
@@ -111,6 +131,20 @@ type Pending = {
   promise: Promise<MeshResult | null>;
 };
 
+/** A grey sheet's cut in flight. */
+type PendingTint = {
+  id: number;
+  geoms: readonly Geom[];
+  tokens: number[];
+  superseded: boolean;
+  resent: boolean;
+  puts: number;
+  cloneMs: number;
+  postedAt: number;
+  cancelWatch: (() => void) | null;
+  resolve: (r: TintResult | null) => void;
+};
+
 function metaOf(f: Features[number]) {
   const g = f.geometry as Geom | null | undefined;
   return {
@@ -132,6 +166,7 @@ export function createMeshClient(deps: MeshClientDeps) {
   let nextToken = 1;
   let nextId = 1;
   const pending = new Map<number, Pending>();
+  const tints = new Map<number, PendingTint>();
   const inflight = new Map<string, Pending>();
   let lastApplied: readonly number[] = [];
   // Resolved with a mesh, not applied (yet): dropped once a later one is.
@@ -148,6 +183,8 @@ export function createMeshClient(deps: MeshClientDeps) {
     evicted: 0,
     roundTripMax: 0,
     fallbacks: 0,
+    tints: 0,
+    tintsCut: 0,
   });
   let n = zero();
 
@@ -202,6 +239,7 @@ export function createMeshClient(deps: MeshClientDeps) {
   function pinned(extra: Iterable<number>) {
     const out = new Set<number>(lastApplied);
     for (const p of pending.values()) for (const t of p.tokens) out.add(t);
+    for (const p of tints.values()) for (const t of p.tokens) out.add(t);
     for (const t of extra) out.add(t);
     return out;
   }
@@ -301,7 +339,7 @@ export function createMeshClient(deps: MeshClientDeps) {
     watch(p);
   }
 
-  function watch(p: Pending) {
+  function watch(p: Pending | PendingTint) {
     p.cancelWatch?.();
     p.cancelWatch = deps.schedule(() => {
       // Due, maybe late on a busy page: one more task first.
@@ -313,8 +351,11 @@ export function createMeshClient(deps: MeshClientDeps) {
     if (disposed || mode !== "worker") return;
     // The worker lives: the requests queued behind this one get their full time.
     for (const q of pending.values()) if (q.id !== m.id) watch(q);
+    for (const q of tints.values()) if (q.id !== m.id) watch(q);
+    const tint = tints.get(m.id);
+    if (tint) return onTintReply(tint, m);
     const p = pending.get(m.id);
-    if (!p) return;
+    if (!p || m.t === "tint") return;
     if (m.t === "error") return fail("error");
     if (m.t === "skipped") {
       settle(p);
@@ -351,6 +392,95 @@ export function createMeshClient(deps: MeshClientDeps) {
     p.resolve({ mesh: m.mesh, via: "worker", ms: m.ms, id: p.id, tokens: p.tokens });
   }
 
+  /** `p` posted (again, after a miss: its geometries under new tokens). */
+  function sendTint(p: PendingTint) {
+    const t0 = deps.now();
+    const alloc = { puts: [] as MeshPut[], used: new Set<number>() };
+    const features = p.geoms.map((geometry) => ({ type: "Feature", properties: {}, geometry }));
+    let scope: MeshSet;
+    try {
+      scope = setOf(features as unknown as Features, alloc)!;
+    } catch {
+      // A geometry the flattening cannot read: nothing posted.
+      forget(alloc.puts.map((x) => x.token));
+      settleTint(p);
+      return p.resolve(null);
+    }
+    p.tokens = [...alloc.used];
+    evict(alloc.used);
+    const knobs = deps.knobs?.();
+    const req: TintRequest = {
+      t: "tint",
+      id: p.id,
+      scope,
+      puts: alloc.puts,
+      delayMs: knobs?.delayMs,
+      fail: knobs?.fail,
+    };
+    try {
+      transport!.post(
+        req,
+        alloc.puts.flatMap((x) => flatBuffers(x.flat)),
+      );
+    } catch {
+      fail("post");
+      return;
+    }
+    p.puts = alloc.puts.length;
+    p.postedAt = deps.now();
+    p.cloneMs = p.postedAt - t0;
+    watch(p);
+  }
+
+  function settleTint(p: PendingTint) {
+    p.cancelWatch?.();
+    p.cancelWatch = null;
+    tints.delete(p.id);
+  }
+
+  function onTintReply(p: PendingTint, m: MeshReply) {
+    if (m.t === "error") return fail("error");
+    if (m.t === "missing") {
+      n.misses++;
+      forget(m.tokens);
+      if (!p.superseded && !p.resent) {
+        p.resent = true;
+        n.resends++;
+        return sendTint(p);
+      }
+    }
+    settleTint(p);
+    if (m.t !== "tint") return p.resolve(null);
+    n.tintsCut++;
+    deps.trace?.tintRoundTrip?.(deps.now() - p.postedAt, { puts: p.puts, cloneMs: p.cloneMs });
+    p.resolve({ positions: m.positions, origin: m.origin, ms: m.ms });
+  }
+
+  /** The grey sheet around `geoms`, asked of the worker. */
+  function requestTint(geoms: readonly Geom[]): Promise<TintResult | null> {
+    if (disposed || mode === "main") return Promise.resolve(null);
+    // The cuts before it are another selection's.
+    for (const q of tints.values()) q.superseded = true;
+    let resolve!: (r: TintResult | null) => void;
+    const promise = new Promise<TintResult | null>((r) => (resolve = r));
+    const p: PendingTint = {
+      id: nextId++,
+      geoms,
+      tokens: [],
+      superseded: false,
+      resent: false,
+      puts: 0,
+      cloneMs: 0,
+      postedAt: 0,
+      cancelWatch: null,
+      resolve,
+    };
+    tints.set(p.id, p);
+    n.tints++;
+    sendTint(p);
+    return promise;
+  }
+
   /** The worker lost for the session: every pending request built here. */
   function fail(why: string) {
     if (disposed || mode !== "worker") return;
@@ -368,6 +498,11 @@ export function createMeshClient(deps: MeshClientDeps) {
     live.clear();
     liveVertices = 0;
     tokenOf = new WeakMap();
+    // The cuts in flight first: their callers cut here, at once.
+    for (const p of [...tints.values()]) {
+      settleTint(p);
+      p.resolve(null);
+    }
     for (const p of list) {
       p.cancelWatch?.();
       p.resolve(p.superseded ? null : onMain(p.inputs, p.want, p.globe, p.id));
@@ -387,7 +522,7 @@ export function createMeshClient(deps: MeshClientDeps) {
       }
     }
     // A new build: whatever is pending is an older run's (a globe follow-up
-    // supersedes nothing).
+    // supersedes nothing; the grey's cuts are not builds).
     if (!globe) {
       for (const q of pending.values()) {
         q.superseded = true;
@@ -425,6 +560,9 @@ export function createMeshClient(deps: MeshClientDeps) {
     build: (inputs: MeshInputs, want: MeshWant) => request(inputs, want, false),
     /** The globe set alone of a mesh already applied (its deferred pass). */
     buildGlobe: (inputs: MeshInputs) => request(inputs, { merc: false, globe: true }, true),
+    /** The flat view's grey sheet cut around `geoms`. Never rejects; null:
+     *  no sheet from the worker (the caller cuts it). */
+    cutTint: (geoms: readonly Geom[]) => requestTint(geoms),
     /** `r` is drawn: its tokens stay pinned until the next one is. */
     applied(r: MeshResult) {
       n.applied++;
@@ -449,6 +587,10 @@ export function createMeshClient(deps: MeshClientDeps) {
       transport = null;
       for (const p of pending.values()) {
         p.cancelWatch?.();
+        p.resolve(null);
+      }
+      for (const p of [...tints.values()]) {
+        settleTint(p);
         p.resolve(null);
       }
       pending.clear();

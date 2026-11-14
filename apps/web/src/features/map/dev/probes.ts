@@ -5,7 +5,8 @@
 // low-detail" needs a way to read the live state from the console) and
 // `__acFrame` (the frame bus, DEV). Testing tools only (__TEST_TOOLS__): the
 // map's idleness check, `__acPerf.rendersIn(ms)`, the plateau mesh's
-// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest), the two
+// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest), the grey
+// sheet's, `__acTintHash()` (ScopeTintLayer.digest), the two
 // motion counters of `__acPerf.dump().probes` (motionProbes.ts:
 // `motion-mutations`, `plateau-runs`), and the still-map scheduler's state:
 // `__acPerf.busy()` (what keeps the map from being still now) and
@@ -27,6 +28,7 @@ type Probes = {
   __acFrame?: () => unknown;
   __acPerf?: Record<string, unknown>;
   __acMeshHash?: (opts?: { globe?: boolean }) => unknown;
+  __acTintHash?: () => unknown;
 };
 
 /** Idleness check: request one repaint, then count the map's `render` events over
@@ -86,6 +88,8 @@ export interface ProbeSources {
   meshDigest: ((opts?: { globe?: boolean }) => unknown) | null;
   /** The tapped unit's pending mark as the layer holds it (null: none). */
   pendingMark: () => unknown;
+  /** The flat view's grey sheet's fingerprint (testing tools; null without them). */
+  tintDigest?: (() => unknown) | null;
 }
 
 /** Install the probes; returns what unmount calls (the frame and idleness probes are removed,
@@ -98,6 +102,7 @@ export function installProbes({
   slabs,
   meshDigest,
   pendingMark,
+  tintDigest,
 }: ProbeSources): () => void {
   const w = window as unknown as Probes;
   const map = getMap();
@@ -127,6 +132,7 @@ export function installProbes({
     w.__acPerf.whenStill = whenStill;
   }
   if (__TEST_TOOLS__ && meshDigest) w.__acMeshHash = meshDigest;
+  if (__TEST_TOOLS__ && tintDigest) w.__acTintHash = tintDigest;
   // The map's mutators wrapped and counted while the map moves (testing tools).
   const uninstallMotion = __TEST_TOOLS__ && map ? installMotionProbes(map) : null;
   return () => {
@@ -137,6 +143,7 @@ export function installProbes({
       delete w.__acPerf.whenStill;
     }
     if (__TEST_TOOLS__ && meshDigest && w.__acMeshHash === meshDigest) delete w.__acMeshHash;
+    if (__TEST_TOOLS__ && tintDigest && w.__acTintHash === tintDigest) delete w.__acTintHash;
     if (uninstallMotion) uninstallMotion();
   };
 }

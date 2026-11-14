@@ -3,7 +3,8 @@
 // same builder (meshBuild.ts) as its fallback here. One per map: created with
 // the map object (or at its load: ac:boot-workers, bootWorkersSwitch.ts), so
 // the worker's first build does not pay its start-up,
-// disposed with the map. A Worker that cannot be made leaves the session
+// disposed with the map. It also cuts the flat view's grey sheet
+// (tintCutterOf, ac:tint-cut). A Worker that cannot be made leaves the session
 // building here from the start.
 //
 // Testing tools: `window.__acMesh` = {mode, stats(), reset()} of the last
@@ -22,6 +23,7 @@ import {
 } from "./meshClientCore";
 import type { MeshReply } from "./meshCore";
 import type { GlobeProvider } from "./PlateauWallLayer";
+import type { TintCutter } from "./ScopeTintLayer";
 
 type Knobs = {
   __acMeshCap?: unknown;
@@ -68,6 +70,7 @@ export function warmMeshWorker(): MeshClient {
     trace: perfOn
       ? {
           roundTrip: (ms, detail) => perfNote("mesh.roundTrip", ms, detail),
+          tintRoundTrip: (ms, detail) => perfNote("tint.roundTrip", ms, detail),
           meshBuild: (ms, detail) => perfNote("plateau.meshBuild", ms, detail),
         }
       : undefined,
@@ -96,5 +99,14 @@ export function globeProviderOf(client: MeshClient): GlobeProvider {
         if (!gWallPositions || !gLidPositions || !gLinePositions || !gHaloPositions) return null;
         return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions, ms: r.ms };
       }),
+  };
+}
+
+/** The flat view's grey sheet, cut by `client`'s worker while it lives
+ *  (ScopeTintLayer.setCutter, ac:tint-cut); lost, the layer cuts it. */
+export function tintCutterOf(client: MeshClient): TintCutter {
+  return {
+    live: () => client.mode === "worker",
+    cut: (geoms) => client.cutTint(geoms),
   };
 }
