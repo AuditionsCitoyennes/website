@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { boxFeature, coldStartPlan, type ColdStartState } from "./coldStart";
+import { boxCovers, boxFeature, coldStartPlan, type ColdStartState } from "./coldStart";
 
 const ARA = { id: "fr:reg:84", bounds: { minLat: 44.1, maxLat: 46.8, minLng: 2.06, maxLng: 7.19 } };
 const state = (over: Partial<ColdStartState> = {}): ColdStartState => ({
@@ -73,4 +73,18 @@ test("the box as a feature: a closed counter-clockwise rectangle over exactly th
   let area = 0;
   for (let i = 0; i < 4; i++) area += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
   assert.ok(area > 0);
+});
+
+test("a box covers the fine outline's own box and a coarser outline's, not a larger one", () => {
+  const b = ARA.bounds;
+  assert.equal(boxCovers(b, { ...b }), true);
+  // The fr1000 entry of the same région: a few metres inside.
+  assert.equal(
+    boxCovers(b, { ...b, minLat: b.minLat + 0.00014, maxLng: b.maxLng - 0.00043 }),
+    true,
+  );
+  assert.equal(boxCovers(b, { ...b, maxLng: b.maxLng + 0.001 }), false);
+  assert.equal(boxCovers(b, { ...b, minLat: b.minLat - 0.001 }), false);
+  assert.equal(boxCovers(b, null), false);
+  assert.equal(boxCovers(b, undefined), false);
 });
