@@ -18,6 +18,7 @@ import type { usePlateauFrames } from "../composables/usePlateauFrames";
 import type { usePlateau } from "../composables/usePlateau";
 import type { usePlateauLid } from "../composables/usePlateauLid";
 import type { usePlateauSlabs } from "../composables/usePlateauSlabs";
+import type { useContextRestore } from "../composables/useContextRestore";
 import { stillMap, whenMapStill } from "../lib/stillMap";
 import { installMotionProbes } from "./motionProbes";
 import { installPerfVocabulary } from "./perfVocabulary";
@@ -91,6 +92,8 @@ export interface ProbeSources {
   pendingMark: () => unknown;
   /** The flat view's grey sheet's fingerprint (testing tools; null without them). */
   tintDigest?: (() => unknown) | null;
+  /** The map's WebGL context, lost and given back (useContextRestore). */
+  context?: Pick<ReturnType<typeof useContextRestore>, "probe">;
 }
 
 /** Install the probes; returns what unmount calls (the frame and idleness probes are removed,
@@ -104,6 +107,7 @@ export function installProbes({
   meshDigest,
   pendingMark,
   tintDigest,
+  context,
 }: ProbeSources): () => void {
   const w = window as unknown as Probes;
   const map = getMap();
@@ -126,6 +130,8 @@ export function installProbes({
       // What the map keeps in memory (../cacheBudget.ts): the switch, and
       // the sizes in force now (the tiles' are read when a map is created).
       caches: { choice: mapCaches, ...cacheBudgetNow() },
+      // The WebGL context's losses and restores (lib/contextWatch.ts).
+      ...(context ? { context: context.probe() } : {}),
     };
   };
   if (import.meta.env.DEV) w.__acFrame = frames.probe;
