@@ -222,7 +222,12 @@ if (outlines) {
   const rowHover = hoverPrefetch({
     prefetch: (id) => {
       const kind = prefetchKind(outlines.rowOf(id));
-      return kind ? outlines.prefetch(kind, id) : Promise.resolve();
+      if (!kind) return Promise.resolve();
+      // A self the click will ask ahead of its bundle (ac:region-self): the
+      // same two files, in the same order.
+      if (kind === "k" && outlines.selfAhead(id))
+        return outlines.prefetch("u", id).then(() => outlines.prefetch("k", id));
+      return outlines.prefetch(kind, id);
     },
     allowed: () =>
       outlines.mode.value === "fichiers" &&

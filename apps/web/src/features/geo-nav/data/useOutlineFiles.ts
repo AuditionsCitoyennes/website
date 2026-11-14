@@ -31,6 +31,14 @@
 // file in one write: one bump of `version`, one rebuild. `held` names them
 // meanwhile. "direct": every file stored as it lands, as before.
 //
+// A self ahead of its bundle (ac:region-self, the map's coldTapSwitch;
+// "first", the default): a French région's or département's plateau is not
+// made to wait for its bundle (its self and every child) when its row
+// declares the self alone in a u/ file — `selfAhead` says so, and the callers
+// (model/useCamera, model/useMapFeed) then ask that u/ "due" and the bundle
+// "late". The loader stores a bundle that lands within SELF_GRACE_MS of the
+// self with it. "bundle": the bundle alone, as before.
+//
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's
 // only trace of it.
@@ -41,13 +49,21 @@ import {
   OutlineLoader,
   OutlineStore,
   rootUrl,
+  selfAheadOf,
   type OutlineGeometry,
   type OutlineKind,
   type OutlineReady,
   type OutlineRow,
   type OutlineStatus,
 } from "@/features/geo";
-import { LATE_CAP_MS, lateFilesMode } from "@/features/map";
+import {
+  LATE_CAP_MS,
+  lateFilesMode,
+  outlineWait,
+  outlineWaitFor,
+  regionSelfMode,
+  SELF_GRACE_MS,
+} from "@/features/map";
 import { whenMapStill } from "@/features/map/lib";
 import { absoluteBase } from "@/shared/absoluteUrl";
 import { onReconnect } from "@/shared/net/reconnect";
@@ -114,10 +130,17 @@ export interface OutlineFiles {
   /** A plateau waits for this unit's self: in OUTLINE_WAIT_MS, unless it is
    *  stored by then, the unit joins `heldOut` for the session. Once per wait.
    *  A wait the file of a unit just left crossed goes on once more, and then
-   *  holds the unit out until `leaveSelf` only (data/selfHold.ts). */
-  holdSelf(id: string): void;
+   *  holds the unit out until `leaveSelf` only (data/selfHold.ts). `coarse`:
+   *  a coarser outline of the unit is in memory — the wait is the one
+   *  ac:outline-wait says (the map's coldTapSwitch); at 0 the unit is held
+   *  out before this returns, until `leaveSelf`. */
+  holdSelf(id: string, coarse?: boolean): void;
   /** The unit is no longer the selection: a hold-out that was for its visit ends. */
   leaveSelf(id: string): void;
+  /** Its self is asked ahead of its bundle (ac:region-self "first"): its row
+   *  declares a u/ beside its bundle. The caller asks `ensureSelf` for it,
+   *  and its bundle not "due". */
+  selfAhead(id: string): boolean;
   /** Its file of this kind is in memory as text, not stored yet. */
   isHeld(kind: OutlineKind, id: string): boolean;
   /** The file's key, as `setUrgent`'s rule is asked it. */
@@ -236,6 +259,7 @@ function createOutlineFiles(): OutlineFiles {
           clearTimer: (timer) => window.clearTimeout(timer as number),
         })
       : undefined,
+    selfGraceMs: SELF_GRACE_MS,
     late: quiet
       ? {
           urgent: (key) => !!urgent?.(key),
@@ -326,8 +350,9 @@ function createOutlineFiles(): OutlineFiles {
     has: (id, tier) => read((s) => s.has(id, tier)),
     bundleLoaded: (id) => read((s) => s.bundleLoaded(id)),
     pin: (ids) => store.pin(ids),
-    holdSelf: (id) => {
-      if (!heldOut.value.has(id)) selfHold.hold(id);
+    holdSelf: (id, coarse = false) => {
+      if (heldOut.value.has(id)) return;
+      selfHold.hold(id, outlineWaitFor(outlineWait.value, coarse, OUTLINE_WAIT_MS));
     },
     leaveSelf: (id) => {
       if (!visitOnly.delete(id)) return;
@@ -335,6 +360,9 @@ function createOutlineFiles(): OutlineFiles {
       next.delete(id);
       heldOut.value = next;
     },
+    selfAhead: (id) =>
+      regionSelfMode.value === "first" &&
+      read((s) => selfAheadOf(s.rowOf(s.filesIdOf(id)))) !== null,
     isHeld: (kind, id) => held.value.has(fileKey(kind, store.filesIdOf(id))),
     keyOf: (kind, id) => fileKey(kind, store.filesIdOf(id)),
     setUrgent: (rule) => {

@@ -11,6 +11,7 @@ import {
   globeBatch,
   prefetchKind,
   rowKnownAbsent,
+  selfAheadOf,
   selfFileOf,
   siblingSelves,
   SIBLING_SELF_CAP,
@@ -157,4 +158,23 @@ test("sibling selves: the box-meeting neighbours with a u/, in the tree's order,
   // France (k/) and Canada (g/) never: their selves are not u/ files.
   const fr = { id: "FR", bounds: ROWS.FR.bounds! };
   assert.deepEqual(siblingSelves(scope, [fr], rowOf), []);
+});
+
+test("a self is asked ahead of its bundle only where the row declares both files", () => {
+  // A French région and a département (root.json: k:1, u:1).
+  const reg: RoleRow = { st: "e50", k: 1, u: 1, bounds: box(2.06, 44.11, 7.19, 46.8) };
+  const dep: RoleRow = { st: "e50", k: 1, u: 1, bounds: box(4.24, 45.45, 5.16, 46.31) };
+  assert.equal(selfAheadOf(reg), "u");
+  assert.equal(selfAheadOf(dep), "u");
+  // The bundle is still what its plateau is said to wait on, and what a hover names.
+  assert.equal(selfFileOf(reg), "k");
+  assert.equal(prefetchKind(reg), "k");
+  // France has no u/; Paris, Lyon and Marseille neither; a country has no bundle.
+  assert.equal(selfAheadOf(ROWS.FR), null);
+  assert.equal(selfAheadOf({ st: "e50", k: 1, u: 0 }), null);
+  assert.equal(selfAheadOf(ROWS.ES), null);
+  assert.equal(selfAheadOf({ st: "e50", k: 0, u: 0 }), null);
+  // No row, or a row known absent: nothing is asked.
+  assert.equal(selfAheadOf(undefined), null);
+  assert.equal(selfAheadOf({ ...ROWS.AQ, k: 1 }), null);
 });
