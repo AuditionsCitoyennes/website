@@ -7,7 +7,7 @@
 // callbacks, never this component; the hot per-frame state (the map, the GL
 // layer, typed arrays, frame buffers) is plain `let`s owned by one module and
 // never wrapped in ref/reactive.
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import mapboxgl from "mapbox-gl";
 // Mapbox's own stylesheet, with the map's code rather than in the stylesheet
 // every page waits for (main.ts): Vite loads it before this chunk runs.
@@ -37,7 +37,10 @@ import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 import { fallbackForced, fallbackView, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
-import FrancePoster from "@/shared/ui/FrancePoster.vue";
+
+// The picture of France under the fallback sentence: a rare path (the map
+// nearly always starts), so its file is asked for only when it shows.
+const FrancePoster = defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"));
 
 const props = defineProps<{
   units: MapUnit[];
