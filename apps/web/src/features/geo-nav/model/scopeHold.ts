@@ -11,9 +11,9 @@
 //
 // So a zone that was SELECTED — the scope a camera command was sent for and
 // landed on: a tap on a row, on the map, a crumb, the boot's frame — is held:
-// while it is the scope and meaningfully in view (geo's keptInView: a tenth
-// of its box in the view, or its box a tenth of the view), a pan does not
-// replace it.
+// while it is the scope and meaningfully in view (geo's holdInView: a tenth
+// of its box in the view, or a tenth of the view covered by it — by its
+// contour when that is loaded, else by its box), a pan does not replace it.
 // Zooming out past it, zooming in onto one of its children, or panning it
 // out of view changes the scope as it always did. A scope the view alone
 // arrived at is not held: it follows the view, so the way back to the held

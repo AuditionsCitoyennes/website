@@ -51,6 +51,10 @@ const SPAN_LATERAL = 0.35;
 // Depth is not held: zooming out past the zone (SPAN_ASCEND) or in onto one of
 // its children (SPAN_DESCEND) changes the scope exactly as without a hold, and
 // so does a pan that takes the zone out of view.
+// Boxes overhang their zone: zoomed in on Vienne (Isère), the view lies whole
+// inside the box of Rhône and shows none of it. So where the zone's box alone
+// passes the second test, its CONTOUR, when it is loaded, says how much of
+// the view the zone covers (viewShareOf); with no contour the box stands.
 
 /** A held zone is kept while at least this share of its box is in the view… */
 export const KEEP_ZONE_SHARE = 0.1;
@@ -88,6 +92,45 @@ function boundsHas(b: Bounds, lat: number, lng: number): boolean {
   return lat >= b.minLat && lat <= b.maxLat && x >= b.minLng && x <= b.maxLng;
 }
 
+/** The view is read at this many points a side (the middles of a grid). */
+const VIEW_GRID = 6;
+
+/** The share of `view` a shape covers (0…1): `holds` asked at the middles of
+ *  a VIEW_GRID × VIEW_GRID grid over it. */
+export function viewShareOf(view: Bounds, holds: (lat: number, lng: number) => boolean): number {
+  const dLat = (view.maxLat - view.minLat) / VIEW_GRID;
+  const dLng = (view.maxLng - view.minLng) / VIEW_GRID;
+  let hits = 0;
+  for (let i = 0; i < VIEW_GRID; i++) {
+    for (let j = 0; j < VIEW_GRID; j++) {
+      if (holds(view.minLat + (i + 0.5) * dLat, view.minLng + (j + 0.5) * dLng)) hits++;
+    }
+  }
+  return hits / (VIEW_GRID * VIEW_GRID);
+}
+
+/** The zone a selection holds is still meaningfully in view (keptInView, on
+ *  boxes), its contour heard where its box alone says so: a zone whose box
+ *  covers a fair share of the view, with under KEEP_ZONE_SHARE of that box in
+ *  view, is kept only if its contour covers that share too. `outlined`: the
+ *  unit's contour is loaded, so `contains` says where it is — without it, or
+ *  for a unit with no contour, the box stands. */
+export function holdInView(
+  hold: GeoUnit,
+  view: Bounds,
+  contains?: (unit: GeoUnit, lat: number, lng: number) => boolean,
+  outlined?: (unit: GeoUnit) => boolean,
+): boolean {
+  if (!keptInView(hold.bounds, view)) return false;
+  if (inViewShares(hold.bounds, view).zone >= KEEP_ZONE_SHARE) return true;
+  if (!contains || !outlined?.(hold)) return true;
+  // A point outside the box is not asked: `contains` answers past the box
+  // for the levels above the commune, by the communes they hold.
+  const inZone = (lat: number, lng: number) =>
+    boundsHas(hold.bounds, lat, lng) && contains(hold, lat, lng);
+  return viewShareOf(view, inZone) >= KEEP_VIEW_SHARE;
+}
+
 function dist2(a: [number, number], b: [number, number]): number {
   const dlat = a[0] - b[0];
   const dlng = a[1] - b[1];
@@ -108,18 +151,23 @@ function dist2(a: [number, number], b: [number, number]): number {
  *  meaningfully in view, the branch down to it stays the incumbent wherever
  *  the centre is. The thresholds are unchanged, so depth still follows the view;
  *  below the held zone only a child that holds the centre is entered — by its
- *  contour where a neighbour's contour says the centre is not in the zone. */
+ *  contour where a neighbour's contour says the centre is not in the zone.
+ *  `outlined` says which units have their contour loaded (holdInView). */
 export function scopeForView(
   root: GeoUnit,
   view: Bounds,
   prefer?: Set<string>,
   contains?: (unit: GeoUnit, lat: number, lng: number) => boolean,
   hold?: GeoUnit | null,
+  outlined?: (unit: GeoUnit) => boolean,
 ): GeoUnit {
   const lat = (view.minLat + view.maxLat) / 2;
   const lng = (view.minLng + view.maxLng) / 2;
   // The held zone's branch (its ancestors and itself), when it is in view.
-  const held = hold && keptInView(hold.bounds, view) ? new Set([...hold.ancestors, hold.id]) : null;
+  const held =
+    hold && holdInView(hold, view, contains, outlined)
+      ? new Set([...hold.ancestors, hold.id])
+      : null;
   // A contour outside the held branch provably holds the centre (a neighbour
   // of the held zone, or of one of its ancestors): the centre is not in the
   // held zone, whatever its box says. The deepest level with a contour says.

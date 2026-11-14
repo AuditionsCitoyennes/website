@@ -37,10 +37,10 @@ export {
 } from "./treeFromUnits";
 export { applyBoundaries, communeCodeOf, geometryContains } from "./boundaries";
 export {
+  holdInView,
   inViewShares,
   KEEP_VIEW_SHARE,
   KEEP_ZONE_SHARE,
-  keptInView,
   scopeForView,
   SPAN_DESCEND,
 } from "./scope";

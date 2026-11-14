@@ -4,7 +4,7 @@
 // lieu, the breadcrumb and the list of units the panel shows. A zone that was
 // selected is held through a pan while it is in view (scopeHold.ts).
 import { computed, watch, type ComputedRef, type Ref } from "vue";
-import { ancestorsOf, keptInView, scopeForView, type GeoUnit } from "@/features/geo";
+import { ancestorsOf, holdInView, scopeForView, type GeoUnit } from "@/features/geo";
 import { perfOn, perfProbe, perfSpan } from "@/shared/perf/perf";
 import type { Insets, MapView, NavState } from "../navState";
 import { createScopeHold, dragKeepsZone, scopeDragMode } from "./scopeHold";
@@ -14,6 +14,9 @@ export interface ScopeInputs {
   root: ComputedRef<GeoUnit>;
   index: ComputedRef<Map<string, GeoUnit>>;
   containsPoint: (u: GeoUnit, lat: number, lng: number) => boolean;
+  /** The unit's contour is loaded: `containsPoint` says where it is (the
+   *  hold reads how much of the view a held zone covers off it). */
+  outlined: (u: GeoUnit) => boolean;
   isDesktop: Ref<boolean>;
   /** The layout a view must have been measured in to count: the view's
    *  padding when there is one, else the camera's (read when a view lands —
@@ -22,7 +25,7 @@ export interface ScopeInputs {
 }
 
 export function useScope(inputs: ScopeInputs) {
-  const { nav, root, index, containsPoint, isDesktop, mapInsets } = inputs;
+  const { nav, root, index, containsPoint, outlined, isDesktop, mapInsets } = inputs;
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, inMicroZone, mapView } = nav;
 
   // The zone a selection holds (scopeHold.ts), and whether a pan keeps it:
@@ -89,13 +92,13 @@ export function useScope(inputs: ScopeInputs) {
     const held = keepsZone() ? hold.of(currentScope.value) : null;
     const before = currentScope.value.id;
     const view = mapView.value.bounds;
-    currentScope.value = scopeForView(root.value, view, prefer, containsPoint, held);
+    currentScope.value = scopeForView(root.value, view, prefer, containsPoint, held, outlined);
     if (end) end();
     hold.derived(currentScope.value.id);
     if (perfOn) {
       counts.derivations++;
       if (currentScope.value.id !== before) counts.changes++;
-      else if (held && keptInView(held.bounds, view)) counts.held++;
+      else if (held && holdInView(held, view, containsPoint, outlined)) counts.held++;
     }
   }
   // Re-derive when the map settles or the hierarchy reloads, which it does on
