@@ -29,8 +29,8 @@
 // reports after the selection was written; LANDING_CAP_MS after the tap when
 // none comes) and SLOW_SIGN_FLOOR_MS at least after the tap, the wait is
 // "moving": the page shows its small moving sign. SLOW_WAIT_MS after the tap
-// with no verdict the wait is "late": the mark leaves the map as on a
-// timeout, the list is no longer busy, and the page says LATE_SENTENCE with a
+// with no verdict the wait is "late": the mark drains from the map, the
+// list is no longer busy, and the page says LATE_SENTENCE with a
 // « Réessayer ». The state lives on: a plateau that commits after all is
 // still said, and a scope move, a newer tap or a verdict that nothing rises
 // still end it. `retry()` (the button) starts the wait over: the unit marked
@@ -83,8 +83,9 @@ export interface TapPendingDeps {
   /** Show the mark on the map for `unit` (replacing any other); false: the
    *  switch is off, there is no pending state at all. */
   mark(unit: PendingUnit): boolean;
-  /** End the mark on the map: fading as the plateau rises, or at once. */
-  unmark(how: "rise" | "off"): void;
+  /** End the mark on the map: fading as the plateau rises ("rise"), at once
+   *  ("off"), or fading where it stands, no plateau having come ("drain"). */
+  unmark(how: "rise" | "off" | "drain"): void;
   /** The scope's unit now. */
   scopeId(): string;
   /** The map is deep among the lieux (no plateau stands there). */
@@ -159,7 +160,7 @@ export function createTapPending(deps: TapPendingDeps) {
     if (current !== c) return;
     clearTimers(c);
     c.stage = "late";
-    deps.unmark("off");
+    deps.unmark("drain");
     deps.onChange(null);
     deps.onWait?.("late", c.unit);
     deps.say(LATE_SENTENCE);

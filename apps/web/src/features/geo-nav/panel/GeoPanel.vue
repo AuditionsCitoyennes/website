@@ -32,6 +32,9 @@ defineProps<{
   /** A territory was tapped and its plateau is on its way: the list is
    *  the new level's already, the map is not there yet (`aria-busy`). */
   busy?: boolean;
+  /** That plateau is long in coming: the breadcrumb's dots (the sign of a
+   *  long wait). */
+  waiting?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -113,9 +116,16 @@ defineExpose({ el, peekEl, safeEl, listEl });
       <PanelBreadcrumb
         v-if="crumbs"
         :trail="crumbs"
+        :waiting="waiting"
         :inert="sheetHidden || undefined"
         @go="emit('crumb', $event)"
       />
+
+      <!-- What the page has to say about the map under the trail (the long
+           wait's sentence and its « Réessayer »): GeoNav fills it. -->
+      <div :inert="sheetHidden || undefined">
+        <slot name="head-notice" />
+      </div>
     </header>
 
     <div

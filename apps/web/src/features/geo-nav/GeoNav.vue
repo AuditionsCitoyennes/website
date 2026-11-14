@@ -27,7 +27,8 @@ import { curtainPoster, poster } from "@/shared/ui/posterSwitch";
 import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
-import { createNavState } from "./navState";
+import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
+import { createNavState, type MapView } from "./navState";
 import { bootCurtainCover, bootList } from "./bootListSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
@@ -428,8 +429,35 @@ const {
 // ---- The answer to a tap (model/useTapPending): the territory tapped is
 // marked on the map from the tap until its plateau commits, the list is busy
 // meanwhile and one sentence says when it stands ----
-const tap = useTapPending({ nav, mapCmp });
-const { pendingUnit, live: tapLive } = tap;
+const tap = useTapPending({
+  nav,
+  mapCmp,
+  // « Réessayer » (ac:slow-sign, the wait late): only the piece the plateau
+  // still misses is asked again, never the selection (the scope, the camera,
+  // the lists, the files' chain are as they were). While the map holds for
+  // the unit's outline, that is its file: the attempts on the network the
+  // plateau waits for are dropped and made again at once. With the outline in
+  // memory, it is the plateau's own run: made once more from that outline,
+  // unless one is under way.
+  reask: (unit) => {
+    if (scopePending.value) outlines?.reaskWaited();
+    else mapCmp.value?.retryPlateau(unit.id);
+  },
+});
+const { pendingUnit, live: tapLive, waitStage } = tap;
+/** GeoDrillMap's `viewChange`: the scope's read of it, then the landing a
+ *  pending unit's long-wait sign waits for. */
+function onMapView(view: MapView) {
+  onViewChange(view);
+  tap.landed();
+}
+/** « Réessayer » pressed. The button goes with the sentence: a focus it held
+ *  moves to the trail's current crumb, not to the page. */
+function onRetryWait() {
+  const held = !!document.activeElement?.closest(".slow-wait");
+  if (!tap.retry() || !held) return;
+  void nextTick(() => panelEl.value?.querySelector<HTMLElement>(".crumb.current")?.focus());
+}
 
 // ---- The files asked ahead on a touch screen (data/idlePrefetch, ac:outlines-ahead):
 // no pointer hovers a row there. Once the first plateau stands, its lid has
@@ -906,7 +934,7 @@ function retryAll() {
       @ready="mapPresentable = true"
       @unit-click="onUnitClick"
       @plateau-settled="onPlateauSettled"
-      @view-change="onViewChange"
+      @view-change="onMapView"
       @user-gesture="onUserGesture"
     />
 
@@ -926,8 +954,16 @@ function retryAll() {
       @close="analyses = false"
     />
     <p class="analyses-live" aria-live="polite">{{ analysesLive }}</p>
-    <!-- The territory just tapped stands on the map (model/useTapPending). -->
+    <!-- The territory just tapped stands on the map, or is long in coming
+         (model/useTapPending). -->
     <p class="analyses-live" aria-live="polite">{{ tapLive }}</p>
+    <!-- …long enough for the page to say so (ac:slow-sign). On a phone whose
+         sheet is lowered the panel's head is off screen: said over the map. -->
+    <SlowWaitNotice
+      v-if="waitStage === 'late' && sheetHidden && !preview"
+      floating
+      @retry="onRetryWait"
+    />
 
     <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over
          the map's box only (`bootCover` "map", bootListSwitch): no z-index of
@@ -969,6 +1005,7 @@ function retryAll() {
         :sheet-hidden="sheetHidden"
         :crumbs="listMode ? null : breadcrumb"
         :busy="pendingUnit !== null"
+        :waiting="waitStage === 'moving'"
         @toggle-sheet="sheetOpen = !sheetOpen"
         @sheet-pointerdown="onSheetPointerDown"
         @sheet-pointermove="onSheetPointerMove"
@@ -986,6 +1023,9 @@ function retryAll() {
              filter state, so it fills these slots (passed through GeoPanel). -->
         <template #head-actions><slot name="head-actions" /></template>
         <template #head-below><slot name="head-below" /></template>
+        <template #head-notice>
+          <SlowWaitNotice v-if="waitStage === 'late' && !sheetHidden" @retry="onRetryWait" />
+        </template>
 
         <div v-if="loading || listsLoading" class="state">
           <LoadingDots label="Chargement des témoignages…" />

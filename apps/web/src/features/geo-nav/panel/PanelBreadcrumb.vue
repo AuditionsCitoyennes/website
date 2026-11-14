@@ -3,6 +3,10 @@
 // — leading crumbs collapse into "…" when room runs out, and the "…" flies
 // back to the deepest ancestor it wraps. With a lieu open the trail stays and
 // ends at the lieu itself; an arrow before it goes one level up (backTarget.ts).
+// While the unit at its end was tapped and its plateau is long in coming
+// (`waiting`), three small dots follow its name: the sign of a long wait.
+// Their room is kept at the row's end at all times, so the crumbs are fitted
+// once and nothing on the row moves when the dots come and go.
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { backTarget } from "./backTarget";
@@ -10,6 +14,8 @@ import { backTarget } from "./backTarget";
 const props = defineProps<{
   /** The trail, root first, ending at the scope or at the open lieu. */
   trail: GeoUnit[];
+  /** The last unit's plateau is long in coming: the dots after its name. */
+  waiting?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -132,6 +138,12 @@ function goBack() {
       </button>
       <span v-if="i < visibleCrumbs.length - 1" class="crumb-sep" aria-hidden="true">›</span>
     </template>
+    <!-- The long wait's dots, in a room of their own (always there: see the
+         header). Said by the list's aria-busy and, later, by the page's live
+         sentence. -->
+    <span class="crumb-wait-room" aria-hidden="true">
+      <span v-if="waiting" class="wait-dots moving crumb-wait"><i></i><i></i><i></i></span>
+    </span>
   </nav>
 </template>
 
@@ -192,6 +204,21 @@ function goBack() {
 .crumb-sep {
   color: hsl(var(--muted-foreground) / 0.6);
   flex: none;
+}
+
+/* The sign of a long wait (the shared .wait-dots), in the current crumb's
+   colour, right after it — in a room as wide as the three dots, kept even
+   when empty: fitCrumbs counts it, so the dots never push a crumb. */
+.crumb-wait-room {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  width: 1.45em;
+  height: 1em;
+}
+
+.crumb-wait {
+  color: hsl(var(--primary));
 }
 
 /* After `.crumb` (same specificity): a 24 px target, its colours and hover
