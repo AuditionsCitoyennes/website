@@ -1,14 +1,19 @@
 // The pending state of a tapped territory (tapPendingCore.ts): when it
 // begins, each way it ends (its plateau commits, the scope moves without a
 // tap, nothing will rise, a newer tap, the safety cap), what the map and the
-// screen reader are told, and the frame the mark may get to itself. Fake
-// map, fake timers. Run with `node --import tsx --test` (root "test:scripts").
+// screen reader are told, the frame the mark may get to itself, and the sign
+// of a long wait: when it moves, when the wait turns late, what « Réessayer »
+// starts over. Fake map, fake timers. Run with `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  LANDING_CAP_MS,
+  LATE_SENTENCE,
   OWN_FRAME_CAP_MS,
   PENDING_CAP_MS,
+  SLOW_SIGN_FLOOR_MS,
+  SLOW_WAIT_MS,
   createTapFrame,
   createTapPending,
   readySentence,
@@ -42,13 +47,20 @@ function fakeTimers() {
   };
 }
 
-function harness(opts: { off?: boolean } = {}) {
+function harness(opts: { off?: boolean; slow?: boolean } = {}) {
   const clock = fakeTimers();
   const log: string[] = [];
-  const s = { scope: "fr:reg:84", micro: false, busy: null as string | null, said: "" };
+  const s = {
+    scope: "fr:reg:84",
+    micro: false,
+    busy: null as string | null,
+    said: "",
+    /** `mark` answers false from now (the plateau stands, the switch went off). */
+    noMark: false,
+  };
   const core = createTapPending({
     mark: (unit) => {
-      if (opts.off) return false;
+      if (opts.off || s.noMark) return false;
       log.push(`mark ${unit.id}`);
       return true;
     },
@@ -61,6 +73,13 @@ function harness(opts: { off?: boolean } = {}) {
     say: (text) => (s.said = text),
     onEnd: (unit, end, heldMs) => log.push(`end ${unit.id} ${end} ${heldMs}`),
     now: clock.now,
+    ...(opts.slow
+      ? {
+          slowSign: () => true,
+          onWait: (stage, unit) => log.push(`wait ${stage}${unit ? ` ${unit.id}` : ""}`),
+          reask: (unit) => log.push(`reask ${unit.id}`),
+        }
+      : {}),
   });
   /** The selection written, as the page's sync watcher reports it. */
   const writeScope = (id: string) => {
@@ -255,6 +274,202 @@ test("dispose drops the state and its timer without touching the map", () => {
   assert.equal(clock.live(), 0);
   assert.deepEqual(log, ["mark fr:dep:69"]);
   assert.equal(core.pending(), null);
+});
+
+// ---- The sign of a long wait (ac:slow-sign) ----
+
+test("a plateau that commits before the floor shows no sign at all", () => {
+  const { core, clock, log, writeScope } = harness({ slow: true });
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  clock.run(300);
+  core.landed();
+  clock.run(SLOW_SIGN_FLOOR_MS - 301);
+  core.settled("fr:dep:69", "rise");
+  assert.deepEqual(log, ["mark fr:dep:69", "end fr:dep:69 risen 799", "unmark rise"]);
+  assert.equal(clock.live(), 0);
+  clock.run(SLOW_WAIT_MS);
+  assert.equal(log.length, 3);
+});
+
+test("the sign moves once the flight has landed AND the floor has passed, whichever comes last", () => {
+  // Landed early: the sign waits for the floor.
+  const early = harness({ slow: true });
+  early.core.begin(RHONE);
+  early.writeScope("fr:dep:69");
+  early.clock.run(650);
+  early.core.landed();
+  assert.equal(early.core.wait(), "none");
+  early.clock.run(SLOW_SIGN_FLOOR_MS - 650);
+  assert.equal(early.core.wait(), "moving");
+  assert.equal(early.log.at(-1), "wait moving fr:dep:69");
+  // Landed late: the floor alone shows nothing, the landing does.
+  const late = harness({ slow: true });
+  late.core.begin(RHONE);
+  late.writeScope("fr:dep:69");
+  late.clock.run(1400);
+  assert.equal(late.core.wait(), "none");
+  late.core.landed();
+  assert.equal(late.core.wait(), "moving");
+  // The plateau commits: the sign goes with the mark, the sentence is said.
+  late.core.settled("fr:dep:69", "rise");
+  assert.deepEqual(late.log.slice(-3), ["end fr:dep:69 risen 1400", "wait none", "unmark rise"]);
+  assert.equal(late.s.said, readySentence(RHONE));
+  assert.equal(late.clock.live(), 0);
+});
+
+test("a view reported before the scope is written is not the flight's landing", () => {
+  const { core, clock, writeScope } = harness({ slow: true });
+  core.begin(RHONE); // ac:tap-frame=own: the scope follows a frame later
+  core.landed(); // the view of the unit being left
+  writeScope("fr:dep:69");
+  clock.run(SLOW_SIGN_FLOOR_MS);
+  assert.equal(core.wait(), "none");
+  core.landed();
+  assert.equal(core.wait(), "moving");
+});
+
+test("a landing never reported counts as landed at the cap", () => {
+  const { core, clock, writeScope } = harness({ slow: true });
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  clock.run(LANDING_CAP_MS - 1);
+  assert.equal(core.wait(), "none");
+  clock.run(1);
+  assert.equal(core.wait(), "moving");
+  clock.run(SLOW_WAIT_MS - LANDING_CAP_MS);
+  assert.equal(core.wait(), "late");
+});
+
+test("five seconds with nothing: the mark goes, the list is free, the sentence is said — and no timeout", () => {
+  const { core, clock, log, s, writeScope } = harness({ slow: true });
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  clock.run(700);
+  core.landed();
+  clock.run(SLOW_WAIT_MS - 701);
+  assert.equal(core.wait(), "moving");
+  assert.equal(s.busy, "fr:dep:69");
+  clock.run(1);
+  assert.equal(core.wait(), "late");
+  assert.deepEqual(log.slice(-2), ["unmark off", "wait late fr:dep:69"]);
+  assert.equal(s.busy, null);
+  assert.equal(s.said, LATE_SENTENCE);
+  assert.equal(core.pending()?.id, "fr:dep:69"); // still awaited
+  assert.equal(clock.live(), 0); // nothing moves, nothing ticks
+  clock.run(PENDING_CAP_MS);
+  assert.equal(core.wait(), "late"); // no cap ends it
+  assert.ok(!log.some((l) => l.includes("timeout")));
+});
+
+test("a late wait whose plateau commits after all: the sentence of the unit, no second unmark", () => {
+  const { core, clock, log, s, writeScope } = harness({ slow: true });
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  clock.run(SLOW_WAIT_MS);
+  const before = log.length;
+  core.settled("fr:dep:69", "rise");
+  assert.deepEqual(log.slice(before), [`end fr:dep:69 risen ${SLOW_WAIT_MS}`, "wait none"]);
+  assert.equal(s.said, readySentence(RHONE));
+  assert.equal(core.pending(), null);
+});
+
+test("a late wait ends with the scope gone elsewhere, a verdict that nothing rises, or a newer tap", () => {
+  const moved = harness({ slow: true });
+  moved.core.begin(RHONE);
+  moved.writeScope("fr:dep:69");
+  moved.clock.run(SLOW_WAIT_MS);
+  moved.writeScope("fr:reg:84");
+  assert.equal(moved.core.wait(), "none");
+  assert.equal(moved.s.said, ""); // the late sentence holds no more
+  assert.equal(moved.log.at(-1), "wait none");
+
+  const none = harness({ slow: true });
+  none.core.begin(RHONE);
+  none.writeScope("fr:dep:69");
+  none.clock.run(SLOW_WAIT_MS);
+  none.core.settled("", "cleared");
+  assert.equal(none.core.wait(), "none");
+  assert.equal(none.s.said, "");
+
+  const tap = harness({ slow: true });
+  tap.core.begin(RHONE);
+  tap.writeScope("fr:dep:69");
+  tap.clock.run(SLOW_WAIT_MS);
+  tap.core.begin(ISERE);
+  assert.deepEqual(tap.log.slice(-3), [
+    `end fr:dep:69 replaced ${SLOW_WAIT_MS}`,
+    "wait none",
+    "mark fr:dep:38",
+  ]);
+  assert.equal(tap.s.busy, "fr:dep:38");
+  assert.equal(tap.s.said, "");
+});
+
+test("« Réessayer »: marked again, the sign at once, the missing piece asked, late again five seconds on", () => {
+  const { core, clock, log, s, writeScope } = harness({ slow: true });
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  clock.run(SLOW_WAIT_MS);
+  const before = log.length;
+  assert.equal(core.retry(), true);
+  assert.deepEqual(log.slice(before), [
+    "mark fr:dep:69",
+    "wait moving fr:dep:69",
+    "reask fr:dep:69",
+  ]);
+  assert.equal(s.busy, "fr:dep:69");
+  assert.equal(s.said, "");
+  assert.equal(core.wait(), "moving");
+  clock.run(SLOW_WAIT_MS - 1);
+  assert.equal(core.wait(), "moving");
+  clock.run(1);
+  assert.equal(core.wait(), "late");
+  assert.equal(s.said, LATE_SENTENCE);
+  // Again, and this time the plateau commits: its mark fades as it rises.
+  assert.equal(core.retry(), true);
+  core.settled("fr:dep:69", "rise");
+  assert.equal(log.at(-1), "unmark rise");
+  assert.equal(s.said, readySentence(RHONE));
+  assert.equal(clock.live(), 0);
+});
+
+test("« Réessayer » outside a late wait does nothing; with no mark to be had the state ends", () => {
+  const { core, clock, log, s, writeScope } = harness({ slow: true });
+  assert.equal(core.retry(), false);
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  clock.run(1000);
+  assert.equal(core.retry(), false); // pending, not late
+  assert.ok(!log.some((l) => l.startsWith("reask")));
+  clock.run(SLOW_WAIT_MS);
+  s.noMark = true; // its plateau stands after all
+  assert.equal(core.retry(), false);
+  assert.equal(core.pending(), null);
+  assert.equal(core.wait(), "none");
+  assert.ok(!log.some((l) => l.startsWith("reask")));
+  assert.equal(clock.live(), 0);
+});
+
+test("the sign off (or not wired): the state before it — the cap, no stage, landings ignored", () => {
+  const { core, clock, log, writeScope } = harness();
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  core.landed();
+  clock.run(SLOW_WAIT_MS);
+  assert.equal(core.wait(), "none");
+  assert.deepEqual(log, ["mark fr:dep:69"]);
+  assert.equal(core.retry(), false);
+  clock.run(PENDING_CAP_MS - SLOW_WAIT_MS);
+  assert.equal(log.at(-1), "unmark off");
+});
+
+test("dispose drops a long wait's timers too", () => {
+  const { core, clock } = harness({ slow: true });
+  core.begin(RHONE);
+  assert.equal(clock.live(), 3);
+  core.dispose();
+  assert.equal(clock.live(), 0);
 });
 
 test("the sentence: the name, then its testimonies, in French", () => {
