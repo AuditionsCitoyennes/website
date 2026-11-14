@@ -214,6 +214,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private readonly lids = new LidTextureStore<LidKeptMeta>((gl, tex, bitmap) =>
     uploadLidTexture(gl as WebGL2RenderingContext, tex, bitmap, this.anisoExt, this.maxAniso),
   );
+  /** A lid was showing when the WebGL context was lost (forgetLidTextures),
+   *  until the restore reads it. */
+  private lidLostWithContext = false;
   private get lidTexture(): WebGLTexture | null {
     return this.lids.texture;
   }
@@ -1330,8 +1333,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (this.lids.dirty) this.map?.triggerRepaint();
   }
 
-  /** The WebGL context was lost: the lid's textures went with it. */
+  /** The WebGL context was lost: the lid's textures went with it. Whether a
+   *  lid was showing is kept for the restore (onContextRestored). */
   forgetLidTextures() {
+    if (this.lidTexture !== null || this.lidMerc !== null) this.lidLostWithContext = true;
     this.lidAtMesh = "";
     this.lids.forget();
   }
@@ -1648,6 +1653,53 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // A fresh context knows nothing of the slabs built before it.
     this.slabDirty = true;
     this.gSlabDirty = true;
+  }
+
+  /**
+   * The map's WebGL context was lost and has come back (mapbox's
+   * `webglcontextrestored`, composables/useContextRestore.ts). Mapbox does not
+   * run onAdd again for a custom layer, and every program, buffer, vertex
+   * array and texture made on the old context went with it: they are made
+   * again here (onAdd), and every mesh the page still holds — the walls, the
+   * lid's, the lines, the hover fill and its retract, the halo, the slabs'
+   * pieces, in both regimes — is marked for upload, so the next frame draws
+   * the plateau as it stood. The handles of the old context are dropped, not
+   * deleted: they are no longer this context's.
+   *
+   * The lid's picture cannot be uploaded again (its bitmap was closed at its
+   * upload): the lid is not drawn until another one lands. Its textures, the
+   * kept ones too (./lidTextures), were forgotten when the loss was heard
+   * (forgetLidTextures); one still held here means it was not, and they are
+   * forgotten now. Returns whether a picture was showing when the context
+   * went — the caller takes another (usePlateauLid). A picture handed to the
+   * layer since the loss, not uploaded yet, is kept: it goes up at the next
+   * frame, as it would have. False too for a layer that is on no map.
+   */
+  onContextRestored(gl: WebGL2RenderingContext): boolean {
+    const map = this.map;
+    if (!map) return false;
+    if (this.lidTexture !== null) this.forgetLidTextures();
+    const hadLid = this.lidLostWithContext;
+    this.lidLostWithContext = false;
+    // New programs, buffers and vertex arrays (and the slabs', the lean
+    // lines' corners and vertex arrays marked there).
+    this.onAdd(map, gl);
+    this.dirty = true;
+    this.lidDirty = true;
+    this.lineDirty = true;
+    this.haloDirty = true;
+    this.hovDirty = true;
+    this.gHovDirty = true;
+    this.retractDirty = true;
+    this.gRetractDirty = true;
+    // The globe set, when it is built (null: a lazy one still to come, whose
+    // own apply raises these).
+    if (this.gWallPositions) this.gWallDirty = true;
+    if (this.gLidPositions) this.gLidDirty = true;
+    if (this.gLinePositions) this.gLineDirty = true;
+    if (this.gHaloPositions) this.gHaloDirty = true;
+    map.triggerRepaint();
+    return hadLid;
   }
 
   onRemove(_map: mapboxgl.Map, gl: WebGL2RenderingContext) {
