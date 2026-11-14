@@ -352,7 +352,7 @@ test("five seconds with nothing: the mark goes, the list is free, the sentence i
   assert.equal(s.busy, "fr:dep:69");
   clock.run(1);
   assert.equal(core.wait(), "late");
-  assert.deepEqual(log.slice(-2), ["unmark off", "wait late fr:dep:69"]);
+  assert.deepEqual(log.slice(-2), ["unmark drain", "wait late fr:dep:69"]);
   assert.equal(s.busy, null);
   assert.equal(s.said, LATE_SENTENCE);
   assert.equal(core.pending()?.id, "fr:dep:69"); // still awaited
