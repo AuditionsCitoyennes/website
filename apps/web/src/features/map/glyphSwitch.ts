@@ -105,7 +105,7 @@ export const LABEL_FAMILIES = {
  *  font, ms. The map itself never waits: it is made at once, its style and
  *  its sprite come while the font does, and only a tile asked for before the
  *  font is in is held (labelFont.ts). On the bench's weak phone the font is
- *  in half a second before the first tile is asked for: a held tile is the
+ *  in 0.8 s before the first tile is asked for: a held tile is the
  *  exception, and a link too slow for 90 kB in this time would be slower
  *  still for the 400 kB of letter files. */
 export const LABEL_FONT_WAIT_MS = 1500;

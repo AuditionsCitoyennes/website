@@ -14,8 +14,8 @@
 // then, or within what is left of LABEL_FONT_WAIT_MS since the first map was
 // made; else the system's font alone, for the whole visit — the site's faces
 // are then taken away from the page, so that the file landing later changes
-// nothing. On the bench's weak phone the font is in before the map's style
-// is: no tile is held.
+// nothing. On the bench's weak phone the font is in 0.8 s before the first
+// tile is asked for (3 s on its slowest profile): no tile is held.
 //
 // Both maps (the live one and the plateau lid's hidden one,
 // plateau/mapSnapshot.ts) are made with the same options (`labelGlyphOptions`)
