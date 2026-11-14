@@ -15,7 +15,8 @@
 // what the page knows of the device listed under it, what the map does where
 // the graphics are slow and whether it times its first flight
 // (map/graphicsSwitch), where the map's work runs during a selection
-// (map/threadSwitch) —, each with its
+// (map/threadSwitch), how much the page moves
+// (shared/device/motion) —, each with its
 // sentences for a tester and a mark on the ones that reload the page. A choice
 // that is not its switch's default is marked: a count on the button,
 // « modifié » on its row, and at the top of the dialog the count again with
@@ -41,6 +42,7 @@ import { authClient, setAuthClient } from "@/shared/api/authClientSwitch";
 import { poster, setPoster } from "@/shared/ui/posterSwitch";
 import { cardOpen, setCardOpen } from "@/shared/device/cardOpenSwitch";
 import { hero, homeBoot, setHero, setHomeBoot } from "@/shared/boot/homeBoot";
+import { motionChoice, setMotionChoice } from "@/shared/device/motion";
 import {
   frameFill,
   pendingAnalysesMode,
@@ -203,6 +205,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:lid-map": bind(() => lidMap, setLidMap),
   "ac:map-caches": bind(() => mapCaches, setMapCaches),
   "ac:line-mesh": bind(() => lineMesh, setLineMesh),
+  "ac:motion": bind(() => motionChoice.value, setMotionChoice),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
