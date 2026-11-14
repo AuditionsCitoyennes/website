@@ -7,9 +7,10 @@ import { prewarmPlaceReads } from "./modules/places/readRoutes";
  * first visitor after a deploy is served from memory like every other and,
  * from then on, the refills run behind the replies (stale-while-revalidate,
  * lib/cache.ts) rather than in front of an unlucky one: the Témoignages
- * map's world with its analyses' figures, the filter dialog's facets, and
- * the home card's world (map phase 1). Best effort: a failure is logged and
- * the first request fills that key as before.
+ * map's world with its analyses' figures and without them (a build without
+ * the analyses asks for none), the filter dialog's facets, and the home
+ * card's world (map phase 1). Best effort: a failure is logged and the first
+ * request fills that key as before.
  *
  * Not the whole-table reads (/api/auditions, /api/map, /api/testimonies):
  * the site no longer asks for them (only the testing tools' corpus pipeline
