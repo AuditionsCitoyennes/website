@@ -17,6 +17,12 @@
 // standing plateau's sink, the coming unit's lid over its box (`coming`,
 // lib/coldStart.ts) — so the run that raises it finds both done.
 //
+// Two experiments on the rise (plateau/riseSwitch.ts): `ac:rise=transition`
+// hands mapbox a rise or a sink as one setTerrain with a transition, the
+// plateau's layer reading the height of each frame (lib/terrainFollow.ts);
+// `ac:rise-order=after` starts the rise once the camera's flight has landed
+// (lib/landing.ts).
+//
 // On flat ground (relief/groundSwitch.ts: a weak device's, or the DEV
 // switch's) the same wall, lid and rise stand over a ground that stays where
 // it is: no DEM, no relief worker, and a flat terrain of ours in place of the
@@ -44,9 +50,17 @@ import {
   type RaisedShape,
 } from "../lib/outlineChange";
 import { boxCovers, boxFeature, coldStartPlan, type ComingUnit } from "../lib/coldStart";
+import { isFlying, whenLanded } from "../lib/landing";
 import { riseProgress } from "../lib/rise";
 import { stillMap } from "../lib/stillMap";
 import { markPlateauStood } from "../lib/plateauStood";
+import {
+  canFollowTerrain,
+  frameExaggeration,
+  pumpTransition,
+  transitionSettled,
+  transitionSpec,
+} from "../lib/terrainFollow";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
 import { liftOf, type PlateauLift } from "../plateau/lift";
@@ -60,6 +74,7 @@ import type { OutlineFC } from "../types";
 import { coldStartMode } from "../plateau/coldTapSwitch";
 import { LATE_CAP_MS, lateFilesMode } from "../plateau/lateFilesSwitch";
 import { meshMode } from "../plateau/meshSwitch";
+import { LAND_WAIT_CAP_MS, riseMode, riseOrder, riseStartFor } from "../plateau/riseSwitch";
 import { linesMesh } from "../threadSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
 
@@ -192,9 +207,13 @@ export function usePlateau({
   // expression as it is; without one it eases its last exaggeration toward
   // the new one over the next camera moves, and a plateau that just left
   // raised ground would keep a terrain running for a while.
+  // Its transition is zeroed, as every setTerrain of ours but a transition's
+  // own (ac:rise=transition) is: mapbox keeps the last transition it was
+  // given, and under one this expression would not be read.
   const FLAT_TERRAIN = {
     source: FLAT_SRC,
     exaggeration: ["interpolate", ["linear"], ["zoom"], 5, 1, 6, 0],
+    "exaggeration-transition": { duration: 0 },
   } as unknown as mapboxgl.TerrainSpecification;
 
   /** The ground a plateau raised now stands on: the switch, and under "auto"
@@ -217,6 +236,9 @@ export function usePlateau({
       "exaggeration-transition": { duration: 0 },
     } as unknown as mapboxgl.TerrainSpecification);
     if (wasFlat) onLift?.();
+    // A transition in flight was cut short by this call (a quiet swap, a
+    // terrain put back): taken up again from `v`, on this source.
+    exagAnim?.rearm?.(src);
   }
 
   // The slots' lifecycle (plateau/demSlots): the slot a swap left is dropped
@@ -310,7 +332,24 @@ export function usePlateau({
     resolve: () => void;
     target: number;
     done: Promise<void>;
+    /** ac:rise=transition only: the transition issued again for what is left
+     *  of its time, after a setTerrain that cut it short. */
+    rearm?: (src: string) => void;
   } | null = null;
+  // ac:rise (testing tools): the setTerrain calls the rises and the sinks
+  // issued, by kind — a frame's step, a transition, a transition taken up
+  // again, one that ended by a snap, one whose height could not be read and
+  // went on in steps — and ac:rise-order's waits for the camera, by how they
+  // ended.
+  const riseRuns = {
+    stepCalls: 0,
+    transitions: 0,
+    rearms: 0,
+    snaps: 0,
+    unread: 0,
+    landed: 0,
+    capped: 0,
+  };
 
   function cancelExagAnim() {
     if (!exagAnim) return;
@@ -318,9 +357,23 @@ export function usePlateau({
     clearTimeout(exagAnim.timer);
     const r = exagAnim.resolve;
     exagAnim = null;
+    // A transition's follower leaves with it: the layer keeps the height of
+    // its last frame (`terrainExag`), where the next animation starts from.
+    plateauWall.followScale(null);
     stillMap.plateauMotionEnd();
     r();
   }
+
+  /** Whether a rise or a sink asked for now goes as one terrain transition
+   *  (ac:rise=transition): the map's terrain is the plateau's DEM slot and
+   *  mapbox can be followed. Over flat ground there is no terrain to move. */
+  const transitionNow = (map: mapboxgl.Map | null): map is mapboxgl.Map =>
+    riseMode.value === "transition" &&
+    !!map &&
+    !flatGround &&
+    !!map.getSource(terrainSrc) &&
+    map.getTerrain()?.source === terrainSrc &&
+    canFollowTerrain(map);
 
   function animateTerrain(to: number, ms: number): Promise<void> {
     // IDEMPOTENT: an animation already heading to the same target keeps its
@@ -332,14 +385,26 @@ export function usePlateau({
     // Shorter under short motion (shared/device/motion: the system asks for
     // reduced motion, or a weak device).
     ms = motionMs(ms, motionNow());
-    const done: Promise<void> = new Promise((resolve) => {
+    const map = getMap();
+    const done = transitionNow(map) ? transitionTerrain(map, to, ms) : stepTerrain(to, ms);
+    if (exagAnim) exagAnim.done = done;
+    return done;
+  }
+
+  /** The rise or the sink in steps: one setTerrain a frame, each at the
+   *  rise's own eased height (ac:rise=steps, and every move over flat ground). */
+  function stepTerrain(to: number, ms: number): Promise<void> {
+    return new Promise((resolve) => {
       const from = terrainExag;
       const t0 = performance.now();
       const ease = (t: number) => 1 - Math.pow(1 - t, 3); // easeOutCubic
       const apply = (v: number) => {
         terrainExag = v;
         // On flat ground only the wall and the lid move.
-        if (!flatGround && getMap()?.getSource(terrainSrc)) setTerrainRaw(terrainSrc, v);
+        if (!flatGround && getMap()?.getSource(terrainSrc)) {
+          setTerrainRaw(terrainSrc, v);
+          if (perfOn) riseRuns.stepCalls++;
+        }
         // The violet wall sheet rises/sinks with the plateau (one uniform, no
         // geometry rebuild).
         plateauWall.setScale(v);
@@ -375,7 +440,100 @@ export function usePlateau({
       // sink, from here to its end (finish, or cancelExagAnim).
       stillMap.plateauMotionBegin();
     });
-    if (exagAnim) exagAnim.done = done;
+  }
+
+  /** The rise or the sink as ONE setTerrain (ac:rise=transition): mapbox
+   *  interpolates the ground's height over `ms`, on its own curve, and the
+   *  plateau's layer draws each frame at the height mapbox draws the ground
+   *  at (lib/terrainFollow.ts, PlateauWallLayer.followScale). A frame is asked
+   *  for each frame of the transition and no longer: mapbox evaluates a
+   *  terrain's transition only in a frame it was told is dirty. No setTerrain
+   *  at the end: the last frame is at the target. Where the frames' height
+   *  cannot be read (mapbox's renderer runs no terrain for this map, or is
+   *  not where 3.34 has it), the move goes on in steps after UNREAD_FRAMES. */
+  function transitionTerrain(map: mapboxgl.Map, to: number, ms: number): Promise<void> {
+    const UNREAD_FRAMES = 3;
+    const done: Promise<void> = new Promise((resolve) => {
+      let ticks = 0;
+      let reads = 0;
+      // Mapbox's own end is a moment later (its clock is read inside the
+      // call): the last frame, drawn at the target, is what ends the move.
+      const endAt = performance.now() + ms;
+      /** The one setTerrain, and again for what is left after one that cut it. */
+      const issue = (src: string, left: number) =>
+        getMap()?.setTerrain(
+          transitionSpec(src, to, left) as unknown as mapboxgl.TerrainSpecification,
+        );
+      // This frame's height, read by the layer inside its draw; null (the last
+      // one kept) where the terrain is not the plateau's slot any more.
+      const read = () => {
+        const m = getMap();
+        if (!m || flatGround || m.getTerrain()?.source !== terrainSrc) return null;
+        const v = frameExaggeration(m);
+        if (v !== null) {
+          terrainExag = v;
+          reads++;
+        }
+        return v;
+      };
+      const finish = () => {
+        if (!exagAnim) return;
+        cancelAnimationFrame(exagAnim.raf);
+        clearTimeout(exagAnim.timer);
+        exagAnim = null;
+        plateauWall.followScale(null);
+        if (terrainExag !== to) {
+          // No frame was drawn at the target (a hidden tab, a terrain that
+          // could not be read): snapped there, as the steps' last one is.
+          terrainExag = to;
+          if (!flatGround && getMap()?.getSource(terrainSrc)) setTerrainRaw(terrainSrc, to);
+          if (perfOn) riseRuns.snaps++;
+        }
+        plateauWall.setScale(to);
+        stillMap.plateauMotionEnd();
+        resolve();
+      };
+      const tick = () => {
+        if (!exagAnim) return;
+        const m = getMap();
+        if (!m) return finish();
+        if (transitionSettled(performance.now(), endAt, terrainExag, to)) return finish();
+        if (++ticks > UNREAD_FRAMES && reads === 0) {
+          // No frame's height was read: the rest of the move in steps, from
+          // where the layer stands, under the same promise.
+          cancelAnimationFrame(exagAnim.raf);
+          clearTimeout(exagAnim.timer);
+          exagAnim = null;
+          plateauWall.followScale(null);
+          if (perfOn) riseRuns.unread++;
+          const steps = stepTerrain(to, Math.max(1, endAt - performance.now()));
+          if (exagAnim) (exagAnim as { done: Promise<void> }).done = done;
+          void steps.then(resolve);
+          return;
+        }
+        // The next frame evaluates the transition; a map that cannot be
+        // pumped any more ends on the snap.
+        if (!pumpTransition(m)) return finish();
+        exagAnim.raf = requestAnimationFrame(tick);
+      };
+      exagAnim = {
+        raf: requestAnimationFrame(tick),
+        // Safety, as the steps': rAF stops in a hidden tab.
+        timer: window.setTimeout(finish, ms + 300),
+        resolve,
+        target: to,
+        // Patched to the real promise by animateTerrain.
+        done: Promise.resolve(),
+        rearm: (src) => {
+          issue(src, endAt - performance.now());
+          if (perfOn) riseRuns.rearms++;
+        },
+      };
+      stillMap.plateauMotionBegin();
+      plateauWall.followScale(read);
+      issue(terrainSrc, ms);
+      if (perfOn) riseRuns.transitions++;
+    });
     return done;
   }
 
@@ -387,6 +545,56 @@ export function usePlateau({
     } catch (err) {
       if (import.meta.env.DEV) console.warn("[plateau] onSettled failed:", err);
     }
+  }
+
+  // ---- ac:rise-order=after: the rise waits for the camera's flight to land ----
+  // The wait in progress (one at a time), and whether a committed plateau is
+  // still waiting to rise — over flat ground its pins are lifted when it
+  // does, not before. The wait is the PLATEAU's, not its run's: a later run
+  // for the same unit (its outline refined: a quiet swap at the height it is
+  // at) leaves it be, and the rise it owes still comes. It is dropped where
+  // the plateau goes: another unit selected, the plateau cleared or failed,
+  // the unmount.
+  let landWait: { cancel: () => void } | null = null;
+  let riseWaiting = false;
+  function dropLanding() {
+    landWait?.cancel();
+    landWait = null;
+    riseWaiting = false;
+  }
+
+  /** Whether the rise asked for now waits for the camera: the order (under
+   *  "auto" the device's tier of the moment) says after, and a flight is in
+   *  the air. Never a plateau already on its way up: its rise has started. */
+  const waitsForLanding = (map: mapboxgl.Map) =>
+    exagAnim?.target !== 1 &&
+    riseStartFor(riseOrder.value, deviceTier()) === "after" &&
+    isFlying(map);
+
+  /** The camera's landing awaited (LAND_WAIT_CAP_MS at most) for the plateau
+   *  of `scope`; false when that plateau is no longer the one standing, the
+   *  wait was dropped or taken over by a newer one, or the map is gone: no
+   *  rise then. Over flat ground the pins are lifted at its end (a caller
+   *  that lifts them at its commit sets `riseWaiting` before it does). */
+  async function landing(map: mapboxgl.Map, scope: string): Promise<boolean> {
+    const t0 = performance.now();
+    landWait?.cancel();
+    const wait = whenLanded(map, LAND_WAIT_CAP_MS);
+    landWait = wait;
+    riseWaiting = true;
+    const how = await wait.done;
+    if (landWait === wait) {
+      landWait = null;
+      riseWaiting = false;
+    }
+    if (perfOn) {
+      if (how === "landed") riseRuns.landed++;
+      else if (how === "cap") riseRuns.capped++;
+      perfNote("plateau.riseWait", performance.now() - t0, { scope, how });
+    }
+    const current = how !== "cancelled" && !!getMap() && plateauActive && plateauScopeId === scope;
+    if (current) onLift?.();
+    return current;
   }
 
   /** The standing plateau's unit and box, as last given to setGeometry. */
@@ -442,7 +650,8 @@ export function usePlateau({
   let liftCache: { raised: OutlineFC["features"]; heightM: number; lift: PlateauLift } | null =
     null;
   function lift(): PlateauLift | null {
-    if (!flatGround || !plateauActive || !plateauRaised.length) return null;
+    // A plateau that waits for the camera to rise (ac:rise-order) lifts nothing yet.
+    if (!flatGround || !plateauActive || !plateauRaised.length || riseWaiting) return null;
     const heightM = plateauWall.heightM;
     if (liftCache?.raised !== plateauRaised || liftCache.heightM !== heightM) {
       liftCache = {
@@ -593,6 +802,7 @@ export function usePlateau({
         coldStart(seq, map);
         return;
       }
+      dropLanding(); // a plateau that waited for the camera to rise goes without rising
       if (perfOn) notePlateauRun(""); // the perf probes: a run, for no unit
       // Nothing selected (world level, or the micropin zone) → sink, then clear the
       // plateau; the outline's own lines (e.g. the country boundary at world
@@ -692,6 +902,8 @@ export function usePlateau({
     // commune batch arriving mid-pan — and an unconditional capture here threw
     // away any zoom refine and reset the texture to the coarse whole-unit shot.
     const changed = scopeId !== plateauScopeId;
+    // Another unit: the one that waited for the camera to rise will not.
+    if (changed) dropLanding();
     // "Carte" (DEV): the old unit's slabs are not the new one's — its first shot
     // must not take them in (France's, some 900 km, around Lyon's lid). Its own
     // are added once they are built (syncSlabs).
@@ -788,9 +1000,20 @@ export function usePlateau({
           syncSlabs();
           plateauActive = true;
           applyMask();
+          // Brought back up after an interrupted sink: with ac:rise-order=after,
+          // once the camera has landed, its pins lifted then.
+          const waits = terrainExag !== 1 && waitsForLanding(map);
+          riseWaiting = waits;
           onLift?.();
           settled(scopeId, refined ? "quiet" : "same");
-          if (terrainExag !== 1) await animateTerrain(1, RISE_MS);
+          if (terrainExag !== 1) {
+            if (waits && !(await landing(map, scopeId))) return;
+            // A rise that waited is the selection's own, taken over from the
+            // run that committed it: timed as that one's would have been.
+            const endRise = waits && perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
+            await animateTerrain(1, RISE_MS);
+            if (endRise) endRise();
+          }
           if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
           return;
         }
@@ -812,11 +1035,17 @@ export function usePlateau({
         syncSlabs(true);
         plateauActive = true;
         applyMask();
+        // ac:rise-order=after (a weak device's by default): the rise once the
+        // camera's flight has landed, the pins lifted then and not before.
+        const waits = waitsForLanding(map);
+        riseWaiting = waits;
         onLift?.();
         terrainExag = 0;
         plateauWall.setScale(0);
-        // The commit is whole: a pending mark on this unit goes as it rises.
+        // The commit is whole: a pending mark on this unit goes now, in the
+        // commit's block, also when the rise waits for the camera.
         settled(scopeId, "rise");
+        if (waits && !(await landing(map, scopeId))) return;
         const endFlatRise = perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
         await animateTerrain(1, RISE_MS);
         if (endFlatRise) endFlatRise();
@@ -860,7 +1089,14 @@ export function usePlateau({
         applyMask();
         if (!map.getTerrain()) setTerrainRaw(terrainSrc, terrainExag);
         settled(scopeId, "same");
-        if (terrainExag !== 1) await animateTerrain(1, RISE_MS);
+        if (terrainExag !== 1) {
+          const waits = waitsForLanding(map);
+          if (waits && !(await landing(map, scopeId))) return;
+          // (As over flat ground: a rise that waited is timed.)
+          const endRise = waits && perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
+          await animateTerrain(1, RISE_MS);
+          if (endRise) endRise();
+        }
         if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
         return;
       }
@@ -1054,6 +1290,9 @@ export function usePlateau({
       // No tile wait (arrival tiles were prefetched during the sink): the rise starts
       // IMMEDIATELY on click and plays during the camera flight. Slight terrain
       // LOD re-tessellation can show mid-flight — chosen over a delayed rise.
+      // (ac:rise-order=after, a weak device's by default: it starts once the
+      // flight has landed, the unit flat meanwhile.)
+      if (waitsForLanding(map) && !(await landing(map, scopeId))) return;
       const endRise = perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
       await animateTerrain(1, RISE_MS);
       if (endRise) endRise();
@@ -1077,6 +1316,7 @@ export function usePlateau({
       // over a plateau that failed to rise. The boundary lines stay (grounded).
       if (import.meta.env.DEV) console.warn("[plateau] transition failed:", err);
       if (seq === plateauSeq) {
+        dropLanding();
         // ac:lines-mesh: the lines' mesh from the worker here too; the wall
         // comes down with it, in the block below.
         const asked = askLines(focus, context);
@@ -1113,6 +1353,9 @@ export function usePlateau({
       standingId: plateauScopeId,
       standingUp: !!plateauVersion && (flatGround || !!map.getTerrain()) && terrainExag > 0,
     });
+    // ac:rise-order=after: a plateau that waited for the camera to rise is
+    // being left for the coming unit: it stays down.
+    if (next?.id && coldStartMode.value === "early" && next.id !== plateauScopeId) dropLanding();
     if (!next || (!plan.sink && !plan.lid)) return;
     if (earlyLid?.id !== next.id) {
       coldStarts++;
@@ -1270,6 +1513,7 @@ export function usePlateau({
   /** Unmount: any in-flight ensurePlateau run is superseded. */
   function abort() {
     plateauSeq++;
+    dropLanding();
     if (perfOn) stopTilesReady();
     slots.abort();
     relief?.releaseSlot("plateau-dem-a");
@@ -1298,6 +1542,22 @@ export function usePlateau({
       ...(perfOn ? { coldStarts } : {}),
       // The spare slot's path (ac:relief-prefetch): re-points, keeps, early terrains.
       ...(perfOn ? { prefetch: { mode: reliefPrefetch, ...prefetchRuns } } : {}),
+      // The rise (ac:rise, ac:rise-order): the mode and the order in force, the
+      // height last applied and the layer's, the setTerrain calls by kind and
+      // the waits for the camera by how they ended.
+      ...(perfOn
+        ? {
+            rise: {
+              mode: riseMode.value,
+              start: riseStartFor(riseOrder.value, deviceTier()),
+              exag: terrainExag,
+              wall: plateauWall.rise,
+              moving: !!exagAnim,
+              waiting: riseWaiting,
+              ...riseRuns,
+            },
+          }
+        : {}),
     };
   }
 

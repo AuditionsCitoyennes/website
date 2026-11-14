@@ -6,7 +6,7 @@
 // « Options de test », a row for each switch of devOptions.ts — the data
 // source and the place tree (dataSource.ts), the plateau's lid, its check, its
 // hidden map, the pictures of it that are kept, its mesh, its lines' layout,
-// its ground, the relief's prefetch and the answer to a tap
+// its ground, its rise, the relief's prefetch and the answer to a tap
 // (map), what the map keeps in memory (map/cacheBudget),
 // the boot curtain's cover (geo-nav/bootListSwitch), what a pan does to the
 // selected zone, the files a touch screen asks ahead and the sign of a long wait
@@ -84,6 +84,8 @@ import {
   setColdStartMode,
   setLateFilesMode,
   setLidCacheMode,
+  riseMode,
+  riseOrder,
   setDprChoice,
   setFrameMeasure,
   setGlobeLate,
@@ -106,6 +108,8 @@ import {
   setTapFrameMode,
   tapAnswerMode,
   tapFrameMode,
+  setRiseMode,
+  setRiseOrder,
   setTintCut,
   tintCut,
 } from "@/features/map";
@@ -206,6 +210,8 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:map-caches": bind(() => mapCaches, setMapCaches),
   "ac:line-mesh": bind(() => lineMesh, setLineMesh),
   "ac:motion": bind(() => motionChoice.value, setMotionChoice),
+  "ac:rise": bind(() => riseMode.value, setRiseMode),
+  "ac:rise-order": bind(() => riseOrder.value, setRiseOrder),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
