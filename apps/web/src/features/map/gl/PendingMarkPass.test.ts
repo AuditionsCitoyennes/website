@@ -175,6 +175,47 @@ test("the mark never writes depth, and hands the frame back tested and written",
   assert.deepEqual(calls.at(-1), { name: "enable", args: ["DEPTH_TEST"] });
 });
 
+test("drain: the mark fades where it stands, nothing rebuilt, frames asked only until it is gone", () => {
+  const c = clock();
+  try {
+    const { pass, frame, repaints, count } = harness();
+    pass.set(spec());
+    frame();
+    const uploads = count("bufferData");
+    pass.drain(true);
+    assert.equal(repaints(), 2); // the set, the drain
+    assert.equal(pass.state()?.fading, true);
+    assert.equal(pass.state()?.raised, false); // not moved onto any lid
+    pass.drain(true); // fading already: the fade is not started over
+    assert.equal(repaints(), 2);
+    let frames = 0;
+    for (let i = 0; i < 60; i++) {
+      c.advance(16);
+      const before = repaints();
+      frame();
+      if (repaints() > before) frames++;
+    }
+    assert.ok(frames >= 5 && frames <= Math.ceil(MARK_FADE_MS / 16), `${frames} frames asked`);
+    assert.equal(count("bufferData"), uploads); // the same set to the end
+    assert.equal(pass.active, false);
+    const asked = repaints();
+    for (let i = 0; i < 50; i++) frame();
+    assert.equal(repaints(), asked); // a still map again
+  } finally {
+    c.restore();
+  }
+});
+
+test("drain under reduced motion, or with no mark: at once, or nothing", () => {
+  const { pass, repaints } = harness();
+  pass.drain(true);
+  assert.equal(repaints(), 0);
+  pass.set(spec());
+  pass.drain(false);
+  assert.equal(pass.active, false);
+  assert.equal(repaints(), 2);
+});
+
 test("clear: no mark, one repaint; a second clear asks for nothing", () => {
   const { pass, frame, repaints, count } = harness();
   pass.set(spec());

@@ -2,8 +2,9 @@
 // and the click test against; the hovered unit (the pointer's, or the panel's
 // through `hoveredId`); the macro pills anchored on their unit's visible
 // territory (updateSticky) and shown while hovered, or while their unit wears
-// the pending mark (setPendingPin: tapped, its plateau on its way); the pins
-// hidden under the analyses' slabs. Hot paths (onMapHover, updateSticky)
+// the pending mark (setPendingPin: tapped, its plateau on its way), with the
+// sign of a long wait beside it (setPendingWait); the pins hidden under the
+// analyses' slabs. Hot paths (onMapHover, updateSticky)
 // allocate nothing.
 
 import mapboxgl from "mapbox-gl";
@@ -105,6 +106,8 @@ export function useMapPins({
   // diff, where it stood at the tap, until the pending state ends.
   let pendingPinId = "";
   let heldPin: MarkerEntry | null = null;
+  // The pending pill shows the sign of a long wait (setPendingWait).
+  let pendingWait = false;
 
   function makePin(unit: MapUnit): HTMLElement {
     const root = document.createElement("button");
@@ -203,7 +206,10 @@ export function useMapPins({
         const marker = new mapboxgl.Marker(opts).setLngLat([lng, lat]).addTo(map);
         entry = { marker, el, sig, lng, lat, halfW: 0, halfH: 0 };
         // A pill made anew for the pending unit wears its look from the start.
-        if (!unit.isLeaf && unit.id === pendingPinId) el.classList.add("geo-pin-pending");
+        if (!unit.isLeaf && unit.id === pendingPinId) {
+          el.classList.add("geo-pin-pending");
+          if (pendingWait) showWait(el, true);
+        }
         if (!unit.isLeaf) {
           // The pin element sits ABOVE the canvas: hovering it fires the canvas
           // mouseout, which must not clear the hover that revealed this very pin.
@@ -347,6 +353,7 @@ export function useMapPins({
     if (id === pendingPinId) return;
     const prev = pendingPinId;
     pendingPinId = id;
+    pendingWait = false; // the sign was the pill before's
     if (heldPin) {
       heldPin.marker.remove();
       heldPin = null;
@@ -354,6 +361,7 @@ export function useMapPins({
     if (prev) {
       const was = sticky.find((x) => x.id === prev);
       if (was) {
+        showWait(was.el, false);
         was.el.classList.remove("geo-pin-pending");
         was.el.classList.toggle("geo-pin-hover", hoveredUnitId === prev);
         applyPinVisibility(was);
@@ -372,6 +380,37 @@ export function useMapPins({
     s.el.classList.add("geo-pin-pending");
     hidePinsUnderSlabs();
     applyPinVisibility(s);
+  }
+
+  /** The sign of a long wait on a pill: three dots in a chip beside it (the
+   *  shared `.wait-dots`, placed by geo-pins.css), added or taken away. A DOM
+   *  write on the marker's own element: the map draws no frame for it. */
+  function showWait(el: HTMLElement, on: boolean) {
+    const had = el.querySelector(".wait-dots");
+    el.classList.toggle("geo-pin-waiting", on);
+    if (!on) {
+      had?.remove();
+      return;
+    }
+    if (had) return;
+    const dots = document.createElement("span");
+    dots.className = "wait-dots moving";
+    dots.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < 3; i++) dots.appendChild(document.createElement("i"));
+    el.querySelector(".geo-pin-bubble")?.appendChild(dots);
+  }
+
+  /**
+   * The pending pill shows the sign of a long wait (`on`), or no longer does:
+   * its unit's plateau is still on its way well after the tap (the parent
+   * decides when: GeoNav's model/tapPendingCore). Nothing without a pending
+   * pill; a newer pending pill (setPendingPin) starts without it.
+   */
+  function setPendingWait(on: boolean) {
+    pendingWait = on && pendingPinId !== "";
+    const el =
+      heldPin?.el ?? (pendingPinId ? sticky.find((x) => x.id === pendingPinId)?.el : undefined);
+    if (el) showWait(el, pendingWait);
   }
 
   // ---- Pins under the analyses' slabs -------------------------------------------
@@ -654,6 +693,8 @@ export function useMapPins({
     scheduleSticky,
     /** The pill of the unit wearing the pending mark ("": none). */
     setPendingPin,
+    /** The sign of a long wait on that pill, on or off. */
+    setPendingWait,
     /** The pins drawn on a slab, hidden; those no longer there, shown again. */
     hidePinsUnderSlabs,
     onResize,

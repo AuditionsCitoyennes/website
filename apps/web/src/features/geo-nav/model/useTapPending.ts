@@ -2,19 +2,25 @@
 // tapPendingCore.ts): the map's mark through GeoDrillMap (`markPending`,
 // `endPending`), the unit pending as a ref (the panel list's aria-busy), the
 // polite sentence said once its plateau stands, the type of the pointer that
-// tapped (a touch gets the flat fill: tapAnswerSwitch), and the frame the
-// mark may get to itself before the selection is written (`ac:tap-frame`).
+// tapped (a touch gets the flat fill: tapAnswerSwitch), the frame the
+// mark may get to itself before the selection is written (`ac:tap-frame`),
+// and the sign of a long wait (`ac:slow-sign`, slowSignSwitch.ts): its stage
+// as a ref (the breadcrumb's dots, the panel's sentence and its
+// « Réessayer »), the dots on the unit's pill through GeoDrillMap
+// (`setPendingWait`), and the landing the sign waits for.
 import { onScopeDispose, ref, watch, type Ref } from "vue";
 import { tapAnswerMode, tapFrameMode, tapIsTouch, tapMarkFor, type TapMark } from "@/features/map";
 import type { GeoUnit } from "@/features/geo";
 import { perfNote, perfOn, perfProbe } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
+import { slowSignMode } from "./slowSignSwitch";
 import {
   createTapFrame,
   createTapPending,
   type PendingEnd,
   type PendingUnit,
   type SettleHow,
+  type WaitStage,
 } from "./tapPendingCore";
 
 export interface TapPendingInputs {
@@ -22,13 +28,19 @@ export interface TapPendingInputs {
   /** GeoDrillMap, once mounted: its pending mark. */
   mapCmp: Ref<{
     markPending: (id: string, mark: TapMark) => "shown" | "none" | "standing" | "unavailable";
-    endPending: (how: "rise" | "off") => void;
+    endPending: (how: "rise" | "off" | "drain") => void;
+    setPendingWait: (on: boolean) => void;
   } | null>;
+  /** « Réessayer »: ask again the one piece `unit`'s plateau still misses
+   *  (GeoNav: its outline's file, else the plateau's own run). */
+  reask: (unit: PendingUnit) => void;
 }
 
-export function useTapPending({ nav, mapCmp }: TapPendingInputs) {
+export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
   /** The unit tapped whose plateau is on its way, null when none. */
   const pendingUnit = ref<PendingUnit | null>(null);
+  /** The long wait's stage: "moving", the sign shows; "late", the sentence. */
+  const waitStage = ref<WaitStage>("none");
   /** The polite live region's sentence. */
   const live = ref("");
   /** The type of the pointer last seen going down on the page. */
@@ -37,11 +49,23 @@ export function useTapPending({ nav, mapCmp }: TapPendingInputs) {
   // The testing tools: how each pending state ended, and how long it was held.
   const ends: Record<string, number> = {};
   let last: { id: string; end: PendingEnd; heldMs: number } | null = null;
+  // …how often the long wait reached each stage, and the pieces asked again.
+  const waits: Record<string, number> = {};
+  let reasked = 0;
   if (perfOn) {
     perfProbe("tap-pending", {
-      read: () => ({ pending: pendingUnit.value?.id ?? null, ends: { ...ends }, last }),
+      read: () => ({
+        pending: pendingUnit.value?.id ?? null,
+        wait: waitStage.value,
+        waits: { ...waits },
+        reasked,
+        ends: { ...ends },
+        last,
+      }),
       reset: () => {
         for (const k of Object.keys(ends)) delete ends[k];
+        for (const k of Object.keys(waits)) delete waits[k];
+        reasked = 0;
         last = null;
       },
     });
@@ -73,6 +97,17 @@ export function useTapPending({ nav, mapCmp }: TapPendingInputs) {
       perfNote("tap.pending", heldMs, { id: unit.id, end });
     },
     now: () => performance.now(),
+    slowSign: () => slowSignMode.value === "on",
+    onWait: (stage) => {
+      waitStage.value = stage;
+      // The dots on the unit's pill: a DOM write, the map draws nothing for it.
+      mapCmp.value?.setPendingWait(stage === "moving");
+      if (perfOn && stage !== "none") waits[stage] = (waits[stage] ?? 0) + 1;
+    },
+    reask: (unit) => {
+      if (perfOn) reasked++;
+      reask(unit);
+    },
   });
 
   const frame = createTapFrame({
@@ -117,7 +152,14 @@ export function useTapPending({ nav, mapCmp }: TapPendingInputs) {
   return {
     pendingUnit,
     live,
+    waitStage,
     select,
+    /** The map has reported a view (GeoDrillMap's `viewChange`): the pending
+     *  unit's flight has landed, which the long wait's sign waits for. */
+    landed: () => core.landed(),
+    /** « Réessayer », under the late sentence: the wait starts over and the
+     *  missing piece is asked again. False: there was nothing to try again. */
+    retry: () => core.retry(),
     /** Another action took over (a crumb, a lieu): a selection still waiting
      *  for its frame is dropped, and its mark with it. */
     cancelWaiting: () => {

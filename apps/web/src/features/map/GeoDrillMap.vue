@@ -286,14 +286,31 @@ function markPending(id: string, mark: TapMark): "shown" | "none" | "standing" |
  * The pending mark ends. "rise": its unit's plateau has just committed (call
  * it from `plateauSettled`): the mark moves onto the new lid and fades as it
  * rises — or goes at once under reduced motion. "off": at once (the
- * selection went elsewhere, or no plateau will come). The pill goes at once.
+ * selection went elsewhere, or no plateau will come). "drain": no plateau
+ * has come for a long while (the parent's long wait turned late): the mark
+ * fades where it stands, as briefly — or goes at once under reduced motion.
+ * The pill goes at once.
  */
-function endPending(how: "rise" | "off") {
+function endPending(how: "rise" | "off" | "drain") {
   pins.setPendingPin("");
-  if (how === "rise") {
-    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    plateauWall.commitPending(!still);
-  } else plateauWall.clearPending();
+  if (how === "off") {
+    plateauWall.clearPending();
+    return;
+  }
+  const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  if (how === "rise") plateauWall.commitPending(!still);
+  else plateauWall.drainPending(!still);
+}
+
+/** The sign of a long wait on the pending unit's pill, on or off (the parent
+ *  decides when: model/tapPendingCore). A DOM write: no frame is drawn. */
+function setPendingWait(on: boolean) {
+  pins.setPendingWait(on);
+}
+/** The plateau of unit `id` asked once more, from the outline in memory (the
+ *  panel's « Réessayer »): see usePlateau's `retry`. */
+function retryPlateau(id: string) {
+  return plateau.retry(id);
 }
 
 /** What the map does once the camera has come to rest (gesture or flight). */
@@ -695,6 +712,9 @@ defineExpose({
   /** A tapped unit's pending mark, set and ended (see the functions). */
   markPending,
   endPending,
+  /** The long wait's sign on the pending pill; the plateau asked once more. */
+  setPendingWait,
+  retryPlateau,
   /** Work that waits for a map at rest (see the function). */
   whenAtRest,
   /** A wheel turned over something laid on the map (the analyses' plates):
