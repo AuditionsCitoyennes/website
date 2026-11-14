@@ -996,6 +996,34 @@ test("(L8b) …and only once: a file still not in after the wait comes with the 
   assert.equal(t.writes.length, 2);
 });
 
+test("(L8c) the files of one batch are written together, however late the last one", async () => {
+  const t = quiet({ "u/fr_dep_03": ["defer"], "u/fr_dep_07": ["defer", 404] });
+  await t.boot();
+  const batch = t.loader.batchSelf(["fr:dep:01", "fr:dep:03", "fr:dep:07"]);
+  void t.loader.ensureBundle("fr:dep:69"); // not of the batch
+  await t.tick(0);
+  await t.still();
+  await t.tick(400);
+  await t.still(); // the wait is over: the bundle goes, the batch's first file stays kept
+  assert.deepEqual(
+    t.written().map((s) => s.key),
+    ["k/fr_dep_69"],
+  );
+  assert.deepEqual([...t.loader.held], ["u/fr_dep_01"]);
+  // Its other files come much later — one of them missing: the batch is whole.
+  await t.tick(3000);
+  t.release();
+  await t.tick(0);
+  await t.still();
+  await t.tick(400);
+  await t.still();
+  assert.deepEqual(await batch, ["loaded", "loaded", "failed"]);
+  assert.deepEqual(
+    t.written().map((s) => s.key),
+    ["k/fr_dep_69", "u/fr_dep_01 u/fr_dep_03"],
+  );
+});
+
 test("(L9) a request only a prefetch made is never kept and never writes", async () => {
   const t = quiet();
   await t.boot();
