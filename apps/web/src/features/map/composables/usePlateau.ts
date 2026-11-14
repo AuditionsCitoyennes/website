@@ -449,8 +449,8 @@ export function usePlateau({
    *  for each frame of the transition and no longer: mapbox evaluates a
    *  terrain's transition only in a frame it was told is dirty. No setTerrain
    *  at the end: the last frame is at the target. Where the frames' height
-   *  cannot be read (mapbox runs no terrain: it refuses one in a browser that
-   *  blurs canvas readings), the move goes on in steps after UNREAD_FRAMES. */
+   *  cannot be read (mapbox's renderer runs no terrain for this map, or is
+   *  not where 3.34 has it), the move goes on in steps after UNREAD_FRAMES. */
   function transitionTerrain(map: mapboxgl.Map, to: number, ms: number): Promise<void> {
     const UNREAD_FRAMES = 3;
     const done: Promise<void> = new Promise((resolve) => {
