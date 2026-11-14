@@ -565,9 +565,11 @@ export function usePlateau({
 
   /** Whether the rise asked for now waits for the camera: the order (under
    *  "auto" the device's tier of the moment) says after, and a flight is in
-   *  the air. */
+   *  the air. Never a plateau already on its way up: its rise has started. */
   const waitsForLanding = (map: mapboxgl.Map) =>
-    riseStartFor(riseOrder.value, deviceTier()) === "after" && isFlying(map);
+    exagAnim?.target !== 1 &&
+    riseStartFor(riseOrder.value, deviceTier()) === "after" &&
+    isFlying(map);
 
   /** The camera's landing awaited (LAND_WAIT_CAP_MS at most) for the plateau
    *  of `scope`; false when that plateau is no longer the one standing, the
@@ -1006,7 +1008,11 @@ export function usePlateau({
           settled(scopeId, refined ? "quiet" : "same");
           if (terrainExag !== 1) {
             if (waits && !(await landing(map, scopeId))) return;
+            // A rise that waited is the selection's own, taken over from the
+            // run that committed it: timed as that one's would have been.
+            const endRise = waits && perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
             await animateTerrain(1, RISE_MS);
+            if (endRise) endRise();
           }
           if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
           return;
@@ -1084,8 +1090,12 @@ export function usePlateau({
         if (!map.getTerrain()) setTerrainRaw(terrainSrc, terrainExag);
         settled(scopeId, "same");
         if (terrainExag !== 1) {
-          if (waitsForLanding(map) && !(await landing(map, scopeId))) return;
+          const waits = waitsForLanding(map);
+          if (waits && !(await landing(map, scopeId))) return;
+          // (As over flat ground: a rise that waited is timed.)
+          const endRise = waits && perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
           await animateTerrain(1, RISE_MS);
+          if (endRise) endRise();
         }
         if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
         return;
