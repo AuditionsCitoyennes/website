@@ -1,10 +1,10 @@
 // The idle prefetch (the outline files, ac:outlines-ahead "idle"): a touch screen
 // has no pointer to hover a row with, so nothing is asked ahead of its taps
 // (data/hoverPrefetch.ts). Once the FIRST plateau stands, its lid has landed
-// and the map is at rest, the files of the one or two units under it that
-// hold the most testimonies are asked, one at a time, through the loader's
-// own prefetch (the HTTP cache only, at low priority): the tap on one of them
-// then finds its file there. Each file waits for a map at rest of its own,
+// and the map is at rest, the one or two units under it that hold the most
+// testimonies have the file their plateau would wait for asked, one at a
+// time, through the loader's own prefetch (the HTTP cache only, at low
+// priority): the tap on one of them then finds its file there. Each file waits for a map at rest of its own,
 // so none is asked during a gesture, a flight or a rise; a visitor who never
 // stops moving the map gets none. Once per page. Pure: the request, the
 // guard and the wait are handed in (GeoNav: not under Save-Data, not on a

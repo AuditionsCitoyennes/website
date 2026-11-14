@@ -434,9 +434,12 @@ const { pendingUnit, live: tapLive } = tap;
 // ---- The files asked ahead on a touch screen (data/idlePrefetch, ac:outlines-ahead):
 // no pointer hovers a row there. Once the first plateau stands, its lid has
 // landed and the map is at rest, the one or two units under it that hold the
-// most testimonies have their files asked, one per rest: France's top
-// régions. Not under Save-Data, not on a link the browser calls slow, never
-// while the map moves or a finger is on it; one unit on a weak device.
+// most testimonies have a file asked, one per rest: France's top régions.
+// The ONE file a tap's plateau waits for — the self alone where it goes ahead
+// of its bundle (ac:region-self), a third of the bytes; the bundle follows
+// the tap, as for any unit. Not under Save-Data, not on a link the browser
+// calls slow, never while the map moves or a finger is on it; one unit on a
+// weak device.
 const ahead = outlines
   ? idlePrefetch({
       allowed: () => {
@@ -455,16 +458,33 @@ const ahead = outlines
           prefetchUnits(deviceTier()),
           (id) => prefetchKind(outlines.rowOf(id)) !== null,
         ),
-      prefetch: prefetchUnit,
+      prefetch: (id) => {
+        const kind = prefetchKind(outlines.rowOf(id));
+        if (!kind) return Promise.resolve();
+        return outlines.prefetch(kind === "k" && outlines.selfAhead(id) ? "u" : kind, id);
+      },
       whenAtRest: (job) => mapCmp.value?.whenAtRest(job) ?? (() => {}),
     })
   : null;
 if (ahead) onBeforeUnmount(ahead.stop);
+// Shown as a card (the home page) the map is only looked at: nothing is
+// asked ahead until the card is opened into the page — then for the unit
+// standing by then.
+let standing = "";
 /** GeoDrillMap's `plateauSettled`: the pending mark's verdict, and the first
  *  plateau the idle prefetch waits for. */
 function onPlateauSettled(scopeId: string, how: SettleHow) {
   tap.settled(scopeId, how);
-  ahead?.settled(scopeId, how);
+  standing = how === "cleared" || how === "failed" ? "" : scopeId;
+  if (!props.preview) ahead?.settled(scopeId, how);
+}
+if (ahead) {
+  watch(
+    () => props.preview,
+    (card) => {
+      if (!card && standing) ahead.settled(standing, "same");
+    },
+  );
 }
 
 // ---- Actions (model/useNavActions): pins, rows, breadcrumb all fly the map ----
