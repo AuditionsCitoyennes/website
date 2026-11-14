@@ -681,7 +681,7 @@ onBeforeUnmount(() => {
 // ---- The watchers, in today's order (watchers run in the order they are made) ----
 watch(
   () => props.units,
-  () => pins.buildMarkers(),
+  () => pins.unitsChanged(), // ac:pins-rebuild: now, or after the next frame
   { deep: false },
 );
 watch(
