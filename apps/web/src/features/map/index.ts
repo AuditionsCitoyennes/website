@@ -69,3 +69,5 @@ export { linesMesh, setLinesMesh, type LinesMesh } from "./threadSwitch";
 export { globeLate, setGlobeLate, type GlobeLate } from "./threadSwitch";
 export { tintCut, setTintCut, type TintCut } from "./threadSwitch";
 export { pinsRebuild, setPinsRebuild, type PinsRebuild } from "./threadSwitch";
+// When the lid's hidden map is created, and whether there is one: its DEV switch (the Témoignages page draws it).
+export { lidMap, setLidMap, type LidMap } from "./plateau/lidMapSwitch";

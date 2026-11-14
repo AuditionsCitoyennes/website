@@ -15,6 +15,7 @@ import { SnapshotManager, type Snapshot } from "../plateau/mapSnapshot";
 import { lidCheck, lidMode } from "../plateau/lidSwitch";
 import { keptAnswers, lidCacheBudget } from "../plateau/lidCache";
 import { lidCacheMode } from "../plateau/lidCacheSwitch";
+import { lidMap, lidMapFor, warmupAtLoad, type LidMapPlan } from "../plateau/lidMapSwitch";
 import { boundsOfFeatures, unionBounds } from "../lib/polygon";
 import { whenMapStill } from "../lib/stillMap";
 
@@ -41,10 +42,18 @@ export function usePlateauLid({
   lidExtra,
 }: PlateauLidInputs) {
   const snapshotMgr = new SnapshotManager(lidMode, lidCheck);
-  // "aucun" (DEV, plateau/lidSwitch): no capture, no hidden map — the top is the
-  // draped terrain. "ancien": the lid as before, its sizes and its bookkeeping.
-  const noLid = lidMode === "aucun";
+  // "ancien" (DEV, plateau/lidSwitch): the lid as before, its sizes and its
+  // bookkeeping.
   const before = lidMode === "ancien";
+  // When the hidden map is created, and whether there is one at all
+  // (plateau/lidMapSwitch.ts): "none" — a device whose tier is "minimal", the
+  // switch, or `ac:lid` on "aucun" — is no capture and no hidden map, the
+  // plateau's top being the live map. Read at the map's load and at each
+  // selection, with the device's tier of that moment.
+  const planNow = (): LidMapPlan => lidMapFor(lidMap, deviceTier(), lidMode);
+  // The plan the last selection read (the load's before any): a plateau
+  // standing keeps the lid it has until the next selection.
+  let plan: LidMapPlan = planNow();
 
   // Snapshot the PURE basemap over the selection and hand it to the lid (outlines
   // are drawn over it as constant-width GL vector lines, not baked). Fire-and-forget:
@@ -233,6 +242,10 @@ export function usePlateauLid({
     /** Re-shoot even the rectangle already showing (the DEV "Carte" lid). */
     force = false,
   ) {
+    // A new selection (or the load's first): the plan is read again. "none"
+    // from here on: the hidden map goes, and the lid showing with it.
+    plan = planNow();
+    if (plan === "none") return dropLid();
     if (force || before) return shootLid(seq, raised, over, force, true, true, !over);
     // A select asks from the outline's watcher, which runs before the camera's
     // (GeoDrillMap): let that flush end, then the flight a list row or a crumb
@@ -240,6 +253,29 @@ export function usePlateauLid({
     // outline came after the landing): the live camera is the unit's own.
     await Promise.resolve();
     return shootLid(seq, raised, over, false, !!getMap()?.isEasing(), true, !over);
+  }
+
+  /** No lid from now on ("none"): the hidden map removed (its WebGL context,
+   *  its style and its tiles freed), the texture showing dropped, the shot
+   *  running left to end unapplied (the manager's counter moved on). The
+   *  pictures kept (ac:lid-cache) go too, and the one held for a still map:
+   *  none of them will show. What waited for the running shot's end
+   *  (whenIdle) runs now: that end will no longer say so. */
+  function dropLid() {
+    if (snapshotMgr.has()) snapshotMgr.destroy();
+    dropStray();
+    plateauWall.cancelKeptLid();
+    if (keeps) plateauWall.setLidKeepBudget({ bytes: 0, count: 0 });
+    keeps = false;
+    if (lidCovered || Number.isFinite(lidMpp)) plateauWall.setLidTexture(null);
+    reset();
+    inFlightKey = "";
+    inFlightId = 0;
+    selectInFlight = false;
+    for (const job of [...idleJobs]) {
+      idleJobs.delete(job);
+      job();
+    }
   }
 
   async function shootLid(
@@ -254,7 +290,7 @@ export function usePlateauLid({
     /** The rectangle is the unit's own (not a refine's slice). */
     whole = false,
   ) {
-    if (noLid) return;
+    if (plan === "none") return;
     if (force) lidTargetKey = "";
     const shot = over ?? boundsOfFeatures(raised);
     if (!shot) return;
@@ -408,7 +444,7 @@ export function usePlateauLid({
    */
   function refreshLidForZoom() {
     const map = getMap();
-    if (noLid || !map || !plateauActive() || !lidRaised.length) return;
+    if (plan === "none" || !map || !plateauActive() || !lidRaised.length) return;
     // A capture is running — come back rather than dropping this refine on the
     // floor (the old code returned here and only retried on the NEXT gesture,
     // so a refine lost to the initial capture never happened at all).
@@ -536,6 +572,13 @@ export function usePlateauLid({
       lidMode,
       lidCapturePx: lastCapturePx || null,
       hiddenMapPx: snapshotMgr.hiddenMapPx(),
+      // When the hidden map is created (plateau/lidMapSwitch): the switch, the
+      // plan in force, what created the one there is (null: none), and how
+      // many this page has created.
+      lidMap,
+      lidMapPlan: plan,
+      hiddenMapBy: snapshotMgr.createdBy,
+      hiddenMapsCreated: snapshotMgr.created,
       // How shots are judged, how they ended, and how many read pixels back.
       lidCheck,
       lidShotEnds: { ...snapshotMgr.ends },
@@ -587,9 +630,22 @@ export function usePlateauLid({
       idleJobs.add(job);
       return () => void idleJobs.delete(job);
     },
-    /** Hidden lid-snapshot map: pay the style init now (the load handler). */
-    warmup: () => {
-      if (!noLid) snapshotMgr.warmup(style);
+    /** The visible map's load: the hidden map created now — on the world
+     *  ("boot"), or on the first place a plateau will stand on, when one is
+     *  known ("first-place": `outline`, the rectangle of the scope's outline,
+     *  else `framed`, the one the first camera command frames) — or not at
+     *  all yet (plateau/lidMapSwitch.ts). */
+    warmup: (outline: Bounds | null = null, framed: Bounds | null = null) => {
+      plan = planNow();
+      const warm = warmupAtLoad(plan, outline, framed);
+      if (!warm) return;
+      // On a place: at the size of a select's shot taken before its flight
+      // (the floor), which the first shot is when the intro's tilt starts it.
+      snapshotMgr.warmup(
+        style,
+        warm.place,
+        warm.place ? snapshotMgr.pixelBudget(0, plateauWall.maxTextureSize) : 0,
+      );
     },
     /** The main map's WebGL context was lost: the layer's lid textures went
      *  with it, and the lid's bookkeeping starts over. */

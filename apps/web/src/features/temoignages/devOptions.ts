@@ -13,7 +13,7 @@
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
 // geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
-// map/threadSwitch, analyses/devSwitch,
+// map/threadSwitch, map/plateau/lidMapSwitch, analyses/devSwitch,
 // shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -75,7 +75,8 @@ export type DevKey =
   | "ac:lines-mesh"
   | "ac:globe-late"
   | "ac:tint-cut"
-  | "ac:pins-rebuild";
+  | "ac:pins-rebuild"
+  | "ac:lid-map";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -535,6 +536,22 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Quand les lieux à montrer changent, la carte met à jour ses points et les zones où un clic choisit un territoire. « Image suivante » (par défaut) le fait juste après l'image qui suit le toucher, pour que cette première image arrive plus vite. « Tout de suite » le fait au moment du toucher, comme avant.",
     reloads: false,
     defaultId: "next",
+  },
+  {
+    key: "ac:lid-map",
+    section: "carte",
+    label: "Carte cachée",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "boot", label: "Démarrage" },
+      { id: "first-place", label: "Premier lieu" },
+      { id: "none", label: "Aucune" },
+    ],
+    explain:
+      "L'image du dessus du relief est prise sur une deuxième carte, que la page dessine sans la montrer. « Auto » (par défaut) suit le niveau de l'appareil (section Appareil) : « Premier lieu » aux niveaux complet et léger, « Aucune » au niveau minimal. « Démarrage » crée cette carte dès que la carte visible est prête, sur une vue du monde entier, comme avant. « Premier lieu » la crée au même moment, mais directement sur le premier territoire à soulever : elle ne charge que ce qui sert à sa première image. « Aucune » ne la crée pas : le dessus du relief n'a pas d'image, et l'on voit la carte elle-même entre les parois. Sans effet si Couvercle est « Aucun » ; avec « Ancien », « Premier lieu » fait comme « Démarrage ».",
+    reloads: true,
+    defaultId: "auto",
+    inactiveWhen: { key: "ac:lid", id: "aucun" },
   },
   {
     key: "ac:analyses-pending",
