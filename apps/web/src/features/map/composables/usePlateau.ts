@@ -11,6 +11,11 @@
 // new unit, a new shape, or nothing standing runs the pipeline; lines that
 // changed around the standing plateau are one mesh applied in place when the
 // map is still (`redress`); an outline that changes nothing does nothing.
+//
+// ac:cold-start "early" (plateau/coldTapSwitch.ts): a run that HOLDS for an
+// outline on its way (`scopePending`) starts what needs no outline — the
+// standing plateau's sink, the coming unit's lid over its box (`coming`,
+// lib/coldStart.ts) — so the run that raises it finds both done.
 
 import type mapboxgl from "mapbox-gl";
 import { canonicalCopies, type Bounds, type HeightClass, type WrapGeometry } from "@/features/geo";
@@ -26,6 +31,7 @@ import {
   type OutlineVerdict,
   type RaisedShape,
 } from "../lib/outlineChange";
+import { boxFeature, coldStartPlan, type ComingUnit } from "../lib/coldStart";
 import { riseProgress } from "../lib/rise";
 import { stillMap } from "../lib/stillMap";
 import { markPlateauStood } from "../lib/plateauStood";
@@ -36,6 +42,7 @@ import { demTemplate } from "../relief/demTiles";
 import { planPrefetch, type PrefetchPlan } from "../relief/prefetchPlan";
 import { reliefPrefetch } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
+import { coldStartMode } from "../plateau/coldTapSwitch";
 import { LATE_CAP_MS } from "../plateau/lateFilesSwitch";
 import { meshMode } from "../plateau/meshSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
@@ -51,6 +58,9 @@ export interface PlateauInputs {
   /** The scope's outline (the `outline` prop) and whether it is still loading (`scopePending`). */
   outline: () => OutlineFC | null | undefined;
   scopePending: () => boolean | undefined;
+  /** The unit the map holds for while `scopePending` (its id, its row's box);
+   *  none known: null. Read under ac:cold-start "early" only. */
+  coming?: () => ComingUnit | null | undefined;
   /** The lid (usePlateauLid): captured for a new selection, reset with the plateau. */
   lid: Pick<ReturnType<typeof usePlateauLid>, "capture" | "reset" | "hasTexture">;
   /** `cameraForBounds` blind to the terrain (useMapCamera): the DEM's canonical zoom. */
@@ -96,6 +106,7 @@ export function usePlateau({
   introPending,
   outline,
   scopePending,
+  coming,
   lid,
   flatCamera,
   applyMask,
@@ -127,6 +138,11 @@ export function usePlateau({
   let owed = false;
   let redressSeq = 0;
   let redresses = 0;
+  // ac:cold-start "early": the unit whose lid a holding run shot over its box
+  // (null: none since the last shot a raising run asked for), and how many
+  // such starts there were (testing tools).
+  let earlyLidFor: string | null = null;
+  let coldStarts = 0;
   // Double-buffered DEM source slots: the NEW selection's tiles prefetch in the spare
   // slot while the old plateau is still sinking, so the rise starts without waiting.
   let terrainSrc: DemSlot = "plateau-dem-a";
@@ -406,7 +422,10 @@ export function usePlateau({
     if (!raised.length) {
       // The scope's geometry is merely still LOADING (cold cache) → hold the current
       // plateau; the geometry's arrival re-fires this watcher with the real shape.
-      if (scopePending()) return;
+      if (scopePending()) {
+        coldStart(seq, map);
+        return;
+      }
       if (perfOn) notePlateauRun(""); // the perf probes: a run, for no unit
       // Nothing selected (world level, or the micropin zone) → sink, then clear the
       // plateau; the outline's own lines (e.g. the country boundary at world
@@ -484,7 +503,13 @@ export function usePlateau({
     // must not take them in (France's, some 900 km, around Lyon's lid). Its own
     // are added once they are built (syncSlabs).
     if (changed) forgetLidExtra();
-    if (changed || !lid.hasTexture()) void lid.capture(seq, raised);
+    // (ac:cold-start "early": the lid a holding run shot for ANOTHER unit may
+    // be the one showing — this unit's is shot again.)
+    const strayLid = earlyLidFor !== null && earlyLidFor !== scopeId;
+    if (changed || strayLid || !lid.hasTexture()) {
+      earlyLidFor = null;
+      void lid.capture(seq, raised);
+    }
     // Selection changed → the old plateau starts sinking NOW, while the version
     // key comes.
     // (A different scope id always hashes to a different DEM version, so this never
@@ -783,6 +808,31 @@ export function usePlateau({
     }
   }
 
+  /** A run that holds for an outline on its way (ac:cold-start "early"): the
+   *  plateau standing starts its sink, and the coming unit's lid is shot over
+   *  its box (lib/coldStart.ts). The run that raises the unit joins that sink
+   *  (animateTerrain is idempotent) and adopts that shot, or finds it landed
+   *  (usePlateauLid: the same rectangle). A hold run again does neither twice. */
+  function coldStart(seq: number, map: mapboxgl.Map) {
+    const next = coming?.();
+    const plan = coldStartPlan({
+      mode: coldStartMode.value,
+      coming: next,
+      standingId: plateauScopeId,
+      standingUp: !!plateauVersion && !!map.getTerrain() && terrainExag > 0,
+    });
+    if (!next || (!plan.sink && !plan.lid)) return;
+    if (earlyLidFor !== next.id) {
+      coldStarts++;
+      if (perfOn) perfNote("plateau.coldStart", 0, { scope: next.id, sink: plan.sink });
+    }
+    if (plan.sink) void animateTerrain(0, SINK_MS);
+    if (plan.lid) {
+      earlyLidFor = next.id;
+      void lid.capture(seq, [boxFeature(next)]);
+    }
+  }
+
   /** The current run has ended (stood, failed, or returned): an outline that
    *  came meanwhile for the very shape it raised is read again, once the map
    *  is still (its lines may have changed: one reshape in place). */
@@ -929,6 +979,8 @@ export function usePlateau({
       ...(perfOn ? { demReady: { ...demReady, live: offTilesReady ? 1 : 0 } } : {}),
       // The reshapes in place applied (ac:late-files "quiet").
       ...(perfOn ? { redresses } : {}),
+      // The holds that started early (ac:cold-start "early").
+      ...(perfOn ? { coldStarts } : {}),
       // The spare slot's path (ac:relief-prefetch): re-points, keeps, early terrains.
       ...(perfOn ? { prefetch: { mode: reliefPrefetch, ...prefetchRuns } } : {}),
     };

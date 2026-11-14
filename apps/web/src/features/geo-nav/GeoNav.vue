@@ -317,7 +317,7 @@ const {
 } = panel;
 
 // ---- What the map is handed (model/useMapFeed): outline, pending hold, pins ----
-const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
+const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
   nav,
   geo,
   panelUnits,
@@ -833,6 +833,7 @@ function retryAll() {
       :padding="mapPadding"
       :view-padding="mapViewPadding"
       :scope-pending="scopePending"
+      :coming="coming"
       :stable-outline="outlines?.mode.value === 'fichiers'"
       :attribution="attribution"
       :credit-corner="isDesktop ? 'top-left' : 'bottom-right'"
