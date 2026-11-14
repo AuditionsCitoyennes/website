@@ -17,7 +17,12 @@
 // not a failure: `ready` turns "late" (the page stops waiting for it) and the
 // boot goes on — a main thread busy with the map's own start can hold a
 // response that has long arrived (`bootCap: "fallback"` ends the session
-// there instead). An overseas région's files are its département's
+// there instead). With `bootRetryMs`, a network failure of root.json or k/FR
+// does not end the session either: `ready` turns "late" and the boot is
+// asked again after each wait in turn, then only when `reconnect()` says the
+// network may be back (the page: the browser back online, the page shown
+// again) — which also starts the waits over, and lets every file failed on
+// the network be asked again by the next ensure, without its failedMs. An overseas région's files are its département's
 // (OutlineStore.filesIdOf): each public method reads them by that id.
 //
 // A batch can be "low" (decoration: ensureGlobe and batchSelf's `low`): its
@@ -98,6 +103,10 @@ export interface OutlineLoaderOptions {
   /** A file failed on the network is asked again by the first ensure this
    *  long after (not before: a dead network is not asked on every move). */
   failedMs?: number;
+  /** A boot failed on the network is asked again after each of these waits
+   *  in turn, then on `reconnect()` alone; meanwhile `ready` is "late"
+   *  (none: the session falls back at once, as a skew does). */
+  bootRetryMs?: readonly number[];
   /** At most this many low requests at once (none: no limit); the others
    *  wait their turn, their abort timer not armed yet. */
   lowParallel?: number;
@@ -131,6 +140,14 @@ export class OutlineLoader {
   private readonly retryable = new Set<string>();
   private readonly live = new Set<AbortController>();
   private root?: Promise<OutlineStatus>;
+  /** root.json is in the store (a boot asked again starts at k/FR). */
+  private rootIn = false;
+  /** The next wait of a boot asked again (an index into bootRetryMs). */
+  private bootTry = 0;
+  /** Ends the boot's wait before its next attempt, while it waits. */
+  private bootWake?: () => void;
+  /** Files failed on the network (reconnect() lets them be asked again). */
+  private readonly netFailed = new Set<string>();
   /** Low requests running, and those waiting for their turn (in order). */
   private lowRunning = 0;
   private readonly lowQueue: LowWait[] = [];
@@ -140,23 +157,12 @@ export class OutlineLoader {
   }
 
   /** root.json then k/FR; any failure of either ends the session (the
-   *  fallback); `bootMs` passing first turns `ready` to "late" (or ends the
-   *  session too, under `bootCap: "fallback"`). */
+   *  fallback) — but a network one under `bootRetryMs` (header); `bootMs`
+   *  passing first turns `ready` to "late" (or ends the session too, under
+   *  `bootCap: "fallback"`). */
   ensureRoot(): Promise<OutlineStatus> {
     const first = !this.root;
-    this.root ??= (async () => {
-      const { base, build } = this.o;
-      const r = await this.request(rootUrl(base, build), "root", { build, kind: "root" });
-      if (this.off()) return "fallback";
-      if (!r.ok) return this.fallback(r.reason, "root");
-      this.o.store.putRoot(r.file as RootV1);
-      this.o.onWrite(this.o.store.version);
-      if (!this.o.store.rowOf("FR")?.k) return this.fallback("shape", fileKey("k", "FR"));
-      const fr = await this.load("k", "FR", true);
-      if (fr !== "loaded") return fr;
-      this.set("fichiers", "ok");
-      return "loaded";
-    })();
+    this.root ??= this.boot();
     if (first && this.o.bootMs !== undefined) {
       const late = this.o.setTimer(() => {
         if (this.o.bootCap !== "fallback") {
@@ -169,6 +175,69 @@ export class OutlineLoader {
       void this.root.finally(() => this.o.clearTimer(late));
     }
     return this.root;
+  }
+
+  /** The network may be back: a boot waiting for its next attempt makes it
+   *  now (its waits start over), and every file failed on the network may be
+   *  asked again by the next ensure. */
+  reconnect(): void {
+    for (const key of this.netFailed) this.retryable.add(key);
+    if (!this.bootWake) return;
+    this.bootTry = 0;
+    this.bootWake();
+  }
+
+  /** The boot's attempts: the next after each wait when one failed on the
+   *  network under `bootRetryMs`, until one is final. */
+  private async boot(): Promise<OutlineStatus> {
+    for (;;) {
+      const status = await this.bootOnce();
+      if (status !== "again") return status;
+      this.set("fichiers", "late"); // the page stops waiting; the boot goes on
+      await this.bootPause();
+      if (this.off()) return "fallback";
+    }
+  }
+
+  /** One attempt of the boot: root.json (unless in), then k/FR; "again": it
+   *  failed on the network, and will be asked again. */
+  private async bootOnce(): Promise<OutlineStatus | "again"> {
+    const { base, build } = this.o;
+    if (!this.rootIn) {
+      const r = await this.request(rootUrl(base, build), "root", { build, kind: "root" });
+      if (this.off()) return "fallback";
+      if (!r.ok) return this.bootAgain(r.reason) ? "again" : this.fallback(r.reason, "root");
+      this.o.store.putRoot(r.file as RootV1);
+      this.rootIn = true;
+      this.o.onWrite(this.o.store.version);
+      if (!this.o.store.rowOf("FR")?.k) return this.fallback("shape", fileKey("k", "FR"));
+    }
+    const fr = await this.load("k", "FR", true);
+    if (fr === "failed") return "again"; // a network failure under bootRetryMs (fail)
+    if (fr !== "loaded") return fr;
+    this.set("fichiers", "ok");
+    return "loaded";
+  }
+
+  /** A boot failure worth another attempt: a network one, under bootRetryMs. */
+  private bootAgain(reason: OutlineReason): boolean {
+    return reason === "network" && this.o.bootRetryMs !== undefined;
+  }
+
+  /** The wait before the boot's next attempt: the schedule's next, or past
+   *  it until reconnect() (or the session's fallback) ends it. */
+  private bootPause(): Promise<void> {
+    return new Promise<void>((resume) => {
+      const ms = this.o.bootRetryMs?.[this.bootTry++];
+      let timer: Timer | undefined;
+      const wake = () => {
+        if (timer !== undefined) this.o.clearTimer(timer);
+        this.bootWake = undefined;
+        resume();
+      };
+      if (ms !== undefined) timer = this.o.setTimer(wake, ms);
+      this.bootWake = wake;
+    });
   }
 
   /** The unit's bundle (its self and its children), if its row says k:1. */
@@ -355,17 +424,22 @@ export class OutlineLoader {
   }
 
   private fail(key: string, reason: OutlineReason, root: boolean): OutlineStatus {
+    // The boot's file, failed on the network under bootRetryMs: asked again by the boot.
+    if (root && this.bootAgain(reason)) return "failed";
     if (root || isReleaseSkew(reason)) return this.fallback(reason, key);
     this.failed = new Set(this.failed).add(key);
     this.o.onSets();
-    if (reason === "network")
+    if (reason === "network") {
+      this.netFailed.add(key);
       this.o.setTimer(() => this.retryable.add(key), this.o.failedMs ?? 5_000);
+    }
     return "failed";
   }
 
   /** A network failure past its failedMs leaves `failed`: asked again now. */
   private retry(key: string): boolean {
     if (!this.retryable.delete(key)) return false;
+    this.netFailed.delete(key);
     const failed = new Set(this.failed);
     failed.delete(key);
     this.failed = failed;
@@ -377,6 +451,7 @@ export class OutlineLoader {
    *  not mix with nothing for the rest of it. */
   private fallback(reason: OutlineReason, key: string): "fallback" {
     if (this.mode !== "fallback") this.set("fallback", "fallback", { reason, key });
+    this.bootWake?.(); // a boot waiting for its next attempt ends now
     return "fallback";
   }
 

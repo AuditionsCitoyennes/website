@@ -664,6 +664,10 @@ const ROOT_COUNTS: CountsArgs = {
   filters: {},
 };
 
+/** The same without the figures: what the map asks in a build without the
+ *  analyses (the site's public build). */
+const ROOT_COUNTS_PLAIN: CountsArgs = { ...ROOT_COUNTS, facts: false };
+
 /** What the home page's card asks first: every audition on the map, those
  *  without testimonies too (empty=1), no figures. */
 const CARD_COUNTS: CountsArgs = { ...ROOT_COUNTS, facts: false, empty: true };
@@ -671,9 +675,11 @@ const CARD_COUNTS: CountsArgs = { ...ROOT_COUNTS, facts: false, empty: true };
 /**
  * The place reads every first visit to the map waits on, filled at boot
  * (prewarm.ts) under the very keys the routes read: the world with its
- * figures (/api/places?unit=world&depth=2&facts=1), the facets, and the home
- * card's world (/api/places?unit=world&depth=2&empty=1). Charged to no
- * visitor. Resolves (or rejects) per read, in that order.
+ * figures (/api/places?unit=world&depth=2&facts=1), the facets, the home
+ * card's world (/api/places?unit=world&depth=2&empty=1), and the world
+ * without the figures (/api/places?unit=world&depth=2: a build without the
+ * analyses asks for none). Charged to no visitor. Resolves (or rejects) per
+ * read, in that order.
  */
 export function prewarmPlaceReads(): [string, Promise<unknown>][] {
   const opts = { transient: isTransientDbError };
@@ -688,5 +694,6 @@ export function prewarmPlaceReads(): [string, Promise<unknown>][] {
     world(ROOT_COUNTS),
     [FACETS_KEY, placesCache.get(FACETS_KEY, () => placeFacets(), opts)],
     world(CARD_COUNTS),
+    world(ROOT_COUNTS_PLAIN),
   ];
 }

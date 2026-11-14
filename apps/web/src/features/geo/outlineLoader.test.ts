@@ -696,3 +696,92 @@ test("(19) a low request waiting its turn when the session falls back is never s
   assert.deepEqual(await second, ["fallback"]);
   assert.ok(!t.requests.some((q) => q.url === url("g/IT")));
 });
+
+test("(20) bootRetryMs: a boot failed on the network turns late, is asked again after each wait, and lands", async () => {
+  // root.json: refused twice (its own retry included), then answered.
+  const t = setup({ root: ["reject", "reject", "json"] }, { bootRetryMs: [2000, 5000] });
+  const r = t.loader.ensureRoot();
+  const waiting = t.loader.ensureBundle("fr:reg:84"); // waits for the boot
+  await t.tick(1_000); // the request's own retry
+  assert.deepEqual(t.modes, [["fichiers", "late", undefined]]);
+  assert.equal(t.requests.length, 2);
+  await t.tick(1_999);
+  assert.equal(t.requests.length, 2, "not before the first wait");
+  await t.tick(1);
+  assert.deepEqual(await Promise.all([r, waiting]), ["loaded", "loaded"]);
+  assert.deepEqual(t.modes, [
+    ["fichiers", "late", undefined],
+    ["fichiers", "ok", undefined],
+  ]);
+  assert.deepEqual(
+    t.requests.map((q) => q.url),
+    [url("root"), url("root"), url("root"), url("k/FR"), url("k/fr_reg_84")],
+  );
+});
+
+test("(20b) bootRetryMs: k/FR failed is asked again alone; past the waits, reconnect() alone brings an attempt", async () => {
+  const t = setup({ "k/FR": [503] }, { bootRetryMs: [2000] });
+  const r = t.loader.ensureRoot();
+  await t.tick(1_000);
+  assert.deepEqual([t.loader.mode, t.loader.ready], ["fichiers", "late"]);
+  assert.equal(t.writes.length, 1, "root.json is in");
+  await t.tick(2_000 + 1_000); // the one wait, then the request and its own retry
+  assert.equal(t.requests.filter((q) => q.url === url("root")).length, 1, "root.json once");
+  assert.equal(t.requests.filter((q) => q.url === url("k/FR")).length, 4);
+  await t.tick(600_000);
+  assert.equal(t.requests.length, 5, "nothing past the waits");
+  assert.equal(t.loader.mode, "fichiers");
+  // The network comes back: one attempt now, the waits started over.
+  const t2 = setup({ "k/FR": [503, 503, 503, 503, "json"] }, { bootRetryMs: [2000] });
+  const r2 = t2.loader.ensureRoot();
+  await t2.tick(1_000 + 2_000 + 1_000 + 60_000);
+  assert.equal(t2.requests.length, 5);
+  t2.loader.reconnect();
+  await t2.tick(0);
+  assert.equal(await r2, "loaded");
+  assert.deepEqual(t2.modes.at(-1), ["fichiers", "ok", undefined]);
+  t.loader.reconnect();
+  await t.tick(1_000);
+  assert.equal(t.requests.length, 7, "asked again on reconnect");
+  void r;
+});
+
+test("(20c) bootRetryMs: a skew or a missing root still ends the session; so does the cap's fallback during a wait", async () => {
+  const cases: [Record<string, Reply[]>, string][] = [
+    [{ root: [404] }, "missing"],
+    [{ root: ["html"] }, "html"],
+  ];
+  for (const [script, reason] of cases) {
+    const t = setup(script, { bootRetryMs: [2000] });
+    const r = t.loader.ensureRoot();
+    await t.tick(1_000);
+    assert.equal(await r, "fallback");
+    assert.deepEqual(t.modes, [["fallback", "fallback", { reason, key: "root" }]]);
+  }
+  const t = setup(
+    { root: ["reject"] },
+    { bootRetryMs: [60_000], bootMs: 6000, bootCap: "fallback" },
+  );
+  const r = t.loader.ensureRoot();
+  await t.tick(6_000);
+  assert.equal(await r, "fallback");
+  assert.equal(t.loader.mode, "fallback");
+  await t.tick(120_000);
+  assert.equal(t.requests.length, 2, "never asked again");
+});
+
+test("(20d) reconnect(): a file failed on the network is asked again by the next ensure, without its wait", async () => {
+  const t = setup({ "k/fr_dep_69": ["reject", "reject", "json"], "k/fr_reg_84": [404, "json"] });
+  await t.boot();
+  const first = t.loader.ensureBundle("fr:dep:69");
+  await t.tick(1_000);
+  assert.equal(await first, "failed");
+  assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed");
+  t.loader.reconnect();
+  const again = t.loader.ensureBundle("fr:dep:69");
+  await t.tick(0);
+  assert.equal(await again, "loaded");
+  assert.equal(await t.loader.ensureBundle("fr:reg:84"), "failed", "a missing file stays failed");
+  t.loader.reconnect(); // nothing waits: a no-op
+  assert.equal(t.loader.mode, "fichiers");
+});
