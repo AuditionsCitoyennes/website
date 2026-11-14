@@ -5,10 +5,10 @@
 // modules own the keys, the defaults and the reads (dataSource.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
 // geo-nav/bootListSwitch, map/bootWorkersSwitch, geo-nav/data/outlinesDecorSwitch,
-// map/glyphSwitch, analyses/devSwitch, shared/device/deviceTier, shared/device/glassSwitch,
-// shared/boot/mapPreload, shared/api/authClientSwitch, map/fallbackSwitch,
-// shared/ui/posterSwitch, shared/device/cardOpenSwitch, shared/boot/homeBoot,
-// shared/net/recoverSwitch, geo-nav/data/bootReadsSwitch).
+// map/glyphSwitch, map/plateau/tapAnswerSwitch, analyses/devSwitch, shared/device/deviceTier,
+// shared/device/glassSwitch, shared/boot/mapPreload, shared/api/authClientSwitch,
+// map/fallbackSwitch, shared/ui/posterSwitch, shared/device/cardOpenSwitch,
+// shared/boot/homeBoot, shared/net/recoverSwitch, geo-nav/data/bootReadsSwitch).
 // Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -32,6 +32,8 @@ export type DevKey =
   | "ac:mesh"
   | "ac:relief-prefetch"
   | "ac:frame-fill"
+  | "ac:tap-answer"
+  | "ac:tap-frame"
   | "ac:analyses-pending"
   | "ac:slab-lid-verre"
   | "ac:slab-text"
@@ -308,6 +310,35 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Pendant le chargement de la carte, son cadre montre un indicateur de chargement sur un fond uni (« Non », par défaut, comme avant) ou, derrière lui, la France et ses régions en image, en retrait (« France ») : le cadre a une image dès l'ouverture de la page, jusqu'à ce que la vraie carte la remplace.",
     reloads: true,
     defaultId: "non",
+  },
+  {
+    key: "ac:tap-answer",
+    section: "carte",
+    label: "Réponse au toucher",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "stroke", label: "Contour" },
+      { id: "fill", label: "Violet" },
+      { id: "off", label: "Aucune" },
+    ],
+    explain:
+      "Quand on touche ou clique un territoire, il est marqué tout de suite, en attendant qu'il se soulève. « Auto » (par défaut) trace un contour clair et épais autour de lui et, sur un écran tactile, le remplit aussi de violet ; « Contour » ne trace que le contour ; « Violet » ne fait que le remplir, sur tous les appareils ; « Aucune » ne marque rien, comme avant. Avec les trois premiers choix, l'étiquette du territoire s'affiche aussi, en violet.",
+    reloads: false,
+    defaultId: "auto",
+  },
+  {
+    key: "ac:tap-frame",
+    section: "carte",
+    label: "Image du toucher",
+    choices: [
+      { id: "same", label: "Même image" },
+      { id: "own", label: "Image à part" },
+    ],
+    explain:
+      "À quel moment la marque du territoire touché est dessinée. « Même image » (par défaut) la dessine en même temps que le départ de la carte vers ce territoire, sans rien retarder ; « Image à part » la dessine d'abord, seule, et lance tout le reste une image plus tard. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "same",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
     key: "ac:analyses-pending",

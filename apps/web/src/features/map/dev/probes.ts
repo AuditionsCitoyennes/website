@@ -84,6 +84,8 @@ export interface ProbeSources {
   slabs: Pick<ReturnType<typeof usePlateauSlabs>, "probe">;
   /** The plateau mesh's fingerprint (testing tools; null without them). */
   meshDigest: ((opts?: { globe?: boolean }) => unknown) | null;
+  /** The tapped unit's pending mark as the layer holds it (null: none). */
+  pendingMark: () => unknown;
 }
 
 /** Install the probes; returns what unmount calls (the frame and idleness probes are removed,
@@ -95,6 +97,7 @@ export function installProbes({
   lid,
   slabs,
   meshDigest,
+  pendingMark,
 }: ProbeSources): () => void {
   const w = window as unknown as Probes;
   const map = getMap();
@@ -112,6 +115,8 @@ export function installProbes({
       ...lid.probe(),
       // The analyses' slabs standing (see syncSlabs).
       slabs: slabs.probe(),
+      // A tapped unit's pending mark (gl/PendingMarkPass), null when none.
+      pendingMark: pendingMark(),
     };
   };
   if (import.meta.env.DEV) w.__acFrame = frames.probe;

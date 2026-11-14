@@ -54,7 +54,22 @@ export interface PlateauInputs {
   /** ac:mesh=worker: the map's mesh worker (gl/meshClient.ts), once made at
    *  its load. Null (not yet, or another mode): the mesh is built here. */
   meshClient?: () => MeshClient | null;
+  /** A run of the pipeline has come to its verdict (see PlateauSettle): what
+   *  a tapped unit's pending mark waits for. Called in the block that applies
+   *  the mesh, before the rise's first frame. */
+  onSettled?: (scopeId: string, how: PlateauSettle) => void;
 }
+
+/**
+ * How a run of the plateau pipeline ended, for unit `scopeId`:
+ * - "rise": its mesh is applied and it starts rising from the ground;
+ * - "same": it was standing already (brought back up if a sink was cut short);
+ * - "quiet": it was standing and its shape was refined in place;
+ * - "cleared": nothing to raise ("" for the unit): the map is flat;
+ * - "failed": the transition failed, the map is left flat.
+ * A superseded run and a run that holds for an outline on its way say nothing.
+ */
+export type PlateauSettle = "rise" | "same" | "quiet" | "cleared" | "failed";
 
 /** The plateau's rise and sink, ms (the slabs ride them too). */
 export const RISE_MS = 300;
@@ -74,6 +89,7 @@ export function usePlateau({
   clearSlabs,
   forgetLidExtra,
   meshClient,
+  onSettled,
 }: PlateauInputs) {
   // Whether a plateau is currently standing — the draped hover-fill fallback only
   // applies when none stands or is coming (the world, or a scope with no boundary
@@ -260,6 +276,16 @@ export function usePlateau({
     return done;
   }
 
+  /** A run's verdict, told (PlateauInputs.onSettled). A listener that throws
+   *  must not take the run with it: most calls sit in the pipeline's try. */
+  function settled(scopeId: string, how: PlateauSettle) {
+    try {
+      onSettled?.(scopeId, how);
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn("[plateau] onSettled failed:", err);
+    }
+  }
+
   /** The standing plateau's unit and box, as last given to setGeometry. */
   let plateauRaised: OutlineFC["features"] = [];
   let plateauBbox: Bounds | null = null;
@@ -386,6 +412,7 @@ export function usePlateau({
       lid.reset();
       // The perf probes: a selection with no plateau (Monde) shows as the map cleared.
       if (perfOn) perfEnd("select-plateau", undefined, { cleared: true });
+      settled("", "cleared");
       return;
     }
     const scopeId = String(raised[0]?.properties?.id ?? "");
@@ -500,6 +527,7 @@ export function usePlateau({
         plateauActive = true;
         applyMask();
         if (!map.getTerrain()) setTerrainRaw(terrainSrc, terrainExag);
+        settled(scopeId, "same");
         if (terrainExag !== 1) await animateTerrain(1, RISE_MS);
         if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
         return;
@@ -645,6 +673,7 @@ export function usePlateau({
         syncSlabs();
         plateauActive = true;
         applyMask();
+        settled(scopeId, "quiet");
         return;
       }
       // ac:mesh=worker: the sink and the mesh both, the commit below one block.
@@ -679,6 +708,8 @@ export function usePlateau({
       setTerrainRaw(next, 0);
       slots.swapped(map, old);
       if (old !== next) slots.dropDemSourceSoon(map, old);
+      // The commit is whole: a pending mark on this unit goes as it rises.
+      settled(scopeId, "rise");
       // No tile wait (arrival tiles were prefetched during the sink): the rise starts
       // IMMEDIATELY on click and plays during the camera flight. Slight terrain
       // LOD re-tessellation can show mid-flight — chosen over a delayed rise.
@@ -713,6 +744,7 @@ export function usePlateau({
         if (map?.getTerrain()) map.setTerrain(null);
         plateauActive = false;
         applyMask();
+        settled(scopeId, "failed");
       }
     }
   }
