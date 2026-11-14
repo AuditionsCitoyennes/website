@@ -1,5 +1,6 @@
-import { supabase } from "./supabase";
+import { loadSupabase, supabaseIfMade, visitMayHaveSession } from "./supabaseLazy";
 import { outboxNudge, outboxViewer } from "./outbox";
+import { readWithin } from "./readTimeout";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
@@ -38,8 +39,10 @@ export async function apiFetch<T = unknown>(path: string, options: ApiOptions = 
   }
 
   if (options.auth) {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
+    // No client made and no session kept: nobody is signed in, and the
+    // client is not downloaded for that (supabaseLazy.ts).
+    const client = supabaseIfMade() ?? (visitMayHaveSession() ? await loadSupabase() : null);
+    const token = client ? (await client.auth.getSession()).data.session?.access_token : undefined;
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
@@ -48,25 +51,36 @@ export async function apiFetch<T = unknown>(path: string, options: ApiOptions = 
   const write = __TEST_TOOLS__ && (options.method ?? "GET") !== "GET";
   if (write) headers.set("X-Outbox-Viewer", outboxViewer());
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
-  if (write) outboxNudge.value++;
+  const send = async (signal: AbortSignal | null | undefined): Promise<T> => {
+    const res = await fetch(`${BASE_URL}${path}`, { ...options, headers, signal });
+    if (write) outboxNudge.value++;
 
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      // Fastify/sensible errors put the human text in `message` and the HTTP
-      // reason phrase in `error` — prefer the former; hand-rolled payloads
-      // only set `error`.
-      message = body.message || body.error || message;
-    } catch {
-      /* non-JSON error body */
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        // Fastify/sensible errors put the human text in `message` and the HTTP
+        // reason phrase in `error` — prefer the former; hand-rolled payloads
+        // only set `error`.
+        message = body.message || body.error || message;
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(message, res.status, retryAfterOf(res.headers.get("Retry-After")));
     }
-    throw new ApiError(message, res.status, retryAfterOf(res.headers.get("Retry-After")));
-  }
 
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  };
+
+  // A read has a time limit, its answer read to the end, and is sent once
+  // more when it runs out (readTimeout.ts); a write is sent once, unlimited.
+  if ((options.method ?? "GET") !== "GET") return send(options.signal);
+  return readWithin(send, {
+    signal: options.signal,
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimer: (timer) => window.clearTimeout(timer as number),
+  });
 }
 
 /** Convenience helpers. A read may be abandoned through its `signal`. */

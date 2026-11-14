@@ -5,17 +5,45 @@
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the data
 // source and the place tree (dataSource.ts), the plateau's lid, its check, its
-// mesh and the relief's prefetch (map), the framing and the analyses' slabs
-// (analyses/devSwitch) —, each with its sentences for a tester and a mark on
-// the ones that reload the page. A choice that is not its switch's default is
-// marked: a count on the button, « modifié » on its row, and at the top of the
-// dialog the count again with « Tout remettre par défaut », which removes the
-// stored keys and loads the page again. In comparer mode a badge counting the
-// differences (compare.ts: window.__acCompare, the tree's, and
+// hidden map, the pictures of it that are kept, its mesh, its lines' layout,
+// its ground, its rise, the relief's prefetch and the answer to a tap
+// (map), what the map keeps in memory (map/cacheBudget),
+// the boot curtain's cover (geo-nav/bootListSwitch), what a pan does to the
+// selected zone, the files a touch screen asks ahead and the sign of a long wait
+// (geo-nav), the framing and the analyses' slabs
+// (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
+// what the page knows of the device listed under it, what the map does where
+// the graphics are slow and whether it times its first flight
+// (map/graphicsSwitch), where the map's work runs during a selection
+// (map/threadSwitch), how much the page moves
+// (shared/device/motion) —, each with its
+// sentences for a tester and a mark on the ones that reload the page. A choice
+// that is not its switch's default is marked: a count on the button,
+// « modifié » on its row, and at the top of the dialog the count again with
+// « Tout remettre par défaut », which removes the stored keys (and the device
+// tier's kept measure) and loads the page again. In comparer mode a badge
+// counting the differences (compare.ts: window.__acCompare, the tree's, and
 // window.__acCompareLists, the lists'). The testing tools only: the explorer
 // loads it behind `__TEST_TOOLS__`.
 import { computed, nextTick, ref, useId } from "vue";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
+import {
+  decideTier,
+  deviceSignals,
+  deviceVerdict,
+  forgetMeasuredStep,
+  measureRecord,
+  probeRenderer,
+  setTierChoice,
+  tierChoice,
+} from "@/shared/device/deviceTier";
+import { glass, setGlass } from "@/shared/device/glassSwitch";
+import { mapPreload, setMapPreload } from "@/shared/boot/mapPreload";
+import { authClient, setAuthClient } from "@/shared/api/authClientSwitch";
+import { poster, setPoster } from "@/shared/ui/posterSwitch";
+import { cardOpen, setCardOpen } from "@/shared/device/cardOpenSwitch";
+import { hero, homeBoot, setHero, setHomeBoot } from "@/shared/boot/homeBoot";
+import { motionChoice, setMotionChoice } from "@/shared/device/motion";
 import {
   frameFill,
   pendingAnalysesMode,
@@ -31,15 +59,78 @@ import {
   slabTextScale,
 } from "@/features/analyses";
 import {
+  bootWorkers,
+  glyphs,
+  coldStartMode,
+  lateFilesMode,
+  lidCacheMode,
+  dprChoice,
+  frameMeasure,
+  globeLate,
   lidCheck,
+  lidMap,
   lidMode,
+  lineMesh,
+  linesMesh,
+  mapCaches,
   meshMode,
+  outlineWait,
+  regionSelfMode,
+  msaaChoice,
+  pinsRebuild,
+  reliefGround,
   reliefPrefetch,
+  setBootWorkers,
+  setGlyphs,
+  setColdStartMode,
+  setLateFilesMode,
+  setLidCacheMode,
+  riseMode,
+  riseOrder,
+  setDprChoice,
+  setFrameMeasure,
+  setGlobeLate,
   setLidCheck,
+  mapFallback,
+  setLidMap,
   setLidMode,
+  setMapFallback,
+  setLineMesh,
+  setLinesMesh,
+  setMapCaches,
   setMeshMode,
+  setOutlineWait,
+  setRegionSelfMode,
+  setMsaaChoice,
+  setPinsRebuild,
+  setReliefGround,
   setReliefPrefetch,
+  setTapAnswerMode,
+  setTapFrameMode,
+  tapAnswerMode,
+  tapFrameMode,
+  setRiseMode,
+  setRiseOrder,
+  setTintCut,
+  tintCut,
 } from "@/features/map";
+import {
+  bootList,
+  filtersLoad,
+  outlinesDecor,
+  prefetch,
+  prefetchMode,
+  scopeDragMode,
+  setBootList,
+  setFiltersLoad,
+  setOutlinesDecor,
+  setPrefetch,
+  setPrefetchMode,
+  setScopeDragMode,
+  setSlowSignMode,
+  slowSignMode,
+} from "@/features/geo-nav";
+import { recover, setRecover } from "@/shared/net/recoverSwitch";
 import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
 import { compareState } from "./compare";
 import {
@@ -52,6 +143,7 @@ import {
   changedCount,
   changedOptions,
   clearOptions,
+  tierFacts,
   type DevKey,
   type DevOption,
 } from "./devOptions";
@@ -76,11 +168,51 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:mesh": bind(() => meshMode, setMeshMode),
   "ac:relief-prefetch": bind(() => reliefPrefetch, setReliefPrefetch),
   "ac:frame-fill": share(() => frameFill.value, setFrameFill),
+  "ac:tap-answer": bind(() => tapAnswerMode.value, setTapAnswerMode),
+  "ac:tap-frame": bind(() => tapFrameMode.value, setTapFrameMode),
+  "ac:late-files": bind(() => lateFilesMode, setLateFilesMode),
+  "ac:outline-wait": bind(() => outlineWait.value, setOutlineWait),
+  "ac:region-self": bind(() => regionSelfMode.value, setRegionSelfMode),
+  "ac:cold-start": bind(() => coldStartMode.value, setColdStartMode),
+  "ac:scope-drag": bind(() => scopeDragMode.value, setScopeDragMode),
+  "ac:outlines-ahead": bind(() => prefetchMode.value, setPrefetchMode),
+  "ac:lid-cache": bind(() => lidCacheMode.value, setLidCacheMode),
+  "ac:slow-sign": bind(() => slowSignMode.value, setSlowSignMode),
   "ac:analyses-pending": bind(() => pendingAnalysesMode.value, setPendingAnalysesMode),
   "ac:slab-lid-verre": bind(() => slabLidMode.value, setSlabLidMode),
   "ac:slab-text": bind(() => slabTextMode.value, setSlabTextMode),
   "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
+  "ac:tier": bind(() => tierChoice, setTierChoice),
+  "ac:boot-list": bind(() => bootList, setBootList),
+  "ac:boot-workers": bind(() => bootWorkers, setBootWorkers),
+  "ac:outlines-decor": bind(() => outlinesDecor, setOutlinesDecor),
+  "ac:glyphs": bind(() => glyphs, setGlyphs),
+  "ac:map-preload": bind(() => mapPreload, setMapPreload),
+  "ac:glass": bind(() => glass, setGlass),
+  "ac:auth-client": bind(() => authClient, setAuthClient),
+  "ac:map-fallback": bind(() => mapFallback, setMapFallback),
+  "ac:poster": bind(() => poster, setPoster),
+  "ac:card-open": bind(() => cardOpen, setCardOpen),
+  "ac:home-boot": bind(() => homeBoot, setHomeBoot),
+  "ac:hero": bind(() => hero, setHero),
+  "ac:recover": bind(() => recover, setRecover),
+  "ac:filters-load": bind(() => filtersLoad, setFiltersLoad),
+  "ac:prefetch": bind(() => prefetch, setPrefetch),
+  "ac:relief-ground": bind(() => reliefGround.value, setReliefGround),
+  "ac:msaa": bind(() => msaaChoice, setMsaaChoice),
+  "ac:dpr": bind(() => dprChoice, setDprChoice),
+  "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
+  "ac:lines-mesh": bind(() => linesMesh.value, setLinesMesh),
+  "ac:globe-late": bind(() => globeLate.value, setGlobeLate),
+  "ac:tint-cut": bind(() => tintCut.value, setTintCut),
+  "ac:pins-rebuild": bind(() => pinsRebuild.value, setPinsRebuild),
+  "ac:lid-map": bind(() => lidMap, setLidMap),
+  "ac:map-caches": bind(() => mapCaches, setMapCaches),
+  "ac:line-mesh": bind(() => lineMesh, setLineMesh),
+  "ac:motion": bind(() => motionChoice.value, setMotionChoice),
+  "ac:rise": bind(() => riseMode.value, setRiseMode),
+  "ac:rise-order": bind(() => riseOrder.value, setRiseOrder),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
@@ -104,6 +236,7 @@ function resetAll() {
   } catch {
     /* storage blocked: nothing was kept, the reload alone brings the defaults back */
   }
+  forgetMeasuredStep(); // the device is judged again
   window.location.reload();
 }
 
@@ -112,6 +245,19 @@ const explainId = (o: DevOption) => `${uid}-${o.key.slice(3)}`;
 
 const open = ref(false);
 const btn = ref<HTMLButtonElement | null>(null);
+
+/** What the page knows of the device, read each time the dialog opens (the
+ *  graphics chip's name from a throwaway context, once per page). */
+const deviceFacts = computed(() => {
+  if (!open.value) return [];
+  const signals = deviceSignals(probeRenderer());
+  return tierFacts(signals, decideTier(signals), deviceVerdict(), measureRecord());
+});
+/** A measured step down stands or is kept, or a slow flight is noted: the
+ *  reset is offered for it alone too. */
+const measureKept = computed(
+  () => open.value && (deviceSignals().measured !== null || measureRecord().note !== null),
+);
 
 // Back on the button once closed. ModalDialog puts the focus back where it
 // was at the opening, but WebKit does not focus a button on a click: there it
@@ -162,7 +308,7 @@ function showReport() {
           {{ changed.length ? changedCount(changed.length) : DEV_NONE_CHANGED }}
         </span>
         <button
-          v-if="changed.length"
+          v-if="changed.length || measureKept"
           type="button"
           class="ac-btn ac-btn--outline ac-btn--sm"
           @click="resetAll"
@@ -210,6 +356,13 @@ function showReport() {
             </button>
           </div>
           <p :id="explainId(o)" class="opt-explain">{{ o.explain }}</p>
+          <!-- What the page knows of the device, under the « Niveau » row. -->
+          <dl v-if="o.key === 'ac:tier'" class="dev-facts">
+            <div v-for="f in deviceFacts" :key="f.label">
+              <dt>{{ f.label }}</dt>
+              <dd>{{ f.value }}</dd>
+            </div>
+          </dl>
         </div>
       </section>
     </ModalDialog>
@@ -390,5 +543,33 @@ function showReport() {
   color: hsl(var(--muted-foreground));
   font-size: var(--text-ui);
   line-height: 1.4;
+}
+
+/* What the page knows of the device: a name and its value per line. */
+.dev-facts {
+  margin: 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px solid hsl(var(--border));
+  font-size: var(--text-ui);
+  line-height: 1.4;
+}
+
+.dev-facts > div {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.1rem 0;
+}
+
+.dev-facts dt {
+  flex: none;
+  color: hsl(var(--muted-foreground));
+}
+
+.dev-facts dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 </style>

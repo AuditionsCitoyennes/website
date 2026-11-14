@@ -1,8 +1,10 @@
 // The page's mesh worker (ac:mesh=worker, plateau/meshSwitch.ts): the client
 // core (meshClientCore.ts) over a module Worker running meshWorker.ts, the
-// same builder (meshBuild.ts) as its fallback here. One per map: created at
-// the map's load, so the worker's first build does not pay its start-up,
-// disposed with the map. A Worker that cannot be made leaves the session
+// same builder (meshBuild.ts) as its fallback here. One per map: created with
+// the map object (or at its load: ac:boot-workers, bootWorkersSwitch.ts), so
+// the worker's first build does not pay its start-up,
+// disposed with the map. It also cuts the flat view's grey sheet
+// (tintCutterOf, ac:tint-cut). A Worker that cannot be made leaves the session
 // building here from the start.
 //
 // Testing tools: `window.__acMesh` = {mode, stats(), reset()} of the last
@@ -13,14 +15,12 @@
 
 import { perfNote, perfOn } from "@/shared/perf/perf";
 import { buildPlateauMesh } from "./meshBuild";
-import {
-  MESH_TOKEN_CAP_VERTICES,
-  createMeshClient,
-  type MeshClient,
-  type MeshTransport,
-} from "./meshClientCore";
+import { createMeshClient, type MeshClient, type MeshTransport } from "./meshClientCore";
 import type { MeshReply } from "./meshCore";
 import type { GlobeProvider } from "./PlateauWallLayer";
+import type { TintCutter } from "./ScopeTintLayer";
+import { cacheBudgetNow } from "../cacheBudget";
+import { leanLines } from "../plateau/lineMeshSwitch";
 
 type Knobs = {
   __acMeshCap?: unknown;
@@ -53,7 +53,11 @@ export function warmMeshWorker(): MeshClient {
     },
     fallbackBuild: (i, want) =>
       buildPlateauMesh(i.features, i.heightM, i.focus, i.context, { ...want, concat: true }),
-    capVertices: () => (__TEST_TOOLS__ ? num(w.__acMeshCap) : undefined) ?? MESH_TOKEN_CAP_VERTICES,
+    leanLines,
+    // MESH_TOKEN_CAP_VERTICES on a device of the "full" tier, fewer on a
+    // weak one (../cacheBudget.ts), read at each apply.
+    capVertices: () =>
+      (__TEST_TOOLS__ ? num(w.__acMeshCap) : undefined) ?? cacheBudgetNow().meshVertices,
     knobs: __TEST_TOOLS__
       ? () => ({
           delayMs: num(w.__acMeshDelay),
@@ -67,6 +71,7 @@ export function warmMeshWorker(): MeshClient {
     trace: perfOn
       ? {
           roundTrip: (ms, detail) => perfNote("mesh.roundTrip", ms, detail),
+          tintRoundTrip: (ms, detail) => perfNote("tint.roundTrip", ms, detail),
           meshBuild: (ms, detail) => perfNote("plateau.meshBuild", ms, detail),
         }
       : undefined,
@@ -95,5 +100,14 @@ export function globeProviderOf(client: MeshClient): GlobeProvider {
         if (!gWallPositions || !gLidPositions || !gLinePositions || !gHaloPositions) return null;
         return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions, ms: r.ms };
       }),
+  };
+}
+
+/** The flat view's grey sheet, cut by `client`'s worker while it lives
+ *  (ScopeTintLayer.setCutter, ac:tint-cut); lost, the layer cuts it. */
+export function tintCutterOf(client: MeshClient): TintCutter {
+  return {
+    live: () => client.mode === "worker",
+    cut: (geoms) => client.cutTint(geoms),
   };
 }

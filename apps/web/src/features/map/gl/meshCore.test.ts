@@ -2,16 +2,25 @@
 // request naming a token it lacks), the stored object reused across requests,
 // the sets a request asks for, a worker-built mesh hashed against the one the
 // page builds itself, and the queue (superseded requests skipped, the testing
-// tools' delay, throw and hang). No __TEST_TOOLS__ stub on purpose: nothing
+// tools' delay, throw and hang), and the grey sheet's cut (a `tint` request:
+// the page's own bytes, answered before the builds queued, superseded by a
+// newer tint only). No __TEST_TOOLS__ stub on purpose: nothing
 // here may read it. Run with `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { OutlineFC } from "../types";
 import { buildPlateauMesh, type MeshOut } from "./meshBuild";
-import { createMeshCore, type MeshReply, type MeshRequest, type MeshSet } from "./meshCore";
+import {
+  createMeshCore,
+  type MeshReply,
+  type MeshRequest,
+  type MeshSet,
+  type TintRequest,
+} from "./meshCore";
 import { digestParts } from "./meshDigest";
 import { flatten, type Geom } from "./meshFlat";
+import { cutTintSheet } from "./tintSheet";
 
 type Feature = OutlineFC["features"][number];
 const square = (id: string, x: number, y: number, s: number, level = "departement"): Feature => ({
@@ -186,6 +195,34 @@ test("the sets asked for, and the same digest as the page's own build", () => {
   }
 });
 
+test("a request for the lean line layout: the page's own lean build, the other arrays unchanged", () => {
+  const { core } = harness();
+  const fx = fixture();
+  const want = { merc: true, globe: true, lean: true };
+  const r = core.build(requestOf(fixture(), { want }));
+  assert.equal(r.t, "mesh");
+  if (r.t !== "mesh") return;
+  assert.equal(r.mesh.lineLayout, "lean");
+  // One record a segment: 4 raised + 4 on the ground, 6 floats and 18.
+  assert.equal(r.mesh.linePositions!.length, 8 * 6);
+  assert.equal(r.mesh.gLinePositions!.length, 8 * 18);
+  const page = buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, {
+    ...want,
+    concat: true,
+  });
+  assert.deepEqual(digestOf(r.mesh), digestOf(page));
+  const full = core.build(requestOf(fixture(), { id: 2 }));
+  assert.equal(full.t, "mesh");
+  if (full.t !== "mesh") return;
+  assert.equal(full.mesh.lineLayout, "full");
+  const a = digestOf(r.mesh).parts;
+  const b = digestOf(full.mesh).parts;
+  for (const k of Object.keys(a)) {
+    const lines = k === "linePositions" || k === "gLinePositions";
+    assert.equal(a[k] === b[k], !lines, k);
+  }
+});
+
 test("the queue: one build per task, superseded ones skipped, puts kept", () => {
   const { core, replies, flush } = harness();
   const a = requestOf(fixture(), { id: 1 });
@@ -225,4 +262,91 @@ test("the testing tools' knobs: delay, slow, throw, hang", () => {
   assert.equal(replies.length, 2);
   assert.equal(replies[1].t, "error");
   assert.equal(replies[1].id, 2);
+});
+
+/** A tint request for the fixture's scope: token 1, put unless `puts` is false. */
+function tintOf(id: number, fx = fixture(), puts = true): TintRequest {
+  const flat = flatten(fx.scope[0].geometry as Geom)!;
+  return {
+    t: "tint",
+    id,
+    scope: { tokens: [1], meta: [{ id: "", level: "", hasGeom: true }] },
+    puts: puts ? [{ token: 1, flat }] : [],
+  };
+}
+
+test("a tint request is answered with the page's own sheet, bit for bit", () => {
+  const { core, replies, flush } = harness();
+  const fx = fixture();
+  core.receive(tintOf(7, fx));
+  flush();
+  assert.equal(replies.length, 1);
+  const r = replies[0];
+  assert.equal(r.t, "tint");
+  if (r.t !== "tint") return;
+  assert.equal(r.id, 7);
+  const here = cutTintSheet([fx.scope[0].geometry as Geom]);
+  assert.ok(here.positions.length > 0);
+  assert.deepEqual(Buffer.from(r.positions.buffer), Buffer.from(here.positions.buffer));
+  assert.deepEqual(r.origin, here.origin);
+  // The geometry stays in the store, under its token, for the build that follows.
+  assert.deepEqual(core.held(), { tokens: 1, vertices: 5 });
+});
+
+test("a tint naming a token the store lacks is answered `missing`", () => {
+  const { core, replies, flush } = harness();
+  core.receive(tintOf(3, fixture(), false));
+  flush();
+  assert.deepEqual(replies, [{ t: "missing", id: 3, tokens: [1] }]);
+});
+
+test("a tint is answered before the builds queued ahead of it", () => {
+  const { core, replies, flush } = harness();
+  core.receive(requestOf(fixture(), { id: 1 }));
+  core.receive(requestOf(fixture(), { id: 2, supersede: false, puts: [] }));
+  core.receive(tintOf(3, fixture(), false));
+  flush();
+  assert.deepEqual(
+    replies.map((r) => [r.id, r.t]),
+    [
+      [3, "tint"],
+      [1, "mesh"],
+      [2, "mesh"],
+    ],
+  );
+});
+
+test("a newer tint supersedes the tints queued; a build supersedes builds only", () => {
+  const { core, replies, flush } = harness();
+  core.receive(tintOf(1));
+  core.receive(requestOf(fixture(), { id: 2 }));
+  // A superseding build: the tint before it is another kind, and stays.
+  core.receive(requestOf(fixture(), { id: 3, puts: [] }));
+  // A newer tint: the first one goes, the builds stay as they were.
+  core.receive(tintOf(4, fixture(), false));
+  flush();
+  assert.deepEqual(
+    replies.map((r) => [r.id, r.t]),
+    [
+      [1, "skipped"],
+      [2, "skipped"],
+      [4, "tint"],
+      [3, "mesh"],
+    ],
+  );
+});
+
+test("the testing tools' knobs reach a tint: delay, throw, hang", () => {
+  const { core, replies, flush } = harness();
+  core.receive({ ...tintOf(1), delayMs: 40 });
+  flush();
+  assert.equal(replies.length, 0);
+  flush(40);
+  assert.equal(replies[0].t, "tint");
+  core.receive({ ...tintOf(2, fixture(), false), fail: "throw" });
+  flush();
+  assert.deepEqual(replies[1], { t: "error", id: 2, message: "__acMeshFail" });
+  core.receive({ ...tintOf(3, fixture(), false), fail: "hang" });
+  flush(1000);
+  assert.equal(replies.length, 2);
 });

@@ -4,7 +4,7 @@
 // région border too —, every lieu in sight deep in the lieu zone), and the
 // outline files fetched ahead for what is shown (`outlines`, outlineRules.ts):
 // the scope's chain of bundles and its neighbours' selves.
-import { computed, onScopeDispose, watch, type ComputedRef, type Ref } from "vue";
+import { computed, onScopeDispose, shallowRef, watch, type ComputedRef, type Ref } from "vue";
 import {
   type Bounds,
   centerInBounds,
@@ -15,9 +15,11 @@ import {
   unitsByLevelKey,
 } from "@/features/geo";
 import type { MapUnit, OutlineFC } from "@/features/map";
+import { onPlateauStood, plateauHasStood } from "@/features/map/lib";
 import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
 import type { OutlineFiles } from "../data/useOutlineFiles";
+import { DECOR_CAP_MS, decorOpen, outlinesDecor } from "../data/outlinesDecorSwitch";
 import type { GeoHierarchy } from "./useGeoHierarchy";
 import { bundlesFor, outlineReadyFiles, refinementBatch } from "./outlineRules";
 
@@ -83,6 +85,10 @@ export function useMapFeed(inputs: MapFeedInputs) {
   // landed on the same content never re-fired that watcher, so after a teardown
   // (style reload, layer re-add) nothing rose again. Rebuilds are cheap now — the
   // per-geometry projection/mesh caches in GeoDrillMap absorb the real cost.
+  // The map does not run its pipeline for each of them all the same: it judges
+  // every fresh outline against the plateau that STANDS (ac:late-files "quiet",
+  // map/lib/outlineChange.ts) — the same content does nothing while it stands
+  // and raises it again once it does not, which a memoised identity could not.
   const outline = computed<OutlineFC>(() => {
     // Deep in the micropin zone → no plateau, no boundaries: the empty outline
     // drives the map's animated teardown (sink, then clear). An open lieu does
@@ -119,6 +125,15 @@ export function useMapFeed(inputs: MapFeedInputs) {
     const s = currentScope.value;
     if (s.levelKey === "world") return false; // only the world level has no plateau
     return raisedOutlineDue(s) || (!raisedGeometryFor(s) && !geometryKnownAbsent(s));
+  });
+
+  /** The unit that hold is for, and its box (its row's: the box of the
+   *  outline on its way) — what the map can start before the outline lands
+   *  (the map's ac:cold-start). The same object while the hold lasts. */
+  const coming = computed(() => {
+    if (!scopePending.value) return null;
+    const s = currentScope.value;
+    return { id: s.id, bounds: s.bounds };
   });
 
   /** The outline has every geometry it will get: nothing of the scope's own,
@@ -283,24 +298,85 @@ export function useMapFeed(inputs: MapFeedInputs) {
   if (outlines) {
     const files = outlines;
     const view = outlineView!;
+    // The decorative batches below (the neighbour countries' selves, the
+    // world outlines) under ac:outlines-decor "after" (the default): once the
+    // map's first plateau stood, or DECOR_CAP_MS after the boot curtain lifted
+    // (data/outlinesDecorSwitch.ts). "boot": as soon as the curtain lifts.
+    const decorStood = shallowRef(plateauHasStood());
+    const decorCapPassed = shallowRef(false);
+    if (outlinesDecor === "after") {
+      onScopeDispose(onPlateauStood(() => (decorStood.value = true)));
+      let capTimer: ReturnType<typeof setTimeout> | undefined;
+      onScopeDispose(() => clearTimeout(capTimer));
+      watch(
+        () => !!inputs.booting?.value,
+        (booting) => {
+          if (booting || capTimer !== undefined) return;
+          capTimer = setTimeout(() => (decorCapPassed.value = true), DECOR_CAP_MS);
+        },
+        { immediate: true },
+      );
+    }
+    const decorGo = (level: string) =>
+      decorOpen({
+        mode: outlinesDecor,
+        level,
+        plateauStood: decorStood.value,
+        capPassed: decorCapPassed.value,
+      });
+    // The late files' rule (ac:late-files, data/useOutlineFiles): a file is
+    // urgent — stored as it lands, asked at high priority — only while the
+    // scope's plateau is pending and the file is on its chain (its bundles,
+    // a country's u/, the u/ a région's or a département's self is asked
+    // from ahead of its bundle). Every other file (a standing scope's children, its
+    // neighbours, the world's outlines, the file of a scope since left) is
+    // kept and stored when the map is still.
+    const urgent = (key: string): boolean => {
+      if (!filesActive() || !scopePending.value) return false;
+      const s = currentScope.value;
+      if (
+        key === files.keyOf("u", s.id) &&
+        (files.selfAhead(s.id) ||
+          (s.levelKey === "country" && selfFileOf(files.rowOf(s.id)) === "u"))
+      )
+        return true;
+      return bundlesFor(view, chainOf(s)).some((b) => files.keyOf("k", b) === key);
+    };
+    files.setUrgent(urgent);
+    onScopeDispose(() => files.setUrgent(null));
     // The scope's chain (rule 6): its bundles root first, each awaited — a
     // commune's row comes with its département's bundle, an arrondissement's
     // with its ville's. A newer scope runs its own chain: this one stops at
-    // its next step. A self due from the start is waited for OUTLINE_WAIT_MS.
+    // its next step. A self due from the start is waited for OUTLINE_WAIT_MS
+    // — or, with a coarser outline of the scope in memory to rise on, for
+    // what ac:outline-wait says (at 0: not at all, it rises on that one in
+    // this very flush).
     watch(
       () => currentScope.value.id,
-      async (id) => {
+      async (id, left) => {
+        // A hold-out that was for the visit of the scope left ends with it.
+        if (left) files.leaveSelf(left);
         if (!filesActive()) return;
         const scope = currentScope.value;
-        if (raisedOutlineDue(scope)) files.holdSelf(id);
+        if (raisedOutlineDue(scope)) files.holdSelf(id, !!raisedGeometryFor(scope));
+        // A file of this scope's chain kept as text (it landed while the
+        // scope was elsewhere) and now waited for: stored at once.
+        files.flushDue();
         // A country with no bundle: its u/ first (once its row is known).
         if (scope.levelKey === "country")
           void files.ensureRoot().then(() => {
             if (currentScope.value.id === id && selfFileOf(files.rowOf(id)) === "u")
               void files.ensureSelf(id);
           });
+        // A scope whose self is declared alone in a u/ (ac:region-self
+        // "first"): that file first, due — its plateau rises on it, or, risen
+        // on a coarser shape already (ac:outline-wait), is reshaped with it —
+        // and its chain's bundles then bring lines only.
+        const ahead = !files.selfOf(id) && files.selfAhead(id);
+        if (ahead) void files.ensureSelf(id);
         for (const b of bundlesFor(view, chainOf(scope))) {
-          await files.ensureBundle(b);
+          // Due while the scope's plateau waits (its fetch priority).
+          await files.ensureBundle(b, !ahead && scopePending.value);
           if (currentScope.value.id !== id) return;
         }
       },
@@ -317,20 +393,26 @@ export function useMapFeed(inputs: MapFeedInputs) {
         void mapView.value; // a landing re-reads the pin below
         const s = currentScope.value;
         const cross = crossRegionDeps.value;
-        if (view.bundleState(s.id) === "loading") return "";
+        // Its bundle settled — or in memory, kept until the map is still: the
+        // neighbours are asked meanwhile and stored with it, in one write.
+        if (view.bundleState(s.id) === "loading" && !files.isHeld("k", s.id)) return "";
         const parent = s.parentId ? index.value.get(s.parentId) : undefined;
         // At a country, the countries whose box meets its own, once its self
         // is in (or given up on): their lines beside its raised edge.
         if (s.levelKey === "country") {
           if (raisedOutlineDue(s) || inputs.booting?.value) return "";
+          if (!decorGo(s.levelKey)) return "";
           const countries = root.value.children.filter((c) => c.levelKey === "country");
-          return siblingSelves(s, countries, files.rowOf).join(",");
+          const ids = siblingSelves(s, countries, files.rowOf).join(",");
+          return ids ? `decor|${ids}` : ""; // decoration (outlinesDecorSwitch.ts)
         }
         const landed = !nav.scopePinned.value;
         return refinementBatch(view, s, parent?.children ?? [], landed ? cross : []).join(",");
       },
-      (ids) => {
-        if (ids) void files.batchSelf(ids.split(","));
+      (key) => {
+        if (!key) return;
+        const decor = key.startsWith("decor|");
+        void files.batchSelf((decor ? key.slice(6) : key).split(","), decor);
       },
     );
     // The countries' world outlines (geo's globeBatch), in ONE write, at the
@@ -347,16 +429,19 @@ export function useMapFeed(inputs: MapFeedInputs) {
         const s = currentScope.value;
         if (!filesActive() || inputs.booting?.value) return "";
         if (s.levelKey !== "world" && s.levelKey !== "country") return "";
+        if (!decorGo(s.levelKey)) return ""; // decoration: after the first plateau
         if (raisedOutlineDue(s)) return ""; // a country's own u/ first
         const countries = root.value.children.filter((c) => c.levelKey === "country");
         const { g, u } = globeBatch(countries, files.rowOf, mapView.value?.screen);
-        return g.length || u.length ? `${g.join(",")}|${u.join(",")}` : "";
+        // At a country they are decoration; at the world's scope, its content.
+        const decor = s.levelKey === "country" ? "decor" : "";
+        return g.length || u.length ? `${decor}|${g.join(",")}|${u.join(",")}` : "";
       },
       (key) => {
         clearTimeout(globeTimer);
         if (!key) return;
-        const [g, u] = key.split("|").map((ids) => (ids ? ids.split(",") : []));
-        const ask = () => void files.ensureGlobe(g, u);
+        const [decor, g, u] = key.split("|").map((ids) => (ids ? ids.split(",") : []));
+        const ask = () => void files.ensureGlobe(g, u, decor.length > 0);
         if (mapView.value?.byUser) globeTimer = setTimeout(ask, GLOBE_REST_MS);
         else ask();
       },
@@ -385,5 +470,5 @@ export function useMapFeed(inputs: MapFeedInputs) {
     );
   }
 
-  return { outline, scopePending, outlineReady, mapUnits };
+  return { outline, scopePending, coming, outlineReady, mapUnits };
 }

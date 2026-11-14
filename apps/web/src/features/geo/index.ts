@@ -36,7 +36,14 @@ export {
   type UnitTreeEntry,
 } from "./treeFromUnits";
 export { applyBoundaries, communeCodeOf, geometryContains } from "./boundaries";
-export { scopeForView, SPAN_DESCEND } from "./scope";
+export {
+  holdInView,
+  inViewShares,
+  KEEP_VIEW_SHARE,
+  KEEP_ZONE_SHARE,
+  scopeForView,
+  SPAN_DESCEND,
+} from "./scope";
 export { abbrevCount } from "./labels";
 export {
   checkResponse,
@@ -70,6 +77,7 @@ export {
   globeBatch,
   prefetchKind,
   rowKnownAbsent,
+  selfAheadOf,
   selfFileOf,
   siblingSelves,
   type RoleRow,

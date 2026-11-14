@@ -1,8 +1,18 @@
 // The pins: a marker per unit, diffed across updates; the hit rings the hover
 // and the click test against; the hovered unit (the pointer's, or the panel's
 // through `hoveredId`); the macro pills anchored on their unit's visible
-// territory (updateSticky) and shown while hovered; the pins hidden under the
-// analyses' slabs. Hot paths (onMapHover, updateSticky) allocate nothing.
+// territory (updateSticky) and shown while hovered, or while their unit wears
+// the pending mark (setPendingPin: tapped, its plateau on its way), with the
+// sign of a long wait beside it (setPendingWait); the pins hidden under the
+// analyses' slabs. Hot paths (onMapHover, updateSticky)
+// allocate nothing.
+// Over flat ground (plateau/lift.ts) the pins of the raised unit stand at the
+// lid's height and a pointer over the lid reads the lid: on raised ground
+// mapbox's terrain does both.
+// When the units to plot change, the markers and the hit rings are brought in
+// line after the frame that follows (`unitsChanged`, ac:pins-rebuild), not in
+// the act's own task; until then the pins and the click targets are the
+// previous units'.
 
 import mapboxgl from "mapbox-gl";
 import { lngNear, type Bounds } from "@/features/geo";
@@ -17,7 +27,10 @@ import {
   type InteriorHit,
 } from "../lib/polygon";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
+import { createAfterFrame } from "../lib/afterFrame";
 import { canvasHoverGate } from "../lib/canvasHover";
+import { altitudeAt, pointerLngLat, type PlateauLift } from "../plateau/lift";
+import { pinsRebuild } from "../threadSwitch";
 import type { MapUnit } from "../types";
 import type { useSlabOcclusion } from "./useSlabOcclusion";
 
@@ -42,6 +55,9 @@ export interface MapPinsInputs {
   /** Of two units holding a point, the smaller box is hit (the outline files:
    *  their coarse France covers Monaco); otherwise the first in `units`. */
   smallerWins?: () => boolean;
+  /** What stands above flat ground (usePlateau's `lift`); null or absent:
+   *  nothing — raised ground, or no plateau. */
+  lift?: () => PlateauLift | null;
 }
 
 export function useMapPins({
@@ -55,6 +71,7 @@ export function useMapPins({
   occlusion,
   onUnitClick,
   smallerWins,
+  lift,
 }: MapPinsInputs) {
   const { slabsOnScreen, onSlab, slabDotBoxes, mayBeUnderSlab } = occlusion;
 
@@ -68,6 +85,9 @@ export function useMapPins({
     sig: string; // what makePin baked in — rebuild only when this changes
     lng: number;
     lat: number;
+    // The altitude mapbox draws it at, m: the lid's for a unit under the lid
+    // of a plateau over flat ground (its `lng`, `lat`), else 0.
+    alt: number;
     // A pill's half size as laid out, read once needed (hidePinsUnderSlabs): 0
     // until then, while it can't be (not laid out) and after a resize — its
     // label's size follows the viewport's width (the type scale).
@@ -97,6 +117,14 @@ export function useMapPins({
   let pinHoveredId = "";
   // The pin currently wearing `.geo-pin-active` (props.activeId, once applied).
   let activePinId = "";
+  // The pill wearing `.geo-pin-pending` (setPendingPin): its unit was tapped
+  // and its plateau is on its way. The tap usually takes the unit out of
+  // `units` (it becomes the scope): its marker is then HELD here, out of the
+  // diff, where it stood at the tap, until the pending state ends.
+  let pendingPinId = "";
+  let heldPin: MarkerEntry | null = null;
+  // The pending pill shows the sign of a long wait (setPendingWait).
+  let pendingWait = false;
 
   function makePin(unit: MapUnit): HTMLElement {
     const root = document.createElement("button");
@@ -128,6 +156,10 @@ export function useMapPins({
   }
 
   function clearMarkers() {
+    rebuildLater.cancel();
+    heldPin?.marker.remove();
+    heldPin = null;
+    pendingPinId = "";
     for (const e of markerById.values()) e.marker.remove();
     markerById.clear();
     hitById.clear();
@@ -150,7 +182,25 @@ export function useMapPins({
     return hit;
   }
 
+  // ac:pins-rebuild (../threadSwitch.ts): the rebuild a change of the units
+  // asked for, waiting for the frame that follows the act to be drawn.
+  const rebuildLater = createAfterFrame();
+
+  /** The units to plot changed (the `units` watcher). "next": the markers are
+   *  rebuilt after the next frame, so the act's task and its frame do not
+   *  carry it — several changes before then make one rebuild, from the units
+   *  of that moment. "now": rebuilt here, in the act. */
+  function unitsChanged() {
+    if (pinsRebuild.value === "now" || !getMap()) {
+      buildMarkers();
+      return;
+    }
+    rebuildLater.schedule(buildMarkers);
+  }
+
   function buildMarkers() {
+    // The rebuild waiting, if any, is this one.
+    rebuildLater.cancel();
     const map = getMap();
     if (!map) return;
     const end = perfOn ? perfSpan("pins.buildMarkers") : null;
@@ -159,11 +209,18 @@ export function useMapPins({
     const next = new Map<string, MarkerEntry>();
     const wasOnScreen = new Map(sticky.map((s) => [s.id, s.onScreen]));
     const nextSticky: typeof sticky = [];
+    const lifted = lift?.() ?? null;
 
     for (const unit of units()) {
       const [lng, lat] = toLngLat(unit.center);
       const sig = pinSignature(unit);
+      const alt = altitudeAt(lifted, lng, lat);
       let entry = stale.get(unit.id);
+      // The pending unit is back among the units: its held pill is its pin again.
+      if (!entry && heldPin && unit.id === pendingPinId) {
+        entry = heldPin;
+        heldPin = null;
+      }
 
       if (entry && entry.sig === sig) {
         // Survivor: keep its DOM node and listeners, just move it if it shifted.
@@ -172,6 +229,10 @@ export function useMapPins({
           entry.marker.setLngLat([lng, lat]);
           entry.lng = lng;
           entry.lat = lat;
+        }
+        if (entry.alt !== alt) {
+          entry.marker.setAltitude(alt);
+          entry.alt = alt;
         }
       } else {
         if (entry) {
@@ -182,10 +243,15 @@ export function useMapPins({
         // point; aggregated pills stay billboard (face the camera) like UI chips.
         const el = makePin(unit);
         const opts: mapboxgl.MarkerOptions = unit.isLeaf
-          ? { element: el, pitchAlignment: "map", rotationAlignment: "map" }
-          : { element: el };
+          ? { element: el, pitchAlignment: "map", rotationAlignment: "map", altitude: alt }
+          : { element: el, altitude: alt };
         const marker = new mapboxgl.Marker(opts).setLngLat([lng, lat]).addTo(map);
-        entry = { marker, el, sig, lng, lat, halfW: 0, halfH: 0 };
+        entry = { marker, el, sig, lng, lat, alt, halfW: 0, halfH: 0 };
+        // A pill made anew for the pending unit wears its look from the start.
+        if (!unit.isLeaf && unit.id === pendingPinId) {
+          el.classList.add("geo-pin-pending");
+          if (pendingWait) showWait(el, true);
+        }
         if (!unit.isLeaf) {
           // The pin element sits ABOVE the canvas: hovering it fires the canvas
           // mouseout, which must not clear the hover that revealed this very pin.
@@ -223,6 +289,14 @@ export function useMapPins({
       }
     }
 
+    // The pending unit left the units (it is the scope now): its pill stays
+    // where it is, held, until the pending state ends.
+    const leaving = pendingPinId ? stale.get(pendingPinId) : undefined;
+    if (leaving && leaving.sig !== "leaf") {
+      stale.delete(pendingPinId);
+      heldPin?.marker.remove();
+      heldPin = leaving;
+    }
     for (const e of stale.values()) e.marker.remove();
     for (const id of hitById.keys()) if (!next.has(id)) hitById.delete(id);
     for (const id of wholeShapeInterior.keys()) if (!next.has(id)) wholeShapeInterior.delete(id);
@@ -246,6 +320,24 @@ export function useMapPins({
     if (id !== activePinId) markerById.get(activePinId)?.el.classList.remove("geo-pin-active");
     activePinId = id;
     if (id) markerById.get(id)?.el.classList.add("geo-pin-active");
+  }
+
+  /** What stands above flat ground changed (a plateau committed, cleared, or
+   *  moved to raised ground): every pin at the altitude of its unit's point
+   *  now — the lid's under the lid, else 0. One pass, only the pins whose
+   *  altitude changes are touched; on raised ground none ever is. */
+  function syncLift() {
+    const lifted = lift?.() ?? null;
+    let moved = false;
+    for (const e of markerById.values()) {
+      const alt = altitudeAt(lifted, e.lng, e.lat);
+      if (alt === e.alt) continue;
+      e.alt = alt;
+      e.marker.setAltitude(alt);
+      moved = true;
+    }
+    // A pin that moved on screen may now stand on a slab, or off it.
+    if (moved) hidePinsUnderSlabs();
   }
 
   const STICKY_MARGIN = 28; // keep pins this far inside the visible edge
@@ -274,6 +366,8 @@ export function useMapPins({
     const view = sticky.length ? screenBoundsInset(STICKY_MARGIN) : null;
     if (view) {
       for (const s of sticky) {
+        // A pending pill was placed at the tap (setPendingPin) and rides the map.
+        if (s.id === pendingPinId) continue;
         let hit: InteriorHit | null = null;
         // applyPinVisibility only ever shows the HOVERED pill, so recomputing an
         // interior point (a scanline pass over the unit's polygon) + setLngLat for
@@ -302,8 +396,81 @@ export function useMapPins({
   // affected pins only. Macro pins are HOVER-ONLY: the territory is the visible
   // UI (boundaries + highlight), the pill appears as its label while pointed at.
   function applyPinVisibility(s: (typeof sticky)[number]) {
-    s.el.style.visibility =
-      s.onScreen && hoveredUnitId === s.id && !pinsUnderSlab.has(s.id) ? "" : "hidden";
+    const shown = hoveredUnitId === s.id || pendingPinId === s.id;
+    s.el.style.visibility = s.onScreen && shown && !pinsUnderSlab.has(s.id) ? "" : "hidden";
+  }
+
+  /**
+   * The pill of the unit wearing the pending mark (`id`; "": none): shown
+   * where its unit is in view, in its pending look (`.geo-pin-pending`,
+   * geo-pins.css: pressed back onto its territory, filled, and out of the
+   * pointer's way), whether or not it is hovered — a touch never hovers, and
+   * a small territory or an island has no other readable mark. It is placed
+   * once, at the tap, and then rides the map. The pill of the unit marked
+   * before goes back to what it was, or away if it was only held.
+   */
+  function setPendingPin(id: string) {
+    if (id === pendingPinId) return;
+    const prev = pendingPinId;
+    pendingPinId = id;
+    pendingWait = false; // the sign was the pill before's
+    if (heldPin) {
+      heldPin.marker.remove();
+      heldPin = null;
+    }
+    if (prev) {
+      const was = sticky.find((x) => x.id === prev);
+      if (was) {
+        showWait(was.el, false);
+        was.el.classList.remove("geo-pin-pending");
+        was.el.classList.toggle("geo-pin-hover", hoveredUnitId === prev);
+        applyPinVisibility(was);
+      }
+    }
+    const s = id ? sticky.find((x) => x.id === id) : undefined;
+    if (!s) return;
+    const view = screenBoundsInset(STICKY_MARGIN);
+    s.onScreen = false; // out of view: no pill (the cached value may be a hover's)
+    if (s.geometry && s.bounds && view && boundsIntersect(s.bounds, view)) {
+      const hit = interiorInView(s.geometry, s.bounds, view);
+      s.onScreen = !!hit;
+      if (hit) s.marker.setLngLat(hit.pt);
+    }
+    s.el.classList.remove("geo-pin-hover");
+    s.el.classList.add("geo-pin-pending");
+    hidePinsUnderSlabs();
+    applyPinVisibility(s);
+  }
+
+  /** The sign of a long wait on a pill: three dots in a chip beside it (the
+   *  shared `.wait-dots`, placed by geo-pins.css), added or taken away. A DOM
+   *  write on the marker's own element: the map draws no frame for it. */
+  function showWait(el: HTMLElement, on: boolean) {
+    const had = el.querySelector(".wait-dots");
+    el.classList.toggle("geo-pin-waiting", on);
+    if (!on) {
+      had?.remove();
+      return;
+    }
+    if (had) return;
+    const dots = document.createElement("span");
+    dots.className = "wait-dots moving";
+    dots.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < 3; i++) dots.appendChild(document.createElement("i"));
+    el.querySelector(".geo-pin-bubble")?.appendChild(dots);
+  }
+
+  /**
+   * The pending pill shows the sign of a long wait (`on`), or no longer does:
+   * its unit's plateau is still on its way well after the tap (the parent
+   * decides when: GeoNav's model/tapPendingCore). Nothing without a pending
+   * pill; a newer pending pill (setPendingPin) starts without it.
+   */
+  function setPendingWait(on: boolean) {
+    pendingWait = on && pendingPinId !== "";
+    const el =
+      heldPin?.el ?? (pendingPinId ? sticky.find((x) => x.id === pendingPinId)?.el : undefined);
+    if (el) showWait(el, pendingWait);
   }
 
   // ---- Pins under the analyses' slabs -------------------------------------------
@@ -350,7 +517,8 @@ export function useMapPins({
   }
 
   /** Hide the pins drawn on a slab now, and show again those no longer there.
-   *  Their points are where mapbox places them (map.project). A pill shows only
+   *  Their points are where mapbox places them (map.project, at the pin's
+   *  altitude over flat ground). A pill shows only
    *  while hovered (applyPinVisibility): only that one is looked at, its boxes
    *  as drawn — the bubble's, lifted, and the marker's own at its point. The
    *  dots may be many: only those standing where a slab can be drawn over them
@@ -364,8 +532,11 @@ export function useMapPins({
       const boxes = slabDotBoxes(DOT_RADIUS_PX);
       for (const [id, e] of markerById) {
         const dot = e.sig === "leaf";
-        if (dot ? !mayBeUnderSlab(boxes, e.lng, e.lat) : id !== hoveredUnitId) continue;
-        const p = map.project(e.marker.getLngLat());
+        if (
+          dot ? !mayBeUnderSlab(boxes, e.lng, e.lat) : id !== hoveredUnitId && id !== pendingPinId
+        )
+          continue;
+        const p = map.project(e.marker.getLngLat(), e.alt);
         let on: boolean;
         if (dot) on = pinOnSlab(p.x, p.y, DOT_RADIUS_PX, DOT_RADIUS_PX, DOT_RIM);
         else {
@@ -396,6 +567,21 @@ export function useMapPins({
     }
     const s = sticky.find((x) => x.id === id);
     if (s) applyPinVisibility(s);
+  }
+
+  /** Where a pointer at `point` reads the map: mapbox's own answer (`lngLat`:
+   *  the terrain's surface, or the ground), except over the lid of a plateau
+   *  standing on flat ground — there the lid's point, the map the visitor
+   *  sees under the pointer (plateau/lift.ts). Without a point (the clear a
+   *  mouseout sends), `lngLat` as given. */
+  function readPointer(
+    lngLat: { lng: number; lat: number },
+    point?: { x: number; y: number },
+  ): { lng: number; lat: number } {
+    const lifted = lift?.() ?? null;
+    const map = getMap();
+    if (!lifted || !point || !map) return lngLat;
+    return pointerLngLat(lifted, lngLat, (altM) => map.unproject([point.x, point.y], altM));
   }
 
   /** The macro unit whose boundary contains [lng, lat] (bbox pre-filter, then flat
@@ -454,7 +640,8 @@ export function useMapPins({
     if (map) map.getCanvas().style.cursor = id ? "pointer" : "";
     for (const s of sticky) {
       if (s.id === prev || s.id === id) {
-        s.el.classList.toggle("geo-pin-hover", s.id === id);
+        // A pending pill keeps its pending look under the pointer.
+        s.el.classList.toggle("geo-pin-hover", s.id === id && s.id !== pendingPinId);
         applyPinVisibility(s);
       }
     }
@@ -515,7 +702,7 @@ export function useMapPins({
       // and be wiped one frame later. While the panel owns the hover, the
       // pointer-derived one stands down.
       if (hoveredId()) return;
-      const ll = pendingHoverLngLat;
+      const ll = pendingHoverLngLat && readPointer(pendingHoverLngLat, pendingHoverPt);
       if (ll) setHover(unitAt(ll.lng, ll.lat, pendingHoverPt));
     });
   }
@@ -551,7 +738,8 @@ export function useMapPins({
   /** The canvas `click`: inside a unit's boundary SELECTS the unit — the whole
    *  territory is the click target, the pin is just its label. */
   function onClick(e: mapboxgl.MapMouseEvent) {
-    const id = unitAt(e.lngLat.lng, e.lngLat.lat, e.point);
+    const ll = readPointer(e.lngLat, e.point);
+    const id = unitAt(ll.lng, ll.lat, e.point);
     if (id) onUnitClick(id);
   }
 
@@ -563,12 +751,15 @@ export function useMapPins({
 
   /** Unmount: the pending frames. */
   function dispose() {
+    rebuildLater.cancel();
     if (stickyRaf) cancelAnimationFrame(stickyRaf);
     if (hoverRaf) cancelAnimationFrame(hoverRaf);
   }
 
   return {
     buildMarkers,
+    /** The units to plot changed: the markers rebuilt, now or after the next frame. */
+    unitsChanged,
     /** Every marker gone (unmount, the map declared unavailable). */
     clear: clearMarkers,
     applyActivePin,
@@ -580,8 +771,14 @@ export function useMapPins({
     onMouseOut,
     onClick,
     scheduleSticky,
+    /** The pill of the unit wearing the pending mark ("": none). */
+    setPendingPin,
+    /** The sign of a long wait on that pill, on or off. */
+    setPendingWait,
     /** The pins drawn on a slab, hidden; those no longer there, shown again. */
     hidePinsUnderSlabs,
+    /** The pins at their altitude over flat ground, after its plateau changed. */
+    syncLift,
     onResize,
     dispose,
   };

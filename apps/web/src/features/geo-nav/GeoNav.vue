@@ -14,6 +14,7 @@ import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
+import { deviceSignals, deviceTier } from "@/shared/device/deviceTier";
 import {
   analysisSummary,
   buildFactsIndex,
@@ -22,13 +23,19 @@ import {
   useScopeAnalysis,
 } from "@/features/analyses";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
+import { curtainPoster, poster } from "@/shared/ui/posterSwitch";
 import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
-import { createNavState } from "./navState";
+import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
+import { slowWaitPlace } from "./model/retryNotice";
+import { createNavState, type MapView } from "./navState";
+import { bootCurtainCover, bootList } from "./bootListSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
+import { idlePrefetch, pickPrefetch, prefetchAllowed, prefetchUnits } from "./data/idlePrefetch";
+import { prefetchMode } from "./data/prefetchSwitch";
 import { liftCheck } from "./model/outlineCheck";
 import { useGeoHierarchy } from "./model/useGeoHierarchy";
 import { useScope } from "./model/useScope";
@@ -37,6 +44,8 @@ import { groupOwnAuditions } from "./model/auditions";
 import { usePanelAuditions } from "./model/usePanelAuditions";
 import { useCamera } from "./model/useCamera";
 import { useNavActions } from "./model/useNavActions";
+import { useTapPending } from "./model/useTapPending";
+import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
 import { PANEL_BASE_PX, usePanelLayout } from "./panel/usePanelLayout";
@@ -44,6 +53,7 @@ import { useAnalysesRing } from "./ring/useAnalysesRing";
 import { usePlaqueFocus } from "./ring/usePlaqueFocus";
 import type { UnitTree } from "./data/useUnitTree";
 import { useServerLists } from "./data/useServerLists";
+import { usePanelRecovery } from "./data/usePanelRecovery";
 
 const props = defineProps<{
   groups: LocationGroup[];
@@ -140,6 +150,7 @@ const scope = useScope({
   root,
   index,
   containsPoint,
+  outlined: (u) => !!raisedGeometryFor(u),
   isDesktop,
   // The layout a view must have been measured in: the ring's view padding or
   // the wide panel's when there is one, else the camera's — both set up below.
@@ -149,7 +160,9 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 
 // ---- Boot overlay ------------------------------------------------------------
 // A cold load shows an unstyled map, tiles popping in, and an empty panel before
-// anything is presentable. Cover all of it, and lift once the pieces the FIRST
+// anything is presentable. Cover the map (and the panel too, with the switch's
+// « Rideau » or on the home page's card: `bootCover` below), and lift once the
+// pieces the FIRST
 // view needs are in: the basemap painted (GeoDrillMap's `ready`), the
 // testimonies, and the outline files that view is drawn from — their boot
 // (root.json, k/FR: the country and its régions). Départements and communes
@@ -174,6 +187,13 @@ watch(
 // a loading screen is worse than a rough first paint.
 const bootCap = window.setTimeout(() => (booting.value = false), 10_000);
 onBeforeUnmount(() => clearTimeout(bootCap));
+// What the curtain covers: the map's box alone, the panel usable over it as
+// soon as its rows are in (`ac:boot-list`, bootListSwitch), or the whole page.
+const bootCover = computed(() => bootCurtainCover(bootList, props.preview));
+/** France under the curtain's spinner (`ac:poster`, shared/ui/posterSwitch). */
+const FrancePoster = curtainPoster(poster)
+  ? defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"))
+  : null;
 
 // Direction of the level swap, from how deep the new scope sits in the
 // hierarchy: going deeper brings the new list in from the right, stepping back
@@ -205,12 +225,19 @@ watch(panelUnits, (units) => {
 // country's u/: the file its row declares its self in (geo's prefetchKind).
 // Not on a touch screen (a tap's focus can hover the row it opens) nor under Save-Data.
 // The map's own hover is not emitted: a pin gets none.
+/** The files a tap on unit `id` will ask, asked ahead (the HTTP cache only). */
+function prefetchUnit(id: string): Promise<void> {
+  const kind = outlines ? prefetchKind(outlines.rowOf(id)) : null;
+  if (!outlines || !kind) return Promise.resolve();
+  // A self the click will ask ahead of its bundle (ac:region-self): the
+  // same two files, in the same order.
+  if (kind === "k" && outlines.selfAhead(id))
+    return outlines.prefetch("u", id).then(() => outlines.prefetch("k", id));
+  return outlines.prefetch(kind, id);
+}
 if (outlines) {
   const rowHover = hoverPrefetch({
-    prefetch: (id) => {
-      const kind = prefetchKind(outlines.rowOf(id));
-      return kind ? outlines.prefetch(kind, id) : Promise.resolve();
-    },
+    prefetch: prefetchUnit,
     allowed: () =>
       outlines.mode.value === "fichiers" &&
       window.matchMedia("(hover: hover)").matches &&
@@ -299,7 +326,7 @@ const {
 } = panel;
 
 // ---- What the map is handed (model/useMapFeed): outline, pending hold, pins ----
-const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
+const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
   nav,
   geo,
   panelUnits,
@@ -400,6 +427,98 @@ const {
   mapViewPadding,
 } = ring;
 
+// ---- The answer to a tap (model/useTapPending): the territory tapped is
+// marked on the map from the tap until its plateau commits, the list is busy
+// meanwhile and one sentence says when it stands ----
+const tap = useTapPending({
+  nav,
+  mapCmp,
+  // « Réessayer » (ac:slow-sign, the wait late): only the piece the plateau
+  // still misses is asked again, never the selection (the scope, the camera,
+  // the lists, the files' chain are as they were). While the map holds for
+  // the unit's outline, that is its file: the attempts on the network the
+  // plateau waits for are dropped and made again at once. With the outline in
+  // memory, it is the plateau's own run: made once more from that outline,
+  // unless one is under way.
+  reask: (unit) => {
+    if (scopePending.value) outlines?.reaskWaited();
+    else mapCmp.value?.retryPlateau(unit.id);
+  },
+});
+const { pendingUnit, live: tapLive, waitStage } = tap;
+/** GeoDrillMap's `viewChange`: the scope's read of it, then the landing a
+ *  pending unit's long-wait sign waits for. */
+function onMapView(view: MapView) {
+  onViewChange(view);
+  tap.landed();
+}
+/** « Réessayer » pressed. The button goes with the sentence: a focus it held
+ *  moves to the trail's current crumb, not to the page. Shown over the map
+ *  while the panel's own failure message is off screen (model/retryNotice),
+ *  it asks for what that message's button would have, too. */
+function onRetryWait() {
+  const held = !!document.activeElement?.closest(".slow-wait");
+  if (panelFailureUp.value) retryPanel();
+  if (!tap.retry() || !held) return;
+  void nextTick(() => panelEl.value?.querySelector<HTMLElement>(".crumb.current")?.focus());
+}
+
+// ---- The files asked ahead on a touch screen (data/idlePrefetch, ac:outlines-ahead):
+// no pointer hovers a row there. Once the first plateau stands, its lid has
+// landed and the map is at rest, the one or two units under it that hold the
+// most testimonies have a file asked, one per rest: France's top régions.
+// The ONE file a tap's plateau waits for — the self alone where it goes ahead
+// of its bundle (ac:region-self), a third of the bytes; the bundle follows
+// the tap, as for any unit. Not under Save-Data, not on a link the browser
+// calls slow, never while the map moves or a finger is on it; one unit on a
+// weak device.
+const ahead = outlines
+  ? idlePrefetch({
+      allowed: () => {
+        const signals = deviceSignals();
+        return prefetchAllowed({
+          mode: prefetchMode.value,
+          files: outlines.mode.value === "fichiers",
+          hover: window.matchMedia("(hover: hover)").matches,
+          saveData: signals.saveData,
+          effectiveType: signals.effectiveType,
+        });
+      },
+      targets: (scopeId) =>
+        pickPrefetch(
+          index.value.get(scopeId)?.children ?? [],
+          prefetchUnits(deviceTier()),
+          (id) => prefetchKind(outlines.rowOf(id)) !== null,
+        ),
+      prefetch: (id) => {
+        const kind = prefetchKind(outlines.rowOf(id));
+        if (!kind) return Promise.resolve();
+        return outlines.prefetch(kind === "k" && outlines.selfAhead(id) ? "u" : kind, id);
+      },
+      whenAtRest: (job) => mapCmp.value?.whenAtRest(job) ?? (() => {}),
+    })
+  : null;
+if (ahead) onBeforeUnmount(ahead.stop);
+// Shown as a card (the home page) the map is only looked at: nothing is
+// asked ahead until the card is opened into the page — then for the unit
+// standing by then.
+let standing = "";
+/** GeoDrillMap's `plateauSettled`: the pending mark's verdict, and the first
+ *  plateau the idle prefetch waits for. */
+function onPlateauSettled(scopeId: string, how: SettleHow) {
+  tap.settled(scopeId, how);
+  standing = how === "cleared" || how === "failed" ? "" : scopeId;
+  if (!props.preview) ahead?.settled(scopeId, how);
+}
+if (ahead) {
+  watch(
+    () => props.preview,
+    (card) => {
+      if (!card && standing) ahead.settled(standing, "same");
+    },
+  );
+}
+
 // ---- Actions (model/useNavActions): pins, rows, breadcrumb all fly the map ----
 const { activate, onUnitClick, drillToCrumb } = useNavActions({
   nav,
@@ -408,6 +527,7 @@ const { activate, onUnitClick, drillToCrumb } = useNavActions({
   camera: cam,
   panel,
   engageMap,
+  tap,
 });
 
 // ---- Analyses ----------------------------------------------------------------
@@ -760,6 +880,54 @@ if (unitTree) {
 const listsLoading = computed(() => lists?.resultsLoading.value ?? false);
 /** The results could not be had. */
 const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
+/** After a network failure, what the panel could not have is asked again by
+ *  itself (`ac:recover`, data/usePanelRecovery). */
+const {
+  on: recoverOn,
+  offline: netOffline,
+  retryNow,
+} = usePanelRecovery({
+  state: () =>
+    props.isError || scopeFailed.value || listsFailed.value || placeFailed.value
+      ? "failed"
+      : props.loading || listsLoading.value || placeLoading.value
+        ? "busy"
+        : "ok",
+  retry: () => {
+    unitTree?.retryFailed();
+    lists?.retryFailed();
+  },
+});
+/** The panel's reads asked again, and the outline files' start if it waits. */
+function retryPanel() {
+  outlines?.reconnect();
+  retryNow();
+}
+/** The panel's body shows its failure message and its « Réessayer » (the
+ *  template's branch below). */
+const panelFailureUp = computed(
+  () =>
+    recoverOn &&
+    !(props.loading || listsLoading.value) &&
+    (props.isError || scopeFailed.value || listsFailed.value),
+);
+/** Where the long wait's sentence and its « Réessayer » show: never beside
+ *  the panel's own (model/retryNotice). */
+const slowWaitAt = computed(() =>
+  slowWaitPlace({
+    late: waitStage.value === "late",
+    sheetHidden: sheetHidden.value,
+    preview: !!asCard.value,
+    panelFailure: panelFailureUp.value,
+  }),
+);
+/** The panel's « Réessayer ». The only button on screen while the tapped
+ *  territory's plateau is late too: it then asks again for the piece that
+ *  plateau misses, as the long wait's own button would. */
+function retryAll() {
+  retryPanel();
+  if (waitStage.value === "late") tap.retry();
+}
 </script>
 
 <template>
@@ -771,16 +939,21 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
     :class="{ preview }"
     :inert="preview || undefined"
     :style="{ '--sheet-peek': `${sheetPeekPx}px`, '--panel-cover': `${panelCover}px` }"
+    @pointerdown.capture.passive="tap.onPointerDown"
   >
+    <!-- Under a curtain over its box alone, the map takes no focus (inert): the
+         keyboard goes from the header straight to the usable panel. -->
     <GeoDrillMap
       ref="mapCmp"
       class="geo-map"
+      :inert="(booting && bootCover === 'map') || undefined"
       :units="mapUnits"
       :camera="camera"
       :outline="outline"
       :padding="mapPadding"
       :view-padding="mapViewPadding"
       :scope-pending="scopePending"
+      :coming="coming"
       :stable-outline="outlines?.mode.value === 'fichiers'"
       :attribution="attribution"
       :credit-corner="isDesktop ? 'top-left' : 'bottom-right'"
@@ -789,7 +962,8 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       :slabs="slabSpec"
       @ready="mapPresentable = true"
       @unit-click="onUnitClick"
-      @view-change="onViewChange"
+      @plateau-settled="onPlateauSettled"
+      @view-change="onMapView"
       @user-gesture="onUserGesture"
     />
 
@@ -809,6 +983,36 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
       @close="analyses = false"
     />
     <p class="analyses-live" aria-live="polite">{{ analysesLive }}</p>
+    <!-- The territory just tapped stands on the map, or is long in coming
+         (model/useTapPending). -->
+    <p class="analyses-live" aria-live="polite">
+      {{ waitStage === "late" && slowWaitAt === "none" ? "" : tapLive }}
+    </p>
+    <!-- …long enough for the page to say so (ac:slow-sign). On a phone whose
+         sheet is lowered the panel's head is off screen: said over the map. -->
+    <SlowWaitNotice v-if="slowWaitAt === 'floating'" floating @retry="onRetryWait" />
+
+    <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over
+         the map's box only (`bootCover` "map", bootListSwitch): no z-index of
+         its own and before the panel in the page, so it lies under the panel,
+         which is usable as soon as its rows are in; its words centred in the
+         part of the map the panel leaves free. Over map AND panel ("all": the
+         card, or the switch's « Rideau »): above everything, so nothing
+         half-built is on show. One element, so a card that becomes the page
+         mid-boot only narrows it. -->
+    <Transition name="boot">
+      <div
+        v-if="booting"
+        class="boot"
+        :class="{ 'boot-map': bootCover === 'map', sheet: !isDesktop }"
+        role="status"
+        aria-live="polite"
+      >
+        <FrancePoster v-if="FrancePoster" class="boot-poster" />
+        <span class="spinner spinner-lg" aria-hidden="true"></span>
+        <p>Chargement de la carte…</p>
+      </div>
+    </Transition>
 
     <!-- Away while the map is a card; slides in when the card becomes the page.
          The aside's own listeners — a click, a key, the wheel or the pointer
@@ -827,6 +1031,8 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
         :sheet-open="sheetOpen"
         :sheet-hidden="sheetHidden"
         :crumbs="listMode ? null : breadcrumb"
+        :busy="pendingUnit !== null"
+        :waiting="waitStage === 'moving'"
         @toggle-sheet="sheetOpen = !sheetOpen"
         @sheet-pointerdown="onSheetPointerDown"
         @sheet-pointermove="onSheetPointerMove"
@@ -844,9 +1050,36 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
              filter state, so it fills these slots (passed through GeoPanel). -->
         <template #head-actions><slot name="head-actions" /></template>
         <template #head-below><slot name="head-below" /></template>
+        <template #head-notice>
+          <!-- Not beside the panel's own failure message and its button, below. -->
+          <SlowWaitNotice v-if="slowWaitAt === 'head'" @retry="onRetryWait" />
+        </template>
 
         <div v-if="loading || listsLoading" class="state">
           <LoadingDots label="Chargement des témoignages…" />
+          <p v-if="recoverOn && netOffline" class="state-note" role="status">
+            Pas de connexion à internet pour le moment. Les témoignages s'afficheront dès son
+            retour.
+          </p>
+        </div>
+        <div v-else-if="(isError || scopeFailed || listsFailed) && recoverOn" class="state">
+          <p role="status">
+            <template v-if="netOffline">
+              Pas de connexion à internet pour le moment. Les témoignages s'afficheront dès son
+              retour.
+            </template>
+            <template v-else>
+              Les témoignages n'ont pas pu être chargés. La page réessaiera d'elle-même, vous pouvez
+              aussi réessayer maintenant.
+            </template>
+          </p>
+          <button
+            type="button"
+            class="ac-btn ac-btn--outline ac-btn--sm state-retry"
+            @click="retryAll"
+          >
+            Réessayer
+          </button>
         </div>
         <div v-else-if="isError || scopeFailed || listsFailed" class="state">
           Impossible de charger les témoignages.
@@ -906,15 +1139,6 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
          tools' menu, not in production): inside the page, so it follows
          --panel-cover. -->
     <slot name="map-tools" />
-
-    <!-- Boot curtain: covers map AND panel, so nothing half-built is on show.
-         Lifts on its own (see `booting`) and is inert once gone. -->
-    <Transition name="boot">
-      <div v-if="booting" class="boot" role="status" aria-live="polite">
-        <span class="spinner spinner-lg" aria-hidden="true"></span>
-        <p>Chargement de la carte…</p>
-      </div>
-    </Transition>
   </div>
 </template>
 
@@ -932,6 +1156,42 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
   background: hsl(var(--background));
   color: hsl(var(--muted-foreground));
   font-size: var(--text-body);
+}
+
+/* Over the map's box only: under the panel (no z-index, earlier in the page),
+   its words centred in the part of the map the panel leaves free. */
+.boot.boot-map {
+  z-index: auto;
+  padding-right: var(--panel-cover, 0px);
+}
+
+.boot.boot-map.sheet {
+  padding-right: 0;
+  padding-bottom: var(--sheet-peek, 0px);
+}
+
+/* France under the spinner and its words (`ac:poster`), in the part of the
+   map the panel leaves free. */
+.boot-poster {
+  position: absolute;
+  top: 10%;
+  left: 10%;
+  width: 80%;
+  height: 80%;
+  opacity: 0.45;
+}
+
+.boot.boot-map .boot-poster {
+  width: calc(80% - var(--panel-cover, 0px));
+}
+
+.boot.boot-map.sheet .boot-poster {
+  width: 80%;
+  height: calc(80% - var(--sheet-peek, 0px));
+}
+
+.boot > :not(.boot-poster) {
+  position: relative;
 }
 
 /* Fade the curtain out only — it is covering the entrance animation, so it must
@@ -959,7 +1219,8 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
   inset: 0;
 }
 
-/* Read out, not shown: the plates themselves are on screen. */
+/* Read out, not shown: the plates themselves are on screen, and so is the
+   territory just tapped. */
 .analyses-live {
   position: absolute;
   width: 1px;
@@ -1058,6 +1319,12 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
   padding: 2rem 1rem;
   text-align: center;
   color: hsl(var(--muted-foreground));
+}
+.state-note {
+  margin-top: 0.75rem;
+}
+.state-retry {
+  margin-top: 1rem;
 }
 
 @media (max-width: 899px) {

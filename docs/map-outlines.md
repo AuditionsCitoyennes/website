@@ -366,6 +366,74 @@ waited on it past the cap — one file fetched, no request failed, no plateau.
 `localStorage` `ac:outlines-boot=fallback` (testing tools: the dev server and
 staging) restores that cap, to compare.
 
+A file that lands while nothing waits for it — a département's communes, the
+neighbours' own outlines, the countries' world outlines, the file of a unit
+the visitor has already left — is kept as text and parsed, checked and stored
+only once the map is still (no flight, no rise or sink, no pointer down; 5 s
+at the latest), every kept file in one write, and the files of one batch
+together. Only the file the selected unit's plateau waits for is stored as it
+lands. Around a standing plateau the new lines are then drawn by one reshape
+in place: the plateau pipeline runs once per selection. Each file is asked at
+a fetch priority (high for the one a plateau waits for, low for the others)
+and none is aborted; a plateau whose own file shares the link with the file
+of a unit just left waits once more for it (2.4 s in all, not 1.2 s) and is
+not remembered as slow for the session. `localStorage` `ac:late-files=direct`
+(testing tools; the DEV dialog's « Fichiers tardifs ») restores the behaviour
+before 2026-11-14: every file stored as it lands, each write a new run of the
+pipeline, no fetch priority.
+
+A French région or département whose own outline is not in memory is not made
+to wait for its `k/` bundle (itself and every child): its `u/` file — the same
+self, alone — is asked first, at high priority, and the bundle at low
+priority. The plateau rises as soon as the self is stored; the bundle's
+children are drawn on it by one reshape in place once the map is still (their
+pills and hit areas come with their lines). The store keeps one object per
+outline and tier, so the bundle's copy of the self adds nothing: no new shape,
+no second run of the pipeline. A bundle that lands within 80 ms of the self
+(a fast link, the HTTP cache) is stored with it, and the plateau rises with
+its children's lines as before. A row hovered in the list prefetches the same
+two files in the same order. `ac:region-self=bundle` (the DEV dialog's
+« Contour seul ») asks the bundle alone, as before 2026-11-14.
+
+A touch screen has no pointer to hover a row with. There, once the first
+plateau stands (France, on the Témoignages page), its lid has landed and the
+map is at rest (no flight, no rise, no finger down, its tiles in), the one or
+two units under it that hold the most testimonies have a file asked ahead, at
+low priority, into the HTTP cache: the one file a tap's plateau waits for
+(the `u/` self where it goes ahead of its bundle; about 60 and 47 kB on the
+wire for the two largest régions of the seed). Two units on a device whose
+tier is "full", one on a weaker one; none under Save-Data or on a link the
+browser calls slow-2g, 2g or 3g; none while the map is the home page's card;
+once per page. `ac:outlines-ahead=off` (the DEV dialog's « Contours d'avance »)
+asks nothing ahead on a touch screen, as before 2026-11-14.
+
+How long a plateau waits for its own outline while a coarser outline of the
+same unit is in memory (a région's entry in `k/FR`, a country's `g/`) is
+`ac:outline-wait` (« Attente du contour »): `1200` (the default, as before),
+`400` or `0` ms. Past it the plateau rises on the coarse shape; the fine one,
+stored at a still moment, replaces it at the plateau's height, with no sink
+and no rise. With no coarse shape in memory the wait stays 1.2 s. While the
+map holds for an outline, `ac:cold-start=early` (« Avant le contour ») sinks
+the plateau standing and shoots the coming unit's lid over its box at once;
+`hold` (the default) leaves both for the outline's landing, as before.
+
+A unit with no coarse shape in memory (a commune whose département's bundle
+is still on its way) holds for as long as that file takes: up to two 15 s
+attempts. The visitor is told meanwhile. Once the camera has landed, 0.8 s
+at least after the tap, three small dots move beside the tapped unit's pill
+and after its name in the panel's trail (CSS only, 3.9 s of motion at most,
+still under reduced motion). Five seconds after the tap with no plateau, the
+tap's mark drains and the panel says « La carte met plus de temps que
+prévu. » with a « Réessayer » button (over the map's top on a phone whose
+sheet is lowered). The button asks again for the missing piece only: while
+the map holds for an outline, the attempts on the network that the plateau
+waits for are dropped and made again at once, at the same priority, without
+counting as one of the request's two (`OutlineLoader.reask`); with the
+outline in memory, the plateau's own run is made once more unless one is
+under way. The scope, the camera, the lists and the files' chain are left as
+they are. `ac:slow-sign=off` (« Attente longue ») shows neither dots nor
+sentence, as before 2026-11-14.
+
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps
 (`scripts/deploy/outlines.sh fetch` / `install`) and its fail-closed

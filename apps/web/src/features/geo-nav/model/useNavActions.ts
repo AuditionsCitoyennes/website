@@ -4,8 +4,10 @@
 import { nextTick, type ComputedRef, type Ref } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { perfBegin, perfOn } from "@/shared/perf/perf";
+import { perfTapAnswered, perfTapTargets } from "@/shared/perf/tapAnswer";
 import type { NavState } from "../navState";
 import type { PanelAudition } from "./auditions";
+import type { TapPending } from "./useTapPending";
 
 export interface NavActionsInputs {
   nav: NavState;
@@ -28,20 +30,28 @@ export interface NavActionsInputs {
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
+  /** The pending state of a tapped territory (useTapPending): a selection is
+   *  marked on the map first, then written — at once, or a frame later. */
+  tap: Pick<TapPending, "select" | "cancelWaiting">;
 }
 
 export function useNavActions(inputs: NavActionsInputs) {
-  const { nav, index, listMode, camera, panel, engageMap } = inputs;
+  const { nav, index, listMode, camera, panel, engageMap, tap } = inputs;
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, openAuditions, hoveredPanelId } =
     nav;
   const { flyToUnit, spotlightPlace } = camera;
   const { resultAuditions, shownCount, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
   const { findResultFurther } = panel;
 
+  // The perf probes' tap-answer: a panel row is a tap target of its own.
+  if (perfOn) perfTapTargets([{ kind: "row", selector: ".unit-row" }]);
+
   /** The perf probes (shared/perf): a unit selected — its plateau and its
-   *  boundaries are timed from here. */
+   *  boundaries are timed from here, and the tap that asked for it has its
+   *  answer (tap-answer). */
   function selectTimed(unit: GeoUnit, via: string) {
     if (!perfOn) return;
+    perfTapAnswered(unit.id, { via, level: unit.levelKey });
     perfBegin("select-plateau", unit.id, { via, level: unit.levelKey });
     perfBegin("drill-boundaries", unit.id, { via, level: unit.levelKey });
   }
@@ -52,12 +62,16 @@ export function useNavActions(inputs: NavActionsInputs) {
       return;
     }
     selectTimed(unit, "activate");
-    selectedPlaceId.value = null;
-    // Optimistic scope: don't wait for the camera fit to settle (~700 ms) — set the
-    // scope now so the plateau transition runs DURING the flight. The moveend
-    // derivation confirms it (hysteresis holds the same unit).
-    currentScope.value = unit;
-    flyToUnit(unit, true);
+    // The tapped territory is marked pending first (useTapPending), then the
+    // selection is written.
+    tap.select(unit, () => {
+      selectedPlaceId.value = null;
+      // Optimistic scope: don't wait for the camera fit to settle (~700 ms) — set the
+      // scope now so the plateau transition runs DURING the flight. The moveend
+      // derivation confirms it (hysteresis holds the same unit).
+      currentScope.value = unit;
+      flyToUnit(unit, true);
+    });
   }
 
   // A click on the MAP: a pin, or anywhere inside a unit's boundary.
@@ -68,10 +82,12 @@ export function useNavActions(inputs: NavActionsInputs) {
     // territory is the whole of its surface — clicking it is moving around the
     // map, like a drag: the map goes there, the text stays.
     if (selectedPlaceId.value && u.levelKey !== "place") {
-      engageMap();
       selectTimed(u, "map");
-      currentScope.value = u; // optimistic — see activate()
-      flyToUnit(u, true);
+      tap.select(u, () => {
+        engageMap();
+        currentScope.value = u; // optimistic — see activate()
+        flyToUnit(u, true);
+      });
       return;
     }
     activate(u);
@@ -86,6 +102,7 @@ export function useNavActions(inputs: NavActionsInputs) {
       openPlace(u);
       return;
     }
+    tap.cancelWaiting(); // a tapped territory still waiting for its frame is left
     selectTimed(u, "crumb");
     selectedPlaceId.value = null;
     currentScope.value = u; // optimistic — see activate()
@@ -97,6 +114,8 @@ export function useNavActions(inputs: NavActionsInputs) {
   /** The latest click's: a click whose lookup a later one overtook is dropped. */
   let resultClicks = 0;
   async function openResultAt(unit: GeoUnit) {
+    tap.cancelWaiting();
+    if (perfOn) perfTapAnswered(unit.id, { via: "result" }); // answered from here (tap-answer)
     hoveredPanelId.value = null;
     // The dot of the lieu whose audition is being read: only bring the map (and
     // the panel) back — whichever of its auditions is open stays unfolded.
@@ -141,9 +160,13 @@ export function useNavActions(inputs: NavActionsInputs) {
       void openResultAt(unit);
       return;
     }
+    tap.cancelWaiting();
     // Re-opening the lieu already open (its crumb, its own dot on the map) only
     // brings the map back to it: the audition being read stays unfolded.
-    if (perfOn) perfBegin("lieu-pins", unit.id); // the dots around it placed, timed from here
+    if (perfOn) {
+      perfTapAnswered(unit.id, { via: "place" }); // the tap that asked for it has its answer
+      perfBegin("lieu-pins", unit.id); // the dots around it placed, timed from here
+    }
     if (selectedPlaceId.value !== unit.id) openAuditions.value.clear();
     selectedPlaceId.value = unit.id;
     // The reader is on the panel — said here too, because the watcher that says

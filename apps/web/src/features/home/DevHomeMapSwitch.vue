@@ -1,16 +1,20 @@
 <script setup lang="ts">
-// When the home page's map card is lent to the map (useMapCardSlot): "proche"
-// (heading there, the default), "tôt" (as before: once the page is in, at
-// idle), "contact" (reached only) — the page loads again with the choice. The
-// testing tools only: TestimoniesSection loads it behind `__TEST_TOOLS__`.
-// Folded by default, under the card — not in it: the card's link covers it
-// all. From the console too: window.__acHomeMap("proche" | "tot" | "contact").
+// When the home page's map card is lent to the map (useMapCardSlot,
+// homeMapPolicy.ts): "auto" (the default: "proche" on a strong device, the
+// still picture on a weak one), "proche" (heading there), "tôt" (once the
+// page is in, at idle), "contact" (reached only), "statique" (never: the still
+// picture) — the page loads again with the choice. The testing tools only:
+// TestimoniesSection loads it behind `__TEST_TOOLS__`. Folded by default,
+// under the card — not in it: the card's link covers it all. From the console
+// too: window.__acHomeMap("auto" | "proche" | "tot" | "contact" | "statique").
 import { homeMapPolicy, setHomeMapPolicy, type HomeMapPolicy } from "./useMapCardSlot";
 
 const POLICIES: readonly { id: HomeMapPolicy; label: string }[] = [
+  { id: "auto", label: "Auto" },
   { id: "proche", label: "Proche" },
   { id: "tot", label: "Tôt" },
   { id: "contact", label: "Contact" },
+  { id: "statique", label: "Image" },
 ];
 
 (window as unknown as { __acHomeMap?: (p: HomeMapPolicy) => void }).__acHomeMap = setHomeMapPolicy;
@@ -44,7 +48,7 @@ const POLICIES: readonly { id: HomeMapPolicy; label: string }[] = [
   background: hsl(var(--muted));
   box-shadow: var(--shadow-sm);
   font-size: var(--text-caption);
-  white-space: nowrap;
+  max-width: 100%;
 }
 
 .switch-fold {
@@ -65,6 +69,7 @@ const POLICIES: readonly { id: HomeMapPolicy; label: string }[] = [
 
 .seg {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.15rem;
 }

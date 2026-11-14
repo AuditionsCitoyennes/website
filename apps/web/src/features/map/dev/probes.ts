@@ -4,15 +4,25 @@
 // browser, never in a headless preview, so diagnosing "the map looks
 // low-detail" needs a way to read the live state from the console) and
 // `__acFrame` (the frame bus, DEV). Testing tools only (__TEST_TOOLS__): the
-// map's idleness check, `__acPerf.rendersIn(ms)`, and the plateau mesh's
-// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest).
+// map's idleness check, `__acPerf.rendersIn(ms)`, the plateau mesh's
+// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest), the grey
+// sheet's, `__acTintHash()` (ScopeTintLayer.digest), the two
+// motion counters of `__acPerf.dump().probes` (motionProbes.ts:
+// `motion-mutations`, `plateau-runs`), and the still-map scheduler's state:
+// `__acPerf.busy()` (what keeps the map from being still now) and
+// `__acPerf.whenStill(timeoutMs?)` (a promise of how long a job asked now
+// waits for the map to be still).
 
 import type mapboxgl from "mapbox-gl";
 import type { usePlateauFrames } from "../composables/usePlateauFrames";
 import type { usePlateau } from "../composables/usePlateau";
 import type { usePlateauLid } from "../composables/usePlateauLid";
 import type { usePlateauSlabs } from "../composables/usePlateauSlabs";
+import type { useContextRestore } from "../composables/useContextRestore";
+import { stillMap, whenMapStill } from "../lib/stillMap";
+import { installMotionProbes } from "./motionProbes";
 import { installPerfVocabulary } from "./perfVocabulary";
+import { cacheBudgetNow, mapCaches } from "../cacheBudget";
 
 type Probes = {
   __acMap?: mapboxgl.Map;
@@ -20,6 +30,7 @@ type Probes = {
   __acFrame?: () => unknown;
   __acPerf?: Record<string, unknown>;
   __acMeshHash?: (opts?: { globe?: boolean }) => unknown;
+  __acTintHash?: () => unknown;
 };
 
 /** Idleness check: request one repaint, then count the map's `render` events over
@@ -51,6 +62,24 @@ function rendersIn(
   });
 }
 
+/** The still-map scheduler, asked from the console: an empty job, and how long
+ *  it waited — on a still map a turn, in a flight until the flight's end. */
+function whenStill(timeoutMs?: number) {
+  const t0 = performance.now();
+  const busyAtAsk = stillMap.busy();
+  return new Promise((resolve) => {
+    whenMapStill(
+      () =>
+        resolve({
+          waitedMs: Math.round(performance.now() - t0),
+          busyAtAsk,
+          busyAtRun: stillMap.busy(),
+        }),
+      timeoutMs === undefined ? {} : { timeoutMs },
+    );
+  });
+}
+
 export interface ProbeSources {
   getMap: () => mapboxgl.Map | null;
   frames: Pick<ReturnType<typeof usePlateauFrames>, "probe">;
@@ -59,6 +88,12 @@ export interface ProbeSources {
   slabs: Pick<ReturnType<typeof usePlateauSlabs>, "probe">;
   /** The plateau mesh's fingerprint (testing tools; null without them). */
   meshDigest: ((opts?: { globe?: boolean }) => unknown) | null;
+  /** The tapped unit's pending mark as the layer holds it (null: none). */
+  pendingMark: () => unknown;
+  /** The flat view's grey sheet's fingerprint (testing tools; null without them). */
+  tintDigest?: (() => unknown) | null;
+  /** The map's WebGL context, lost and given back (useContextRestore). */
+  context?: Pick<ReturnType<typeof useContextRestore>, "probe">;
 }
 
 /** Install the probes; returns what unmount calls (the frame and idleness probes are removed,
@@ -70,6 +105,9 @@ export function installProbes({
   lid,
   slabs,
   meshDigest,
+  pendingMark,
+  tintDigest,
+  context,
 }: ProbeSources): () => void {
   const w = window as unknown as Probes;
   const map = getMap();
@@ -87,15 +125,35 @@ export function installProbes({
       ...lid.probe(),
       // The analyses' slabs standing (see syncSlabs).
       slabs: slabs.probe(),
+      // A tapped unit's pending mark (gl/PendingMarkPass), null when none.
+      pendingMark: pendingMark(),
+      // What the map keeps in memory (../cacheBudget.ts): the switch, and
+      // the sizes in force now (the tiles' are read when a map is created).
+      caches: { choice: mapCaches, ...cacheBudgetNow() },
+      // The WebGL context's losses and restores (lib/contextWatch.ts).
+      ...(context ? { context: context.probe() } : {}),
     };
   };
   if (import.meta.env.DEV) w.__acFrame = frames.probe;
   const rendersInProbe = __TEST_TOOLS__ ? (ms = 1000) => rendersIn(getMap(), ms) : null;
   if (rendersInProbe && w.__acPerf) w.__acPerf.rendersIn = rendersInProbe;
+  if (__TEST_TOOLS__ && w.__acPerf) {
+    w.__acPerf.busy = stillMap.busy;
+    w.__acPerf.whenStill = whenStill;
+  }
   if (__TEST_TOOLS__ && meshDigest) w.__acMeshHash = meshDigest;
+  if (__TEST_TOOLS__ && tintDigest) w.__acTintHash = tintDigest;
+  // The map's mutators wrapped and counted while the map moves (testing tools).
+  const uninstallMotion = __TEST_TOOLS__ && map ? installMotionProbes(map) : null;
   return () => {
     if (import.meta.env.DEV && w.__acFrame === frames.probe) delete w.__acFrame;
     if (__TEST_TOOLS__ && w.__acPerf?.rendersIn === rendersInProbe) delete w.__acPerf.rendersIn;
+    if (__TEST_TOOLS__ && w.__acPerf?.whenStill === whenStill) {
+      delete w.__acPerf.busy;
+      delete w.__acPerf.whenStill;
+    }
     if (__TEST_TOOLS__ && meshDigest && w.__acMeshHash === meshDigest) delete w.__acMeshHash;
+    if (__TEST_TOOLS__ && tintDigest && w.__acTintHash === tintDigest) delete w.__acTintHash;
+    if (uninstallMotion) uninstallMotion();
   };
 }

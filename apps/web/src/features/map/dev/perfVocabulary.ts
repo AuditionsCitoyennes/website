@@ -9,6 +9,16 @@
 //   drill-boundaries  a unit selected → its outline has every geometry it
 //                     will get (GeoNav.vue, useMapFeed.outlineReady)
 //   lieu-pins         a lieu opened → the dots around it placed (useMapPins)
+//   tap-answer        a tap's pointer event → the first frame painted after
+//                     the app issued its answer (shared/perf/tapAnswer.ts;
+//                     the answer: geo-nav/model/useNavActions; detail:
+//                     target — canvas, pin, pill, row, other —, pointer,
+//                     pressMs, answerMs, via)
+//
+// Counters, under `__acPerf.dump().probes` (motionProbes.ts): motion-mutations
+// (the map mutations the app issued while the camera moved, a plateau rose or
+// sank or a pointer was down), plateau-runs (the plateau pipeline's runs per
+// selection), and tap-answer's taps seen and answered by target.
 //
 // Spans: plateau.rise, plateau.setGeometry, projection.ringBases,
 // projection.lidBases, tint.setSelection, mask.setData, mask.drapedIndexed, outline.setData,
@@ -44,6 +54,26 @@
 //                     with the sink: the mesh's time past the sink's end, 0
 //                     if it came first) (usePlateau; detail: scope, path —
 //                     same, quiet, swap —, first)
+//   plateau.outline   ac:late-files=quiet: a note (0 ms) per outline judged
+//                     against what stands (usePlateau.outlineChanged; detail:
+//                     verdict — run, owed, redress, nothing)
+//   plateau.redress   ac:late-files=quiet: the standing plateau's lines
+//                     reshaped in place, from the outline to the mesh applied
+//                     (usePlateau.redress; detail: scope, lines)
+//   plateau.coldStart ac:cold-start=early: a note (0 ms) when a run holding
+//                     for an outline starts the sink and the coming unit's
+//                     lid (usePlateau.coldStart; detail: scope, sink)
+//   tint.workerCut    ac:tint-cut: a grey sheet's cut in the worker, its
+//                     own time, noted when the answer is received
+//                     (ScopeTintLayer; detail: vertices); tint.setSelection
+//                     then times only the cuts made on the page
+//   tint.roundTrip    …its request posted → its answer received, both on
+//                     the page (gl/meshClient.ts; detail: puts, cloneMs)
+//   gl.contextLost    a note (0 ms): the map's WebGL context was lost
+//                     (composables/useContextRestore.ts; detail: losses)
+//   gl.contextRestored  …and came back: the time the custom layers took to
+//                     be set up again (detail: restores, failed — the steps
+//                     that threw, comma-separated)
 // Reserved for the phases to come, so their tables share one vocabulary:
 // outline.fetch, outline.decode, outline.fallback.
 // plateau.setGeometry's detail names the mesh mode that built it (`mesh`:
@@ -58,6 +88,7 @@
 // need a CDP trace with the workers attached.
 
 import { perfOn, perfVocabulary } from "@/shared/perf/perf";
+import { perfTapTargets } from "@/shared/perf/tapAnswer";
 import { netKind } from "./netKind";
 
 /** Register the map's vocabulary (once; a no-op without the testing tools). */
@@ -67,4 +98,11 @@ export function installPerfVocabulary() {
     net: netKind,
     script: (url) => (/mapbox-gl/.test(url) ? "mapbox-gl" : null),
   });
+  // The map's tap targets (tap-answer): its canvas, a lieu's dot, a unit's pill
+  // (useMapPins.makePin: a dot is a `.geo-pin` too, so it is tried first).
+  perfTapTargets([
+    { kind: "canvas", selector: ".mapboxgl-canvas" },
+    { kind: "pin", selector: ".geo-pin-leaf" },
+    { kind: "pill", selector: ".geo-pin" },
+  ]);
 }

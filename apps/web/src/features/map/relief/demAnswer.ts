@@ -74,6 +74,11 @@ export interface DemAnswerPort {
   stats?: boolean;
   /** Both renderers failed a tile: the client is lost for the session (registrations reject). */
   onClientLost?(): void;
+  /** The sizes in force now (a weak device's are smaller: ../cacheBudget.ts):
+   *  the selections kept here (`records`), the tile answers kept (`tiles`),
+   *  and the worker's store (`versions`, `vertices`), sent with each `set`.
+   *  Absent: MAX_RECORDS, the tile cache's own size, the worker's own bounds. */
+  caps?(): { records: number; tiles: number; versions: number; vertices: number };
 }
 
 type Feature = { geometry?: unknown; type?: string; coordinates?: unknown };
@@ -124,7 +129,7 @@ export function createDemAnswer(port: DemAnswerPort) {
     number,
     { msg: DemJob; rec?: DemRecord; settle: (r: DemReply) => void }
   >();
-  const cache = new TileCache();
+  const cache = port.caps ? new TileCache(() => port.caps!().tiles) : new TileCache();
   const records = new Map<string, DemRecord>();
   const slots = new Map<string, string>();
   const memo: MemoNode = { next: new WeakMap() };
@@ -161,15 +166,23 @@ export function createDemAnswer(port: DemAnswerPort) {
     records.delete(rec.key);
     records.set(rec.key, rec);
     const held = new Set(slots.values());
+    const max = port.caps?.().records ?? MAX_RECORDS;
     for (const k of records.keys()) {
-      if (records.size <= MAX_RECORDS) break;
+      if (records.size <= max) break;
       if (k !== rec.key && !held.has(k)) records.delete(k);
     }
   }
 
   async function sendSet(json: string, height: number) {
     const t0 = now();
-    const r = await call({ t: "set", json, height, pins: [...new Set(slots.values())] });
+    const caps = port.caps?.();
+    const r = await call({
+      t: "set",
+      json,
+      height,
+      pins: [...new Set(slots.values())],
+      ...(caps ? { caps: { versions: caps.versions, vertices: caps.vertices } } : {}),
+    });
     if (st) st.setMs += now() - t0;
     if (r.error || !r.key || !r.bbox) throw new Error(r.error ?? "dem set: no key");
     return { key: r.key, bbox: r.bbox, vertices: r.vertices ?? 0 };

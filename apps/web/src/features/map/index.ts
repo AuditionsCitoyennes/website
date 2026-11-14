@@ -8,7 +8,72 @@ export * from "./events";
 // The plateau lid's DEV switch (the Témoignages page draws it).
 export { lidMode, setLidMode, type LidMode } from "./plateau/lidSwitch";
 export { lidCheck, setLidCheck, type LidCheck } from "./plateau/lidSwitch";
+// Whether the lid pictures are kept for a unit selected again: its DEV switch
+// (the Témoignages page draws it).
+export { lidCacheMode, setLidCacheMode, type LidCacheMode } from "./plateau/lidCacheSwitch";
 // The plateau mesh's DEV switch (the Témoignages page draws it).
 export { meshMode, setMeshMode, type MeshMode } from "./plateau/meshSwitch";
 // How the plateau's DEM tiles are prefetched: its DEV switch (the Témoignages page draws it).
 export { reliefPrefetch, setReliefPrefetch, type ReliefPrefetch } from "./relief/reliefSwitch";
+// When the map's two workers start: its DEV switch (the Témoignages page draws it).
+export { bootWorkers, setBootWorkers, BOOT_WORKERS, type BootWorkers } from "./bootWorkersSwitch";
+// Where the labels' letters come from: its DEV switch (the Témoignages page draws it).
+export { glyphs, setGlyphs, GLYPHS, type Glyphs } from "./glyphSwitch";
+// What the map's box shows when the map cannot start: its DEV switch (the Témoignages page draws it).
+export { mapFallback, setMapFallback, MAP_FALLBACKS, type MapFallback } from "./fallbackSwitch";
+// How a tap on a territory is answered while its plateau is on its way: its
+// two DEV switches (the Témoignages page draws them) and what GeoNav reads of them.
+export {
+  setTapAnswerMode,
+  setTapFrameMode,
+  tapAnswerMode,
+  tapFrameMode,
+  tapIsTouch,
+  tapMarkFor,
+  type TapAnswerMode,
+  type TapFrameMode,
+  type TapMark,
+} from "./plateau/tapAnswerSwitch";
+// What a late outline file does to the map: its DEV switch (the Témoignages
+// page draws it; geo-nav's outline files and the map's outline watcher read it).
+export {
+  LATE_CAP_MS,
+  lateFilesMode,
+  setLateFilesMode,
+  type LateFilesMode,
+} from "./plateau/lateFilesSwitch";
+// The cold tap (a unit chosen before its own outline is in memory): its three
+// DEV switches (the Témoignages page draws them; geo-nav's outline files and
+// the plateau read them).
+export {
+  coldStartMode,
+  outlineWait,
+  outlineWaitFor,
+  regionSelfMode,
+  SELF_GRACE_MS,
+  setColdStartMode,
+  setOutlineWait,
+  setRegionSelfMode,
+  type ColdStartMode,
+  type OutlineWait,
+  type RegionSelfMode,
+} from "./plateau/coldTapSwitch";
+// What the plateau stands on, raised ground or flat: its DEV switch (the Témoignages page draws it).
+export { reliefGround, setReliefGround, type ReliefGround } from "./relief/groundSwitch";
+// What the map does where the graphics are slow, and whether it times its first flight: their DEV switches (the Témoignages page draws them).
+export { msaaChoice, setMsaaChoice, type MsaaChoice } from "./graphicsSwitch";
+export { dprChoice, setDprChoice, type DprChoice } from "./graphicsSwitch";
+export { frameMeasure, setFrameMeasure, type FrameMeasure } from "./graphicsSwitch";
+// Where the map's work runs during a selection, on the page's thread or off it: their DEV switches (the Témoignages page draws them).
+export { linesMesh, setLinesMesh, type LinesMesh } from "./threadSwitch";
+export { globeLate, setGlobeLate, type GlobeLate } from "./threadSwitch";
+export { tintCut, setTintCut, type TintCut } from "./threadSwitch";
+export { pinsRebuild, setPinsRebuild, type PinsRebuild } from "./threadSwitch";
+// When the lid's hidden map is created, and whether there is one: its DEV switch (the Témoignages page draws it).
+export { lidMap, setLidMap, type LidMap } from "./plateau/lidMapSwitch";
+export { lineMesh, setLineMesh, type LineMesh } from "./plateau/lineMeshSwitch";
+// How the ground rises under the plateau and when the rise starts: their DEV switches (the Témoignages page draws them).
+export { riseMode, setRiseMode, type RiseMode } from "./plateau/riseSwitch";
+export { riseOrder, setRiseOrder, type RiseOrder } from "./plateau/riseSwitch";
+// How much the map keeps in memory of the places already seen: its DEV switch (the Témoignages page draws it).
+export { mapCaches, setMapCaches, type MapCaches } from "./cacheBudget";

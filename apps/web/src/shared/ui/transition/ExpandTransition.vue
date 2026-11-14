@@ -8,6 +8,11 @@
 // per-element cleanup, and the *-cancelled hooks invoke it so no inline
 // styles, listeners, or timers are stranded. A fallback timer guarantees
 // done() even if `transitionend` never fires (e.g. 0px→0px content).
+//
+// Under short motion (shared/device/motion: the system asks for reduced
+// motion, or a weak device) there is no tween: the block is open or closed
+// in one step, so no frame lays out a body thousands of pixels tall.
+import { motionNow } from "@/shared/device/motion";
 
 const props = withDefaults(
   defineProps<{
@@ -82,12 +87,21 @@ function animate(
 
 function onEnter(el: Element, done: () => void) {
   const node = el as HTMLElement;
+  if (motionNow() === "short") {
+    runCleanup(node); // a collapse still mid-flight must not fight this
+    // What an instant collapse left on a v-show'd node.
+    node.style.height = "";
+    node.style.overflow = "";
+    node.style.transition = "";
+    done();
+    return;
+  }
   animate(node, "0px", `${node.scrollHeight}px`, true, done);
 }
 
 function onLeave(el: Element, done: () => void) {
   const node = el as HTMLElement;
-  if (props.instantLeave) {
+  if (props.instantLeave || motionNow() === "short") {
     runCleanup(node); // an expand still mid-flight must not fight this
     node.style.overflow = "hidden";
     node.style.height = "0px";

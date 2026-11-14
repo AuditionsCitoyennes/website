@@ -22,6 +22,7 @@ import {
   changedCount,
   changedOptions,
   clearOptions,
+  tierFacts,
   type DevKey,
 } from "./devOptions";
 
@@ -30,13 +31,73 @@ const data = await import("./dataSource");
 const lid = await import("../map/plateau/lidSwitch");
 const mesh = await import("../map/plateau/meshSwitch");
 const relief = await import("../map/relief/reliefSwitch");
+const ground = await import("../map/relief/groundSwitch");
+const tier = await import("../../shared/device/deviceTier");
+const bootListSwitch = await import("../geo-nav/bootListSwitch");
+const bootWorkersSwitch = await import("../map/bootWorkersSwitch");
+const outlinesDecorSwitch = await import("../geo-nav/data/outlinesDecorSwitch");
+const glyphSwitch = await import("../map/glyphSwitch");
+const mapPreloadPlan = await import("../../shared/boot/mapPreloadPlan");
+const glassSwitch = await import("../../shared/device/glassSwitch");
+const authClientSwitch = await import("../../shared/api/authClientSwitch");
+const fallbackSwitch = await import("../map/fallbackSwitch");
+const posterSwitch = await import("../../shared/ui/posterSwitch");
+const cardOpenSwitch = await import("../../shared/device/cardOpenSwitch");
+const homeBootPlan = await import("../../shared/boot/homeBootPlan");
+const recoverSwitch = await import("../../shared/net/recoverSwitch");
+const bootReadsSwitch = await import("../geo-nav/data/bootReadsSwitch");
+const tap = await import("../map/plateau/tapAnswerSwitch");
+const late = await import("../map/plateau/lateFilesSwitch");
+const cold = await import("../map/plateau/coldTapSwitch");
+const hold = await import("../geo-nav/model/scopeHold");
+const ahead = await import("../geo-nav/data/prefetchSwitch");
+const kept = await import("../map/plateau/lidCacheSwitch");
+const slow = await import("../geo-nav/model/slowSignSwitch");
+const graphics = await import("../map/graphicsSwitch");
+const thread = await import("../map/threadSwitch");
+const lidMap = await import("../map/plateau/lidMapSwitch");
+const caches = await import("../map/cacheBudget");
+const lineMesh = await import("../map/plateau/lineMeshSwitch");
+const motion = await import("../../shared/device/motion");
+const rise = await import("../map/plateau/riseSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
   lid: "../map/plateau/lidSwitch.ts",
   mesh: "../map/plateau/meshSwitch.ts",
   relief: "../map/relief/reliefSwitch.ts",
+  ground: "../map/relief/groundSwitch.ts",
   slabs: "../analyses/devSwitch.ts",
+  tier: "../../shared/device/deviceTier.ts",
+  bootList: "../geo-nav/bootListSwitch.ts",
+  bootWorkers: "../map/bootWorkersSwitch.ts",
+  outlinesDecor: "../geo-nav/data/outlinesDecorSwitch.ts",
+  glyphs: "../map/glyphSwitch.ts",
+  mapPreloadPlan: "../../shared/boot/mapPreloadPlan.ts",
+  mapPreload: "../../shared/boot/mapPreload.ts",
+  glass: "../../shared/device/glassSwitch.ts",
+  authClient: "../../shared/api/authClientSwitch.ts",
+  fallback: "../map/fallbackSwitch.ts",
+  poster: "../../shared/ui/posterSwitch.ts",
+  cardOpen: "../../shared/device/cardOpenSwitch.ts",
+  homeBootPlan: "../../shared/boot/homeBootPlan.ts",
+  homeBoot: "../../shared/boot/homeBoot.ts",
+  recover: "../../shared/net/recoverSwitch.ts",
+  bootReads: "../geo-nav/data/bootReadsSwitch.ts",
+  tap: "../map/plateau/tapAnswerSwitch.ts",
+  late: "../map/plateau/lateFilesSwitch.ts",
+  cold: "../map/plateau/coldTapSwitch.ts",
+  hold: "../geo-nav/model/scopeHold.ts",
+  ahead: "../geo-nav/data/prefetchSwitch.ts",
+  kept: "../map/plateau/lidCacheSwitch.ts",
+  slow: "../geo-nav/model/slowSignSwitch.ts",
+  graphics: "../map/graphicsSwitch.ts",
+  thread: "../map/threadSwitch.ts",
+  lidMap: "../map/plateau/lidMapSwitch.ts",
+  caches: "../map/cacheBudget.ts",
+  lineMesh: "../map/plateau/lineMeshSwitch.ts",
+  motion: "../../shared/device/motion.ts",
+  rise: "../map/plateau/riseSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -59,25 +120,67 @@ const KEYS: readonly DevKey[] = [
   "ac:slab-size",
   "ac:frame-fill",
   "ac:ring-band",
+  "ac:tier",
+  "ac:boot-list",
+  "ac:boot-workers",
+  "ac:outlines-decor",
+  "ac:glyphs",
+  "ac:map-preload",
+  "ac:glass",
+  "ac:auth-client",
+  "ac:map-fallback",
+  "ac:poster",
+  "ac:card-open",
+  "ac:home-boot",
+  "ac:hero",
+  "ac:recover",
+  "ac:filters-load",
+  "ac:prefetch",
+  "ac:tap-answer",
+  "ac:tap-frame",
+  "ac:late-files",
+  "ac:outline-wait",
+  "ac:region-self",
+  "ac:cold-start",
+  "ac:scope-drag",
+  "ac:outlines-ahead",
+  "ac:lid-cache",
+  "ac:slow-sign",
+  "ac:relief-ground",
+  "ac:msaa",
+  "ac:dpr",
+  "ac:frame-measure",
+  "ac:lines-mesh",
+  "ac:globe-late",
+  "ac:tint-cut",
+  "ac:pins-rebuild",
+  "ac:lid-map",
+  "ac:map-caches",
+  "ac:line-mesh",
+  "ac:motion",
+  "ac:rise",
+  "ac:rise-order",
 ];
-/** Measurement arms, kept in localStorage only: no row by design. */
+/** Measurement arms, kept in localStorage only, and the device tier's kept
+ *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
 const NO_ROW = [
   "ac:relief-budget",
   "ac:relief-budget-ground",
   "ac:relief-delay",
   "ac:relief-commit-hold",
+  "ac:tier-measured",
 ];
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
-test("every switch key has exactly one row, in the three sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 12);
+test("every switch key has exactly one row, in the four sections in order", () => {
+  assert.equal(DEV_OPTIONS.length, 52);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
   for (const o of DEV_OPTIONS) assert.ok(KEYS.includes(o.key), o.key);
   assert.deepEqual(
     DEV_SECTIONS.map((s) => s.title),
-    ["Données", "Carte", "Analyses"],
+    ["Données", "Carte", "Analyses", "Appareil", "Site"],
   );
   const ids = DEV_SECTIONS.map((s) => s.id);
   const order = DEV_OPTIONS.map((o) => ids.indexOf(o.section));
@@ -144,6 +247,46 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:slab-text": ["slabs", "setSlabTextMode"],
   "ac:slab-size": ["slabs", "setSlabTextScale"],
   "ac:ring-band": ["slabs", "setRingBandMode"],
+  "ac:tier": ["tier", "setTierChoice"],
+  "ac:boot-list": ["bootList", "setBootList"],
+  "ac:boot-workers": ["bootWorkers", "setBootWorkers"],
+  "ac:outlines-decor": ["outlinesDecor", "setOutlinesDecor"],
+  "ac:glyphs": ["glyphs", "setGlyphs"],
+  "ac:map-preload": ["mapPreload", "setMapPreload"],
+  "ac:glass": ["glass", "setGlass"],
+  "ac:auth-client": ["authClient", "setAuthClient"],
+  "ac:map-fallback": ["fallback", "setMapFallback"],
+  "ac:poster": ["poster", "setPoster"],
+  "ac:card-open": ["cardOpen", "setCardOpen"],
+  "ac:home-boot": ["homeBoot", "setHomeBoot"],
+  "ac:hero": ["homeBoot", "setHero"],
+  "ac:recover": ["recover", "setRecover"],
+  "ac:filters-load": ["bootReads", "setFiltersLoad"],
+  "ac:prefetch": ["bootReads", "setPrefetch"],
+  "ac:tap-answer": ["tap", "setTapAnswerMode"],
+  "ac:tap-frame": ["tap", "setTapFrameMode"],
+  "ac:late-files": ["late", "setLateFilesMode"],
+  "ac:outline-wait": ["cold", "setOutlineWait"],
+  "ac:region-self": ["cold", "setRegionSelfMode"],
+  "ac:cold-start": ["cold", "setColdStartMode"],
+  "ac:scope-drag": ["hold", "setScopeDragMode"],
+  "ac:outlines-ahead": ["ahead", "setPrefetchMode"],
+  "ac:lid-cache": ["kept", "setLidCacheMode"],
+  "ac:slow-sign": ["slow", "setSlowSignMode"],
+  "ac:relief-ground": ["ground", "setReliefGround"],
+  "ac:msaa": ["graphics", "setMsaaChoice"],
+  "ac:dpr": ["graphics", "setDprChoice"],
+  "ac:frame-measure": ["graphics", "setFrameMeasure"],
+  "ac:lines-mesh": ["thread", "setLinesMesh"],
+  "ac:globe-late": ["thread", "setGlobeLate"],
+  "ac:tint-cut": ["thread", "setTintCut"],
+  "ac:pins-rebuild": ["thread", "setPinsRebuild"],
+  "ac:lid-map": ["lidMap", "setLidMap"],
+  "ac:map-caches": ["caches", "setMapCaches"],
+  "ac:line-mesh": ["lineMesh", "setLineMesh"],
+  "ac:motion": ["motion", "setMotionChoice"],
+  "ac:rise": ["rise", "setRiseMode"],
+  "ac:rise-order": ["rise", "setRiseOrder"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -167,7 +310,36 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
   }
   assert.deepEqual(
     DEV_OPTIONS.filter((o) => o.reloads).map((o) => o.label),
-    ["Données", "Couvercle", "Contrôle", "Maillage", "Préchargement"],
+    [
+      "Données",
+      "Couvercle",
+      "Contrôle",
+      "Maillage",
+      "Préchargement",
+      "Liste",
+      "Assistants",
+      "Contours voisins",
+      "Police des noms",
+      "Code de la carte",
+      "Carte indisponible",
+      "Image d'attente",
+      "Fichiers tardifs",
+      "Carte cachée",
+      "Traits",
+      "Niveau",
+      "Verre dépoli",
+      "Ouverture de la carte",
+      "Lissage",
+      "Finesse",
+      "Mesure",
+      "Mémoire",
+      "Connexion",
+      "Accueil",
+      "Photo de l'accueil",
+      "Reprise après coupure",
+      "Données des filtres",
+      "Préchargement des témoignages",
+    ],
   );
 });
 
@@ -193,6 +365,46 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:lid-check"), [...lid.LID_CHECKS]);
   assert.deepEqual(ids("ac:mesh"), [...mesh.MESH_MODES]);
   assert.deepEqual(ids("ac:relief-prefetch"), [...relief.RELIEF_PREFETCHES]);
+  assert.deepEqual(ids("ac:tier"), [...tier.TIER_CHOICES]);
+  assert.deepEqual(ids("ac:boot-list"), [...bootListSwitch.BOOT_LISTS]);
+  assert.deepEqual(ids("ac:boot-workers"), [...bootWorkersSwitch.BOOT_WORKERS]);
+  assert.deepEqual(ids("ac:outlines-decor"), [...outlinesDecorSwitch.OUTLINES_DECORS]);
+  assert.deepEqual(ids("ac:glyphs"), [...glyphSwitch.GLYPHS]);
+  assert.deepEqual(ids("ac:map-preload"), [...mapPreloadPlan.MAP_PRELOADS]);
+  assert.deepEqual(ids("ac:glass"), [...glassSwitch.GLASSES]);
+  assert.deepEqual(ids("ac:auth-client"), [...authClientSwitch.AUTH_CLIENTS]);
+  assert.deepEqual(ids("ac:map-fallback"), [...fallbackSwitch.MAP_FALLBACKS]);
+  assert.deepEqual(ids("ac:poster"), [...posterSwitch.POSTERS]);
+  assert.deepEqual(ids("ac:card-open"), [...cardOpenSwitch.CARD_OPENS]);
+  assert.deepEqual(ids("ac:home-boot"), [...homeBootPlan.HOME_BOOTS]);
+  assert.deepEqual(ids("ac:hero"), [...homeBootPlan.HEROES]);
+  assert.deepEqual(ids("ac:recover"), [...recoverSwitch.RECOVERS]);
+  assert.deepEqual(ids("ac:filters-load"), [...bootReadsSwitch.FILTERS_LOADS]);
+  assert.deepEqual(ids("ac:prefetch"), [...bootReadsSwitch.PREFETCHES]);
+  assert.deepEqual(ids("ac:tap-answer"), [...tap.TAP_ANSWER_MODES]);
+  assert.deepEqual(ids("ac:tap-frame"), [...tap.TAP_FRAME_MODES]);
+  assert.deepEqual(ids("ac:late-files"), [...late.LATE_FILES_MODES]);
+  assert.deepEqual(ids("ac:outline-wait"), [...cold.OUTLINE_WAITS]);
+  assert.deepEqual(ids("ac:region-self"), [...cold.REGION_SELF_MODES]);
+  assert.deepEqual(ids("ac:cold-start"), [...cold.COLD_START_MODES]);
+  assert.deepEqual(ids("ac:scope-drag"), [...hold.SCOPE_DRAG_MODES]);
+  assert.deepEqual(ids("ac:outlines-ahead"), [...ahead.PREFETCH_MODES]);
+  assert.deepEqual(ids("ac:lid-cache"), [...kept.LID_CACHE_MODES]);
+  assert.deepEqual(ids("ac:slow-sign"), [...slow.SLOW_SIGN_MODES]);
+  assert.deepEqual(ids("ac:relief-ground"), [...ground.RELIEF_GROUNDS]);
+  assert.deepEqual(ids("ac:msaa"), [...graphics.MSAA_CHOICES]);
+  assert.deepEqual(ids("ac:dpr"), [...graphics.DPR_CHOICES]);
+  assert.deepEqual(ids("ac:frame-measure"), [...graphics.FRAME_MEASURES]);
+  assert.deepEqual(ids("ac:lines-mesh"), [...thread.LINES_MESHES]);
+  assert.deepEqual(ids("ac:globe-late"), [...thread.GLOBE_LATES]);
+  assert.deepEqual(ids("ac:tint-cut"), [...thread.TINT_CUTS]);
+  assert.deepEqual(ids("ac:pins-rebuild"), [...thread.PINS_REBUILDS]);
+  assert.deepEqual(ids("ac:lid-map"), [...lidMap.LID_MAPS]);
+  assert.deepEqual(ids("ac:map-caches"), [...caches.MAP_CACHES]);
+  assert.deepEqual(ids("ac:line-mesh"), [...lineMesh.LINE_MESHES]);
+  assert.deepEqual(ids("ac:motion"), [...motion.MOTION_CHOICES]);
+  assert.deepEqual(ids("ac:rise"), [...rise.RISE_MODES]);
+  assert.deepEqual(ids("ac:rise-order"), [...rise.RISE_ORDERS]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -202,7 +414,10 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:slab-size"), scale);
   assert.deepEqual(ids("ac:frame-fill"), scale);
   assert.deepEqual(row("ac:lid-check").inactiveWhen, { key: "ac:lid", id: "aucun" });
-  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 1);
+  assert.deepEqual(row("ac:tap-frame").inactiveWhen, { key: "ac:tap-answer", id: "off" });
+  assert.deepEqual(row("ac:slow-sign").inactiveWhen, { key: "ac:tap-answer", id: "off" });
+  assert.deepEqual(row("ac:lid-map").inactiveWhen, { key: "ac:lid", id: "aucun" });
+  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 4);
 });
 
 test("the default marked in each sentence is the module's", () => {
@@ -219,6 +434,46 @@ test("the default marked in each sentence is the module's", () => {
     "ac:slab-text": storedCall("slabs", "TEXT_KEY").fallback,
     "ac:slab-size": pct(constant("TEXT_SCALE")),
     "ac:ring-band": storedCall("slabs", "RING_KEY").fallback,
+    "ac:tier": tier.DEFAULT_TIER_CHOICE,
+    "ac:boot-list": bootListSwitch.DEFAULT_BOOT_LIST,
+    "ac:boot-workers": bootWorkersSwitch.DEFAULT_BOOT_WORKERS,
+    "ac:outlines-decor": outlinesDecorSwitch.DEFAULT_OUTLINES_DECOR,
+    "ac:glyphs": glyphSwitch.DEFAULT_GLYPHS,
+    "ac:map-preload": mapPreloadPlan.DEFAULT_MAP_PRELOAD,
+    "ac:glass": glassSwitch.DEFAULT_GLASS,
+    "ac:auth-client": authClientSwitch.DEFAULT_AUTH_CLIENT,
+    "ac:map-fallback": fallbackSwitch.DEFAULT_MAP_FALLBACK,
+    "ac:poster": posterSwitch.DEFAULT_POSTER,
+    "ac:card-open": cardOpenSwitch.DEFAULT_CARD_OPEN,
+    "ac:home-boot": homeBootPlan.DEFAULT_HOME_BOOT,
+    "ac:hero": homeBootPlan.DEFAULT_HERO,
+    "ac:recover": recoverSwitch.DEFAULT_RECOVER,
+    "ac:filters-load": bootReadsSwitch.DEFAULT_FILTERS_LOAD,
+    "ac:prefetch": bootReadsSwitch.DEFAULT_PREFETCH,
+    "ac:tap-answer": tap.DEFAULT_TAP_ANSWER,
+    "ac:tap-frame": tap.DEFAULT_TAP_FRAME,
+    "ac:late-files": late.DEFAULT_LATE_FILES,
+    "ac:outline-wait": cold.DEFAULT_OUTLINE_WAIT,
+    "ac:region-self": cold.DEFAULT_REGION_SELF,
+    "ac:cold-start": cold.DEFAULT_COLD_START,
+    "ac:scope-drag": hold.DEFAULT_SCOPE_DRAG,
+    "ac:outlines-ahead": ahead.DEFAULT_PREFETCH,
+    "ac:lid-cache": kept.DEFAULT_LID_CACHE,
+    "ac:slow-sign": slow.DEFAULT_SLOW_SIGN,
+    "ac:relief-ground": ground.DEFAULT_RELIEF_GROUND,
+    "ac:msaa": graphics.DEFAULT_MSAA,
+    "ac:dpr": graphics.DEFAULT_DPR,
+    "ac:frame-measure": graphics.DEFAULT_FRAME_MEASURE,
+    "ac:lines-mesh": thread.DEFAULT_LINES_MESH,
+    "ac:globe-late": thread.DEFAULT_GLOBE_LATE,
+    "ac:tint-cut": thread.DEFAULT_TINT_CUT,
+    "ac:pins-rebuild": thread.DEFAULT_PINS_REBUILD,
+    "ac:lid-map": lidMap.DEFAULT_LID_MAP,
+    "ac:map-caches": caches.DEFAULT_MAP_CACHES,
+    "ac:line-mesh": lineMesh.DEFAULT_LINE_MESH,
+    "ac:motion": motion.DEFAULT_MOTION,
+    "ac:rise": rise.DEFAULT_RISE_MODE,
+    "ac:rise-order": rise.DEFAULT_RISE_ORDER,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
@@ -281,4 +536,91 @@ test("« Données » says what the map loses with the corpus and the comparer", 
     /Avec «\u00a0Corpus\u00a0» et «\u00a0Comparer\u00a0», la carte ne montre que les points des lieux/,
   );
   for (const lost of ["contour", "relief", "analyses"]) assert.ok(after.includes(lost), lost);
+});
+
+test("« Appareil » lists the tier detected, the two kinds of weak and every signal", () => {
+  const strong = {
+    deviceMemory: 8,
+    hardwareConcurrency: 10,
+    saveData: false,
+    effectiveType: "4g",
+    renderer: "ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)",
+    measured: null,
+  };
+  const auto = tier.decideTier(strong);
+  assert.deepEqual(tierFacts(strong, auto, auto), [
+    { label: "Niveau détecté", value: "Complet" },
+    { label: "Processeur lent", value: "non" },
+    { label: "Affichage lent", value: "non" },
+    { label: "Mémoire", value: "8 Go" },
+    { label: "Cœurs", value: "10" },
+    { label: "Économie de données", value: "non" },
+    { label: "Connexion", value: "4g" },
+    { label: "Puce graphique", value: strong.renderer },
+    { label: "Images mesurées", value: "aucune descente" },
+  ]);
+  // A phone that says nothing, a slow first flight kept, the switch forcing « Minimal ».
+  const silent = {
+    deviceMemory: null,
+    hardwareConcurrency: null,
+    saveData: true,
+    effectiveType: null,
+    renderer: null,
+    measured: { tier: "light" as const, kind: "unknown" as const, at: Date.UTC(2026, 10, 13, 12) },
+  };
+  const facts = tierFacts(silent, tier.decideTier(silent), tier.decideTier(silent, "minimal"));
+  const value = (label: string) => facts.find((f) => f.label === label)?.value;
+  assert.equal(value("Niveau détecté"), "Léger (économie de données, images lentes mesurées)");
+  assert.equal(value("Niveau imposé"), "Minimal");
+  assert.equal(value("Processeur lent"), "oui");
+  assert.equal(value("Affichage lent"), "oui");
+  assert.equal(value("Mémoire"), "non indiquée");
+  assert.equal(value("Cœurs"), "non indiqué");
+  assert.equal(value("Économie de données"), "oui");
+  assert.equal(value("Connexion"), "non indiquée");
+  assert.equal(value("Puce graphique"), "non lue");
+  assert.match(value("Images mesurées")!, /^Léger \(cause non mesurée\), le \d{2}\/11\/2026$/);
+  // The measure's two strikes, in words: kept, for this page load only, noted.
+  const measured = (kept: Parameters<typeof tierFacts>[3]) =>
+    tierFacts(silent, tier.decideTier(silent), tier.decideTier(silent), kept).find(
+      (f) => f.label === "Images mesurées",
+    )!.value;
+  assert.match(
+    measured({ step: silent.measured, note: null }),
+    /^Léger \(cause non mesurée\), le \d{2}\/11\/2026, gardé trente jours$/,
+  );
+  assert.match(
+    measured({ step: null, note: silent.measured }),
+    /^Léger \(cause non mesurée\), le \d{2}\/11\/2026, pour ce chargement de page seulement$/,
+  );
+  const noted = tierFacts(strong, auto, auto, { step: null, note: silent.measured });
+  assert.match(
+    noted.find((f) => f.label === "Images mesurées")!.value,
+    /^aucune descente\u00a0; des images lentes notées le \d{2}\/11\/2026, à confirmer$/,
+  );
+  assert.equal(
+    tierFacts(strong, auto, auto, { step: null, note: null }).at(-1)!.value,
+    "aucune descente",
+  );
+  // Every reason and every kind has its words, with no loose space.
+  const every = tierFacts(
+    { ...silent, measured: { ...silent.measured, kind: "gpu" } },
+    {
+      tier: "minimal",
+      cpuWeak: true,
+      gpuWeak: true,
+      reasons: ["memory", "cores", "save-data", "link", "renderer", "frames"],
+    },
+    tier.decideTier(silent, "full"),
+  );
+  assert.equal(
+    every[0].value,
+    "Minimal (peu de mémoire, peu de cœurs, économie de données, connexion lente, affichage sans puce graphique, images lentes mesurées)",
+  );
+  assert.equal(every[1].value, "Complet");
+  assert.match(every.at(-1)!.value, /^Léger \(affichage\)/);
+  for (const f of [...facts, ...every]) {
+    assert.doesNotMatch(f.label, LOOSE_SPACE);
+    assert.doesNotMatch(f.value, LOOSE_SPACE);
+  }
 });

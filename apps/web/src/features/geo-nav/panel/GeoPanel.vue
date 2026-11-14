@@ -8,6 +8,7 @@
 // GeoNav's, attached to the root as fallthrough attributes.
 import { ref, type StyleValue } from "vue";
 import type { GeoUnit } from "@/features/geo";
+import { motionNow } from "@/shared/device/motion";
 import PanelBreadcrumb from "./PanelBreadcrumb.vue";
 
 defineProps<{
@@ -29,6 +30,12 @@ defineProps<{
   sheetHidden: boolean;
   /** The breadcrumb's trail; null while the results are listed (no trail). */
   crumbs: GeoUnit[] | null;
+  /** A territory was tapped and its plateau is on its way: the list is
+   *  the new level's already, the map is not there yet (`aria-busy`). */
+  busy?: boolean;
+  /** That plateau is long in coming: the breadcrumb's dots (the sign of a
+   *  long wait). */
+  waiting?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -60,6 +67,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
       wide,
       folded,
       flush,
+      snap: motionNow() === 'short',
       'sheet-lowered': sheetLowered,
       'sheet-dragging': sheetDragging,
     }"
@@ -110,12 +118,24 @@ defineExpose({ el, peekEl, safeEl, listEl });
       <PanelBreadcrumb
         v-if="crumbs"
         :trail="crumbs"
+        :waiting="waiting"
         :inert="sheetHidden || undefined"
         @go="emit('crumb', $event)"
       />
+
+      <!-- What the page has to say about the map under the trail (the long
+           wait's sentence and its « Réessayer »): GeoNav fills it. -->
+      <div :inert="sheetHidden || undefined">
+        <slot name="head-notice" />
+      </div>
     </header>
 
-    <div ref="listEl" class="panel-list" :inert="sheetHidden || undefined">
+    <div
+      ref="listEl"
+      class="panel-list"
+      :inert="sheetHidden || undefined"
+      :aria-busy="busy || undefined"
+    >
       <slot />
     </div>
   </aside>
@@ -207,6 +227,16 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
 @media (min-width: 900px) and (prefers-reduced-motion: reduce) {
   .panel {
+    transition: none;
+  }
+}
+
+/* Short motion (shared/device/motion: a weak device, or the DEV dialog's
+   « Mouvement »): the panel widens, narrows and slides aside in one step, as
+   under reduced motion. Read at each render, so with the class that changes
+   the width. */
+@media (min-width: 900px) {
+  .panel.snap {
     transition: none;
   }
 }

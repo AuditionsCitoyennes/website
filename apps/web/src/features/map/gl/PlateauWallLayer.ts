@@ -1,7 +1,8 @@
 // The plateau's violet wall and everything drawn with it — the lid, the
 // boundary lines, the hover fill and its retract, the halo, the analyses'
-// slabs' pieces (and their own layer, slabLayer) — in both of mapbox's
-// regimes: the custom WebGL layer the map's whole raised look comes from. The
+// slabs' pieces (and their own layer, slabLayer), a tapped unit's pending
+// mark (its own pass, ./PendingMarkPass) — in both of mapbox's regimes: the
+// custom WebGL layer the map's whole raised look comes from. The
 // documented exemption to the file-size rule (docs/architecture-proposal-
 // 2026-10-20.md): a GL class, kept whole; the SlabPieces collaborator is a
 // later option. Its collaborators: ../lib/projection (the per-geometry
@@ -10,8 +11,11 @@
 
 import mapboxgl from "mapbox-gl";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
+import { deviceTier } from "@/shared/device/deviceTier";
 import type { Snapshot } from "../plateau/mapSnapshot";
+import { leanLines, lineMesh } from "../plateau/lineMeshSwitch";
 import { meshMode } from "../plateau/meshSwitch";
+import { globeLate, lateGlobeFor } from "../threadSwitch";
 import { pieceOutline, ringSectorArcs, slabPointPx, type PieceBox, type SlabRect } from "../lib";
 import type { OutlineFC, SlabSpec, SlabThemesSpec } from "../types";
 import { polysOf } from "../lib/polygon";
@@ -33,6 +37,8 @@ import {
   type MapPainterInternals,
 } from "./program";
 import { readLidGlLimits, uploadLidTexture } from "./lidTexture";
+import { LidTextureStore } from "./lidTextures";
+import type { LidCacheBudget } from "../plateau/lidCache";
 import {
   VIOLET,
   WALL_OVERSHOOT,
@@ -42,6 +48,7 @@ import {
   pushWallRing,
 } from "./mesh";
 import { GLOBE_PASS_DELAY_MS, createGlobeDeferral, type GlobeSetMode } from "./globeDeferral";
+import { G_LEAN_FLOATS, LEAN_FLOATS, LINE_CORNERS, SEGMENT_VERTICES } from "./lineSegments";
 import {
   buildPlateauMesh,
   fillsFromRecords,
@@ -50,12 +57,15 @@ import {
   type PendingFill,
 } from "./meshBuild";
 import { digestParts } from "./meshDigest";
+import { PendingMarkPass } from "./PendingMarkPass";
+import type { MarkGeometry } from "./pendingMark";
 import {
   FILL_FS,
   FILL_VS,
   G_FILL_VS,
   G_HALO_VS,
   G_LID_VS,
+  G_LINE_LEAN_VS,
   G_LINE_VS,
   G_PIECE_VS,
   G_WALL_VS,
@@ -64,6 +74,8 @@ import {
   LID_FS,
   LID_VS,
   LINE_FS,
+  LINE_LEAN_FS,
+  LINE_LEAN_VS,
   LINE_VS,
   PIECE_FS,
   PIECE_VS,
@@ -138,6 +150,16 @@ function hexRgb(hex: string): [number, number, number] {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
+/** What the lid's bookkeeping (usePlateauLid) keeps with a kept lid picture. */
+export interface LidKeptMeta {
+  /** The backing-store pixels its shot asked for. */
+  px: number;
+  /** The width it was captured at. */
+  width: number;
+  /** Ground metres per texel. */
+  mpp: number;
+}
+
 export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   id = "plateau-wall";
   type = "custom" as const;
@@ -153,6 +175,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private vertexCount = 0;
   private dirty = false;
   private scale = 0; // animated rise 0..1
+  // The rise read from mapbox's terrain at each draw (followScale), else null.
+  private scaleSource: (() => number | null) | null = null;
   // ---- what the frame bus reads (see onFrame): the raised unit as last given
   // to setGeometry, its sampled rim, and the camera of the last frame drawn ----
   scopeId = ""; // the raised unit's id, '' when none
@@ -185,7 +209,25 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private lidPositions = new Float32Array(0);
   private lidVertexCount = 0;
   private lidDirty = false;
-  private lidTexture: WebGLTexture | null = null;
+  // The lid's textures (./lidTextures): the one showing — what the draws
+  // below read as `lidTexture` and `lidMerc` — and the whole-unit pictures
+  // kept for a unit selected again (ac:lid-cache). A snapshot is uploaded in
+  // render (gl there), lazily.
+  private readonly lids = new LidTextureStore<LidKeptMeta>((gl, tex, bitmap) =>
+    uploadLidTexture(gl as WebGL2RenderingContext, tex, bitmap, this.anisoExt, this.maxAniso),
+  );
+  /** A lid was showing when the WebGL context was lost (forgetLidTextures),
+   *  until the restore reads it. */
+  private lidLostWithContext = false;
+  private get lidTexture(): WebGLTexture | null {
+    return this.lids.texture;
+  }
+  private get lidMerc() {
+    return this.lids.merc;
+  }
+  /** The unit whose mesh, once applied, shows the kept lid set aside for it
+   *  (showKeptLid); "": none waits. */
+  private lidAtMesh = "";
   /** GL_MAX_TEXTURE_SIZE, read in onAdd — caps the lid snapshot's pixel budget. */
   maxTextureSize = 0;
   // GL_MAX_TEXTURE_SIZE and the lid's anisotropy, read in onAdd (./lidTexture
@@ -193,8 +235,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // maxAniso: 0 = not read yet (before onAdd), -1 = extension unavailable.
   private anisoExt: EXT_texture_filter_anisotropic | null = null;
   private maxAniso = 0;
-  private lidPending: Snapshot | null = null; // uploaded lazily in render (gl there)
-  private lidMerc: { minX: number; minY: number; spanX: number; spanY: number } | null = null;
   // ---- focus boundary lines ON the lid: true vectors extruded to screen-space
   // width in the shader, so they stay the same pixel size at every zoom (the old
   // approach baked them into the lid SNAPSHOT — a raster that fattened on zoom) ----
@@ -218,6 +258,23 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // concatenated buffer per regime; each group is a vertex RANGE drawn with its
   // own uniforms.
   private lineGroups: LineRange[] = [];
+  // ac:line-mesh=lean (plateau/lineMeshSwitch.ts, gl/lineSegments.ts): the
+  // two line buffers hold one record per segment, drawn as instances of the
+  // six corners in lineCornerBuffer by these programs — the mercator one
+  // here, the globe one in gLineProg — and the full layout's are not
+  // compiled. The instanced attributes' locations, in buffer order (a vec3
+  // each).
+  private leanLineProg: GlProg | null = null;
+  private lineCornerBuffer: WebGLBuffer | null = null;
+  private lineCornersDirty = false;
+  // One vertex array object per regime for those draws, set up at its first
+  // draw (binding one outside a frame would go behind mapbox's back).
+  private lineVao: WebGLVertexArrayObject | null = null;
+  private gLineVao: WebGLVertexArrayObject | null = null;
+  private lineVaoSet = false;
+  private gLineVaoSet = false;
+  private leanLineLocs: number[] = [];
+  private gLeanLineLocs: number[] = [];
   // ---- GLOBE regime (zoom < 6, experimental custom-layer API) ----
   // Below the globe→mercator transition, mapbox calls render() with extra args
   // (projection, globeToMercMatrix, transition t, centerInMercator, pxPerMeterRatio)
@@ -342,9 +399,22 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private globeTask: { cancel: () => void } | null = null;
   /** ac:mesh=worker: who builds the deferred globe set (null: this layer). */
   private globeProvider: GlobeProvider | null = null;
+  /** ac:globe-late: the globe set asked of the worker as its mesh was
+   *  (askGlobeAhead), until that mesh is applied; and whether a globe frame
+   *  drew no plateau while waiting for the set of the mesh standing. */
+  private globeAhead: {
+    features: OutlineFC["features"];
+    job: ReturnType<GlobeProvider["build"]>;
+  } | null = null;
+  private globeSkipped = false;
   /** The testing tools' count of setGeometry calls and the last call's input,
    *  for meshDigest (declared only: a build without them has no field). */
-  declare private meshProbe?: { calls: number; input: OutlineFC["features"][] };
+  declare private meshProbe?: {
+    calls: number;
+    input: OutlineFC["features"][];
+    /** The globe frames that drew no plateau, waiting for the worker's set (ac:globe-late). */
+    globeWaits?: number;
+  };
   // ---- the analyses' SLABS: pieces raised beside the territory (see setSlabs).
   // Their own small mesh — never part of setGeometry, whose rebuild is the
   // map's costliest step — at the plateau's lid height, rising with it
@@ -405,6 +475,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private slabPieceProg: GlProg | null = null;
   private gSlabPieceProg: GlProg | null = null;
   private slabMat = new Float32Array(16);
+  /** A frame's matrices as the programs take them (float32), kept across
+   *  frames: the mercator one with the mesh's origin folded in, the globe's
+   *  projection and globe-to-mercator ones. */
+  private frameMat = new Float32Array(16);
+  private globeProj = new Float32Array(16);
+  private globeG2m = new Float32Array(16);
   /**
    * The slabs' own layer, drawn with this one's programs and buffers: mapbox
    * draws the map's labels (the Standard style's have an occlusion opacity)
@@ -618,6 +694,56 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
+  // ---- a tapped unit's PENDING mark, from the tap until its plateau commits
+  // (./PendingMarkPass): buffers of its own, so neither a mesh rebuild, nor
+  // the hover fill's single buffer, nor the rise's scale gates take it away ----
+  private readonly pendingMark = new PendingMarkPass(() => this.map?.triggerRepaint());
+
+  /** What the testing tools read of the pending mark (null: none). */
+  pendingState() {
+    return this.pendingMark.state();
+  }
+
+  /**
+   * Mark unit `id` as tapped, with its outline `g` as it is in memory now:
+   * a stroke along its boundary and/or a flat fill, held until
+   * commitPending or clearPending — whatever the mesh does meanwhile. It
+   * stands where the unit does: on the standing plateau's lid for one of its
+   * children (riding its sink), on the ground otherwise. A newer mark
+   * replaces this one. With the fill, the unit's hover fill (a mouse's) is
+   * handed over rather than drained under it.
+   */
+  setPending(id: string, g: MarkGeometry, want: { stroke: boolean; fill: boolean }) {
+    const at = this.pendingFills.get(id);
+    this.pendingMark.set({
+      id,
+      g,
+      stroke: want.stroke,
+      fill: want.fill,
+      raised: !!at?.raised,
+      lidM: this.heightM * WALL_OVERSHOOT,
+    });
+    if (want.fill && this.hoveredFillId === id) this.hoveredFillId = "";
+  }
+
+  /** The marked unit's plateau has just been applied (applyMesh): the mark
+   *  moves onto its lid and fades as it rises; `animate` false (reduced
+   *  motion): it goes at once. */
+  commitPending(animate: boolean) {
+    this.pendingMark.commit(this.heightM * WALL_OVERSHOOT, animate);
+  }
+
+  /** No pending mark, at once. */
+  clearPending() {
+    this.pendingMark.clear();
+  }
+
+  /** No plateau came for the marked unit (a long wait turned late): the mark
+   *  fades where it stands; `animate` false (reduced motion): it goes at once. */
+  drainPending(animate: boolean) {
+    this.pendingMark.drain(animate);
+  }
+
   /** Highlight (or clear) the hovered unit's fill (restarts the inward sweep). */
   setHovered(id: string) {
     if (this.hoveredFillId === id) return;
@@ -709,11 +835,15 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       this.cancelGlobePass();
       gen = this.globeDefer.begin(lazy ? { features, heightM, focus, context } : null);
     }
+    // A mesh built here: an answer asked ahead for another one is not its own.
+    this.globeAhead = null;
+    this.globeSkipped = false;
     this.applyMesh(
       buildPlateauMesh(features, heightM, focus, context, {
         merc: true,
         globe: !lazy,
         concat: meshMode !== "ancien",
+        lean: leanLines,
       }),
       { features, focus, context },
     );
@@ -732,13 +862,33 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (lazy) this.scheduleGlobePass(gen);
   }
 
+  /** The page's live worker for the deferred globe set, or null (another
+   *  mesh mode, no worker, or a worker lost). */
+  private liveGlobeProvider(): GlobeProvider | null {
+    const provider = meshMode === "worker" ? this.globeProvider : null;
+    return provider?.live() ? provider : null;
+  }
+
+  /** ac:globe-late (../threadSwitch.ts), unless "page": the globe set of the
+   *  mesh being built from `src` in the worker, asked of the worker now,
+   *  behind that mesh — not at the map's next idle after it is applied. The
+   *  apply of the mesh built from the same `src.features` array takes the
+   *  answer (applyBuilt); any other apply drops it. */
+  askGlobeAhead(src: GlobeInputs) {
+    this.globeAhead = null;
+    const provider = this.liveGlobeProvider();
+    if (!provider || !lateGlobeFor(globeLate.value, deviceTier()).ahead) return;
+    this.globeAhead = { features: src.features, job: provider.build(src) };
+  }
+
   /** ac:mesh=worker: a mesh built in the worker (gl/meshClient.ts), applied
    *  as setGeometry applies its own — the same span (here the apply alone),
    *  a new generation of the deferred globe set. A mesh without its globe
-   *  set holds `src` for it and asks the worker for it (setGlobeProvider) at
-   *  the map's next idle, or at once when `opts.globe` (the mode for the
-   *  camera at this apply) is "eager"; a globe frame before it lands builds
-   *  it here (ensureGlobe). `opts.start`: the mode the build was asked with. */
+   *  set holds `src` for it: the worker was asked for it as the mesh was
+   *  (askGlobeAhead), or is asked (setGlobeProvider) at the map's next idle,
+   *  or at once when `opts.globe` (the mode for the camera at this apply) is
+   *  "eager"; a globe frame before it lands builds it here, or waits for it
+   *  (ensureGlobe). `opts.start`: the mode the build was asked with. */
   applyBuilt(
     m: MeshOut,
     src: GlobeInputs,
@@ -750,6 +900,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.cancelGlobePass();
     const deferred = !m.gWallPositions;
     const gen = this.globeDefer.begin(deferred ? src : null);
+    const ahead = this.globeAhead?.features === src.features ? this.globeAhead.job : null;
+    this.globeAhead = null;
+    this.globeSkipped = false;
     this.applyMesh(m, src);
     if (endSpan) {
       endSpan({
@@ -762,7 +915,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         ...opts,
       });
     }
-    if (deferred) this.scheduleGlobePass(gen, opts.globe === "eager");
+    if (!deferred) return;
+    const provider = ahead ? this.liveGlobeProvider() : null;
+    if (ahead && provider) this.workerGlobePass(gen, provider, ahead);
+    else this.scheduleGlobePass(gen, opts.globe === "eager");
   }
 
   /** ac:mesh=worker: who builds the deferred globe set (null: this layer). */
@@ -789,7 +945,17 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (!rim || !positions || !lidPositions || !linePositions || !haloPositions) {
       throw new Error("applyMesh: a mesh without its mercator set");
     }
+    // The line programs compiled are one layout's (ac:line-mesh): the other's
+    // buffers would be read with the wrong stride.
+    if (m.lineLayout !== lineMesh) {
+      throw new Error(`applyMesh: lines laid out "${m.lineLayout}", drawn "${lineMesh}"`);
+    }
     this.scopeId = m.scopeId;
+    // The kept lid set aside for this unit shows with its mesh (showKeptLid).
+    if (this.lidAtMesh && this.lidAtMesh === m.scopeId) {
+      this.lidAtMesh = "";
+      this.lids.commit();
+    }
     this.heightM = m.heightM;
     this.rim = rim;
     this.rimCount = m.rimCount;
@@ -943,18 +1109,32 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
 
   /** ac:mesh=worker: generation `gen`'s globe set from the worker, assigned
    *  when it comes if `gen` still holds it — not stale, cancelled, or built
-   *  meanwhile by a globe frame (ensureGlobe). */
-  private workerGlobePass(gen: number, provider: GlobeProvider) {
+   *  meanwhile by a globe frame (ensureGlobe). Asked once per generation:
+   *  `ahead` is the answer already on its way (askGlobeAhead). An answer
+   *  without a set leaves the generation to the first globe frame, which
+   *  builds it here. One repaint when it comes, if the globe is on screen or
+   *  a globe frame was drawn without the plateau meanwhile. */
+  private workerGlobePass(
+    gen: number,
+    provider: GlobeProvider,
+    ahead?: ReturnType<GlobeProvider["build"]>,
+  ) {
     if (__TEST_TOOLS__ && (window as { __acMeshIdle?: string }).__acMeshIdle === "hold") return;
-    const inputs = this.globeDefer.claim(gen);
+    const inputs = this.globeDefer.ask(gen);
     if (!inputs) return;
-    void provider.build(inputs).then((g) => {
-      if (!g || !this.globeDefer.claim(gen)) return;
+    void (ahead ?? provider.build(inputs)).then((g) => {
+      const skipped = this.globeSkipped && gen === this.globeDefer.current;
+      if (skipped) this.globeSkipped = false;
+      const map = this.map;
+      if (!g) {
+        if (this.globeDefer.noAnswer(gen) && skipped) map?.triggerRepaint();
+        return;
+      }
+      if (!this.globeDefer.claim(gen)) return;
       this.applyGlobe(g);
       this.globeDefer.markBuilt(gen);
       if (perfOn) perfNote("plateau.globeBuild", g.ms, { scope: this.scopeId, mesh: "worker" });
-      const map = this.map;
-      if (map && map.getZoom() < 6) map.triggerRepaint();
+      if (map && (skipped || map.getZoom() < 6)) map.triggerRepaint();
     });
   }
 
@@ -972,6 +1152,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       merc: false,
       globe: true,
       concat: true,
+      lean: leanLines,
     });
     const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = m;
     if (!gWallPositions || !gLidPositions || !gLinePositions || !gHaloPositions) return null;
@@ -986,13 +1167,41 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
 
   /** The globe set a globe frame draws: built now, synchronously, when it is
    *  still deferred (ac:mesh=merc: a zoom-out before the idle pass ran). Null:
-   *  none to draw (the layer re-added before its next setGeometry). */
-  private ensureGlobe() {
+   *  none to draw (the layer re-added before its next setGeometry) — or,
+   *  where ac:globe-late says a globe frame waits (../threadSwitch.ts), none
+   *  yet: the worker is building it, asked now if it was not, and its answer
+   *  repaints the map once. `force` (the testing tools' fingerprint): built
+   *  here whatever the switch says. */
+  private ensureGlobe(force = false) {
     const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = this;
     if (gWallPositions && gLidPositions && gLinePositions && gHaloPositions) {
       return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions };
     }
-    return this.buildGlobe(this.globeDefer.current, true);
+    const gen = this.globeDefer.current;
+    if (!force && this.globeFrameWaits(gen)) {
+      this.globeSkipped = true;
+      if (__TEST_TOOLS__) {
+        const probe = (this.meshProbe ??= { calls: 0, input: [] });
+        probe.globeWaits = (probe.globeWaits ?? 0) + 1;
+      }
+      return null;
+    }
+    return this.buildGlobe(gen, true);
+  }
+
+  /** Whether a globe frame that finds generation `gen`'s set missing leaves
+   *  it to the worker: the switch says wait, the worker lives, and its answer
+   *  is on its way — asked here when it was not (the pass was waiting for the
+   *  map's idle). False once an answer came back empty: built here then. */
+  private globeFrameWaits(gen: number) {
+    const provider = this.liveGlobeProvider();
+    if (!provider || !lateGlobeFor(globeLate.value, deviceTier()).wait) return false;
+    if (this.globeDefer.asking(gen)) return true;
+    this.workerGlobePass(gen, provider);
+    if (!this.globeDefer.asking(gen)) return false;
+    // Asked now: the pass that waited for the map's idle has nothing left to do.
+    this.cancelGlobePass();
+    return true;
   }
 
   /** The testing tools' fingerprint of the mesh setGeometry last built
@@ -1002,11 +1211,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  setGeometry calls and the last call's input (ids, ring and vertex
    *  counts), so two runs are compared only on the same input. A globe set
    *  still deferred (ac:mesh=merc) hashes as absent; `globe` builds it first
-   *  (as a globe frame would: a `plateau.globeLate` span). Null without the
-   *  tools. */
+   *  (as a globe frame would: a `plateau.globeLate` span). `globeWaits`: the
+   *  globe frames that drew no plateau while the worker built the set
+   *  (ac:globe-late). Null without the tools. */
   meshDigest(opts?: { globe?: boolean }) {
     if (!__TEST_TOOLS__) return null;
-    if (opts?.globe) this.ensureGlobe();
+    if (opts?.globe) this.ensureGlobe(true);
     const { total, parts } = digestParts([
       ["positions", this.positions],
       ["lidPositions", this.lidPositions],
@@ -1052,31 +1262,112 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         halo: this.haloVertexCount,
         rim: this.rimCount,
       },
+      // What the two line buffers weigh, as handed to the GPU, and their
+      // layout (ac:line-mesh); the globe's is 0 while it is deferred.
+      lineMesh,
+      lineBytes: {
+        merc: this.linePositions.byteLength,
+        globe: this.gLinePositions?.byteLength ?? 0,
+      },
       scopeId: this.scopeId,
       setGeometryCalls: this.meshProbe?.calls ?? 0,
+      globeWaits: this.meshProbe?.globeWaits ?? 0,
       inputSig: { scope: sigOf(features), focus: sigOf(focus), context: sigOf(context) },
     };
   }
 
   /** Provide/replace the lid's map texture (a hidden-map snapshot). Uploaded on
-   *  the next render. Passing null drops the lid (walls-only, the status quo). */
-  setLidTexture(snap: Snapshot | null) {
-    if (this.lidPending) {
-      this.lidPending.bitmap.close();
-      this.lidPending = null;
-    }
-    if (!snap) {
-      this.lidMerc = null; // render skips the lid; old GL texture freed on next upload
-      this.map?.triggerRepaint();
-      return;
-    }
-    this.lidPending = snap;
+   *  the next render. Passing null drops the lid (walls-only, the status quo).
+   *  `keep`: a whole-unit picture, kept under that key for the unit selected
+   *  again (ac:lid-cache), room allowing. */
+  setLidTexture(snap: Snapshot | null, keep: { key: string; meta: LidKeptMeta } | null = null) {
+    this.lidAtMesh = "";
+    this.lids.set(snap, keep);
     this.map?.triggerRepaint();
+  }
+
+  /** What was handed with the lid picture kept under `key`; null: none is kept. */
+  keptLid(key: string): LidKeptMeta | null {
+    return this.lids.kept(key);
+  }
+
+  /** The key of the kept lid picture showing, or waiting for its unit's mesh
+   *  (showKeptLid); null: none, or a picture that is not kept. */
+  keptLidCurrent(): string | null {
+    return this.lids.current;
+  }
+
+  /** The lid picture kept under `key` becomes unit `scopeId`'s lid, with no
+   *  upload: at once when that unit's mesh is the one standing (or none
+   *  stands, or the unit is not told); else when its mesh is applied — the
+   *  plateau standing keeps its own lid while it sinks, the new one rises
+   *  with its lid on. Set aside until then: nothing drops it. False: none is
+   *  kept. Any other lid given or shown meanwhile takes its place. */
+  showKeptLid(key: string, scopeId: string): boolean {
+    if (!this.lids.reserve(key)) return false;
+    if (!scopeId || !this.scopeId || scopeId === this.scopeId) {
+      this.lidAtMesh = "";
+      this.lids.commit();
+    } else this.lidAtMesh = scopeId;
+    this.map?.triggerRepaint();
+    return true;
+  }
+
+  /** The kept lid waiting for its unit's mesh will not show (another lid is
+   *  on its way): it goes back among the kept ones. */
+  cancelKeptLid() {
+    this.lidAtMesh = "";
+    this.lids.cancel();
+    if (this.lids.dirty) this.map?.triggerRepaint();
+  }
+
+  /** A whole-unit picture kept under `key` without becoming the lid (the shot
+   *  of a run the visitor has left), room allowing. Uploaded on the next render. */
+  keepLidTexture(snap: Snapshot, keep: { key: string; meta: LidKeptMeta }) {
+    this.lids.keep(snap, keep);
+    this.map?.triggerRepaint();
+  }
+
+  /** How much the kept lid pictures may weigh (plateau/lidCache.ts). One
+   *  repaint when a smaller budget leaves textures to free. */
+  setLidKeepBudget(budget: LidCacheBudget) {
+    this.lids.setBudget(budget);
+    if (this.lids.dirty) this.map?.triggerRepaint();
+  }
+
+  /** The WebGL context was lost: the lid's textures went with it. Whether a
+   *  lid was showing is kept for the restore (onContextRestored). */
+  forgetLidTextures() {
+    if (this.lidTexture !== null || this.lidMerc !== null) this.lidLostWithContext = true;
+    this.lidAtMesh = "";
+    this.lids.forget();
+  }
+
+  /** The lid's textures, for the probe (./lidTextures stats). */
+  lidTextureStats() {
+    return this.lids.stats();
   }
 
   setScale(v: number) {
     this.scale = v;
     this.map?.triggerRepaint();
+  }
+
+  /**
+   * The rise read at each frame, from when it is given until null is: a
+   * terrain transition's (usePlateau, `ac:rise=transition`), where mapbox
+   * interpolates the ground's height and this layer must draw with the height
+   * of the very frame it is called in. `read` answers that frame's rise, or
+   * null to keep the last one. Asks for no frame: its caller does.
+   */
+  followScale(read: (() => number | null) | null) {
+    this.scaleSource = read;
+  }
+
+  /** The followed rise, taken at the head of each of this layer's draws. */
+  private syncScale() {
+    const v = this.scaleSource?.();
+    if (v !== null && v !== undefined) this.scale = v;
   }
 
   /**
@@ -1237,9 +1528,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // quad is 1 px wider each side and the fragment alpha feathers over that
     // pixel (vSide interpolates -1…1 across the width) — analytic anti-aliasing,
     // since hard quad edges alias badly on dense commune contours.
-    const nvs = compile(gl.VERTEX_SHADER, LINE_VS);
-    const nfs = compile(gl.FRAGMENT_SHADER, LINE_FS);
-    const np = gl.createProgram();
+    // ac:line-mesh=lean: the lean programs instead (below), not these.
+    const nvs = leanLines ? null : compile(gl.VERTEX_SHADER, LINE_VS);
+    const nfs = leanLines ? null : compile(gl.FRAGMENT_SHADER, LINE_FS);
+    const np = leanLines ? null : gl.createProgram();
     if (np && nvs && nfs) {
       gl.attachShader(np, nvs);
       gl.attachShader(np, nfs);
@@ -1272,13 +1564,49 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       ["aMerc", "aEcefLo", "aEcefHi"],
       [...GLOBE_UNIS, "uTexOrigin", "uTexSpan"],
     );
-    this.gLineProg = buildProgram(
-      gl,
-      G_LINE_VS,
-      LINE_FS,
-      ["aMerc", "aEcefLo", "aEcefHi", "aOMerc", "aOEcefLo", "aOEcefHi", "aSide", "aGeomSide"],
-      [...GLOBE_UNIS, "uViewport", "uWidth", "uAlpha"],
-    );
+    if (leanLines) {
+      // The lean line programs: a segment's two ends per instance, the quad's
+      // six corners (LINE_CORNERS) per vertex, from one small static buffer.
+      this.leanLineProg = buildProgram(
+        gl,
+        LINE_LEAN_VS,
+        LINE_LEAN_FS,
+        ["aA", "aB", "aCorner"],
+        ["uMatrix", "uScale", "uViewport", "uWidth", "uAlpha", "uTwice"],
+      );
+      this.gLineProg = buildProgram(
+        gl,
+        G_LINE_LEAN_VS,
+        LINE_LEAN_FS,
+        ["aAMerc", "aAEcefLo", "aAEcefHi", "aBMerc", "aBEcefLo", "aBEcefHi", "aCorner"],
+        [...GLOBE_UNIS, "uViewport", "uWidth", "uAlpha", "uTwice"],
+      );
+      const lp = this.leanLineProg;
+      const gp = this.gLineProg;
+      this.leanLineLocs = lp ? [lp.attr.aA, lp.attr.aB] : [];
+      this.gLeanLineLocs = gp
+        ? ["aAMerc", "aAEcefLo", "aAEcefHi", "aBMerc", "aBEcefLo", "aBEcefHi"].map(
+            (name) => gp.attr[name],
+          )
+        : [];
+      this.lineBuffer = gl.createBuffer();
+      // Filled at the first draw, like every buffer here: binding one now,
+      // outside a frame, would change the bound buffer behind mapbox's back.
+      this.lineCornerBuffer = gl.createBuffer();
+      this.lineCornersDirty = true;
+      this.lineVao = gl.createVertexArray();
+      this.gLineVao = gl.createVertexArray();
+      this.lineVaoSet = false;
+      this.gLineVaoSet = false;
+    } else {
+      this.gLineProg = buildProgram(
+        gl,
+        G_LINE_VS,
+        LINE_FS,
+        ["aMerc", "aEcefLo", "aEcefHi", "aOMerc", "aOEcefLo", "aOEcefHi", "aSide", "aGeomSide"],
+        [...GLOBE_UNIS, "uViewport", "uWidth", "uAlpha"],
+      );
+    }
     this.gWallBuffer = gl.createBuffer();
     this.gLidBuffer = gl.createBuffer();
     this.gLineBuffer = gl.createBuffer();
@@ -1315,6 +1643,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     );
     this.haloBuffer = gl.createBuffer();
     this.gHaloBuffer = gl.createBuffer();
+    this.pendingMark.onAdd(gl);
     // The slabs' pieces: each vertex in its colour — the ring's parts and the
     // bar their theme's, the words' boxes' walls the plateau's violet —, or
     // the one colour uTint gives where its alpha is 1 (the words' boxes'
@@ -1345,20 +1674,77 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.gSlabDirty = true;
   }
 
+  /**
+   * The map's WebGL context was lost and has come back (mapbox's
+   * `webglcontextrestored`, composables/useContextRestore.ts). Mapbox does not
+   * run onAdd again for a custom layer, and every program, buffer, vertex
+   * array and texture made on the old context went with it: they are made
+   * again here (onAdd), and every mesh the page still holds — the walls, the
+   * lid's, the lines, the hover fill and its retract, the halo, the slabs'
+   * pieces, in both regimes — is marked for upload, so the next frame draws
+   * the plateau as it stood. The handles of the old context are dropped, not
+   * deleted: they are no longer this context's.
+   *
+   * The lid's picture cannot be uploaded again (its bitmap was closed at its
+   * upload): the lid is not drawn until another one lands — usePlateauLid
+   * shoots it again for a standing plateau. Its textures, the kept ones too
+   * (./lidTextures), were forgotten when the loss was heard
+   * (forgetLidTextures); one still held here means it was not, and they are
+   * forgotten now. A picture handed to the layer since the loss, not
+   * uploaded yet, is kept: it goes up at the next frame, as it would have.
+   * Returns whether a picture was showing when the context went (false too
+   * for a layer that is on no map).
+   *
+   * Anything onAdd sets up is covered by construction: a pass added to this
+   * layer later only has to mark its own buffers there (the pending mark's
+   * pass does, ./PendingMarkPass).
+   */
+  onContextRestored(gl: WebGL2RenderingContext): boolean {
+    const map = this.map;
+    if (!map) return false;
+    if (this.lidTexture !== null) this.forgetLidTextures();
+    const hadLid = this.lidLostWithContext;
+    this.lidLostWithContext = false;
+    // New programs, buffers and vertex arrays (and the slabs', the lean
+    // lines' corners and vertex arrays marked there).
+    this.onAdd(map, gl);
+    this.dirty = true;
+    this.lidDirty = true;
+    this.lineDirty = true;
+    this.haloDirty = true;
+    this.hovDirty = true;
+    this.gHovDirty = true;
+    this.retractDirty = true;
+    this.gRetractDirty = true;
+    // The globe set, when it is built (null: a lazy one still to come, whose
+    // own apply raises these).
+    if (this.gWallPositions) this.gWallDirty = true;
+    if (this.gLidPositions) this.gLidDirty = true;
+    if (this.gLinePositions) this.gLineDirty = true;
+    if (this.gHaloPositions) this.gHaloDirty = true;
+    map.triggerRepaint();
+    return hadLid;
+  }
+
   onRemove(_map: mapboxgl.Map, gl: WebGL2RenderingContext) {
     if (meshMode === "merc" || meshMode === "worker") {
       // The held inputs dropped: a pass held for this mesh never lands after it.
       this.cancelGlobePass();
       this.globeDefer.cancel();
+      this.globeAhead = null;
     }
+    this.pendingMark.onRemove(gl);
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
     if (this.lidProgram) gl.deleteProgram(this.lidProgram);
     if (this.lidBuffer) gl.deleteBuffer(this.lidBuffer);
-    if (this.lidTexture) gl.deleteTexture(this.lidTexture);
-    if (this.lidPending) this.lidPending.bitmap.close();
+    this.lids.dispose(gl);
     if (this.lineProgram) gl.deleteProgram(this.lineProgram);
     if (this.lineBuffer) gl.deleteBuffer(this.lineBuffer);
+    if (this.leanLineProg) gl.deleteProgram(this.leanLineProg.prog);
+    if (this.lineCornerBuffer) gl.deleteBuffer(this.lineCornerBuffer);
+    if (this.lineVao) gl.deleteVertexArray(this.lineVao);
+    if (this.gLineVao) gl.deleteVertexArray(this.gLineVao);
     for (const p of [
       this.gWallProg,
       this.gLidProg,
@@ -1403,13 +1789,14 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.buffer = null;
     this.lidProgram = null;
     this.lidBuffer = null;
-    this.lidTexture = null;
     this.anisoExt = null;
     this.maxAniso = 0;
-    this.lidPending = null;
-    this.lidMerc = null;
     this.lineProgram = null;
     this.lineBuffer = null;
+    this.leanLineProg = null;
+    this.lineCornerBuffer = null;
+    this.lineVao = null;
+    this.gLineVao = null;
     this.gWallProg = null;
     this.gLidProg = null;
     this.gLineProg = null;
@@ -1439,6 +1826,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     centerInMercator?: number[],
     pixelsPerMeterRatio?: number,
   ) {
+    this.syncScale();
     // GLOBE regime (zoom < 6): mapbox passes the extra projection args and the
     // camera is the globe camera — draw via the morph programs. At z ≥ 6 it calls
     // with 2 args (pure mercator pipeline) and the classic path below runs.
@@ -1460,22 +1848,21 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       pixelsPerMeterRatio,
     );
     // Boundary lines render even with no plateau standing (world scope / sunk),
-    // so only bail when there is nothing at all to draw.
-    if ((!this.vertexCount || this.scale <= 0.001) && !this.lineVertexCount) return;
-    // Upload a freshly captured snapshot (bitmap → texture) whichever regime draws.
-    if (this.lidPending) {
-      const snap = this.lidPending;
-      this.lidPending = null;
-      // Reuse the texture object: deleting one the driver may still be sampling
-      // forces a sync, and texImage2D fully re-specs (a different size is fine),
-      // so there is nothing to gain from a fresh name. The lid is now re-captured
-      // on zoom, making this a repeated cost rather than a one-off.
-      const tex = this.lidTexture ?? gl.createTexture();
-      uploadLidTexture(gl, tex, snap.bitmap, this.anisoExt, this.maxAniso);
-      this.lidTexture = tex;
-      this.lidMerc = snap.merc;
-      snap.bitmap.close();
+    // and so does a pending mark: only bail when there is nothing at all to draw.
+    if (
+      (!this.vertexCount || this.scale <= 0.001) &&
+      !this.lineVertexCount &&
+      !this.pendingMark.active
+    ) {
+      return;
     }
+    // Upload a freshly captured snapshot (bitmap → texture) whichever regime
+    // draws, and free the textures no longer kept (./lidTextures). A picture
+    // that is not kept reuses the one texture object: deleting one the driver
+    // may still be sampling forces a sync, and texImage2D fully re-specs (a
+    // different size is fine), so there is nothing to gain from a fresh name.
+    // The lid is re-captured on zoom, making this a repeated cost.
+    if (this.lids.dirty) this.lids.frame(gl);
     gl.disable(gl.CULL_FACE); // wall sheet is double-sided; lid winding is mixed
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -1504,14 +1891,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (!this.program || !this.buffer) return;
     // Fold the mesh origin into the (float64) matrix so float32 vertices keep
     // sub-metre precision: M' = M × T(origin).
-    const m = matrix;
-    const [tx, ty] = this.origin;
-    const t = m.slice();
-    t[12] = m[0] * tx + m[4] * ty + m[12];
-    t[13] = m[1] * tx + m[5] * ty + m[13];
-    t[14] = m[2] * tx + m[6] * ty + m[14];
-    t[15] = m[3] * tx + m[7] * ty + m[15];
-    const mat = new Float32Array(t);
+    // Into an array kept across frames: nothing is allocated per frame.
+    const mat = foldOrigin(matrix, this.origin[0], this.origin[1], this.frameMat);
 
     gl.disable(gl.CULL_FACE); // wall sheet is double-sided; lid winding is mixed
     gl.enable(gl.DEPTH_TEST);
@@ -1649,6 +2030,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       gl.drawArrays(gl.TRIANGLES, 0, this.retractPositions.length / 4);
       gl.enable(gl.DEPTH_TEST);
     }
+    // ---- the pending mark's flat fill (a tapped unit, until its plateau commits) ----
+    this.pendingMark.drawMercator(gl, matrix, this.scale, "fill", this.fillProg);
 
     // ---- boundary lines (constant screen width; focus on the lid, context and
     // the world-scope outline on the ground) ----
@@ -1687,6 +2070,22 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       }
       gl.enable(gl.DEPTH_TEST);
     }
+    // ac:line-mesh=lean: the same groups under the same rules, each segment
+    // an instance of the six corners.
+    if (this.leanLineProg && this.lineBuffer && this.lineVertexCount) {
+      const p = this.leanLineProg;
+      gl.useProgram(p.prog);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
+      if (this.lineDirty) {
+        gl.bufferData(gl.ARRAY_BUFFER, this.linePositions, gl.STATIC_DRAW);
+        this.lineDirty = false;
+      }
+      gl.uniformMatrix4fv(p.uni.uMatrix, false, mat);
+      this.drawLineInstances(gl, p, this.lineBuffer, this.leanLineLocs, LEAN_FLOATS, null);
+      gl.enable(gl.DEPTH_TEST);
+    }
+    // ---- the pending mark's stroke, over the unit's own boundary line ----
+    this.pendingMark.drawMercator(gl, matrix, this.scale, "stroke", null);
 
     // ---- halo (static ribbon from the wall base outward) ----
     if (this.haloProg && this.haloBuffer && this.haloVertexCount && this.scale >= 0.15) {
@@ -1728,6 +2127,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     centerInMercator?: number[],
     pixelsPerMeterRatio?: number,
   ) {
+    this.syncScale();
     const ss = this.scale * this.slabP;
     if (!this.slabWallCount || ss <= 0.001) return;
     gl.disable(gl.CULL_FACE); // wall sheet is double-sided; lid winding is mixed
@@ -1873,6 +2273,68 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     gl.drawArrays(gl.TRIANGLES, 0, this.slabHaloCount);
   }
 
+  /** ac:line-mesh=lean: the line groups drawn from `buffer` (one record of
+   *  `floats` floats a segment: a vec3 per location of `locs`, in order) by
+   *  program `p`, in use, its matrices set — each segment an instance of the
+   *  quad's six corners. `pass` null (the flat view): every group, the raised
+   *  ones without the depth test, the ground ones with it; true or false (the
+   *  globe, which tests no depth): the groups raised or not. WebGL 2 has no
+   *  first-instance argument, so a group's range is reached by pointing the
+   *  instanced attributes at its first record. Drawn under the regime's own
+   *  vertex array object, so no divisor and no instanced pointer is ever
+   *  written to the default one, which every other draw of the layers uses;
+   *  the default one is bound again on the way out. */
+  private drawLineInstances(
+    gl: WebGL2RenderingContext,
+    p: GlProg,
+    buffer: WebGLBuffer,
+    locs: readonly number[],
+    floats: number,
+    pass: boolean | null,
+  ) {
+    const globe = pass !== null;
+    gl.bindVertexArray(globe ? this.gLineVao : this.lineVao);
+    if (!(globe ? this.gLineVaoSet : this.lineVaoSet)) {
+      // Once per vertex array: the corners, per vertex; the ends, per instance.
+      const corner = p.attr.aCorner;
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineCornerBuffer);
+      if (this.lineCornersDirty) {
+        gl.bufferData(gl.ARRAY_BUFFER, LINE_CORNERS, gl.STATIC_DRAW);
+        this.lineCornersDirty = false;
+      }
+      gl.enableVertexAttribArray(corner);
+      gl.vertexAttribPointer(corner, 3, gl.FLOAT, false, 12, 0);
+      for (let i = 0; i < locs.length; i++) {
+        gl.enableVertexAttribArray(locs[i]);
+        gl.vertexAttribDivisor(locs[i], 1);
+      }
+      if (globe) this.gLineVaoSet = true;
+      else this.lineVaoSet = true;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.uniform2f(p.uni.uViewport, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    const dpr = window.devicePixelRatio || 1;
+    const stride = floats * 4;
+    for (const grp of this.lineGroups) {
+      if (pass === null) {
+        if (grp.raised) gl.disable(gl.DEPTH_TEST);
+        else gl.enable(gl.DEPTH_TEST);
+      } else if (grp.raised !== pass) {
+        continue;
+      }
+      const first = (grp.start / SEGMENT_VERTICES) * stride;
+      for (let i = 0; i < locs.length; i++) {
+        gl.vertexAttribPointer(locs[i], 3, gl.FLOAT, false, stride, first + i * 12);
+      }
+      gl.uniform1f(p.uni.uScale, grp.raised ? this.scale : 1);
+      gl.uniform1f(p.uni.uWidth, grp.width * dpr);
+      gl.uniform1f(p.uni.uAlpha, grp.alpha);
+      gl.uniform1f(p.uni.uTwice, grp.twice ? 1 : 0);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, SEGMENT_VERTICES, grp.count / SEGMENT_VERTICES);
+    }
+    gl.bindVertexArray(null);
+  }
+
   /** The globe-regime draw: same three passes, positions morphed sphere↔mercator
    *  in-shader. Attributes are ABSOLUTE (no origin fold — float32 is plenty below
    *  z6, where a pixel is kilometres). */
@@ -1896,14 +2358,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // occlusion (walls → lid → lines), and a France-scoped plateau is always on
     // the camera-facing side of the sphere.
     gl.disable(gl.DEPTH_TEST);
-    const { setCommon, bindTriple } = this.globeBinders(
-      gl,
-      matrix,
-      globeToMerc,
-      t,
-      center,
-      pxRatio,
-    );
+    const binders = this.globeBinders(gl, matrix, globeToMerc, t, center, pxRatio);
+    const { setCommon, bindTriple } = binders;
     // The plateau's depth can't be tested against (see above), so GROUND-level
     // geometry (context fills/lines, the world-scope outline) draws FIRST and
     // the plateau (walls + lid) paints OVER it — that is what keeps neighbour
@@ -1956,6 +2412,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         this.gLineDirty = false;
       }
       const p = this.gLineProg;
+      if (leanLines) {
+        this.drawLineInstances(gl, p, this.gLineBuffer, this.gLeanLineLocs, G_LEAN_FLOATS, raised);
+        return;
+      }
       bindTriple(p, 80);
       gl.enableVertexAttribArray(p.attr.aOMerc);
       gl.vertexAttribPointer(p.attr.aOMerc, 3, gl.FLOAT, false, 80, 36);
@@ -1980,7 +2440,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // ---- GROUND pass (hidden behind the plateau by paint order) ----
     if (hovRange && !hovRange.raised) drawHoverFill();
     if (this.retractActive && !this.retractRaised) drawRetract();
+    this.pendingMark.drawGlobe(gl, binders, false, "fill", this.gFillProg);
     drawLines(false);
+    this.pendingMark.drawGlobe(gl, binders, false, "stroke", null);
     // ---- walls ----
     if (this.gWallProg && this.gWallBuffer && this.vertexCount) {
       setCommon(this.gWallProg);
@@ -2018,7 +2480,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // ---- RAISED pass (on the plateau top) ----
     if (hovRange && hovRange.raised) drawHoverFill();
     if (this.retractActive && this.retractRaised) drawRetract();
+    this.pendingMark.drawGlobe(gl, binders, true, "fill", this.gFillProg);
     drawLines(true);
+    this.pendingMark.drawGlobe(gl, binders, true, "stroke", null);
 
     // ---- halo (static ribbon from the wall base outward) ----
     if (this.gHaloProg && this.gHaloBuffer && this.haloVertexCount && this.scale >= 0.15) {
@@ -2047,8 +2511,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     center: number[],
     pxRatio: number,
   ) {
-    const proj = new Float32Array(matrix);
-    const g2m = new Float32Array(globeToMerc);
+    // Two arrays kept across frames. The plateau's draw and the slabs' own
+    // each take their binders and use them before the other asks for its own.
+    const proj = this.globeProj;
+    const g2m = this.globeG2m;
+    proj.set(matrix);
+    g2m.set(globeToMerc);
     const setCommon = (p: GlProg) => {
       gl.useProgram(p.prog);
       gl.uniformMatrix4fv(p.uni.uProj, false, proj);

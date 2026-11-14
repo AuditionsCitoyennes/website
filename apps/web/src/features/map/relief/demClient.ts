@@ -7,7 +7,8 @@
 // on the main thread (demGround.ts), any other the worker's render
 // (demRaster.ts) → `{ url: <data: PNG> }`, through the frame budget.
 //
-// The worker is created at the map's load (`warmRelief`). Its health: an
+// The worker is created when the map starts (`warmRelief`: with the map
+// object, or at its load under ac:boot-workers=load). Its health: an
 // `error` or `messageerror` → it is terminated and every pending call
 // replayed on the main thread (`failover`, for the rest of the session); so
 // is a worker that has said nothing at all (not even its `ready`) 10 s after
@@ -30,6 +31,7 @@ import type { DemSelection } from "./demRaster";
 import { FrameBudget } from "./demTiles";
 import type { DemJob, DemReply } from "./demWorkerCore";
 import { reliefBudget, reliefBudgetGround, reliefCommitHold, reliefDelay } from "./reliefSwitch";
+import { cacheBudgetNow } from "../cacheBudget";
 
 type Raster = typeof import("./demRaster");
 
@@ -57,6 +59,8 @@ export interface ReliefClientDeps {
   groundFree?: boolean;
   delayMs?: number;
   stats?: boolean;
+  /** The sizes in force now (demAnswer.ts `caps`); absent: the modules' own. */
+  caps?(): { records: number; tiles: number; versions: number; vertices: number };
   /** Both renderers failed a tile: called once. */
   onLost(): void;
 }
@@ -169,6 +173,7 @@ export function createReliefClient(deps: ReliefClientDeps) {
     groundFree: deps.groundFree,
     delayMs: deps.delayMs,
     stats: deps.stats,
+    caps: deps.caps,
     onClientLost() {
       if (lost) return;
       lost = true;
@@ -177,7 +182,7 @@ export function createReliefClient(deps: ReliefClientDeps) {
   });
 
   return {
-    /** The worker, created now (the map's load) rather than on the first selection. */
+    /** The worker, created now (the map's start) rather than on the first selection. */
     warm(): void {
       start();
     },
@@ -211,6 +216,17 @@ const relief = createReliefClient({
   groundFree: reliefBudgetGround === "exempt",
   delayMs: reliefDelay,
   stats: __TEST_TOOLS__,
+  // What the page and the worker keep of the selections already raised: less
+  // on a weak device (../cacheBudget.ts), read at each use.
+  caps() {
+    const b = cacheBudgetNow();
+    return {
+      records: b.reliefRecords,
+      tiles: b.reliefTiles,
+      versions: b.reliefVersions,
+      vertices: b.reliefVertices,
+    };
+  },
   onLost() {
     if (import.meta.env.DEV) console.warn("[relief] client lost: no plateau from now on");
     // Out of the answer's chain: the plateau standing again, which now takes
@@ -219,7 +235,7 @@ const relief = createReliefClient({
   },
 });
 
-/** Creates the relief worker (the map's load). */
+/** Creates the relief worker (the map's start). */
 export const warmRelief = relief.warm;
 /** The answer to one `ac-dem://` request (demHook.ts). */
 export const answer = relief.answer;

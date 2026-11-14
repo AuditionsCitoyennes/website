@@ -1,7 +1,14 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
+import {
+  mapPreloadFiles,
+  mapPreloadScript,
+  type PlanChunk,
+} from "./src/shared/boot/mapPreloadPlan";
+import { afterCharset, homeBootScript, homePreloadFiles } from "./src/shared/boot/homeBootPlan";
+import { HERO_IMAGE, heroSources } from "./src/features/home/homeImages";
 
 // The outline build the site reads (features/geo-nav/data/useOutlineFiles):
 // the lock's, read once at start, so a lock bump needs a dev-server restart.
@@ -20,8 +27,80 @@ function outlinesBuild(): string {
   }
 }
 
+// The map page's code asked for from the HTML (shared/boot/mapPreload.ts): the
+// built page is told the names of the map page's chunks and stylesheets, in a
+// small inline script that asks for them on the map page alone. A build only:
+// the dev server has no chunks to name. `testTools`: the script reads the DEV
+// switch (a staging build); otherwise it has the default baked in.
+function mapPreloadHtml(mode: string): Plugin {
+  const testTools = loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging";
+  return {
+    name: "ac-map-preload",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler(_html, ctx) {
+        const script = mapPreloadScript(mapPreloadFiles(planChunks(ctx.bundle)), testTools);
+        return script ? [{ tag: "script", children: script, injectTo: "head" }] : [];
+      },
+    },
+  };
+}
+
+/** The built chunks, as the preload plans read them. */
+function planChunks(bundle: Record<string, unknown> | undefined): PlanChunk[] {
+  type Built = {
+    type: string;
+    fileName: string;
+    isEntry: boolean;
+    facadeModuleId: string | null;
+    imports: string[];
+    viteMetadata?: { importedCss?: Set<string> };
+  };
+  return Object.values(bundle ?? {}).flatMap((value) => {
+    const c = value as Built;
+    return c.type === "chunk"
+      ? [
+          {
+            fileName: c.fileName,
+            isEntry: c.isEntry,
+            facadeModuleId: c.facadeModuleId,
+            imports: c.imports,
+            css: [...(c.viteMetadata?.importedCss ?? [])],
+          },
+        ]
+      : [];
+  });
+}
+
+// The home page's first render from the HTML (shared/boot/homeBootPlan.ts): a
+// small inline script, right after <meta charset> (which must stay in the
+// first 1024 bytes), puts the theme's class on <html> and,
+// on "/", the hero's dark ground under the still empty page, asks for the home
+// page's chunk and stylesheet, and (`ac:hero` "html") for the photograph. A
+// build only, like the map's. `testTools`: the script reads the DEV switches.
+function homeBootHtml(mode: string): Plugin {
+  const testTools = loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging";
+  return {
+    name: "ac-home-boot",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler(html, ctx) {
+        const script = homeBootScript({
+          files: homePreloadFiles(planChunks(ctx.bundle)),
+          hero: heroSources(HERO_IMAGE, "portrait"),
+          heroOrigin: new URL(HERO_IMAGE.src).origin,
+          testTools,
+        });
+        return afterCharset(html, script);
+      },
+    },
+  };
+}
+
 export default defineConfig(({ command, mode }) => ({
-  plugins: [vue()],
+  plugins: [vue(), mapPreloadHtml(mode), homeBootHtml(mode)],
   define: {
     // Every component is `<script setup>`, so the Options API runtime is dead
     // weight — flagging it lets the minifier drop that branch of Vue.
@@ -47,6 +126,32 @@ export default defineConfig(({ command, mode }) => ({
   // map/relief/demClient.ts): their bundles must be ES too (Vite's default is
   // iife). Only a build that emits a worker sees it.
   worker: { format: "es" },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          // Mapbox GL in a file of its own (mapbox-gl-<hash>.js), apart from
+          // the map page's own code: its name changes only when Mapbox's
+          // version does, so a returning visitor keeps it in the browser's
+          // cache across the site's releases (the files under /assets/ are
+          // cached for a year: public/_headers). Still lazy: only the map
+          // page's chunks import it.
+          // The library's code alone: its stylesheet stays with the map's
+          // own (GeoDrillMap.vue imports it), and what it imports (the
+          // bundler's helpers) stays in the files the entry already loads —
+          // with its dependencies pulled in, the group took Vite's preload
+          // helper, and the entry then loaded all of Mapbox on every page.
+          groups: [
+            {
+              name: "mapbox-gl",
+              test: /[\\/]node_modules[\\/]mapbox-gl[\\/].*\.js$/,
+              includeDependenciesRecursively: false,
+            },
+          ],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
