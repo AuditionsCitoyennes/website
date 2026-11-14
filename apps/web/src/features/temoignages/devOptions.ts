@@ -24,6 +24,7 @@
 
 import type {
   DeviceSignals,
+  MeasureRecord,
   DeviceTier,
   TierReason,
   TierVerdict,
@@ -744,7 +745,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "off", label: "Coupée" },
     ],
     explain:
-      "Au premier déplacement animé de la carte vers un territoire, la page chronomètre les images. « Activée » (par défaut) : si elles sont trop lentes, le niveau de l'appareil descend, et ce résultat est gardé trente jours dans ce navigateur (ligne « Images mesurées » ci-dessous). « Coupée » : rien n'est chronométré, comme avant.",
+      "Au premier déplacement animé de la carte vers un territoire, la page chronomètre les images. « Activée » (par défaut) : si elles sont trop lentes, le niveau de l'appareil descend pour ce chargement de page seulement, et le navigateur le note. Le niveau plus bas n'est gardé trente jours que si un autre chargement de page, commencé au moins une minute plus tard, mesure encore des images lentes ; une mesure correcte entre les deux efface la note (ligne « Images mesurées » ci-dessous). « Coupée » : rien n'est chronométré, comme avant.",
     reloads: true,
     defaultId: "on",
   },
@@ -901,9 +902,22 @@ export function tierFacts(
   signals: DeviceSignals,
   detected: TierVerdict,
   inForce: TierVerdict,
+  kept?: MeasureRecord,
 ): DevFact[] {
   const why = detected.reasons.map((r) => REASON_LABELS[r]).join(", ");
   const m = signals.measured;
+  const day = (at: number) => new Date(at).toLocaleDateString("fr-FR");
+  // What the measure's two strikes have come to (deviceTier's strikeRule):
+  // a step kept, a step for this page load only, or a note waiting.
+  const strike = !kept
+    ? ""
+    : m && kept.step
+      ? ", gardé trente jours"
+      : m
+        ? ", pour ce chargement de page seulement"
+        : kept.note
+          ? ` ; des images lentes notées le ${day(kept.note.at)}, à confirmer`
+          : "";
   return [
     {
       label: "Niveau détecté",
@@ -928,9 +942,10 @@ export function tierFacts(
     { label: "Puce graphique", value: signals.renderer ?? "non lue" },
     {
       label: "Images mesurées",
-      value: m
-        ? `${TIER_LABELS[m.tier]} (${KIND_LABELS[m.kind]}), le ${new Date(m.at).toLocaleDateString("fr-FR")}`
-        : "aucune descente",
+      value:
+        (m
+          ? `${TIER_LABELS[m.tier]} (${KIND_LABELS[m.kind]}), le ${day(m.at)}`
+          : "aucune descente") + strike,
     },
   ];
 }

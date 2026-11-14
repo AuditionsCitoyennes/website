@@ -28,7 +28,9 @@
 // `ac:frame-measure` (« Mesure »): whether the map times the frames of its
 // first flight to a territory and reports them to the device's tier
 // (composables/useFlightMeasure.ts).
-// - "on" (the default): timed; slow frames step the tier down, kept 30 days.
+// - "on" (the default): timed; slow frames step the tier down for the page
+//   load, and for 30 days once a second page load, started at least a minute
+//   later, is slow too (shared/device/deviceTier's `strikeRule`).
 // - "off": nothing is timed, as before.
 //
 // Each is read once per page load: switching reloads the page. Production has
