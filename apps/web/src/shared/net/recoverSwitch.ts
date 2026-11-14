@@ -9,10 +9,13 @@
 //   That holds for the outline files' start (root.json and France's: the
 //   session no longer gives the outlines up for its rest), the tree of
 //   places and the lists. Meanwhile the panel says in plain French what is
-//   happening, with a button to try again at once.
+//   happening, with a button to try again at once. The map's own style, when
+//   its request fails, is asked again a few times with a growing pause, then
+//   the map's box says so with a button (features/map/lib/styleRecovery.ts).
 // - "ancien": as before — the outlines are given up for the session after
-//   their start failed, and the tree and the lists are asked again only when
-//   the visitor moves to another place.
+//   their start failed, the tree and the lists are asked again only when
+//   the visitor moves to another place, and a style that did not come leaves
+//   the map's box empty.
 //
 // A release skew or a malformed file still ends the outlines' session in both
 // modes: nothing a new attempt would change.

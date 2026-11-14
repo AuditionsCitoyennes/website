@@ -13,6 +13,11 @@
 // - "essai": the map is not started at all, so that the fallback of
 //   "visiteur" can be looked at on any machine (no Mapbox load is billed).
 //
+// The same box, over a map that stays, with a « Réessayer »: the style's
+// request failed and the attempts made by themselves did too (`ac:recover`,
+// lib/styleRecovery.ts). There "ancien" shows « Carte indisponible. » alone:
+// the token's hint is not about a network.
+//
 // Read once per page load: switching reloads the page. Production has neither
 // key nor switch: DEFAULT_MAP_FALLBACK.
 //

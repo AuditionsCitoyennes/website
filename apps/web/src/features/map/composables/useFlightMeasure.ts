@@ -2,9 +2,12 @@
 // `reportFrameTimes`): the frames of its first flight to a territory, timed
 // once per page load. The only signal a browser that hides its hardware
 // gives (Safari, Firefox), and the only one that tells slow graphics behind
-// an ordinary renderer name. Slow frames step the tier down, kept 30 days;
-// the lighter variants read it from the next territory (the flat ground) or
-// the next page load (the multisampling, graphicsSwitch.ts).
+// an ordinary renderer name. Slow frames step the tier down for this page
+// load, and are noted; the step is kept 30 days only when a second page
+// load, started at least a minute later, measures slow again (deviceTier's
+// `strikeRule`). The lighter variants read the step from the next territory
+// (the flat ground); those read once at the map's creation (the
+// multisampling, graphicsSwitch.ts) follow a kept step, at the next page load.
 //
 // Which flight: one a camera command starts (`begin()`, called by the shell
 // right after it runs the command) — not the intro's tilt, not a padding
@@ -23,7 +26,8 @@
 // `ac:frame-measure=off` (graphicsSwitch.ts, the testing tools): no measure.
 // With the testing tools the outcome is a `flight.frames` note in the perf
 // dump (its length; detail: frames, slow, verySlow, workShare, told — false:
-// too few frames, dropped —, tier and kind — the step the device stands at).
+// too few frames, dropped —, tier and kind — the step the device stands at —,
+// kept and noted — what the browser keeps of it: a step, a first strike).
 
 import type mapboxgl from "mapbox-gl";
 import {
@@ -31,6 +35,7 @@ import {
   MIN_FLIGHT_MS,
   SLOW_FRAME_MS,
   VERY_SLOW_FRAME_MS,
+  measureRecord,
   reportFrameTimes,
   type FrameSample,
   type MeasuredStep,
@@ -44,6 +49,7 @@ const FLIGHT_MAX_MS = 10_000;
 
 /** The flight's outcome in the perf dump (testing tools). */
 function note(samples: readonly FrameSample[], told: boolean, step: MeasuredStep | null) {
+  const kept = measureRecord();
   let total = 0;
   let work = 0;
   let slow = 0;
@@ -63,6 +69,8 @@ function note(samples: readonly FrameSample[], told: boolean, step: MeasuredStep
     told,
     tier: step?.tier ?? "full",
     kind: step?.kind ?? "none",
+    kept: kept.step?.tier ?? "none",
+    noted: kept.note?.tier ?? "none",
   });
 }
 

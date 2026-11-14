@@ -23,7 +23,41 @@ function state() {
   };
 }
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The text's pause runs on this clock, never on real time: `pass(ms)` lets
+ *  the watchers run, moves the clock on and fires what came due, in order. */
+function clock() {
+  let now = 0;
+  let seq = 0;
+  const due = new Map<number, { at: number; fn: () => void }>();
+  return {
+    timers: {
+      set(fn: () => void, ms: number) {
+        due.set(++seq, { at: now + ms, fn });
+        return seq;
+      },
+      clear(timer: unknown) {
+        due.delete(timer as number);
+      },
+    },
+    async pass(ms: number) {
+      await nextTick(); // the change just made reaches its watcher: the pause is armed
+      const end = now + ms;
+      for (;;) {
+        const next = [...due.entries()]
+          .filter(([, t]) => t.at <= end)
+          .sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+        if (!next) break;
+        due.delete(next[0]);
+        now = next[1].at;
+        next[1].fn();
+      }
+      now = end;
+      await nextTick();
+    },
+    /** Pauses armed and not yet run. */
+    armed: () => due.size,
+  };
+}
 
 test("the key and the parameters are the API's (placeFilterKey of the parsed query)", async () => {
   const s = state();
@@ -50,15 +84,19 @@ test("the key and the parameters are the API's (placeFilterKey of the parsed que
 test("the text counts once typing pauses; emptied, at once", async () => {
   const s = state();
   const scope = effectScope();
-  const sf = scope.run(() => useServerFilters(s, { debounceMs: 30 }))!;
+  const c = clock();
+  const sf = scope.run(() => useServerFilters(s, { debounceMs: 30, timers: c.timers }))!;
   s.text.value = "Écol";
   await nextTick();
   assert.equal(sf.key.value, "", "not before the pause");
   s.text.value = "Écologie ";
-  await wait(10);
+  await c.pass(10);
   assert.equal(sf.key.value, "");
-  await wait(40);
+  await c.pass(19);
+  assert.equal(sf.key.value, "", "the pause counts from the last keystroke");
+  await c.pass(1);
   assert.equal(sf.key.value, "qecologie");
+  assert.equal(c.armed(), 0);
   assert.deepEqual(sf.params.value, { q: "Écologie" });
   s.text.value = "";
   await nextTick();
@@ -69,14 +107,17 @@ test("the text counts once typing pauses; emptied, at once", async () => {
 test("a text shorter than the search's minimum: not applied, and said", async () => {
   const s = state();
   const scope = effectScope();
-  const sf = scope.run(() => useServerFilters(s, { debounceMs: 0, minChars: 3 }))!;
+  const c = clock();
+  const sf = scope.run(() =>
+    useServerFilters(s, { debounceMs: 0, minChars: 3, timers: c.timers }),
+  )!;
   s.text.value = "ab";
-  await wait(5);
+  await c.pass(0);
   assert.equal(sf.key.value, "");
   assert.equal(sf.textTooShort.value, true);
   assert.deepEqual(sf.params.value, {});
   s.text.value = "abc";
-  await wait(5);
+  await c.pass(0);
   assert.equal(sf.key.value, "qabc");
   // An answer said the API's minimum is higher: learnt.
   sf.noteTextIgnored("abc");
@@ -90,19 +131,20 @@ test("a text shorter than the search's minimum: not applied, and said", async ()
 test("the API's minimum, when its answer gives it, is taken in one step", async () => {
   const s = state();
   const scope = effectScope();
-  const sf = scope.run(() => useServerFilters(s, { debounceMs: 0 }))!;
+  const c = clock();
+  const sf = scope.run(() => useServerFilters(s, { debounceMs: 0, timers: c.timers }))!;
   s.text.value = "é";
-  await wait(5);
+  await c.pass(0);
   assert.equal(sf.key.value, "qe");
   sf.noteTextIgnored("e", 3);
   await nextTick();
   assert.equal(sf.minChars.value, 3);
   assert.equal(sf.key.value, "");
   s.text.value = "éc";
-  await wait(5);
+  await c.pass(0);
   assert.equal(sf.key.value, "", "no request for a text known to be too short");
   s.text.value = "éco";
-  await wait(5);
+  await c.pass(0);
   assert.equal(sf.key.value, "qeco");
   scope.stop();
 });
@@ -110,7 +152,8 @@ test("the API's minimum, when its answer gives it, is taken in one step", async 
 test("while a text waits for typing to pause, the other filters wait with it", async () => {
   const s = state();
   const scope = effectScope();
-  const sf = scope.run(() => useServerFilters(s, { debounceMs: 30 }))!;
+  const c = clock();
+  const sf = scope.run(() => useServerFilters(s, { debounceMs: 30, timers: c.timers }))!;
   s.topics.value = ["Services publics"];
   await nextTick();
   const themed = sf.key.value;
@@ -121,11 +164,13 @@ test("while a text waits for typing to pause, the other filters wait with it", a
   s.topics.value = [];
   await nextTick();
   assert.equal(sf.key.value, themed, "held");
-  await wait(10);
+  await c.pass(10);
   s.verified.value = true; // another change while the text waits
   await nextTick();
   assert.equal(sf.key.value, themed, "still held");
-  await wait(40);
+  await c.pass(19);
+  assert.equal(sf.key.value, themed, "the text's pause is not started over");
+  await c.pass(1);
   assert.equal(sf.key.value, "v1|qecole", "all of it at once");
   // No text waiting: at once.
   s.verified.value = false;
@@ -137,7 +182,8 @@ test("while a text waits for typing to pause, the other filters wait with it", a
 test("more than 50 places: the first 50 picked, every other filter kept", async () => {
   const s = state();
   const scope = effectScope();
-  const sf = scope.run(() => useServerFilters(s, { debounceMs: 0 }))!;
+  const c = clock();
+  const sf = scope.run(() => useServerFilters(s, { debounceMs: 0, timers: c.timers }))!;
   const lieux = Array.from(
     { length: 51 },
     (_, i) => `l:${(0xabc0000000000000n + BigInt(i)).toString(16)}`,
@@ -153,7 +199,7 @@ test("more than 50 places: the first 50 picked, every other filter kept", async 
   assert.equal(sf.params.value.l.split(",").length, 50);
   // A text the API would refuse (a NUL): left out, the rest kept.
   s.text.value = "a\u0000b";
-  await wait(5);
+  await c.pass(0);
   assert.ok(sf.key.value.startsWith("v1|f2026-01-01|ll:"));
   assert.equal(sf.params.value.q, undefined);
   scope.stop();
