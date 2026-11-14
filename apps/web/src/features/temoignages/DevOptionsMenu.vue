@@ -7,7 +7,8 @@
 // source and the place tree (dataSource.ts), the plateau's lid, its check, its
 // hidden map, the pictures of it that are kept, its mesh, its ground, the
 // relief's prefetch and the answer to a tap
-// (map), the boot curtain's cover (geo-nav/bootListSwitch), what a pan does to the
+// (map), what the map keeps in memory (map/cacheBudget),
+// the boot curtain's cover (geo-nav/bootListSwitch), what a pan does to the
 // selected zone, the files a touch screen asks ahead and the sign of a long wait
 // (geo-nav), the framing and the analyses' slabs
 // (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
@@ -67,6 +68,7 @@ import {
   lidMap,
   lidMode,
   linesMesh,
+  mapCaches,
   meshMode,
   outlineWait,
   regionSelfMode,
@@ -88,6 +90,7 @@ import {
   setLidMode,
   setMapFallback,
   setLinesMesh,
+  setMapCaches,
   setMeshMode,
   setOutlineWait,
   setRegionSelfMode,
@@ -196,6 +199,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:tint-cut": bind(() => tintCut.value, setTintCut),
   "ac:pins-rebuild": bind(() => pinsRebuild.value, setPinsRebuild),
   "ac:lid-map": bind(() => lidMap, setLidMap),
+  "ac:map-caches": bind(() => mapCaches, setMapCaches),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
