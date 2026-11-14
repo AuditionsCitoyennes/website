@@ -10,7 +10,10 @@
 //   there, handed over — and kept under the key, by bytes
 //   (plateau/lidCache.ts: the least recently shown dropped first, the one
 //   showing never dropped for another's sake). `show(key)` then shows it
-//   again: a pointer swap, no upload, no shot.
+//   again: a pointer swap, no upload, no shot. Or in two steps, for a unit
+//   whose plateau is still on its way: `reserve(key)` sets the picture aside
+//   (nothing can drop it), `commit()` shows it — the plateau standing keeps
+//   its own lid until the new one's mesh is there.
 // - `keep(snap, keep)`: a picture kept without being shown (the shot of a
 //   run the visitor has already left).
 //
@@ -74,6 +77,9 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
   /** The picture to upload and show at the next frame, and the one to upload
    *  and keep without showing it. */
   private pending: { snap: LidPicture<B>; keep: LidKeep<M> | null } | null = null;
+  /** The kept picture set aside to show at `commit()`: out of the cache
+   *  meanwhile, so nothing drops it. */
+  private reserved: { key: string; kept: Kept<T, M>; bytes: number } | null = null;
   private stray: { snap: LidPicture<B>; keep: LidKeep<M> } | null = null;
   /** Textures to delete at the next frame. */
   private drops: T[] = [];
@@ -101,6 +107,12 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
     return this.shownMerc;
   }
 
+  /** The key of the kept picture showing — or set aside to show at its
+   *  commit; null: none, or a picture that is not kept. */
+  get current(): string | null {
+    return this.reserved?.key ?? (this.shownMerc ? this.shownKey : null);
+  }
+
   /** There is GL work for the next frame. */
   get dirty(): boolean {
     return !!this.pending || !!this.stray || this.drops.length > 0;
@@ -110,6 +122,7 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
    *  it is kept under that key, room allowing. A picture set before and not
    *  uploaded yet is given up. */
   set(snap: LidPicture<B> | null, keep: LidKeep<M> | null = null): void {
+    this.cancel();
     if (this.pending) this.pending.snap.bitmap.close();
     this.pending = snap ? { snap, keep } : null;
     if (!snap) this.unshow();
@@ -124,23 +137,62 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
 
   /** What was handed with the picture kept under `key`; null: none is kept. */
   kept(key: string): M | null {
+    if (this.reserved?.key === key) return this.reserved.kept.meta;
     return this.cache.peek(key)?.meta ?? null;
   }
 
-  /** Shows the picture kept under `key`, from the next frame on: no upload.
-   *  False: none is kept. A picture set and not uploaded yet is given up. */
-  show(key: string): boolean {
-    const kept = this.cache.get(key);
-    if (!kept) return false;
+  /** Sets the picture kept under `key` aside, to show at `commit()`: what
+   *  shows now stays. False: none is kept. Another one set aside before goes
+   *  back to the cache. */
+  reserve(key: string): boolean {
+    if (this.reserved?.key === key) return true;
+    const e = this.cache.take(key);
+    if (!e) return false;
+    this.cancel();
+    this.reserved = { key, kept: e.value, bytes: e.bytes };
+    return true;
+  }
+
+  /** The picture set aside goes back to the cache, room allowing (else it is
+   *  freed): it will not show. */
+  cancel(): void {
+    const r = this.reserved;
+    if (!r) return;
+    this.reserved = null;
+    if (!this.cache.put(r.key, r.kept, r.bytes)) this.drops.push(r.kept.tex);
+  }
+
+  /** The picture set aside shows, from the next frame on: no upload. False:
+   *  none was set aside. A picture set and not uploaded yet is given up. */
+  commit(): boolean {
+    const r = this.reserved;
+    if (!r) return false;
+    this.reserved = null;
     if (this.pending) this.pending.snap.bitmap.close();
     this.pending = null;
-    this.shownTex = kept.tex;
-    this.shownMerc = kept.merc;
-    this.shownKey = key;
-    this.cache.pinned = key;
-    this.dropScratch();
+    // Before it is kept again: what showed until now may be dropped for its room.
+    this.shownTex = r.kept.tex;
+    this.shownMerc = r.kept.merc;
+    this.cache.pinned = null;
+    if (this.cache.put(r.key, r.kept, r.bytes)) {
+      this.shownKey = r.key;
+      this.cache.pinned = r.key;
+      this.dropScratch();
+    } else {
+      // No room for it any more (a smaller budget since): it shows, as the
+      // one texture of the pictures not kept.
+      if (this.scratch !== null) this.drops.push(this.scratch);
+      this.scratch = r.kept.tex;
+      this.shownKey = null;
+    }
     this.shows++;
     return true;
+  }
+
+  /** Shows the picture kept under `key`, from the next frame on: no upload.
+   *  False: none is kept. */
+  show(key: string): boolean {
+    return this.reserve(key) && this.commit();
   }
 
   /** The cache's cap (plateau/lidCache.ts lidCacheBudget); 0 bytes keeps
@@ -178,7 +230,7 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
       if (keep && this.cache.fits(keep.key, bytes)) {
         // Its key's own texture again, else the one texture handed over (the
         // texture object is reused: texImage2D fully re-specifies it), else a new one.
-        tex = this.cache.take(keep.key)?.tex ?? this.scratch ?? gl.createTexture();
+        tex = this.cache.take(keep.key)?.value.tex ?? this.scratch ?? gl.createTexture();
         if (tex === this.scratch) this.scratch = null;
         if (tex !== null) {
           this.upload(gl, tex, snap.bitmap);
@@ -207,7 +259,7 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
       const bytes = lidTextureBytes(snap.bitmap.width, snap.bitmap.height);
       if (this.cache.fits(keep.key, bytes)) {
         const had = this.cache.take(keep.key);
-        const tex = had?.tex ?? gl.createTexture();
+        const tex = had?.value.tex ?? gl.createTexture();
         if (tex !== null) {
           this.upload(gl, tex, snap.bitmap);
           this.uploads++;
@@ -232,6 +284,7 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
     this.stray = null;
     this.cache.forget();
     this.cache.pinned = null;
+    this.reserved = null;
     this.drops = [];
     this.scratch = null;
     this.shownTex = null;
@@ -242,7 +295,8 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
   /** The layer is removed: every texture deleted, every bitmap closed. */
   dispose(gl: LidGl<T>): void {
     const kept = this.cache.list().map((e) => this.cache.peek(e.key)!.tex);
-    for (const tex of new Set([...kept, ...this.drops, this.scratch, this.shownTex])) {
+    const aside = this.reserved?.kept.tex ?? null;
+    for (const tex of new Set([...kept, ...this.drops, this.scratch, this.shownTex, aside])) {
       if (tex !== null) gl.deleteTexture(tex);
     }
     this.forget();
@@ -257,6 +311,7 @@ export class LidTextureStore<M, T = WebGLTexture, B extends LidBitmap = ImageBit
       bytes: this.cache.bytes,
       cap: this.cache.cap,
       showing: this.shownMerc ? (this.shownKey ?? "(not kept)") : null,
+      reserved: this.reserved?.key ?? null,
       scratch: this.scratch !== null,
       uploads: this.uploads,
       shows: this.shows,

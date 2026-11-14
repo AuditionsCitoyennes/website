@@ -213,6 +213,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private get lidMerc() {
     return this.lids.merc;
   }
+  /** The unit whose mesh, once applied, shows the kept lid set aside for it
+   *  (showKeptLid); "": none waits. */
+  private lidAtMesh = "";
   /** GL_MAX_TEXTURE_SIZE, read in onAdd — caps the lid snapshot's pixel budget. */
   maxTextureSize = 0;
   // GL_MAX_TEXTURE_SIZE and the lid's anisotropy, read in onAdd (./lidTexture
@@ -859,6 +862,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       throw new Error("applyMesh: a mesh without its mercator set");
     }
     this.scopeId = m.scopeId;
+    // The kept lid set aside for this unit shows with its mesh (showKeptLid).
+    if (this.lidAtMesh && this.lidAtMesh === m.scopeId) {
+      this.lidAtMesh = "";
+      this.lids.commit();
+    }
     this.heightM = m.heightM;
     this.rim = rim;
     this.rimCount = m.rimCount;
@@ -1132,6 +1140,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  `keep`: a whole-unit picture, kept under that key for the unit selected
    *  again (ac:lid-cache), room allowing. */
   setLidTexture(snap: Snapshot | null, keep: { key: string; meta: LidKeptMeta } | null = null) {
+    this.lidAtMesh = "";
     this.lids.set(snap, keep);
     this.map?.triggerRepaint();
   }
@@ -1141,12 +1150,34 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     return this.lids.kept(key);
   }
 
-  /** The lid picture kept under `key` is the lid from the next frame on: no
-   *  upload. False: none is kept. */
-  showKeptLid(key: string): boolean {
-    if (!this.lids.show(key)) return false;
+  /** The key of the kept lid picture showing, or waiting for its unit's mesh
+   *  (showKeptLid); null: none, or a picture that is not kept. */
+  keptLidCurrent(): string | null {
+    return this.lids.current;
+  }
+
+  /** The lid picture kept under `key` becomes unit `scopeId`'s lid, with no
+   *  upload: at once when that unit's mesh is the one standing (or none
+   *  stands, or the unit is not told); else when its mesh is applied — the
+   *  plateau standing keeps its own lid while it sinks, the new one rises
+   *  with its lid on. Set aside until then: nothing drops it. False: none is
+   *  kept. Any other lid given or shown meanwhile takes its place. */
+  showKeptLid(key: string, scopeId: string): boolean {
+    if (!this.lids.reserve(key)) return false;
+    if (!scopeId || !this.scopeId || scopeId === this.scopeId) {
+      this.lidAtMesh = "";
+      this.lids.commit();
+    } else this.lidAtMesh = scopeId;
     this.map?.triggerRepaint();
     return true;
+  }
+
+  /** The kept lid waiting for its unit's mesh will not show (another lid is
+   *  on its way): it goes back among the kept ones. */
+  cancelKeptLid() {
+    this.lidAtMesh = "";
+    this.lids.cancel();
+    if (this.lids.dirty) this.map?.triggerRepaint();
   }
 
   /** A whole-unit picture kept under `key` without becoming the lid (the shot
@@ -1165,6 +1196,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
 
   /** The WebGL context was lost: the lid's textures went with it. */
   forgetLidTextures() {
+    this.lidAtMesh = "";
     this.lids.forget();
   }
 

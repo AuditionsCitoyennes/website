@@ -61,6 +61,8 @@ export function usePlateauLid({
   let lidMpp = Infinity; // metres per texel of the lid currently displayed
   let lidPx = 0; // backing-store width the current lid was captured at
   let lidRaised: OutlineFC["features"] = [];
+  // The unit the lid's bookkeeping is for ("" when its features do not say).
+  let lidFor = "";
   // The capture running, by key and by number: a superseded capture's end must
   // not clear the newer one's (it would let a refine or a re-run of the same
   // shot start over it, and cancel it). `inFlightSeq` is the plateau run it
@@ -214,7 +216,11 @@ export function usePlateauLid({
     lidPx = meta.width;
     lidCovered = b;
     lidRaised = raised;
+    lidFor = unitOf(raised);
   }
+
+  /** The unit a lid is asked for ("" when its features do not say). */
+  const unitOf = (raised: OutlineFC["features"]) => String(raised[0]?.properties?.id ?? "");
 
   /** A whole-unit shot: a new selection's, the "Carte" (DEV) one with the slabs. */
   async function captureLid(
@@ -294,19 +300,22 @@ export function usePlateauLid({
     }
     if (keepable) {
       // This unit's picture is kept, at least as fine as the one asked: it is
-      // the lid at once — no shot, no upload. A shot running for another run
-      // goes on, and is kept when it lands.
+      // the unit's lid — no shot, no upload —, showing from its plateau's
+      // commit on (at once if it stands already): the plateau standing keeps
+      // its own lid while it sinks. A shot running for another run goes on,
+      // and is kept when it lands.
       const kept = plateauWall.keptLid(rect);
       if (kept && kept.px >= px) {
-        if (`${rect}@${kept.px}` === lidTargetKey && Number.isFinite(lidMpp)) {
-          dedupeSkips++; // it is the one showing
-          return;
-        }
-        if (plateauWall.showKeptLid(rect)) {
+        // The one showing already, or waiting for its plateau: nothing to do.
+        const current = plateauWall.keptLidCurrent() === rect;
+        if (current || plateauWall.showKeptLid(rect, unitOf(raised))) {
+          if (current) dedupeSkips++;
+          else {
+            cacheHits++;
+            if (perfOn) perfNote("lid.kept", 0, { px: kept.px, from: "cache" });
+          }
           nowShowing(rect, kept, b, raised);
           selectInFlight = false;
-          cacheHits++;
-          if (perfOn) perfNote("lid.kept", 0, { px: kept.px, from: "cache" });
           return;
         }
       }
@@ -326,6 +335,8 @@ export function usePlateauLid({
     }
     // A picture of this rectangle held for a still map is about to be stale.
     if (strayHeld?.key === rect) dropStray();
+    // A kept lid waiting for its plateau is not this shot's unit's.
+    plateauWall.cancelKeptLid();
     lidTargetKey = key;
     const id = ++captureCount;
     inFlightKey = key;
@@ -362,6 +373,7 @@ export function usePlateauLid({
       lidPx = meta.width;
       lidCovered = b;
       lidRaised = raised;
+      lidFor = unitOf(raised);
       plateauWall.setLidTexture(snap, keepable ? { key: rect, meta } : null);
       applied = true;
     } catch {
@@ -486,6 +498,7 @@ export function usePlateauLid({
     lidMpp = Infinity;
     lidPx = 0;
     lidRaised = [];
+    lidFor = "";
     lidTargetKey = "";
     lidCovered = null;
     lidRefineBlockedByGain = false;
@@ -545,8 +558,14 @@ export function usePlateauLid({
     scheduleRefresh: scheduleLidRefresh,
     reset,
     /** A texture is showing (or has been): its resolution is known. Not while a
-     *  select's shot runs ("ecran"): the lid showing is the previous unit's. */
-    hasTexture: () => Number.isFinite(lidMpp) && !selectInFlight,
+     *  select's shot runs ("ecran"): the lid showing is the previous unit's.
+     *  Nor when the lid is another unit's than the plateau standing (a kept
+     *  lid waiting for a plateau the visitor left before it stood): the run
+     *  for the standing unit then asks for its own again. */
+    hasTexture: () =>
+      Number.isFinite(lidMpp) &&
+      !selectInFlight &&
+      (!lidFor || !plateauWall.scopeId || lidFor === plateauWall.scopeId),
     /** The rectangle the current lid texture covers. */
     covered: () => lidCovered,
     /** A shot is running (the hidden map is loading tiles and rendering). */

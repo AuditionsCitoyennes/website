@@ -118,7 +118,7 @@ test("the pinned one is never dropped for another's sake; one that cannot sit be
 test("take removes without dropping", () => {
   const t = setup(30);
   t.c.put("a", "A", 10);
-  assert.equal(t.c.take("a"), "A");
+  assert.deepEqual(t.c.take("a"), { value: "A", bytes: 10 });
   assert.equal(t.c.take("a"), undefined);
   assert.deepEqual(t.dropped, []);
   assert.equal(t.c.bytes, 0);

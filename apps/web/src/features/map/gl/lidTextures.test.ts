@@ -322,3 +322,114 @@ test("the layer removed: every texture is deleted once, every bitmap closed", ()
   assert.equal(t.store.texture, null);
   assert.deepEqual(t.keys(), []);
 });
+
+test("set aside, then committed: what shows stays until the commit, and nothing drops the one set aside", () => {
+  const t = setup(2);
+  t.store.set(t.snap("a"), t.keep("A"));
+  t.store.frame(t.gl);
+  t.store.set(t.snap("b"), t.keep("B"));
+  t.store.frame(t.gl);
+  assert.equal(t.store.current, "B");
+  assert.equal(t.store.reserve("A"), true);
+  assert.equal(t.showing(), "b"); // B's lid stays while its plateau sinks
+  assert.equal(t.store.current, "A");
+  assert.deepEqual(t.store.kept("A"), { px: 1024 }); // still answered for
+  assert.equal(t.store.stats().reserved, "A");
+  assert.equal(t.store.reserve("A"), true); // asked again: nothing changes
+  // A stray lands meanwhile: there is room beside B, and A is not in the way.
+  t.store.keep(t.snap("c"), t.keep("C"));
+  t.store.frame(t.gl);
+  assert.deepEqual(t.keys(), ["C", "B"]);
+  assert.deepEqual(t.deleted, []);
+  assert.equal(t.store.commit(), true);
+  assert.equal(t.showing(), "a");
+  assert.equal(t.store.current, "A");
+  assert.equal(t.store.stats().reserved, null);
+  // Back in the cache as the one showing: the least recently shown made room.
+  assert.deepEqual(t.keys(), ["B", "A"]);
+  t.store.frame(t.gl);
+  assert.deepEqual(t.deleted, [3]);
+  assert.equal(t.store.uploads, 3);
+  assert.equal(t.store.shows, 1);
+  assert.equal(t.store.commit(), false); // nothing set aside any more
+  assert.equal(t.store.reserve("Z"), false);
+});
+
+test("set aside, then cancelled or replaced: it goes back among the kept ones", () => {
+  const t = setup();
+  for (const k of ["A", "B", "C"]) {
+    t.store.set(t.snap(k.toLowerCase()), t.keep(k));
+    t.store.frame(t.gl);
+  }
+  t.store.reserve("A");
+  t.store.cancel();
+  assert.equal(t.store.current, "C");
+  assert.deepEqual(t.keys().sort(), ["A", "B", "C"]);
+  assert.equal(t.store.commit(), false);
+  assert.equal(t.showing(), "c");
+  // Another one set aside in its place.
+  t.store.reserve("A");
+  t.store.reserve("B");
+  assert.equal(t.store.current, "B");
+  assert.deepEqual(t.store.kept("A"), { px: 1024 });
+  t.store.commit();
+  assert.equal(t.showing(), "b");
+  assert.deepEqual(t.keys().sort(), ["A", "B", "C"]);
+  // A new picture given: the one set aside will not show.
+  t.store.reserve("A");
+  t.store.set(t.snap("d"));
+  assert.equal(t.store.stats().reserved, null);
+  t.store.frame(t.gl);
+  assert.equal(t.showing(), "d");
+  assert.equal(t.store.commit(), false);
+  // No lid at all: the same.
+  t.store.reserve("A");
+  t.store.set(null);
+  assert.equal(t.store.current, null);
+  assert.deepEqual(t.keys().sort(), ["A", "B", "C"]);
+  assert.deepEqual(t.deleted, []);
+});
+
+test("set aside while the budget shrinks to nothing: it still shows at its commit, as the texture not kept", () => {
+  const t = setup();
+  t.store.set(t.snap("a"), t.keep("A"));
+  t.store.frame(t.gl);
+  t.store.set(t.snap("b"), t.keep("B"));
+  t.store.frame(t.gl);
+  t.store.reserve("A");
+  t.store.setBudget({ bytes: 0, count: 0 });
+  assert.equal(t.showing(), "b");
+  assert.equal(t.store.commit(), true);
+  assert.equal(t.showing(), "a");
+  assert.deepEqual(t.keys(), []);
+  assert.equal(t.store.stats().showing, "(not kept)");
+  t.store.frame(t.gl);
+  assert.deepEqual(t.deleted, [2]); // B's, which showed until the commit
+  // And cancelled instead: with no room to go back to, it is freed.
+  const u = setup();
+  u.store.set(u.snap("a"), u.keep("A"));
+  u.store.frame(u.gl);
+  u.store.set(u.snap("b"), u.keep("B"));
+  u.store.frame(u.gl);
+  u.store.reserve("A");
+  u.store.setBudget({ bytes: 0, count: 0 });
+  u.store.cancel();
+  u.store.frame(u.gl);
+  assert.deepEqual(u.deleted, [1]);
+  assert.equal(u.showing(), "b");
+});
+
+test("the layer removed with one set aside: its texture is deleted too", () => {
+  const t = setup();
+  t.store.set(t.snap("a"), t.keep("A"));
+  t.store.frame(t.gl);
+  t.store.set(t.snap("b"), t.keep("B"));
+  t.store.frame(t.gl);
+  t.store.reserve("A");
+  t.store.dispose(t.gl);
+  assert.deepEqual(
+    [...t.deleted].sort((a, b) => a - b),
+    [1, 2],
+  );
+  assert.equal(t.store.stats().reserved, null);
+});
