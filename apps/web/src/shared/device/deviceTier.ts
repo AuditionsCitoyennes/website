@@ -18,8 +18,13 @@
 //   from a throwaway context for the one that has none.
 // - A measure, the only signal an iPhone gives: `reportFrameTimes(samples)`
 //   takes the frame times of the first camera flight. Past the thresholds
-//   below the step down is kept in localStorage (`ac:tier-measured`) for the
-//   next visits, 30 days, and applies to this session at once.
+//   below the device steps down for this page load at once, and the slow
+//   flight is noted in localStorage (`ac:tier-measured`). The step is kept
+//   for the next visits, 30 days, only at the second strike: another page
+//   load, started at least a minute after the note, measuring slow again. A
+//   flight that is not slow forgets the note. One bad moment (a phone busy
+//   with something else) therefore costs one page load, not a month
+//   (`strikeRule`).
 //
 // Two kinds of weak, because their remedies differ: a slow processor
 // (`cpuWeak`: less work per frame on the page's thread) and slow graphics
@@ -132,22 +137,37 @@ export const MIN_FLIGHT_MS = 250;
 /** The page's thread working this share of the slow frames: the processor is
  *  the slow part; under it, the graphics. */
 export const CPU_SHARE = 0.5;
-/** A kept step is read for this long, then the device is judged again. */
+/** A kept step is read for this long, then the device is judged again; a
+ *  note waits as long for its second strike. */
 export const MEASURE_KEPT_MS = 30 * 24 * 3600 * 1000;
+/** The second strike is another page load, started at least this long after
+ *  the first slow flight was noted: the same bad moment is not counted twice. */
+export const SECOND_STRIKE_GAP_MS = 60_000;
 
 const MEASURED_KEY = "ac:tier-measured";
 
 const sampleMs = (s: FrameSample) => (typeof s === "number" ? s : s.ms);
 const sampleWork = (s: FrameSample) => (typeof s === "number" ? undefined : s.workMs);
 
+/** The frames that count: timed, and longer than nothing. */
+const timedFrames = (samples: readonly FrameSample[]) =>
+  samples.filter((s) => Number.isFinite(sampleMs(s)) && sampleMs(s) > 0);
+
+/** Whether a flight's frames are enough to judge a device by (a shorter
+ *  flight says neither slow nor fine). */
+export function framesTell(samples: readonly FrameSample[]): boolean {
+  const frames = timedFrames(samples);
+  const total = frames.reduce<number>((a, s) => a + sampleMs(s), 0);
+  return frames.length >= MIN_FLIGHT_FRAMES && total >= MIN_FLIGHT_MS;
+}
+
 /** The step down a flight's frames ask for, or null: none (a strong device,
  *  or too short a flight to tell). */
 export function judgeFrameTimes(
   samples: readonly FrameSample[],
 ): { tier: Exclude<DeviceTier, "full">; kind: WeakKind } | null {
-  const frames = samples.filter((s) => Number.isFinite(sampleMs(s)) && sampleMs(s) > 0);
-  const total = frames.reduce<number>((a, s) => a + sampleMs(s), 0);
-  if (frames.length < MIN_FLIGHT_FRAMES || total < MIN_FLIGHT_MS) return null;
+  if (!framesTell(samples)) return null;
+  const frames = timedFrames(samples);
   const slow = frames.filter((s) => sampleMs(s) >= SLOW_FRAME_MS);
   const verySlow = slow.filter((s) => sampleMs(s) > VERY_SLOW_FRAME_MS);
   const tier =
@@ -178,19 +198,90 @@ export function lowerStep(a: MeasuredStep | null, b: MeasuredStep | null): Measu
   return a;
 }
 
+/** A step as stored: null for anything that is not one, or one past its time. */
+function validStep(v: unknown, now: number): MeasuredStep | null {
+  if (!v || typeof v !== "object") return null;
+  const { tier, kind, at } = v as Partial<MeasuredStep>;
+  if (tier !== "light" && tier !== "minimal") return null;
+  if (kind !== "cpu" && kind !== "gpu" && kind !== "unknown") return null;
+  if (typeof at !== "number" || !Number.isFinite(at)) return null;
+  if (at > now || now - at > MEASURE_KEPT_MS) return null;
+  return { tier, kind, at };
+}
+
 /** A kept step, read back: null for anything that is not one, or one past its time. */
 export function parseStoredStep(raw: string | null | undefined, now: number): MeasuredStep | null {
-  if (!raw) return null;
+  return parseStoredRecord(raw, now).step;
+}
+
+/** What the browser keeps of the measure: the step kept (two page loads
+ *  measured slow) and the note of one slow flight, waiting for its second
+ *  strike. Stored as the step's own fields, the note beside them (`note`). */
+export interface MeasureRecord {
+  step: MeasuredStep | null;
+  note: MeasuredStep | null;
+}
+
+/** The record read back; whatever is not valid, or past its time, is null. */
+export function parseStoredRecord(raw: string | null | undefined, now: number): MeasureRecord {
+  if (!raw) return { step: null, note: null };
   try {
-    const v = JSON.parse(raw) as Partial<MeasuredStep> | null;
-    if (!v || (v.tier !== "light" && v.tier !== "minimal")) return null;
-    if (v.kind !== "cpu" && v.kind !== "gpu" && v.kind !== "unknown") return null;
-    if (typeof v.at !== "number" || !Number.isFinite(v.at)) return null;
-    if (v.at > now || now - v.at > MEASURE_KEPT_MS) return null;
-    return { tier: v.tier, kind: v.kind, at: v.at };
+    const v: unknown = JSON.parse(raw);
+    const note = v && typeof v === "object" ? (v as { note?: unknown }).note : null;
+    return { step: validStep(v, now), note: validStep(note, now) };
   } catch {
-    return null;
+    return { step: null, note: null };
   }
+}
+
+/** The record as stored; null: nothing to keep. */
+export function storedRecord(record: MeasureRecord): string | null {
+  if (!record.step && !record.note) return null;
+  return JSON.stringify({ ...record.step, ...(record.note ? { note: record.note } : {}) });
+}
+
+/**
+ * The two strikes. A flight that told something was measured at `now`, in a
+ * page load started at `loadStart`; `judged` is the step its frames ask for
+ * (null: the flight was not slow). Returns the step this page load stands at
+ * (`session`) and what the browser keeps.
+ *
+ * - Not slow: the note, if any, is forgotten. A step already kept stays (a
+ *   lighter page is expected to fly well).
+ * - Slow, but no lower than the step kept: nothing new, and a note asking
+ *   for more is forgotten (this flight did not confirm it).
+ * - Slow, with no note yet, or a note younger than SECOND_STRIKE_GAP_MS at
+ *   this page load's start (the same page load, or one right after it): the
+ *   page load steps down; the first note stays as it is, or this one is noted.
+ * - Slow, with a note old enough: the second strike. The milder of the two
+ *   steps is kept (both page loads agree on that much), the note is used up.
+ */
+export function strikeRule(
+  record: MeasureRecord,
+  judged: { tier: Exclude<DeviceTier, "full">; kind: WeakKind } | null,
+  at: { now: number; loadStart: number },
+): { session: MeasuredStep | null; record: MeasureRecord } {
+  const { step, note } = record;
+  const noteless = note ? { step, note: null } : record;
+  if (!judged) return { session: step, record: noteless };
+  const measured: MeasuredStep = { ...judged, at: at.now };
+  const session = lowerStep(step, measured);
+  if (session === step) return { session, record: noteless };
+  if (!note || at.loadStart - note.at < SECOND_STRIKE_GAP_MS) {
+    return { session, record: { step, note: note ?? measured } };
+  }
+  const milder = RANK[note.tier] < RANK[judged.tier] ? note : judged;
+  // Which part is slow: this flight's word, else the note's.
+  const kind =
+    milder.kind === "unknown" && note.tier === judged.tier
+      ? judged.kind !== "unknown"
+        ? judged.kind
+        : note.kind
+      : milder.kind;
+  return {
+    session,
+    record: { step: lowerStep(step, { tier: milder.tier, kind, at: at.now }), note: null },
+  };
 }
 
 // ---- The decision ------------------------------------------------------------------
@@ -199,7 +290,7 @@ export function parseStoredStep(raw: string | null | undefined, now: number): Me
 export interface DeviceSignals extends DeviceHints {
   /** The WebGL renderer's name, when somebody gave it. */
   renderer: string | null;
-  /** The step down measured (this session's or the kept one). */
+  /** The step down measured (this page load's or the kept one). */
   measured: MeasuredStep | null;
 }
 
@@ -291,17 +382,27 @@ export function setTierChoice(choice: TierChoice) {
 
 /** The renderer's name, once somebody gave it (undefined: nobody yet). */
 let rendererName: string | null | undefined;
-/** The step measured in this session, or read from the storage (undefined: not read yet). */
+/** The step this page load stands at: the one measured in it, or the one
+ *  kept in the storage (undefined: not read yet). */
 let measured: MeasuredStep | null | undefined;
+/** When this page load started (ms since the epoch): what the second strike
+ *  is counted from. */
+const LOAD_START =
+  typeof performance !== "undefined" && performance.timeOrigin > 0
+    ? performance.timeOrigin
+    : Date.now();
+
+/** What the storage keeps of the measure now (the DEV dialog shows it). */
+export function measureRecord(now: number = Date.now()): MeasureRecord {
+  try {
+    return parseStoredRecord(localStorage.getItem(MEASURED_KEY), now);
+  } catch {
+    return { step: null, note: null }; // storage blocked, or none (a worker, node)
+  }
+}
 
 function measuredNow(): MeasuredStep | null {
-  if (measured === undefined) {
-    try {
-      measured = parseStoredStep(localStorage.getItem(MEASURED_KEY), Date.now());
-    } catch {
-      measured = null; // storage blocked, or none (a worker, node)
-    }
-  }
+  if (measured === undefined) measured = measureRecord().step;
   return measured;
 }
 
@@ -355,26 +456,34 @@ export const gpuWeak = (): boolean => deviceVerdict().gpuWeak;
 /** The visitor asked the browser to save data. */
 export const saveData = (): boolean => deviceSignals().saveData;
 
-/** The frame times of the first camera flight, from the map. A step down is
- *  kept for the next visits and applies to this session at once; a step
- *  already as low stays as it is. Returns the step now (null: none). */
-export function reportFrameTimes(samples: readonly FrameSample[]): MeasuredStep | null {
+/** The frame times of the first camera flight, from the map. A slow flight
+ *  steps this page load down at once; the step is kept for the next visits
+ *  only at the second strike (`strikeRule`), and a flight that is not slow
+ *  forgets a first strike. A flight too short to judge changes nothing.
+ *  Returns the step this page load stands at (null: none). `clock`: for the
+ *  tests. */
+export function reportFrameTimes(
+  samples: readonly FrameSample[],
+  clock: { now: number; loadStart: number } = { now: Date.now(), loadStart: LOAD_START },
+): MeasuredStep | null {
   const before = measuredNow();
-  const judged = judgeFrameTimes(samples);
-  if (!judged) return before;
-  const next = lowerStep(before, { ...judged, at: Date.now() });
-  if (next !== before && next) {
-    measured = next;
+  if (!framesTell(samples)) return before;
+  const kept = measureRecord(clock.now);
+  const out = strikeRule(kept, judgeFrameTimes(samples), clock);
+  measured = lowerStep(before, out.session);
+  if (out.record !== kept) {
     try {
-      localStorage.setItem(MEASURED_KEY, JSON.stringify(next));
+      const raw = storedRecord(out.record);
+      if (raw === null) localStorage.removeItem(MEASURED_KEY);
+      else localStorage.setItem(MEASURED_KEY, raw);
     } catch {
       /* storage blocked: the step lasts for this page */
     }
   }
-  return next;
+  return measured;
 }
 
-/** The measured step forgotten, here and in the storage (the DEV dialog's reset). */
+/** The measured step and the note forgotten, here and in the storage (the DEV dialog's reset). */
 export function forgetMeasuredStep() {
   measured = null;
   try {
