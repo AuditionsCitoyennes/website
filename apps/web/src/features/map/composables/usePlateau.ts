@@ -666,6 +666,11 @@ export function usePlateau({
           { merc: true, globe: startMode === "eager" },
         )
       : null;
+    // Its globe set, when it waits: asked of the worker behind the mesh
+    // (ac:globe-late, ../threadSwitch.ts), for the apply of this `raised`.
+    if (client && startMode === "lazy") {
+      plateauWall.askGlobeAhead({ features: raised, heightM, focus, context });
+    }
     // Start the lid snapshot IMMEDIATELY — it depends on nothing but the geometry,
     // and it's the longest pole (hidden-map tiles + capture). Started here it runs
     // through the sink, the version key and the whole camera flight, landing around
