@@ -1667,13 +1667,18 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    * deleted: they are no longer this context's.
    *
    * The lid's picture cannot be uploaded again (its bitmap was closed at its
-   * upload): the lid is not drawn until another one lands. Its textures, the
-   * kept ones too (./lidTextures), were forgotten when the loss was heard
+   * upload): the lid is not drawn until another one lands — usePlateauLid
+   * shoots it again for a standing plateau. Its textures, the kept ones too
+   * (./lidTextures), were forgotten when the loss was heard
    * (forgetLidTextures); one still held here means it was not, and they are
-   * forgotten now. Returns whether a picture was showing when the context
-   * went — the caller takes another (usePlateauLid). A picture handed to the
-   * layer since the loss, not uploaded yet, is kept: it goes up at the next
-   * frame, as it would have. False too for a layer that is on no map.
+   * forgotten now. A picture handed to the layer since the loss, not
+   * uploaded yet, is kept: it goes up at the next frame, as it would have.
+   * Returns whether a picture was showing when the context went (false too
+   * for a layer that is on no map).
+   *
+   * Anything onAdd sets up is covered by construction: a pass added to this
+   * layer later only has to mark its own buffers there (the pending mark's
+   * pass does, ./PendingMarkPass).
    */
   onContextRestored(gl: WebGL2RenderingContext): boolean {
     const map = this.map;
