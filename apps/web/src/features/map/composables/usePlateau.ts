@@ -31,7 +31,7 @@ import {
   type OutlineVerdict,
   type RaisedShape,
 } from "../lib/outlineChange";
-import { boxFeature, coldStartPlan, type ComingUnit } from "../lib/coldStart";
+import { boxCovers, boxFeature, coldStartPlan, type ComingUnit } from "../lib/coldStart";
 import { riseProgress } from "../lib/rise";
 import { stillMap } from "../lib/stillMap";
 import { markPlateauStood } from "../lib/plateauStood";
@@ -43,7 +43,7 @@ import { planPrefetch, type PrefetchPlan } from "../relief/prefetchPlan";
 import { reliefPrefetch } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
 import { coldStartMode } from "../plateau/coldTapSwitch";
-import { LATE_CAP_MS } from "../plateau/lateFilesSwitch";
+import { LATE_CAP_MS, lateFilesMode } from "../plateau/lateFilesSwitch";
 import { meshMode } from "../plateau/meshSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
 
@@ -139,9 +139,9 @@ export function usePlateau({
   let redressSeq = 0;
   let redresses = 0;
   // ac:cold-start "early": the unit whose lid a holding run shot over its box
-  // (null: none since the last shot a raising run asked for), and how many
-  // such starts there were (testing tools).
-  let earlyLidFor: string | null = null;
+  // (null: none since a raising run last asked for another shot), and how
+  // many such starts there were (testing tools).
+  let earlyLid: ComingUnit | null = null;
   let coldStarts = 0;
   // Double-buffered DEM source slots: the NEW selection's tiles prefetch in the spare
   // slot while the old plateau is still sinking, so the rise starts without waiting.
@@ -503,12 +503,17 @@ export function usePlateau({
     // must not take them in (France's, some 900 km, around Lyon's lid). Its own
     // are added once they are built (syncSlabs).
     if (changed) forgetLidExtra();
-    // (ac:cold-start "early": the lid a holding run shot for ANOTHER unit may
-    // be the one showing — this unit's is shot again.)
-    const strayLid = earlyLidFor !== null && earlyLidFor !== scopeId;
+    // ac:cold-start "early": a holding run may have shot a lid over a unit's
+    // box. This unit's, and its shape lies within that box: the same
+    // rectangle is asked again — the shot is adopted while it runs, left
+    // alone once landed. Another unit's: it may be the one showing, and this
+    // unit's is shot.
+    const strayLid = earlyLid !== null && earlyLid.id !== scopeId;
+    const sameLid =
+      earlyLid !== null && !strayLid && boxCovers(earlyLid.bounds, boundsOfFeatures(raised));
     if (changed || strayLid || !lid.hasTexture()) {
-      earlyLidFor = null;
-      void lid.capture(seq, raised);
+      void lid.capture(seq, sameLid && earlyLid ? [boxFeature(earlyLid)] : raised);
+      if (!sameLid) earlyLid = null;
     }
     // Selection changed → the old plateau starts sinking NOW, while the version
     // key comes.
@@ -715,6 +720,15 @@ export function usePlateau({
           map = getMap();
           if (seq !== plateauSeq || !map) return;
         }
+        // ac:late-files "quiet": the reshape (a mesh upload, a terrain swap)
+        // is applied when the map is still, as a reshape of the lines is
+        // (redress), LATE_CAP_MS at the latest: the outline that asked for
+        // it was stored at a still moment, and the map may have moved since.
+        if (lateFilesMode === "quiet") {
+          await new Promise<void>((done) => stillMap.whenStill(done, { timeoutMs: LATE_CAP_MS }));
+          map = getMap();
+          if (seq !== plateauSeq || !map) return;
+        }
         plateauVersion = key;
         plateauScopeId = scopeId;
         earlyTerrainSlot = null;
@@ -822,14 +836,14 @@ export function usePlateau({
       standingUp: !!plateauVersion && !!map.getTerrain() && terrainExag > 0,
     });
     if (!next || (!plan.sink && !plan.lid)) return;
-    if (earlyLidFor !== next.id) {
+    if (earlyLid?.id !== next.id) {
       coldStarts++;
       if (perfOn) perfNote("plateau.coldStart", 0, { scope: next.id, sink: plan.sink });
     }
     if (plan.sink) void animateTerrain(0, SINK_MS);
     if (plan.lid) {
-      earlyLidFor = next.id;
-      void lid.capture(seq, [boxFeature(next)]);
+      earlyLid = { id: next.id, bounds: plan.lid };
+      void lid.capture(seq, [boxFeature(earlyLid)]);
     }
   }
 
