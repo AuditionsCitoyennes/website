@@ -243,6 +243,7 @@ const plateau = usePlateau({
   lid,
   flatCamera: camera.flatCamera,
   applyMask: mask.applyMask,
+  prepareMask: mask.prepareMask,
   syncSlabs: (atSwap) => slabs.syncSlabs(atSwap),
   clearSlabs: () => slabs.clearSlabs(),
   forgetLidExtra: () => slabs.forgetLidExtra(),
@@ -387,10 +388,11 @@ function startWorkers() {
   // the worker, a page on another mode never loads them.
   if (meshMode === "worker") {
     void import("./gl/meshClient").then(
-      ({ warmMeshWorker, globeProviderOf }) => {
+      ({ warmMeshWorker, globeProviderOf, tintCutterOf }) => {
         if (!map) return; // unmounted meanwhile (or the map was declared unavailable)
         meshClient = warmMeshWorker();
         plateauWall.setGlobeProvider(globeProviderOf(meshClient));
+        mask.setTintCutter(tintCutterOf(meshClient)); // ac:tint-cut
       },
       () => {},
     );
@@ -472,6 +474,7 @@ function mountMap() {
       slabs,
       meshDigest: __TEST_TOOLS__ ? (o) => plateauWall.meshDigest(o) : null,
       pendingMark: () => plateauWall.pendingState(),
+      tintDigest: __TEST_TOOLS__ ? mask.tintDigest : null,
     });
 
     // The slabs' opaque lids take the site's card colour, and follow the theme.
@@ -660,6 +663,7 @@ onBeforeUnmount(() => {
   meshClient?.dispose();
   meshClient = null;
   plateauWall.setGlobeProvider(null);
+  mask.setTintCutter(null);
   lid.destroy();
   resizeObserver?.disconnect();
   resizeObserver = null;

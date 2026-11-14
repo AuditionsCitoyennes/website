@@ -85,6 +85,9 @@ export interface PlateauInputs {
   ) => ReturnType<mapboxgl.Map["cameraForBounds"]>;
   /** The grey outside the plateau, cut around it (useScopeMask). */
   applyMask: () => void;
+  /** A plateau is about to stand for these features: its grey may be cut
+   *  ahead (useScopeMask, ac:tint-cut). */
+  prepareMask?: (raised: OutlineFC["features"]) => void;
   /** The analyses' slabs (usePlateauSlabs): brought in line with the plateau standing. */
   syncSlabs: (atSwap?: boolean) => void;
   clearSlabs: () => void;
@@ -128,6 +131,7 @@ export function usePlateau({
   lid,
   flatCamera,
   applyMask,
+  prepareMask,
   syncSlabs,
   clearSlabs,
   forgetLidExtra,
@@ -657,6 +661,9 @@ export function usePlateau({
     // comes with it (gl/globeDeferral.ts: the camera now). Applied below where
     // the other modes build it, after their awaits, never between the commit
     // and the old slot's drop. Without the client the run is merc's.
+    // The grey around the unit, asked ahead of the applyMask that lays it
+    // (ac:tint-cut=worker; nothing for a unit whose grey is laid or asked).
+    prepareMask?.(raised);
     const client = meshMode === "worker" ? (meshClient?.() ?? null) : null;
     const workerEarly = client ? canonicalOf(raised) : null;
     const startMode = workerEarly ? globeSetMode(workerEarly.zCanon, map.getZoom()) : "eager";

@@ -3,7 +3,8 @@
 // structured-cloned with its transfer list both ways, and a fake clock. Token
 // reuse, eviction and resend, pinned tokens, the miss safety net, single
 // flight, superseding, every way the worker can be lost, dispose — and
-// build() never rejecting. No __TEST_TOOLS__ stub on purpose: nothing here
+// build() never rejecting; the grey sheet's cuts (cutTint) over the same
+// tokens, never cut here. No __TEST_TOOLS__ stub on purpose: nothing here
 // may read it. Run with `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
@@ -11,8 +12,15 @@ import { after, test } from "node:test";
 import type { OutlineFC } from "../types";
 import { buildPlateauMesh } from "./meshBuild";
 import { createMeshClient, type MeshInputs, type MeshResult } from "./meshClientCore";
-import { createMeshCore, type MeshMessage, type MeshReply, type MeshRequest } from "./meshCore";
-import { meshBuffers } from "./meshFlat";
+import {
+  createMeshCore,
+  type MeshMessage,
+  type MeshReply,
+  type MeshRequest,
+  type TintRequest,
+} from "./meshCore";
+import { meshBuffers, type Geom } from "./meshFlat";
+import { cutTintSheet } from "./tintSheet";
 
 const rejections: unknown[] = [];
 process.on("unhandledRejection", (e) => rejections.push(e));
@@ -89,7 +97,12 @@ function rig(
   let handlers: { reply(m: MeshReply): void; fail(why: string): void } | null = null;
   const core = createMeshCore({
     post: (r) =>
-      outbox.push(structuredClone(r, { transfer: r.t === "mesh" ? meshBuffers(r.mesh) : [] })),
+      outbox.push(
+        structuredClone(r, {
+          transfer:
+            r.t === "mesh" ? meshBuffers(r.mesh) : r.t === "tint" ? [r.positions.buffer] : [],
+        }),
+      ),
     schedule: (fn, ms) => void schedule(fn, ms),
   });
   let fallbacks = 0;
@@ -137,6 +150,7 @@ function rig(
     }
   };
   const builds = () => posted.filter((m): m is MeshRequest => m.t === "build");
+  const tints = () => posted.filter((m): m is TintRequest => m.t === "tint");
   const releases = () => posted.filter((m) => m.t === "release");
   return {
     client,
@@ -146,6 +160,7 @@ function rig(
     flush,
     advance,
     builds,
+    tints,
     releases,
     fail: (why: string) => handlers!.fail(why),
     terminated: () => terminated,
@@ -502,4 +517,130 @@ test("no worker at all: the session builds here from the start", async () => {
   // A build that throws here too resolves null (the caller builds and fails as before).
   const t = rig({ noTransport: true, fallbackThrows: true });
   assert.equal(await t.client.build(inputs(), BOTH), null);
+});
+
+const geomsOf = (fx: MeshInputs) => fx.features.map((f) => f.geometry as Geom);
+
+test("cutTint: the worker's sheet is the page's bit for bit, its geometry travelling once", async () => {
+  const r = rig();
+  const fx = inputs();
+  const here = cutTintSheet(geomsOf(fx));
+  const cut = r.client.cutTint(geomsOf(fx));
+  const mesh = r.client.build(fx, BOTH);
+  await r.flush();
+  const sheet = (await cut)!;
+  assert.deepEqual(Buffer.from(sheet.positions.buffer), Buffer.from(here.positions.buffer));
+  assert.deepEqual(sheet.origin, here.origin);
+  assert.equal(typeof sheet.ms, "number");
+  // The scope's geometry went with the cut; the build names its token.
+  assert.equal(r.tints()[0].puts.length, 1);
+  assert.equal(r.builds()[0].puts.length, 2);
+  assert.deepEqual(r.builds()[0].scope.tokens, r.tints()[0].scope.tokens);
+  // The cut superseded no build, and the build no cut.
+  assert.equal((await mesh)!.via, "worker");
+  const s = r.client.stats();
+  assert.equal(s.tints, 1);
+  assert.equal(s.tintsCut, 1);
+  assert.equal(s.droppedBeforeStart, 0);
+  // After a build the same way round: nothing to send.
+  const again = r.client.cutTint(geomsOf(fx));
+  await r.flush();
+  assert.ok(await again);
+  assert.equal(r.tints()[1].puts.length, 0);
+});
+
+test("cutTint: a newer cut supersedes the one queued, which resolves null", async () => {
+  const r = rig();
+  const a = r.client.cutTint(geomsOf(inputs(4)));
+  const b = r.client.cutTint(geomsOf(inputs(8)));
+  await r.flush();
+  assert.equal(await a, null);
+  assert.ok(await b);
+  assert.equal(r.client.stats().tintsCut, 1);
+});
+
+test("cutTint: its tokens are pinned while it is in flight", async () => {
+  // Room for one geometry: the cut's own is not evicted by the build's puts.
+  const r = rig({ cap: 5 });
+  const fx = inputs();
+  const cut = r.client.cutTint(geomsOf(fx));
+  const mesh = r.client.build(inputs(8), BOTH);
+  const token = r.tints()[0].scope.tokens[0];
+  for (const rel of r.releases()) {
+    assert.ok(!(rel as { tokens: number[] }).tokens.includes(token!));
+  }
+  await r.flush();
+  assert.ok(await cut);
+  assert.ok(await mesh);
+});
+
+test("cutTint: a token the worker lacks is sent again once, then no sheet", async () => {
+  const lossy = rig({ dropPuts: true });
+  const fx = inputs();
+  const cut = lossy.client.cutTint(geomsOf(fx));
+  await lossy.flush();
+  // dropPuts drops a build's puts only: the cut's geometry arrives.
+  assert.ok(await cut);
+  // A store emptied behind the page's back: the miss, the resend, the sheet.
+  const r = rig();
+  const g = geomsOf(inputs());
+  const first = r.client.cutTint(g);
+  await r.flush();
+  await first;
+  r.core.release(r.tints()[0].scope.tokens as number[]);
+  const second = r.client.cutTint(g);
+  await r.flush();
+  assert.ok(await second);
+  assert.equal(r.client.stats().misses, 1);
+  assert.equal(r.client.stats().resends, 1);
+  assert.equal(r.tints().length, 3);
+  assert.equal(r.tints()[2].puts.length, 1);
+});
+
+test("cutTint: never cut here — null once the worker is lost, hangs, or is disposed", async () => {
+  // Lost while the cut is in flight: null at once, the build made here.
+  const r = rig();
+  const fx = inputs();
+  const cut = r.client.cutTint(geomsOf(fx));
+  const mesh = r.client.build(fx, BOTH);
+  r.fail("error");
+  assert.equal(await cut, null);
+  assert.equal((await mesh)!.via, "main");
+  assert.equal(r.fallbacks(), 1);
+  // Lost for the session: no cut is asked any more.
+  assert.equal(await r.client.cutTint(geomsOf(fx)), null);
+  assert.equal(r.tints().length, 1);
+
+  // No answer: the watchdog ends the worker, the cut resolves null.
+  const h = rig({ knobs: { fail: "hang" } });
+  const hung = h.client.cutTint(geomsOf(inputs()));
+  h.work();
+  h.advance(3001);
+  assert.equal(await hung, null);
+  assert.equal(h.client.stats().failure, "timeout");
+  assert.equal(h.terminated(), 1);
+
+  // An error reply.
+  const t = rig({ knobs: { fail: "throw" } });
+  const thrown = t.client.cutTint(geomsOf(inputs()));
+  await t.flush();
+  assert.equal(await thrown, null);
+  assert.equal(t.client.stats().failure, "error");
+
+  // No worker at all, and disposed.
+  const none = rig({ noTransport: true });
+  assert.equal(await none.client.cutTint(geomsOf(inputs())), null);
+  const d = rig();
+  const pending = d.client.cutTint(geomsOf(inputs()));
+  d.client.dispose();
+  assert.equal(await pending, null);
+  assert.equal(await d.client.cutTint(geomsOf(inputs())), null);
+});
+
+test("cutTint: a geometry the flattening cannot read gives no sheet and posts nothing", async () => {
+  const r = rig();
+  const bad = { type: "Polygon", coordinates: [[[1, 2], null]] } as unknown as Geom;
+  assert.equal(await r.client.cutTint([bad]), null);
+  assert.equal(r.tints().length, 0);
+  assert.equal(r.client.stats().liveTokens, 0);
 });
