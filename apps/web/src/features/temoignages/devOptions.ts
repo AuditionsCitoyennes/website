@@ -10,7 +10,8 @@
 // shared/device/cardOpenSwitch, shared/boot/homeBoot, shared/net/recoverSwitch,
 // geo-nav/data/bootReadsSwitch,
 // map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
-// map/plateau/coldTapSwitch, analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
+// map/plateau/coldTapSwitch, geo-nav/model/scopeHold, analyses/devSwitch,
+// shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
@@ -39,6 +40,7 @@ export type DevKey =
   | "ac:outline-wait"
   | "ac:region-self"
   | "ac:cold-start"
+  | "ac:scope-drag"
   | "ac:analyses-pending"
   | "ac:slab-lid-verre"
   | "ac:slab-text"
@@ -397,6 +399,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Ce que fait la carte quand on choisit un territoire dont le contour n'est pas encore arrivé. « Attendre » (par défaut) laisse le territoire d'avant soulevé jusqu'à l'arrivée du contour, comme avant ; « Commencer » le fait redescendre tout de suite et prépare déjà l'image du dessus du nouveau relief, pour que celui-ci se soulève plus vite une fois son contour arrivé.",
     reloads: false,
     defaultId: "hold",
+  },
+  {
+    key: "ac:scope-drag",
+    section: "carte",
+    label: "Glisser la carte",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "keep", label: "Garder" },
+      { id: "follow", label: "Suivre" },
+    ],
+    explain:
+      "Ce que devient le territoire choisi quand on fait glisser la carte. « Auto » (par défaut) fait « Garder » sur un écran tactile et « Suivre » avec une souris ; « Garder » laisse le territoire choisi tant qu'une partie de lui reste visible : il ne change que s'il sort presque entièrement de la vue, ou si on dézoome au-delà de lui ; « Suivre » passe au territoire qui se trouve au centre de la vue dès que le centre quitte le territoire choisi, comme avant.",
+    reloads: false,
+    defaultId: "auto",
   },
   {
     key: "ac:analyses-pending",
