@@ -8,6 +8,7 @@
 // GeoNav's, attached to the root as fallthrough attributes.
 import { ref, type StyleValue } from "vue";
 import type { GeoUnit } from "@/features/geo";
+import { motionNow } from "@/shared/device/motion";
 import PanelBreadcrumb from "./PanelBreadcrumb.vue";
 
 defineProps<{
@@ -66,6 +67,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
       wide,
       folded,
       flush,
+      snap: motionNow() === 'short',
       'sheet-lowered': sheetLowered,
       'sheet-dragging': sheetDragging,
     }"
@@ -225,6 +227,16 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
 @media (min-width: 900px) and (prefers-reduced-motion: reduce) {
   .panel {
+    transition: none;
+  }
+}
+
+/* Short motion (shared/device/motion: a weak device, or the DEV dialog's
+   « Mouvement »): the panel widens, narrows and slides aside in one step, as
+   under reduced motion. Read at each render, so with the class that changes
+   the width. */
+@media (min-width: 900px) {
+  .panel.snap {
     transition: none;
   }
 }

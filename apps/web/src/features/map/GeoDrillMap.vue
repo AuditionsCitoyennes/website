@@ -33,6 +33,7 @@ import { useMapPins } from "./composables/useMapPins";
 import { usePlateau, type PlateauSettle } from "./composables/usePlateau";
 import { usePlateauSlabs } from "./composables/usePlateauSlabs";
 import { useFlightMeasure } from "./composables/useFlightMeasure";
+import { useContextRestore } from "./composables/useContextRestore";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { noteRenderer } from "@/shared/device/deviceTier";
@@ -324,6 +325,8 @@ function retryPlateau(id: string) {
 
 // The frames of the first flight to a territory, timed for the device's tier.
 const flight = useFlightMeasure({ getMap });
+// The map's WebGL context, lost and given back: the custom layers set up again.
+const glContext = useContextRestore({ getMap, wall: plateauWall, mask, lid, plateau });
 
 /** What the map does once the camera has come to rest (gesture or flight). */
 function onCameraSettled() {
@@ -478,6 +481,7 @@ function mountMap() {
       meshDigest: __TEST_TOOLS__ ? (o) => plateauWall.meshDigest(o) : null,
       pendingMark: () => plateauWall.pendingState(),
       tintDigest: __TEST_TOOLS__ ? mask.tintDigest : null,
+      context: glContext,
     });
 
     // The slabs' opaque lids take the site's card colour, and follow the theme.
@@ -556,8 +560,9 @@ function mountMap() {
     // Which pointer is on the map: only a mouse's mousemove hovers a unit.
     pins.attachPointerTracking(map.getCanvasContainer());
     // A restored WebGL context comes back empty, and mapbox does not run onAdd
-    // again for custom layers: the tint sheet is set up again (useScopeMask).
-    map.on("webglcontextrestored", () => mask.onContextRestored());
+    // again for custom layers: the tint sheet and the plateau's layer are set
+    // up again, the lid shot again (useContextRestore).
+    glContext.attach(map);
     // …and a lost one takes the lid's textures with it, the kept ones too.
     map.on("webglcontextlost", () => lid.contextLost());
     // Hover (a mouse's) inside a unit's boundary reveals its (possibly
