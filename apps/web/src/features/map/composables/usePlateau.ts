@@ -27,6 +27,7 @@ import { boundsOfFeatures, plateauHeightM } from "../lib/polygon";
 import {
   outlineVerdict,
   raisedShapeOf,
+  retryVerdict,
   sameShape,
   type OutlineVerdict,
   type RaisedShape,
@@ -967,6 +968,21 @@ export function usePlateau({
     );
   }
 
+  /**
+   * The plateau of unit `scopeId` asked once more (the panel's « Réessayer »,
+   * its outline being in memory): the pipeline is run again, from the outline
+   * as it is — no file is asked, no camera moved — unless a run for that
+   * unit is under way ("running": it has its own watchdogs, a second one
+   * would only add work) or its plateau stands ("standing"). "none": no map,
+   * or its style not loaded yet.
+   */
+  function retry(scopeId: string): "rerun" | "running" | "standing" | "none" {
+    if (!getMap() || !mapReady()) return "none";
+    const verdict = retryVerdict(scopeId, { standing: standing(), running: runFor });
+    if (verdict === "rerun") void ensurePlateau();
+    return verdict;
+  }
+
   /** Unmount: the rise/sink animation stops where it is. */
   function cancelAnimation() {
     cancelExagAnim();
@@ -1003,6 +1019,7 @@ export function usePlateau({
   return {
     ensurePlateau,
     outlineChanged,
+    retry,
     cancelAnimation,
     abort,
     /** Whether a plateau is standing. */
