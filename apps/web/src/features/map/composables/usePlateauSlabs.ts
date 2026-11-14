@@ -14,6 +14,7 @@ import { WALL_OVERSHOOT } from "../gl/mesh";
 import { NO_RING, type PlateauWallLayer, type SlabRingState } from "../gl/PlateauWallLayer";
 import type { OutlineFC, SlabSpec } from "../types";
 import type { FitCam } from "./useMapCamera";
+import { motionMs, motionNow } from "@/shared/device/motion";
 import { RISE_MS, SINK_MS } from "./usePlateau";
 import type { usePlateauLid } from "./usePlateauLid";
 
@@ -112,6 +113,7 @@ export function usePlateauSlabs({
     if (slabAnim && slabAnim.target === to) return slabAnim.done;
     if (!slabAnim && plateauWall.slabPresence === to) return Promise.resolve();
     cancelSlabAnim();
+    ms = motionMs(ms, motionNow()); // shorter under short motion, as the plateau's
     const done: Promise<void> = new Promise((resolve) => {
       const from = plateauWall.slabPresence;
       const t0 = performance.now();
