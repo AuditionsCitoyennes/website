@@ -120,7 +120,14 @@ export function useCamera(inputs: CameraInputs) {
           void outlines.ensureSelf(unit.id);
         // Due (its fetch priority) while its self is not in: its plateau
         // waits for this file; with its self in, it brings its children only.
-        else void outlines.ensureBundle(unit.id, !outlines.selfOf(unit.id));
+        // A self its row declares alone in a u/ (ac:region-self "first") is
+        // asked from there first, due, and the bundle is then not.
+        else {
+          const due = !outlines.selfOf(unit.id);
+          const ahead = due && outlines.selfAhead(unit.id);
+          if (ahead) void outlines.ensureSelf(unit.id);
+          void outlines.ensureBundle(unit.id, due && !ahead);
+        }
       }
       const geometry = byBox ? undefined : raisedGeometryFor(unit);
       // markRaw: the command lives in a deep ref, and the geometry must never be

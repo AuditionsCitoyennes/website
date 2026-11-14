@@ -60,6 +60,9 @@
 //   plateau.redress   ac:late-files=quiet: the standing plateau's lines
 //                     reshaped in place, from the outline to the mesh applied
 //                     (usePlateau.redress; detail: scope, lines)
+//   plateau.coldStart ac:cold-start=early: a note (0 ms) when a run holding
+//                     for an outline starts the sink and the coming unit's
+//                     lid (usePlateau.coldStart; detail: scope, sink)
 // Reserved for the phases to come, so their tables share one vocabulary:
 // outline.fetch, outline.decode, outline.fallback.
 // plateau.setGeometry's detail names the mesh mode that built it (`mesh`:

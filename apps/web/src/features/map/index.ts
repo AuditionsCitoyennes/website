@@ -39,3 +39,19 @@ export {
   setLateFilesMode,
   type LateFilesMode,
 } from "./plateau/lateFilesSwitch";
+// The cold tap (a unit chosen before its own outline is in memory): its three
+// DEV switches (the Témoignages page draws them; geo-nav's outline files and
+// the plateau read them).
+export {
+  coldStartMode,
+  outlineWait,
+  outlineWaitFor,
+  regionSelfMode,
+  SELF_GRACE_MS,
+  setColdStartMode,
+  setOutlineWait,
+  setRegionSelfMode,
+  type ColdStartMode,
+  type OutlineWait,
+  type RegionSelfMode,
+} from "./plateau/coldTapSwitch";
