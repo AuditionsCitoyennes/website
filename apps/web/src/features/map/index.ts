@@ -8,6 +8,9 @@ export * from "./events";
 // The plateau lid's DEV switch (the Témoignages page draws it).
 export { lidMode, setLidMode, type LidMode } from "./plateau/lidSwitch";
 export { lidCheck, setLidCheck, type LidCheck } from "./plateau/lidSwitch";
+// Whether the lid pictures are kept for a unit selected again: its DEV switch
+// (the Témoignages page draws it).
+export { lidCacheMode, setLidCacheMode, type LidCacheMode } from "./plateau/lidCacheSwitch";
 // The plateau mesh's DEV switch (the Témoignages page draws it).
 export { meshMode, setMeshMode, type MeshMode } from "./plateau/meshSwitch";
 // How the plateau's DEM tiles are prefetched: its DEV switch (the Témoignages page draws it).

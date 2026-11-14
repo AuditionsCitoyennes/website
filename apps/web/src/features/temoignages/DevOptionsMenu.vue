@@ -4,10 +4,11 @@
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the data
-// source and the place tree (dataSource.ts), the plateau's lid, its check, its
-// mesh, the relief's prefetch and the answer to a tap (map), the boot curtain's cover
-// (geo-nav/bootListSwitch), what a pan does to the selected zone (geo-nav), the framing
-// and the analyses' slabs
+// source and the place tree (dataSource.ts), the plateau's lid, its check, the
+// pictures of it that are kept, its mesh, the relief's prefetch and the answer to a tap
+// (map), the boot curtain's cover (geo-nav/bootListSwitch), what a pan does to the
+// selected zone and the files a touch screen asks ahead (geo-nav), the framing and the
+// analyses' slabs
 // (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
 // what the page knows of the device listed under it —, each with its
 // sentences for a tester and a mark on the ones that reload the page. A choice
@@ -54,6 +55,7 @@ import {
   glyphs,
   coldStartMode,
   lateFilesMode,
+  lidCacheMode,
   lidCheck,
   lidMode,
   meshMode,
@@ -64,6 +66,7 @@ import {
   setGlyphs,
   setColdStartMode,
   setLateFilesMode,
+  setLidCacheMode,
   setLidCheck,
   mapFallback,
   setLidMode,
@@ -82,11 +85,13 @@ import {
   filtersLoad,
   outlinesDecor,
   prefetch,
+  prefetchMode,
   scopeDragMode,
   setBootList,
   setFiltersLoad,
   setOutlinesDecor,
   setPrefetch,
+  setPrefetchMode,
   setScopeDragMode,
 } from "@/features/geo-nav";
 import { recover, setRecover } from "@/shared/net/recoverSwitch";
@@ -134,6 +139,8 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:region-self": bind(() => regionSelfMode.value, setRegionSelfMode),
   "ac:cold-start": bind(() => coldStartMode.value, setColdStartMode),
   "ac:scope-drag": bind(() => scopeDragMode.value, setScopeDragMode),
+  "ac:outlines-ahead": bind(() => prefetchMode.value, setPrefetchMode),
+  "ac:lid-cache": bind(() => lidCacheMode.value, setLidCacheMode),
   "ac:analyses-pending": bind(() => pendingAnalysesMode.value, setPendingAnalysesMode),
   "ac:slab-lid-verre": bind(() => slabLidMode.value, setSlabLidMode),
   "ac:slab-text": bind(() => slabTextMode.value, setSlabTextMode),

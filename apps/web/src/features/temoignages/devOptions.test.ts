@@ -49,6 +49,8 @@ const tap = await import("../map/plateau/tapAnswerSwitch");
 const late = await import("../map/plateau/lateFilesSwitch");
 const cold = await import("../map/plateau/coldTapSwitch");
 const hold = await import("../geo-nav/model/scopeHold");
+const ahead = await import("../geo-nav/data/prefetchSwitch");
+const kept = await import("../map/plateau/lidCacheSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -76,6 +78,8 @@ const MODULES = {
   late: "../map/plateau/lateFilesSwitch.ts",
   cold: "../map/plateau/coldTapSwitch.ts",
   hold: "../geo-nav/model/scopeHold.ts",
+  ahead: "../geo-nav/data/prefetchSwitch.ts",
+  kept: "../map/plateau/lidCacheSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -121,6 +125,8 @@ const KEYS: readonly DevKey[] = [
   "ac:region-self",
   "ac:cold-start",
   "ac:scope-drag",
+  "ac:outlines-ahead",
+  "ac:lid-cache",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -134,7 +140,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 35);
+  assert.equal(DEV_OPTIONS.length, 37);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -231,6 +237,8 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:region-self": ["cold", "setRegionSelfMode"],
   "ac:cold-start": ["cold", "setColdStartMode"],
   "ac:scope-drag": ["hold", "setScopeDragMode"],
+  "ac:outlines-ahead": ["ahead", "setPrefetchMode"],
+  "ac:lid-cache": ["kept", "setLidCacheMode"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -326,6 +334,8 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:region-self"), [...cold.REGION_SELF_MODES]);
   assert.deepEqual(ids("ac:cold-start"), [...cold.COLD_START_MODES]);
   assert.deepEqual(ids("ac:scope-drag"), [...hold.SCOPE_DRAG_MODES]);
+  assert.deepEqual(ids("ac:outlines-ahead"), [...ahead.PREFETCH_MODES]);
+  assert.deepEqual(ids("ac:lid-cache"), [...kept.LID_CACHE_MODES]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -376,6 +386,8 @@ test("the default marked in each sentence is the module's", () => {
     "ac:region-self": cold.DEFAULT_REGION_SELF,
     "ac:cold-start": cold.DEFAULT_COLD_START,
     "ac:scope-drag": hold.DEFAULT_SCOPE_DRAG,
+    "ac:outlines-ahead": ahead.DEFAULT_PREFETCH,
+    "ac:lid-cache": kept.DEFAULT_LID_CACHE,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
