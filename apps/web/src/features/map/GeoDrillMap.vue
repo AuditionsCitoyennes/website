@@ -20,6 +20,7 @@ import { resetPlateauStood } from "./lib/plateauStood";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import type { MeshClient } from "./gl/meshClientCore";
 import { lateFilesMode } from "./plateau/lateFilesSwitch";
+import { tilesMoved, type ViewInSight } from "./plateau/lidMapSwitch";
 import { meshMode } from "./plateau/meshSwitch";
 import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
 import { labelGlyphOptions, labelTileGate } from "./labelFont";
@@ -507,25 +508,40 @@ function mountMap() {
         const m = getMap();
         if (m) installPmtilesProbe(m);
       }
+      // What this map shows on each side of the load's camera command:
+      // `load` comes once the tiles of the first view are in, and a command
+      // that moves the map onto others asks for them only at the next frame
+      // (`areTilesLoaded()` still answers for the old view here).
+      const inSight = (): ViewInSight | null => {
+        const m = getMap();
+        const b = m?.getBounds();
+        if (!m || !b) return null;
+        return {
+          zoom: m.getZoom(),
+          minLat: b.getSouth(),
+          maxLat: b.getNorth(),
+          minLng: b.getWest(),
+          maxLng: b.getEast(),
+        };
+      };
+      const atLoad = inSight();
       if (props.camera) camera.runCamera({ ...props.camera, animate: false });
       view.emitView();
-      // The lid's hidden map (plateau/lidMapSwitch.ts): created on the first
-      // place a plateau will stand on — the scope's outline when it is in,
-      // else what the camera command frames — so the tiles it loads are the
-      // first lid's; with no place known, at the first shot. Now when this
-      // map's own tiles are in (the usual load: the hidden map then finds
-      // them in Mapbox's tile cache). When the command above moved the view,
-      // they are on their way: the hidden map waits for them (the first
-      // `idle`) rather than download the same tiles beside them.
-      const warmLid = () =>
-        lid.warmup(
-          boundsOfFeatures(
-            (props.outline?.features ?? []).filter((f) => f.properties?.kind === "scope"),
-          ),
-          props.camera?.type === "fit" ? (props.camera.bounds ?? null) : null,
-        );
-      if (map?.areTilesLoaded()) warmLid();
-      else map?.once("idle", warmLid);
+      // The lid's hidden map (plateau/lidMapSwitch.ts). On the world
+      // (« Carte cachée » on "boot", the lid as before): created now, as
+      // ever. On the first place a plateau will stand on — the scope's
+      // outline when it is in, else what the camera command frames — so the
+      // tiles it loads are the first lid's: now when the command above left
+      // this map on the tiles it had (they are in), else at this map's first
+      // `idle`, rather than beside the tiles the command just made this map
+      // ask for. With no place known, at the first shot.
+      lid.warmup(
+        boundsOfFeatures(
+          (props.outline?.features ?? []).filter((f) => f.properties?.kind === "scope"),
+        ),
+        props.camera?.type === "fit" ? (props.camera.bounds ?? null) : null,
+        tilesMoved(atLoad, inSight()),
+      );
       // INTRO: wait for the first idle (basemap fully painted, capped at 4 s),
       // then tilt + raise in one gesture (useMapCamera.beginIntro). A user
       // interaction or an animated flight before that releases the intro on
@@ -636,9 +652,11 @@ function mountMap() {
 
     // A camera command given before this map existed (the page framed its
     // first unit while the map's code was on its way) is the map's first
-    // view: run now, in one step, before the style is in — so before any
-    // tile is asked for. The view above is only that of a map nobody has
-    // framed yet.
+    // view: run now, in one step, before the style is in — so the first
+    // tiles asked for are that view's. The view above is only that of a map
+    // nobody has framed yet. The style's projection is not known here: this
+    // fit is computed for a flat map, and the load handler's run of the same
+    // command fits it again, for the globe when the style has one.
     if (props.camera) camera.runCamera({ ...props.camera, animate: false });
   } catch (e) {
     console.error("Mapbox init failed:", e);

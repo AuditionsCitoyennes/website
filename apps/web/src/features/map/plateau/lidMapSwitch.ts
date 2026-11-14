@@ -6,11 +6,14 @@
 //   world, zoom 0) and small (512 px): its style, its shaders and its share
 //   of the tile workers are paid then, and so are the world tiles of that
 //   view, which no lid shows.
-// - "first-place": for the first place a plateau will stand on. At the
-//   visible map's load when that place is known by then (the scope's outline,
-//   else the rectangle the first camera command frames): the hidden map is
-//   created on the place's rectangle at the size of a select's shot, so the
-//   only tiles it asks for are the first lid's. With no place known at the
+// - "first-place": for the first place a plateau will stand on. When that
+//   place is known at the visible map's load (the scope's outline, else the
+//   rectangle the first camera command frames), the hidden map is created on
+//   the place's rectangle at the size of a select's shot, so the only tiles
+//   it asks for are the first lid's: at the load when the load's own camera
+//   command leaves the visible map on the tiles it has (they are in), else
+//   at the visible map's first `idle` after the load, once the tiles of the
+//   view it was moved to are in (`warmupMoment`). With no place known at the
 //   load (the world level, a scope without a boundary), no hidden map until
 //   the first shot, which creates it on its own rectangle.
 // - "none": no hidden map and no lid. The plateau keeps its wall, its lines,
@@ -118,6 +121,52 @@ const mercY = (lat: number) => {
   const s = Math.sin((Math.max(-85.051129, Math.min(85.051129, lat)) * Math.PI) / 180);
   return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
 };
+
+/** What a map shows, as far as its tiles go: its zoom and the rectangle in
+ *  sight (Mapbox's `getBounds`). */
+export interface ViewInSight extends PlaceBounds {
+  zoom: number;
+}
+
+/** The tile columns and rows a view's rectangle spans at its zoom level
+ *  (Mapbox's 512 px tiles: the level is the zoom rounded down), as one key;
+ *  `null` for a view that cannot be read. */
+export function tilesInSight(v: ViewInSight | null | undefined): string | null {
+  if (!v) return null;
+  const all = [v.zoom, v.minLat, v.maxLat, v.minLng, v.maxLng];
+  if (!all.every((n) => Number.isFinite(n))) return null;
+  const z = Math.max(0, Math.floor(v.zoom));
+  const n = 2 ** z;
+  const col = (lng: number) => Math.floor(mercX(lng) * n);
+  const row = (lat: number) => Math.min(n - 1, Math.max(0, Math.floor(mercY(lat) * n)));
+  return [z, col(v.minLng), col(v.maxLng), row(v.maxLat), row(v.minLat)].join("/");
+}
+
+/** Whether a camera command made a map ask for other tiles: its view read
+ *  before and after the command. A command that only adjusts the view over
+ *  the same tiles (the load's second fit of the place the map was created
+ *  on) does not; an unreadable view counts as moved. */
+export function tilesMoved(
+  before: ViewInSight | null | undefined,
+  after: ViewInSight | null | undefined,
+): boolean {
+  const a = tilesInSight(before);
+  return a === null || a !== tilesInSight(after);
+}
+
+/** When the load's warm-up (`warmupAtLoad`) creates the hidden map.
+ *  On the world ("boot"): at the load, whatever the visible map does — no
+ *  tile of that view is one the visible map shows. On a place: at the load
+ *  when the load's camera command left the visible map on the tiles it had
+ *  (Mapbox fires `load` once they are in), and at the visible map's first
+ *  `idle` when the command moved it onto others: those are on their way
+ *  then, and a hidden map created beside them could ask for the same ones. */
+export function warmupMoment(
+  warm: { place: PlaceBounds | null },
+  visibleMoved: boolean,
+): "load" | "idle" {
+  return warm.place && visibleMoved ? "idle" : "load";
+}
 
 /** The camera of a top-down mercator map, `cssPx` wide and high, that frames
  *  `place` with `paddingCss` px left free on each side: what Mapbox's
