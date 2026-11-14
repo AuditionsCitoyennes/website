@@ -10,7 +10,9 @@
 // selected zone, the files a touch screen asks ahead and the sign of a long wait
 // (geo-nav), the framing and the analyses' slabs
 // (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
-// what the page knows of the device listed under it —, each with its
+// what the page knows of the device listed under it, what the map does where
+// the graphics are slow and whether it times its first flight
+// (map/graphicsSwitch) —, each with its
 // sentences for a tester and a mark on the ones that reload the page. A choice
 // that is not its switch's default is marked: a count on the button,
 // « modifié » on its row, and at the top of the dialog the count again with
@@ -56,11 +58,14 @@ import {
   coldStartMode,
   lateFilesMode,
   lidCacheMode,
+  dprChoice,
+  frameMeasure,
   lidCheck,
   lidMode,
   meshMode,
   outlineWait,
   regionSelfMode,
+  msaaChoice,
   reliefGround,
   reliefPrefetch,
   setBootWorkers,
@@ -68,6 +73,8 @@ import {
   setColdStartMode,
   setLateFilesMode,
   setLidCacheMode,
+  setDprChoice,
+  setFrameMeasure,
   setLidCheck,
   mapFallback,
   setLidMode,
@@ -75,6 +82,7 @@ import {
   setMeshMode,
   setOutlineWait,
   setRegionSelfMode,
+  setMsaaChoice,
   setReliefGround,
   setReliefPrefetch,
   setTapAnswerMode,
@@ -168,6 +176,9 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:filters-load": bind(() => filtersLoad, setFiltersLoad),
   "ac:prefetch": bind(() => prefetch, setPrefetch),
   "ac:relief-ground": bind(() => reliefGround.value, setReliefGround),
+  "ac:msaa": bind(() => msaaChoice, setMsaaChoice),
+  "ac:dpr": bind(() => dprChoice, setDprChoice),
+  "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

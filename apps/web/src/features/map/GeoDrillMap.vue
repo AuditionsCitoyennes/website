@@ -32,9 +32,11 @@ import { useMapCamera } from "./composables/useMapCamera";
 import { useMapPins } from "./composables/useMapPins";
 import { usePlateau, type PlateauSettle } from "./composables/usePlateau";
 import { usePlateauSlabs } from "./composables/usePlateauSlabs";
+import { useFlightMeasure } from "./composables/useFlightMeasure";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { noteRenderer } from "@/shared/device/deviceTier";
+import { antialiasNow, capMapsNow } from "./graphicsSwitch";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import { rendererOf } from "./relief/groundSwitch";
 import type { MarkGeometry } from "./gl/pendingMark";
@@ -318,6 +320,9 @@ function retryPlateau(id: string) {
   return plateau.retry(id);
 }
 
+// The frames of the first flight to a territory, timed for the device's tier.
+const flight = useFlightMeasure({ getMap });
+
 /** What the map does once the camera has come to rest (gesture or flight). */
 function onCameraSettled() {
   // Run the exact pass the mid-move throttle skipped.
@@ -413,6 +418,7 @@ function mountMap() {
   try {
     mapboxgl.accessToken = TOKEN;
     resetPlateauStood(); // a new map: its first plateau is still to come
+    capMapsNow(); // ac:dpr (testing tools): the maps' pixel ratio, before the first is created
     map = new mapboxgl.Map({
       container: el.value,
       style: STYLE,
@@ -420,8 +426,8 @@ function mountMap() {
       zoom: 4.5,
       // MSAA for the custom layers: mapbox's own layers anti-alias analytically
       // in-shader, but the plateau wall/lid/lines are raw geometry and alias
-      // hard without it.
-      antialias: true,
+      // hard without it. Off where the graphics are slow (graphicsSwitch.ts).
+      antialias: antialiasNow(),
       // Its own resize watching off: ours (below) resizes, re-frames AND draws
       // at once. With both, mapbox's could clear the canvas after ours drew it.
       trackResize: false,
@@ -457,6 +463,7 @@ function mountMap() {
     // The still-map scheduler (lib/stillMap.ts) watches this map: its moves and
     // the pointers down on it. No job is scheduled by anything yet.
     stillMap.attach(map);
+    flight.attach(map);
     uninstallProbes = installProbes({
       getMap,
       frames,
@@ -636,7 +643,8 @@ window.addEventListener(MAP_MOVED_EVENT, onMapMoved);
 
 // Teardown, in today's order: the window listener; the pins' pending frames;
 // the camera's padding timer and pointer listeners; the plateau's and the
-// slabs' animations and the theme observer; the plateau pipeline aborted; the
+// slabs' animations and the theme observer; the flight being timed, dropped;
+// the plateau pipeline aborted; the
 // lid's hidden map; the resize observer; the markers; the still-map scheduler
 // let go of the map; the map itself; the flags; the frame bus; the probes.
 onBeforeUnmount(() => {
@@ -646,6 +654,7 @@ onBeforeUnmount(() => {
   camera.dispose();
   plateau.cancelAnimation();
   slabs.dispose();
+  flight.dispose();
   plateau.abort(); // abort any in-flight ensurePlateau
   // Its worker terminated, its pending meshes resolved null (and dropped).
   meshClient?.dispose();
@@ -696,7 +705,9 @@ watch(
 watch(
   () => props.camera?.key,
   () => {
-    if (props.camera) camera.runCamera(props.camera);
+    if (!props.camera) return;
+    camera.runCamera(props.camera);
+    flight.begin(); // timed, if it is the first flight since the map came to rest
   },
 );
 // After the camera's watcher (watchers run in the order they are made): a
