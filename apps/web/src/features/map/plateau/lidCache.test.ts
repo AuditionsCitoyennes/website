@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LidCache, lidCacheBudget, lidTextureBytes } from "./lidCache";
+import { LidCache, keptAnswers, lidCacheBudget, lidTextureBytes } from "./lidCache";
 
 const MIB = 1024 * 1024;
 
@@ -179,4 +179,12 @@ test("the budget: nothing with the switch off, less on a weak device, by bytes e
   assert.equal(fit(desktop, 2048), 3);
   assert.equal(fit(desktop, 1024), 4);
   assert.equal(fit(desktop, 4096), 0);
+});
+
+test("a kept picture answers an ask at its own pixels or fewer, never a finer one", () => {
+  assert.equal(keptAnswers({ px: 1024 }, 1024), true);
+  assert.equal(keptAnswers({ px: 2304 }, 1024), true);
+  assert.equal(keptAnswers({ px: 1024 }, 1280), false);
+  assert.equal(keptAnswers(null, 1024), false);
+  assert.equal(keptAnswers(undefined, 1024), false);
 });
