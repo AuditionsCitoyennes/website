@@ -2,7 +2,16 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useSubmitTestimony } from "@/features/testify";
 import { ROUTE } from "@/shared/routes";
-import { HERO_IMAGE as hero, srcFor, srcsetFor } from "./homeImages";
+import { hero as heroMode } from "@/shared/boot/homeBoot";
+import { pictureMedia } from "@/shared/boot/homeBootPlan";
+import { HERO_IMAGE as hero, heroSources, srcFor } from "./homeImages";
+
+// The photograph's copies: cut to a portrait screen's shape on a phone, today's
+// on a wide screen (`ac:hero`, shared/boot/homeBootPlan.ts). The last source
+// is the <img>'s own.
+const sources = heroSources(hero, heroMode);
+const fallback = sources[sources.length - 1];
+const cuts = sources.slice(0, -1).map((s) => ({ ...s, media: pictureMedia(s)! }));
 
 // `ready` once the photograph is shown — or could not be: at once when it is
 // there already (cached, or decoded before this ran), else when it loads or
@@ -55,17 +64,26 @@ function glideTo(e: MouseEvent, id: string) {
     :class="{ 'hero--top': hero.textAt === 'top' }"
     aria-labelledby="hero-title"
   >
-    <img
-      ref="heroImg"
-      class="hero-img"
-      :src="srcFor(hero, 1920)"
-      :srcset="srcsetFor(hero, [960, 1440, 1920, 2560])"
-      sizes="(max-aspect-ratio: 3/2) calc((100vh - 4rem) * 1.5), 100vw"
-      :alt="hero.alt"
-      :style="{ objectPosition: hero.position ?? '50% 50%' }"
-      fetchpriority="high"
-      decoding="async"
-    />
+    <picture>
+      <source
+        v-for="c in cuts"
+        :key="c.media"
+        :media="c.media"
+        :srcset="c.srcset"
+        :sizes="c.sizes"
+      />
+      <img
+        ref="heroImg"
+        class="hero-img"
+        :src="srcFor(hero, 1920)"
+        :srcset="fallback.srcset"
+        :sizes="fallback.sizes"
+        :alt="hero.alt"
+        :style="{ objectPosition: hero.position ?? '50% 50%' }"
+        fetchpriority="high"
+        decoding="async"
+      />
+    </picture>
     <div class="hero-shade" aria-hidden="true"></div>
     <div class="hero-content container-page">
       <h1 id="hero-title" class="hero-title">Auditions<br />Citoyennes</h1>
