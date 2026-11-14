@@ -212,3 +212,61 @@ test("a zone larger than the screen is kept by the share of the view it covers",
     "FAR",
   );
 });
+
+// Two départements whose BOXES overlap, as the French ones do (Vienne, in
+// Isère, lies inside the box of Rhône): D1's box is lng 0…10 but its contour
+// stops at lng 6, where D2 (lng 6…16) begins. `nearBox` is how far east the
+// box of c2, D1's commune by the border, runs (its contour stops at lng 6).
+//   D1: c1 (lng 0…3), c2 (lng 4…nearBox)      D2: e1 (lng 6.2…8.2)
+function overlapping(nearBox = 6) {
+  const c1 = unit("c1", "city", box(0, 0, 3, 10));
+  const c2 = unit("c2", "city", box(4, 4, nearBox, 6));
+  const d1 = unit("D1", "dep", box(0, 0, 10, 10), [c1, c2]);
+  const e1 = unit("e1", "city", box(6.2, 4, 8.2, 6));
+  const d2 = unit("D2", "dep", box(6, 0, 16, 10), [e1]);
+  const root = unit("world", "world", box(-180, -85, 180, 85), [d1, d2]);
+  const inBox = (u: GeoUnit, lat: number, lng: number) =>
+    lat >= u.bounds.minLat &&
+    lat <= u.bounds.maxLat &&
+    lng >= u.bounds.minLng &&
+    lng <= u.bounds.maxLng;
+  // The contours: D1 and its communes west of lng 6, D2 and e1 east of it.
+  const contour = (u: GeoUnit, lat: number, lng: number) =>
+    inBox(u, lat, lng) && (u.id === "D2" || u.id === "e1" ? lng >= 6 : lng < 6);
+  return { root, d1, contour };
+}
+
+test("under a held zone, ground a neighbour's contour holds enters none of its children", () => {
+  const { root, d1, contour } = overlapping();
+  const prefer = chain("D1");
+  // Zoomed in on e1, across the border: inside D1's box (which covers all of
+  // the view, so D1 is kept), outside its contour.
+  const view = viewAt(7.2, 5, 2);
+  assert.equal(inViewShares(d1.bounds, view).view, 1);
+  // Without a hold the contours hand the branch to D2, then to its commune.
+  assert.equal(scopeForView(root, view, prefer, contour).id, "e1");
+  // Held: D1 itself — not c2, its commune nearest the centre, which does not
+  // hold it.
+  assert.equal(scopeForView(root, view, prefer, contour, d1).id, "D1");
+  // The same when c2's BOX runs over the centre: a box is no proof against
+  // the neighbour's contour.
+  const wide = overlapping(7.5);
+  assert.equal(scopeForView(wide.root, view, prefer, wide.contour, wide.d1).id, "D1");
+  // The centre back inside D1's contour, over c2: entered, as without a hold.
+  const over = viewAt(5, 5, 2);
+  assert.equal(scopeForView(root, over, prefer, contour, d1).id, "c2");
+  assert.equal(scopeForView(root, over, prefer, contour).id, "c2");
+});
+
+test("under a held zone with no contour to say where the centre is, the walk is the one without a hold", () => {
+  const { root, d1 } = overlapping();
+  const prefer = chain("D1");
+  // No contour is loaded: D1's box holds the centre and D1 is the incumbent,
+  // so its nearest commune is entered — held or not.
+  const view = viewAt(7.2, 5, 2);
+  assert.equal(scopeForView(root, view, prefer).id, "c2");
+  assert.equal(scopeForView(root, view, prefer, undefined, d1).id, "c2");
+  const none = () => false; // contours asked for, none loaded yet
+  assert.equal(scopeForView(root, view, prefer, none).id, "c2");
+  assert.equal(scopeForView(root, view, prefer, none, d1).id, "c2");
+});

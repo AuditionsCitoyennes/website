@@ -106,7 +106,9 @@ function dist2(a: [number, number], b: [number, number]): number {
  *  NOT can take the branch over. `contains` tests real polygon containment.
  *  `hold` is the zone a selection holds (see "The hold" above): while it is
  *  meaningfully in view, the branch down to it stays the incumbent wherever
- *  the centre is. The thresholds are unchanged, so depth still follows the view. */
+ *  the centre is. The thresholds are unchanged, so depth still follows the view;
+ *  below the held zone only a child that holds the centre is entered — by its
+ *  contour where a neighbour's contour says the centre is not in the zone. */
 export function scopeForView(
   root: GeoUnit,
   view: Bounds,
@@ -118,6 +120,10 @@ export function scopeForView(
   const lng = (view.minLng + view.maxLng) / 2;
   // The held zone's branch (its ancestors and itself), when it is in view.
   const held = hold && keptInView(hold.bounds, view) ? new Set([...hold.ancestors, hold.id]) : null;
+  // A contour outside the held branch provably holds the centre (a neighbour
+  // of the held zone, or of one of its ancestors): the centre is not in the
+  // held zone, whatever its box says. The deepest level with a contour says.
+  let elsewhere = false;
   let node = root;
   for (;;) {
     // Its children are not known yet: nothing to descend into (useUnitTree).
@@ -131,6 +137,7 @@ export function scopeForView(
     const insidePoly = contains ? kids.filter((c) => contains(c, lat, lng)) : [];
     const insideBox = kids.filter((c) => boundsHas(c.bounds, lat, lng) || insidePoly.includes(c));
     const kept = held ? kids.find((c) => held.has(c.id)) : undefined;
+    if (kept && insidePoly.length) elsewhere = !insidePoly.includes(kept);
     const incumbent = insideBox.find((c) => prefer?.has(c.id));
     let cand: GeoUnit;
     if (kept) {
@@ -140,8 +147,13 @@ export function scopeForView(
     } else {
       // Under a held zone the centre can be outside it: none of its children
       // is "the nearest one" then, only one that holds the centre is entered.
-      if (held && node.id === hold?.id && !insideBox.length && !boundsHas(node.bounds, lat, lng))
-        break;
+      // Where a neighbour's contour holds the centre, that takes a child's
+      // contour: boxes overlap (Vienne, in Isère, lies inside the box of
+      // Rhône), so the held zone's box, or a child's, holding the centre is
+      // no proof. With no such contour the boxes decide, as without a hold.
+      if (held && node.id === hold?.id && !insidePoly.length) {
+        if (elsewhere || (!insideBox.length && !boundsHas(node.bounds, lat, lng))) break;
+      }
       const pool = insidePoly.length ? insidePoly : insideBox.length ? insideBox : kids;
       cand = pool.reduce((a, b) =>
         dist2(a.center, [lat, lng]) <= dist2(b.center, [lat, lng]) ? a : b,
