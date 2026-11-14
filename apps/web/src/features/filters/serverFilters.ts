@@ -24,6 +24,16 @@ import {
 /** How long the text waits after the last keystroke. */
 export const TEXT_DEBOUNCE_MS = 300;
 
+/** The timer the text's pause runs on: the browser's, or a test's own clock. */
+export interface FilterTimers {
+  set: (fn: () => void, ms: number) => unknown;
+  clear: (timer: unknown) => void;
+}
+const REAL_TIMERS: FilterTimers = {
+  set: (fn, ms) => setTimeout(fn, ms),
+  clear: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+};
+
 /** What the page filters on (useFilters' refs). */
 export interface FilterState {
   text: Ref<string>;
@@ -75,13 +85,15 @@ export function passesPlaceIds(
 /**
  * The filters as the server takes them, from the page's state. `minChars`:
  * the shortest text applied (SEARCH_MIN_CHARS, the API's default unless an
- * answer says otherwise).
+ * answer says otherwise). `timers`: what the text's pause runs on (the
+ * browser's timers unless given).
  */
 export function useServerFilters(
   state: FilterState,
-  opts: { minChars?: number; debounceMs?: number } = {},
+  opts: { minChars?: number; debounceMs?: number; timers?: FilterTimers } = {},
 ): ServerFilters {
   const debounceMs = opts.debounceMs ?? TEXT_DEBOUNCE_MS;
+  const timers = opts.timers ?? REAL_TIMERS;
   const minChars = ref(opts.minChars ?? SEARCH_MIN_CHARS_DEFAULT);
 
   // The state applied: at once, unless a text is waiting for typing to pause
@@ -95,23 +107,26 @@ export function useServerFilters(
     text: state.text.value,
   });
   const applied = shallowRef(read());
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: unknown;
+  const drop = () => {
+    if (timer !== undefined) timers.clear(timer);
+    timer = undefined;
+  };
   watch(read, (next, prev) => {
     const textWaits = next.text !== applied.value.text && next.text.trim() !== "";
     if (!textWaits) {
-      clearTimeout(timer);
-      timer = undefined;
+      drop();
       applied.value = next;
       return;
     }
     if (timer !== undefined && next.text === prev.text) return; // the text's pause still runs
-    clearTimeout(timer);
-    timer = setTimeout(() => {
+    drop();
+    timer = timers.set(() => {
       timer = undefined;
       applied.value = read();
     }, debounceMs);
   });
-  onScopeDispose(() => clearTimeout(timer));
+  onScopeDispose(drop);
 
   const query = computed(() => {
     const a = applied.value;
