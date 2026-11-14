@@ -261,6 +261,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // each).
   private leanLineProg: GlProg | null = null;
   private lineCornerBuffer: WebGLBuffer | null = null;
+  private lineCornersDirty = false;
+  // One vertex array object per regime for those draws, set up at its first
+  // draw (binding one outside a frame would go behind mapbox's back).
+  private lineVao: WebGLVertexArrayObject | null = null;
+  private gLineVao: WebGLVertexArrayObject | null = null;
+  private lineVaoSet = false;
+  private gLineVaoSet = false;
   private leanLineLocs: number[] = [];
   private gLeanLineLocs: number[] = [];
   // ---- GLOBE regime (zoom < 6, experimental custom-layer API) ----
@@ -1559,9 +1566,14 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
           )
         : [];
       this.lineBuffer = gl.createBuffer();
+      // Filled at the first draw, like every buffer here: binding one now,
+      // outside a frame, would change the bound buffer behind mapbox's back.
       this.lineCornerBuffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineCornerBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, LINE_CORNERS, gl.STATIC_DRAW);
+      this.lineCornersDirty = true;
+      this.lineVao = gl.createVertexArray();
+      this.gLineVao = gl.createVertexArray();
+      this.lineVaoSet = false;
+      this.gLineVaoSet = false;
     } else {
       this.gLineProg = buildProgram(
         gl,
@@ -1655,6 +1667,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (this.lineBuffer) gl.deleteBuffer(this.lineBuffer);
     if (this.leanLineProg) gl.deleteProgram(this.leanLineProg.prog);
     if (this.lineCornerBuffer) gl.deleteBuffer(this.lineCornerBuffer);
+    if (this.lineVao) gl.deleteVertexArray(this.lineVao);
+    if (this.gLineVao) gl.deleteVertexArray(this.gLineVao);
     for (const p of [
       this.gWallProg,
       this.gLidProg,
@@ -1705,6 +1719,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.lineBuffer = null;
     this.leanLineProg = null;
     this.lineCornerBuffer = null;
+    this.lineVao = null;
+    this.gLineVao = null;
     this.gWallProg = null;
     this.gLidProg = null;
     this.gLineProg = null;
@@ -2186,9 +2202,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  ones without the depth test, the ground ones with it; true or false (the
    *  globe, which tests no depth): the groups raised or not. WebGL 2 has no
    *  first-instance argument, so a group's range is reached by pointing the
-   *  instanced attributes at its first record. The divisors are put back to
-   *  0: they belong to the default vertex array object, which every other
-   *  draw of the layers uses. */
+   *  instanced attributes at its first record. Drawn under the regime's own
+   *  vertex array object, so no divisor and no instanced pointer is ever
+   *  written to the default one, which every other draw of the layers uses;
+   *  the default one is bound again on the way out. */
   private drawLineInstances(
     gl: WebGL2RenderingContext,
     p: GlProg,
@@ -2197,15 +2214,26 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     floats: number,
     pass: boolean | null,
   ) {
-    const corner = p.attr.aCorner;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineCornerBuffer);
-    gl.enableVertexAttribArray(corner);
-    gl.vertexAttribPointer(corner, 3, gl.FLOAT, false, 12, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    for (let i = 0; i < locs.length; i++) {
-      gl.enableVertexAttribArray(locs[i]);
-      gl.vertexAttribDivisor(locs[i], 1);
+    const globe = pass !== null;
+    gl.bindVertexArray(globe ? this.gLineVao : this.lineVao);
+    if (!(globe ? this.gLineVaoSet : this.lineVaoSet)) {
+      // Once per vertex array: the corners, per vertex; the ends, per instance.
+      const corner = p.attr.aCorner;
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineCornerBuffer);
+      if (this.lineCornersDirty) {
+        gl.bufferData(gl.ARRAY_BUFFER, LINE_CORNERS, gl.STATIC_DRAW);
+        this.lineCornersDirty = false;
+      }
+      gl.enableVertexAttribArray(corner);
+      gl.vertexAttribPointer(corner, 3, gl.FLOAT, false, 12, 0);
+      for (let i = 0; i < locs.length; i++) {
+        gl.enableVertexAttribArray(locs[i]);
+        gl.vertexAttribDivisor(locs[i], 1);
+      }
+      if (globe) this.gLineVaoSet = true;
+      else this.lineVaoSet = true;
     }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.uniform2f(p.uni.uViewport, gl.drawingBufferWidth, gl.drawingBufferHeight);
     const dpr = window.devicePixelRatio || 1;
     const stride = floats * 4;
@@ -2226,7 +2254,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       gl.uniform1f(p.uni.uTwice, grp.twice ? 1 : 0);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, SEGMENT_VERTICES, grp.count / SEGMENT_VERTICES);
     }
-    for (let i = 0; i < locs.length; i++) gl.vertexAttribDivisor(locs[i], 0);
+    gl.bindVertexArray(null);
   }
 
   /** The globe-regime draw: same three passes, positions morphed sphere↔mercator
