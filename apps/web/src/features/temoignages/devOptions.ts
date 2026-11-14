@@ -448,7 +448,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "ancien", label: "Ancien" },
     ],
     explain:
-      "La grande photo de l'accueil. « Portrait » (par défaut) envoie aux écrans en hauteur (téléphones, tablettes tenues droites) une copie découpée à leur forme, un peu plus compressée : environ 240 ko sur un téléphone au lieu de 760 ko, le même cadrage. « Portrait tôt » la demande en plus dès l'arrivée sur la page, en même temps que le code du site : un essai, pas encore mesuré. « Ancien » envoie la même grande copie à tous les écrans.",
+      "La grande photo de l'accueil. « Portrait » (par défaut) envoie aux écrans en hauteur (téléphones, tablettes tenues droites) une copie découpée à leur forme, un peu plus compressée : environ 240 ko sur un téléphone au lieu de 760 ko, le même cadrage. « Portrait tôt » la demande en plus dès l'arrivée sur la page, en même temps que le code du site : un essai, pas encore mesuré. « Ancien » envoie la même grande copie à tous les écrans, et Safari en télécharge alors deux ou trois tailles l'une après l'autre.",
     reloads: true,
     defaultId: "portrait",
   },

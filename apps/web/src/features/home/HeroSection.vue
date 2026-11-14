@@ -12,6 +12,14 @@ import { HERO_IMAGE as hero, heroSources, srcFor } from "./homeImages";
 const sources = heroSources(hero, heroMode);
 const fallback = sources[sources.length - 1];
 const cuts = sources.slice(0, -1).map((s) => ({ ...s, media: pictureMedia(s)! }));
+const imgSrc = srcFor(hero, 1920);
+// In "ancien" the <img> gets its copies from the template, as before. With the
+// cuts, once it stands in the <picture> beside its sources (onMounted): Vue
+// sets an element's attributes before it puts it in its parent, and WebKit
+// starts a download at each of them (src, then srcset, then sizes, then the
+// <picture>'s source): three to four copies of the photo on an iPhone.
+const bound = heroMode === "ancien";
+const templateAttrs = bound ? { src: imgSrc, srcset: fallback.srcset, sizes: fallback.sizes } : {};
 
 // `ready` once the photograph is shown — or could not be: at once when it is
 // there already (cached, or decoded before this ran), else when it loads or
@@ -23,6 +31,12 @@ let stopWaiting: (() => void) | null = null;
 
 onMounted(() => {
   const img = heroImg.value;
+  if (img && !bound) {
+    // sizes and srcset first: when src comes, the choice is already made.
+    img.sizes = fallback.sizes;
+    img.srcset = fallback.srcset;
+    img.src = imgSrc;
+  }
   if (!img || img.complete) {
     emit("ready");
     return;
@@ -75,9 +89,7 @@ function glideTo(e: MouseEvent, id: string) {
       <img
         ref="heroImg"
         class="hero-img"
-        :src="srcFor(hero, 1920)"
-        :srcset="fallback.srcset"
-        :sizes="fallback.sizes"
+        v-bind="templateAttrs"
         :alt="hero.alt"
         :style="{ objectPosition: hero.position ?? '50% 50%' }"
         fetchpriority="high"
