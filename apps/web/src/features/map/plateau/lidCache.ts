@@ -119,14 +119,14 @@ export class LidCache<V> {
     return true;
   }
 
-  /** The picture under `key` taken out without being dropped: its owner
-   *  keeps it (to use it again). */
-  take(key: string): V | undefined {
+  /** The picture under `key` taken out without being dropped, with its
+   *  bytes: its owner keeps it (to use it again, or to put it back). */
+  take(key: string): { value: V; bytes: number } | undefined {
     const e = this.entries.get(key);
     if (!e) return undefined;
     this.entries.delete(key);
     this.total -= e.bytes;
-    return e.value;
+    return e;
   }
 
   /** Another cap: the least recently used are dropped down to it — the pinned
