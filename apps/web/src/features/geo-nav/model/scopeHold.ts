@@ -9,10 +9,11 @@
 // screen, was replaced by a neighbour — its plateau sinking under the finger,
 // the neighbour's rising, and the same again on the way back.
 //
-// So a zone that was SELECTED — the scope a camera command was sent for: a
-// tap on a row, on the map, a crumb, the boot's frame — is held: while it is
-// the scope and meaningfully in view (geo's keptInView: a tenth of its box in
-// the view, or its box a tenth of the view), a pan does not replace it.
+// So a zone that was SELECTED — the scope a camera command was sent for and
+// landed on: a tap on a row, on the map, a crumb, the boot's frame — is held:
+// while it is the scope and meaningfully in view (geo's keptInView: a tenth
+// of its box in the view, or its box a tenth of the view), a pan does not
+// replace it.
 // Zooming out past it, zooming in onto one of its children, or panning it
 // out of view changes the scope as it always did. A scope the view alone
 // arrived at is not held: it follows the view, so the way back to the held
@@ -76,17 +77,37 @@ export function dragKeepsZone(mode: ScopeDragMode, coarse: boolean): boolean {
 }
 
 /**
- * Which zone is held. `landed(id)`: a camera command has landed (or the user
- * took the camera over in flight) and `id` is the scope it was sent for —
- * that zone is held from here, in place of any other. `of(scope)`: the unit
- * to hold in a derivation — the scope itself while it is the held zone, else
- * null. The zone stays the held one when the scope leaves it: coming back to
- * it holds it again; only another command replaces it.
+ * Which zone is held: the scope a camera command landed on.
+ *
+ * `view(scopeId, commanded, byUser)`: the map reports a view, `scopeId` the
+ * scope as it is before the view is read. `commanded`: it is the first view
+ * since a camera command — the command's scope (the unit tapped, written
+ * ahead of the flight) is held from here, in place of any other. When the
+ * flight landed by itself (not `byUser`), the scope read off that landing is
+ * the one held: `derived(scopeId)`, called with each scope read off a view,
+ * takes it once — the boot's frame is sent with the world as the scope and
+ * lands on France. A user who took the camera over in flight keeps the
+ * command's unit held, wherever the view then is.
+ *
+ * `of(scope)`: the unit to hold in a derivation — the scope itself while it
+ * is the held zone, else null. The zone stays the held one when the scope
+ * leaves it: coming back to it holds it again; only another command replaces
+ * it.
  */
 export function createScopeHold() {
   let held: string | null = null;
+  /** A command's flight has landed by itself and its view is not read yet. */
+  let settling = false;
   return {
-    landed(scopeId: string) {
+    view(scopeId: string, commanded: boolean, byUser: boolean) {
+      if (commanded) {
+        held = scopeId;
+        settling = !byUser;
+      } else if (byUser) settling = false;
+    },
+    derived(scopeId: string) {
+      if (!settling) return;
+      settling = false;
       held = scopeId;
     },
     of<T extends { id: string }>(scope: T): T | null {
