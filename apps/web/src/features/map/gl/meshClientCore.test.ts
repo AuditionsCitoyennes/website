@@ -177,6 +177,51 @@ test("a geometry travels once: the next request names its tokens only", async ()
   );
 });
 
+test("a mesh with no unit, the lines alone, is the page's own bit for bit", async () => {
+  const r = rig();
+  const fx = { ...inputs(), features: [], heightM: 0 };
+  const p = r.client.build(fx, BOTH);
+  await r.flush();
+  const a = (await p)!;
+  assert.equal(a.via, "worker");
+  assert.equal(a.mesh.scopeId, "");
+  assert.equal(a.mesh.vertexCount, 0);
+  assert.ok(a.mesh.lineVertexCount > 0);
+  // Only the lines' geometries travelled: the focus square and the context one.
+  assert.equal(r.builds()[0].puts.length, 2);
+  assert.deepEqual(r.builds()[0].scope, { tokens: [], meta: [] });
+  const here = buildPlateauMesh([], 0, fx.focus, fx.context, { ...BOTH, concat: true });
+  for (const k of [
+    "rim",
+    "positions",
+    "lidPositions",
+    "linePositions",
+    "haloPositions",
+    "gWallPositions",
+    "gLidPositions",
+    "gLinePositions",
+    "gHaloPositions",
+  ] as const) {
+    assert.deepEqual(Buffer.from(a.mesh[k]!.buffer), Buffer.from(here[k]!.buffer), k);
+  }
+  for (const k of [
+    "scopeId",
+    "heightM",
+    "rimCount",
+    "vertexCount",
+    "lidVertexCount",
+    "lineVertexCount",
+    "haloVertexCount",
+    "origin",
+    "lineGroups",
+    "haloW",
+    "haloCos",
+    "fillRecords",
+  ] as const) {
+    assert.deepEqual(a.mesh[k], here[k], k);
+  }
+});
+
 test("eviction past the cap, then the same geometry asked again: sent again", async () => {
   // Room for one request's 15 vertices: least recently used first, down to the cap.
   const r = rig({ cap: 15 });

@@ -59,6 +59,7 @@ import type { OutlineFC } from "../types";
 import { coldStartMode } from "../plateau/coldTapSwitch";
 import { LATE_CAP_MS, lateFilesMode } from "../plateau/lateFilesSwitch";
 import { meshMode } from "../plateau/meshSwitch";
+import { linesMesh } from "../threadSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
 
 export interface PlateauInputs {
@@ -492,7 +493,12 @@ export function usePlateau({
   }
 
   /** …with the sink: the wait is the mesh's beyond the sink (0: it came first). */
-  async function sinkAndMesh(sinkP: Promise<void>, job: Promise<MeshResult | null>, scope: string) {
+  async function sinkAndMesh(
+    sinkP: Promise<void>,
+    job: Promise<MeshResult | null>,
+    scope: string,
+    path = "swap",
+  ) {
     let sunk = 0;
     let built = 0;
     const [, res] = await Promise.all([
@@ -506,9 +512,47 @@ export function usePlateau({
     ]);
     if (perfOn) {
       const first = workerApplies === 0;
-      perfNote("plateau.meshWait", Math.max(0, built - sunk), { scope, path: "swap", first });
+      perfNote("plateau.meshWait", Math.max(0, built - sunk), { scope, path, first });
     }
     return res;
+  }
+
+  type Features = OutlineFC["features"];
+  /** The mesh of a map with no unit raised — its boundary lines alone (Monde,
+   *  a scope with no outline of its own, a plateau that failed) — asked of
+   *  the mesh worker (ac:lines-mesh, ../threadSwitch.ts), both sets at once:
+   *  no unit, so no fit to tell that the globe can wait. Null: built here,
+   *  by putLines (the switch on "page", another mesh mode, no worker yet, or
+   *  a worker lost). */
+  function askLines(focus: Features, context: Features) {
+    if (meshMode !== "worker" || linesMesh.value !== "worker") return null;
+    const client = meshClient?.() ?? null;
+    if (!client || client.mode !== "worker") return null;
+    const inputs = { features: [] as Features, heightM: 0, focus, context };
+    return { client, inputs, job: client.build(inputs, { merc: true, globe: true }) };
+  }
+
+  /** …and put up: the worker's (`res`), else built here as before. */
+  function putLines(
+    asked: ReturnType<typeof askLines>,
+    res: MeshResult | null,
+    focus: Features,
+    context: Features,
+  ) {
+    if (asked && res) {
+      const zoom = getMap()?.getZoom() ?? 0;
+      plateauWall.applyBuilt(res.mesh, asked.inputs, {
+        start: "eager",
+        globe: "eager",
+        zCanon: 0,
+        zoom,
+        via: res.via,
+      });
+      asked.client.applied(res);
+      workerApplies++;
+      return;
+    }
+    plateauWall.setGeometry([], 0, focus, context);
   }
 
   // Build/refresh the plateau for the current selection. The transition is fully
@@ -554,8 +598,14 @@ export function usePlateau({
       const stood = flatGround
         ? !!plateauVersion
         : !!(plateauVersion || earlyStands) && !!map.getTerrain();
-      if (stood) {
-        await animateTerrain(0, SINK_MS);
+      // ac:lines-mesh: the lines' mesh comes from the worker while the plateau
+      // sinks; everything below still happens in one block, once both are done.
+      const asked = askLines(focus, context);
+      let res: MeshResult | null = null;
+      if (stood || asked) {
+        const sinkP = stood ? animateTerrain(0, SINK_MS) : Promise.resolve();
+        if (asked) res = await sinkAndMesh(sinkP, asked.job, "", "clear");
+        else await sinkP;
         map = getMap();
         if (seq !== plateauSeq || !map) return;
       }
@@ -568,7 +618,7 @@ export function usePlateau({
         map.setTerrain(null);
       }
       earlyTerrainSlot = null;
-      plateauWall.setGeometry([], 0, focus, context);
+      putLines(asked, res, focus, context);
       plateauRaised = [];
       plateauBbox = null;
       clearSlabs();
@@ -1010,7 +1060,13 @@ export function usePlateau({
       // over a plateau that failed to rise. The boundary lines stay (grounded).
       if (import.meta.env.DEV) console.warn("[plateau] transition failed:", err);
       if (seq === plateauSeq) {
-        plateauWall.setGeometry([], 0, focus, context);
+        // ac:lines-mesh: the lines' mesh from the worker here too; the wall
+        // comes down with it, in the block below.
+        const asked = askLines(focus, context);
+        const res = asked ? await meshWait(asked.job, "", "failed") : null;
+        map = getMap();
+        if (asked && (seq !== plateauSeq || !map)) return;
+        putLines(asked, res, focus, context);
         plateauRaised = [];
         plateauBbox = null;
         clearSlabs();
