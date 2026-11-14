@@ -25,6 +25,9 @@ function snapshot() {
     loaded: o.loadedKeys(),
     failed: [...o.failed.value],
     gaveUp: [...o.gaveUp.value],
+    // ac:late-files: the files in memory as text, and the units held out.
+    held: [...o.held.value],
+    heldOut: [...o.heldOut.value],
     async ensure(kind: ProbeKind, id = "") {
       if (kind === "root") return o.ensureRoot();
       if (kind === "k") return o.ensureBundle(id);

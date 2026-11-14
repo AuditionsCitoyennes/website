@@ -42,13 +42,16 @@
 // since left is late too), the text is KEPT: parsed, checked and written
 // only when the map is still (`late.whenStill`), every kept file in ONE write
 // — and the flush waits once, `batchMs`, for the late files still on the
-// network, so a unit's children and its neighbours make one change. A kept
-// file a "due" ask joins, or one that turned urgent, is written at once. A
-// request only a prefetch made is never kept (it never writes).
+// network, so a unit's children and its neighbours make one change. The
+// files of one batch (batchSelf, ensureGlobe) stay together: none of them is
+// written before all of them are in, however slow the link. A kept file a
+// "due" ask joins, or one that turned urgent, is written at once. A request
+// only a prefetch made is never kept (it never writes).
 //
 // Both together: a low request whose text is kept gives its turn back as it
-// lands (it is off the network), so the next one waiting starts; the flush
-// writes it, and the low batch's own write then finds it stored.
+// lands (it is off the network), so the next one waiting starts — a low batch
+// kept together could never be whole otherwise; the flush writes it, and the
+// low batch's own write then finds it stored.
 
 import {
   checkResponse,
@@ -212,6 +215,8 @@ export class OutlineLoader {
   private readonly kept = new Map<string, Kept>();
   private readonly flying = new Map<string, { key: string; due: boolean }>();
   private readonly wanted = new Set<string>();
+  /** The batches under way (many), each one's URLs. */
+  private readonly batches = new Set<readonly string[]>();
   /** The flush of the kept files: asked of `whenStill`, or waiting `batchMs`. */
   private flush: "idle" | "armed" | "waiting" = "idle";
   private batchWaited = false;
@@ -483,7 +488,13 @@ export class OutlineLoader {
       return { key };
     });
     const keys = [...jobs.keys()];
-    const settled = await Promise.allSettled(jobs.values());
+    // Kept together (the late files): see flushLate.
+    const urls =
+      this.o.late && jobs.size > 1 ? keys.map((k) => `${base}outlines/${build}/${k}.json`) : null;
+    if (urls) this.batches.add(urls);
+    const settled = await Promise.allSettled(jobs.values()).finally(() => {
+      if (urls) this.batches.delete(urls);
+    });
     const results = new Map<string, Checked<unknown>>();
     settled.forEach((s, i) => results.set(keys[i], s.status === "fulfilled" ? s.value : NETWORK));
     const files: OutlineFileV1[] = [];
@@ -639,6 +650,8 @@ export class OutlineLoader {
       })().finally(() => {
         this.inflight.delete(url);
         this.wanted.delete(url);
+        // A batch may be whole now (this one failed): its kept files can go.
+        if (this.kept.size) this.armFlush();
       });
       this.inflight.set(url, job);
     } else {
@@ -777,7 +790,8 @@ export class OutlineLoader {
   /** The kept files (or the one at `only`) parsed, checked and written in ONE
    *  write, then their requests settled: each caller finds its file written.
    *  The whole flush waits once, `batchMs`, while late files a writer asked
-   *  are still on the network — the rest of the batch. */
+   *  are still on the network; and a file of a batch (many) stays kept until
+   *  every file of that batch is in — kept, or its request ended. */
   private flushLate(only?: string): void {
     const late = this.o.late;
     if (!late) return;
@@ -800,9 +814,19 @@ export class OutlineLoader {
       }
       this.batchWaited = false;
     }
-    const items = only === undefined ? [...this.kept.values()] : [this.kept.get(only)!];
-    if (only === undefined) this.kept.clear();
-    else this.kept.delete(only);
+    const partial = (url: string) => {
+      for (const b of this.batches)
+        if (b.includes(url) && b.some((u) => !this.kept.has(u) && this.inflight.has(u)))
+          return true;
+      return false;
+    };
+    const urls =
+      only === undefined
+        ? [...this.kept.keys()].filter((url) => this.off() || !partial(url))
+        : [only];
+    if (!urls.length) return;
+    const items = urls.map((url) => this.kept.get(url)!);
+    for (const url of urls) this.kept.delete(url);
     this.setHeld();
     if (this.off()) {
       for (const k of items) k.done(NETWORK); // each caller answers "fallback"
