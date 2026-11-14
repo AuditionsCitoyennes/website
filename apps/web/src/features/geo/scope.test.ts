@@ -7,7 +7,15 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { inViewShares, KEEP_VIEW_SHARE, KEEP_ZONE_SHARE, keptInView, scopeForView } from "./scope";
+import {
+  holdInView,
+  inViewShares,
+  KEEP_VIEW_SHARE,
+  KEEP_ZONE_SHARE,
+  keptInView,
+  scopeForView,
+  viewShareOf,
+} from "./scope";
 import type { Bounds, GeoUnit, LevelKey } from "./types";
 
 const box = (minLng: number, minLat: number, maxLng: number, maxLat: number): Bounds => ({
@@ -269,4 +277,80 @@ test("under a held zone with no contour to say where the centre is, the walk is 
   const none = () => false; // contours asked for, none loaded yet
   assert.equal(scopeForView(root, view, prefer, none).id, "c2");
   assert.equal(scopeForView(root, view, prefer, none, d1).id, "c2");
+});
+
+test("viewShareOf: the share of the view a shape covers, read on a grid", () => {
+  const view = box(0, 0, 6, 6);
+  assert.equal(
+    viewShareOf(view, () => true),
+    1,
+  );
+  assert.equal(
+    viewShareOf(view, () => false),
+    0,
+  );
+  // The west half, the south-west quarter, one cell of the 36.
+  assert.equal(
+    viewShareOf(view, (_lat, lng) => lng < 3),
+    0.5,
+  );
+  assert.equal(
+    viewShareOf(view, (lat, lng) => lng < 3 && lat < 3),
+    0.25,
+  );
+  near(
+    viewShareOf(view, (lat, lng) => lng < 1 && lat < 1),
+    1 / 36,
+  );
+});
+
+test("holdInView: a box that covers the view is heard only as far as its loaded contour does", () => {
+  const { d1, contour } = overlapping();
+  const outlined = () => true;
+  // Zoomed in across the border: all of the view in D1's box, none in its
+  // contour.
+  const across = viewAt(7.2, 5, 2);
+  assert.equal(keptInView(d1.bounds, across), true);
+  assert.equal(holdInView(d1, across, contour, outlined), false);
+  // No contour loaded, or none asked: the box stands.
+  assert.equal(
+    holdInView(d1, across, contour, () => false),
+    true,
+  );
+  assert.equal(holdInView(d1, across, contour), true);
+  assert.equal(holdInView(d1, across), true);
+  // Astride the border: two columns of the grid's six in the contour — kept;
+  // a twentieth of the view's width, short of the first column — not.
+  assert.equal(holdInView(d1, viewAt(6.4, 5, 2), contour, outlined), true);
+  assert.equal(holdInView(d1, viewAt(6.9, 5, 2), contour, outlined), false);
+  // A tenth of the zone's box in view: kept on the box alone, whatever the
+  // contour (a zone smaller than the screen, pushed to an edge).
+  const wide = box(5, -5, 25, 15);
+  assert.equal(inViewShares(d1.bounds, wide).zone, 0.5);
+  assert.equal(
+    holdInView(d1, wide, () => false, outlined),
+    true,
+  );
+  // Out of view by its box: not kept, the contour is not asked.
+  assert.equal(
+    holdInView(d1, viewAt(40, 5, 2), () => assert.fail("asked"), outlined),
+    false,
+  );
+});
+
+test("a held zone whose contour has left the view is released: zooming in across its border", () => {
+  const { root, d1, contour } = overlapping();
+  const prefer = chain("D1");
+  const outlined = () => true;
+  // Zoomed in on e1: D1's box covers the view, its contour none of it — the
+  // walk is the one without a hold.
+  const across = viewAt(7.2, 5, 2);
+  assert.equal(scopeForView(root, across, prefer, contour, d1, outlined).id, "e1");
+  assert.equal(scopeForView(root, across, prefer, contour).id, "e1");
+  // Astride the border, the centre in D2: D1's contour is a third of the
+  // view — held, and none of its communes is entered (c2's box, 4…6, spans
+  // the whole view and is the nearest).
+  const astride = viewAt(6.4, 5, 2);
+  assert.equal(scopeForView(root, astride, prefer, contour, d1, outlined).id, "D1");
+  assert.equal(scopeForView(root, astride, prefer, contour).id, "e1");
 });
