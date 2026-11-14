@@ -110,3 +110,36 @@ export function warmupAtLoad(
   const place = usablePlace(outline) ? outline : usablePlace(framed) ? framed : null;
   return place ? { place } : null;
 }
+
+/** Mapbox's tile size, css px: the world is this wide at zoom 0. */
+const WORLD_CSS = 512;
+const mercX = (lng: number) => (lng + 180) / 360;
+const mercY = (lat: number) => {
+  const s = Math.sin((Math.max(-85.051129, Math.min(85.051129, lat)) * Math.PI) / 180);
+  return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+};
+
+/** The camera of a top-down mercator map, `cssPx` wide and high, that frames
+ *  `place` with `paddingCss` px left free on each side: what Mapbox's
+ *  cameraForBounds answers for it (no pitch, no bearing), computed here so
+ *  that a map can be created on it. Mapbox's own way to create a map on a
+ *  rectangle with a margin (`bounds` and `fitBoundsOptions.padding`) keeps
+ *  the margin as the map's padding from then on, and a padded map reports
+ *  bounds smaller than its canvas — which a lid shot reads as what its
+ *  picture covers. */
+export function cameraOver(
+  place: PlaceBounds,
+  cssPx: number,
+  paddingCss: number,
+): { center: [number, number]; zoom: number } {
+  const x0 = mercX(place.minLng);
+  const x1 = mercX(place.maxLng);
+  const y0 = mercY(place.maxLat); // north: the smaller y
+  const y1 = mercY(place.minLat);
+  const room = Math.max(1, cssPx - 2 * paddingCss);
+  const span = Math.max(x1 - x0, y1 - y0, 1e-12);
+  const zoom = Math.max(0, Math.min(22, Math.log2(room / (WORLD_CSS * span))));
+  const midY = (y0 + y1) / 2;
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - 2 * midY))) * 180) / Math.PI;
+  return { center: [((x0 + x1) / 2) * 360 - 180, lat], zoom };
+}

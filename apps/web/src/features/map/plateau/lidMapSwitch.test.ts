@@ -3,7 +3,8 @@
 // garbage and a throwing storage; the page's value with and without the
 // testing tools (the module read again under a fresh query); a choice kept
 // with a reload; the plan each choice gives each device tier and each lid
-// mode; what the visible map's load does about the hidden map.
+// mode; what the visible map's load does about the hidden map; the camera a
+// hidden map is created on.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -143,4 +144,40 @@ test("warmupAtLoad: the world at boot, the first place when one is known, nothin
   assert.equal(warmupAtLoad("first-place", undefined, { ...FRAMED, minLng: 20 }), null);
   // "none": never.
   assert.equal(warmupAtLoad("none", FR, FRAMED), null);
+});
+
+test("cameraOver: the centre and the zoom that frame a rectangle in a square map, its margin left free", async () => {
+  const { cameraOver } = await load(false);
+  // The whole mercator world in 512 px: zoom 0, centred; in 1024 px: zoom 1.
+  const world = { minLat: -85.051129, maxLat: 85.051129, minLng: -180, maxLng: 180 };
+  const w0 = cameraOver(world, 512, 0);
+  assert.ok(Math.abs(w0.zoom) < 1e-6);
+  assert.ok(Math.abs(w0.center[0]) < 1e-9 && Math.abs(w0.center[1]) < 1e-9);
+  assert.ok(Math.abs(cameraOver(world, 1024, 0).zoom - 1) < 1e-6);
+  // A margin leaves less room: 8 px on each side lowers the zoom by log2(1024 / 1008).
+  assert.ok(Math.abs(cameraOver(world, 1024, 8).zoom - (1 - Math.log2(1024 / 1008))) < 1e-6);
+  const fr = cameraOver(FR, 512, 8);
+  const frNoPad = cameraOver(FR, 512, 0);
+  assert.ok(Math.abs(frNoPad.zoom - fr.zoom - Math.log2(512 / 496)) < 1e-9);
+  // France: wider in mercator y than in x at these latitudes? The longer side decides.
+  const x = (9.6 + 5.2) / 360;
+  const y = (lat: number) =>
+    0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / (2 * Math.PI);
+  const span = Math.max(x, y(41.3) - y(51.1));
+  assert.ok(Math.abs(fr.zoom - Math.log2(496 / (512 * span))) < 1e-9);
+  // The centre: the middle in longitude, the mercator middle in latitude (north of the plain mean).
+  assert.ok(Math.abs(fr.center[0] - 2.2) < 1e-9);
+  assert.ok(fr.center[1] > (41.3 + 51.1) / 2 && fr.center[1] < 46.6);
+  assert.ok(Math.abs(y(fr.center[1]) - (y(41.3) + y(51.1)) / 2) < 1e-9);
+  // A rectangle past ±180 is centred where it is; a tiny one stops at zoom 22; a huge map at 0 at least.
+  assert.ok(
+    Math.abs(
+      cameraOver({ minLat: -20, maxLat: -10, minLng: 170, maxLng: 190 }, 512, 8).center[0] - 180,
+    ) < 1e-9,
+  );
+  assert.equal(
+    cameraOver({ minLat: 45, maxLat: 45.0000001, minLng: 4, maxLng: 4.0000001 }, 1024, 8).zoom,
+    22,
+  );
+  assert.equal(cameraOver(world, 64, 8).zoom, 0);
 });
