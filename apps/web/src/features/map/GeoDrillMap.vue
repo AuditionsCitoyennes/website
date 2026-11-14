@@ -500,6 +500,8 @@ function mountMap() {
     // A restored WebGL context comes back empty, and mapbox does not run onAdd
     // again for custom layers: the tint sheet is set up again (useScopeMask).
     map.on("webglcontextrestored", () => mask.onContextRestored());
+    // …and a lost one takes the lid's textures with it, the kept ones too.
+    map.on("webglcontextlost", () => lid.contextLost());
     // Hover (a mouse's) inside a unit's boundary reveals its (possibly
     // room-hidden) macro pin and shows a pointer; clicking inside the boundary
     // SELECTS the unit — the whole territory is the click target, the pin is

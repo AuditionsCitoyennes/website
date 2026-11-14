@@ -34,6 +34,8 @@ import {
   type MapPainterInternals,
 } from "./program";
 import { readLidGlLimits, uploadLidTexture } from "./lidTexture";
+import { LidTextureStore } from "./lidTextures";
+import type { LidCacheBudget } from "../plateau/lidCache";
 import {
   VIOLET,
   WALL_OVERSHOOT,
@@ -141,6 +143,16 @@ function hexRgb(hex: string): [number, number, number] {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
+/** What the lid's bookkeeping (usePlateauLid) keeps with a kept lid picture. */
+export interface LidKeptMeta {
+  /** The backing-store pixels its shot asked for. */
+  px: number;
+  /** The width it was captured at. */
+  width: number;
+  /** Ground metres per texel. */
+  mpp: number;
+}
+
 export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   id = "plateau-wall";
   type = "custom" as const;
@@ -188,7 +200,19 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private lidPositions = new Float32Array(0);
   private lidVertexCount = 0;
   private lidDirty = false;
-  private lidTexture: WebGLTexture | null = null;
+  // The lid's textures (./lidTextures): the one showing — what the draws
+  // below read as `lidTexture` and `lidMerc` — and the whole-unit pictures
+  // kept for a unit selected again (ac:lid-cache). A snapshot is uploaded in
+  // render (gl there), lazily.
+  private readonly lids = new LidTextureStore<LidKeptMeta>((gl, tex, bitmap) =>
+    uploadLidTexture(gl as WebGL2RenderingContext, tex, bitmap, this.anisoExt, this.maxAniso),
+  );
+  private get lidTexture(): WebGLTexture | null {
+    return this.lids.texture;
+  }
+  private get lidMerc() {
+    return this.lids.merc;
+  }
   /** GL_MAX_TEXTURE_SIZE, read in onAdd — caps the lid snapshot's pixel budget. */
   maxTextureSize = 0;
   // GL_MAX_TEXTURE_SIZE and the lid's anisotropy, read in onAdd (./lidTexture
@@ -196,8 +220,6 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   // maxAniso: 0 = not read yet (before onAdd), -1 = extension unavailable.
   private anisoExt: EXT_texture_filter_anisotropic | null = null;
   private maxAniso = 0;
-  private lidPending: Snapshot | null = null; // uploaded lazily in render (gl there)
-  private lidMerc: { minX: number; minY: number; spanX: number; spanY: number } | null = null;
   // ---- focus boundary lines ON the lid: true vectors extruded to screen-space
   // width in the shader, so they stay the same pixel size at every zoom (the old
   // approach baked them into the lid SNAPSHOT — a raster that fattened on zoom) ----
@@ -1106,19 +1128,49 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   }
 
   /** Provide/replace the lid's map texture (a hidden-map snapshot). Uploaded on
-   *  the next render. Passing null drops the lid (walls-only, the status quo). */
-  setLidTexture(snap: Snapshot | null) {
-    if (this.lidPending) {
-      this.lidPending.bitmap.close();
-      this.lidPending = null;
-    }
-    if (!snap) {
-      this.lidMerc = null; // render skips the lid; old GL texture freed on next upload
-      this.map?.triggerRepaint();
-      return;
-    }
-    this.lidPending = snap;
+   *  the next render. Passing null drops the lid (walls-only, the status quo).
+   *  `keep`: a whole-unit picture, kept under that key for the unit selected
+   *  again (ac:lid-cache), room allowing. */
+  setLidTexture(snap: Snapshot | null, keep: { key: string; meta: LidKeptMeta } | null = null) {
+    this.lids.set(snap, keep);
     this.map?.triggerRepaint();
+  }
+
+  /** What was handed with the lid picture kept under `key`; null: none is kept. */
+  keptLid(key: string): LidKeptMeta | null {
+    return this.lids.kept(key);
+  }
+
+  /** The lid picture kept under `key` is the lid from the next frame on: no
+   *  upload. False: none is kept. */
+  showKeptLid(key: string): boolean {
+    if (!this.lids.show(key)) return false;
+    this.map?.triggerRepaint();
+    return true;
+  }
+
+  /** A whole-unit picture kept under `key` without becoming the lid (the shot
+   *  of a run the visitor has left), room allowing. Uploaded on the next render. */
+  keepLidTexture(snap: Snapshot, keep: { key: string; meta: LidKeptMeta }) {
+    this.lids.keep(snap, keep);
+    this.map?.triggerRepaint();
+  }
+
+  /** How much the kept lid pictures may weigh (plateau/lidCache.ts). One
+   *  repaint when a smaller budget leaves textures to free. */
+  setLidKeepBudget(budget: LidCacheBudget) {
+    this.lids.setBudget(budget);
+    if (this.lids.dirty) this.map?.triggerRepaint();
+  }
+
+  /** The WebGL context was lost: the lid's textures went with it. */
+  forgetLidTextures() {
+    this.lids.forget();
+  }
+
+  /** The lid's textures, for the probe (./lidTextures stats). */
+  lidTextureStats() {
+    return this.lids.stats();
   }
 
   setScale(v: number) {
@@ -1404,8 +1456,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (this.buffer) gl.deleteBuffer(this.buffer);
     if (this.lidProgram) gl.deleteProgram(this.lidProgram);
     if (this.lidBuffer) gl.deleteBuffer(this.lidBuffer);
-    if (this.lidTexture) gl.deleteTexture(this.lidTexture);
-    if (this.lidPending) this.lidPending.bitmap.close();
+    this.lids.dispose(gl);
     if (this.lineProgram) gl.deleteProgram(this.lineProgram);
     if (this.lineBuffer) gl.deleteBuffer(this.lineBuffer);
     for (const p of [
@@ -1452,11 +1503,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.buffer = null;
     this.lidProgram = null;
     this.lidBuffer = null;
-    this.lidTexture = null;
     this.anisoExt = null;
     this.maxAniso = 0;
-    this.lidPending = null;
-    this.lidMerc = null;
     this.lineProgram = null;
     this.lineBuffer = null;
     this.gWallProg = null;
@@ -1517,20 +1565,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     ) {
       return;
     }
-    // Upload a freshly captured snapshot (bitmap → texture) whichever regime draws.
-    if (this.lidPending) {
-      const snap = this.lidPending;
-      this.lidPending = null;
-      // Reuse the texture object: deleting one the driver may still be sampling
-      // forces a sync, and texImage2D fully re-specs (a different size is fine),
-      // so there is nothing to gain from a fresh name. The lid is now re-captured
-      // on zoom, making this a repeated cost rather than a one-off.
-      const tex = this.lidTexture ?? gl.createTexture();
-      uploadLidTexture(gl, tex, snap.bitmap, this.anisoExt, this.maxAniso);
-      this.lidTexture = tex;
-      this.lidMerc = snap.merc;
-      snap.bitmap.close();
-    }
+    // Upload a freshly captured snapshot (bitmap → texture) whichever regime
+    // draws, and free the textures no longer kept (./lidTextures). A picture
+    // that is not kept reuses the one texture object: deleting one the driver
+    // may still be sampling forces a sync, and texImage2D fully re-specs (a
+    // different size is fine), so there is nothing to gain from a fresh name.
+    // The lid is re-captured on zoom, making this a repeated cost.
+    if (this.lids.dirty) this.lids.frame(gl);
     gl.disable(gl.CULL_FACE); // wall sheet is double-sided; lid winding is mixed
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
