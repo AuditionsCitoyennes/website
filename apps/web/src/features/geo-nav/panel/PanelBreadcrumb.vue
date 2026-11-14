@@ -5,8 +5,9 @@
 // ends at the lieu itself; an arrow before it goes one level up (backTarget.ts).
 // While the unit at its end was tapped and its plateau is long in coming
 // (`waiting`), three small dots follow its name: the sign of a long wait.
-// Their room is kept at the row's end at all times, so the crumbs are fitted
-// once and nothing on the row moves when the dots come and go.
+// They sit on the row like a crumb: where the row is full to within their
+// width, one more leading crumb collapses for as long as they show; anywhere
+// else nothing on the row moves.
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { backTarget } from "./backTarget";
@@ -47,7 +48,8 @@ async function fitCrumbs() {
   }
 }
 watch(
-  () => props.trail,
+  // The dots take room on the row too: fitted again as they come and go.
+  () => [props.trail, props.waiting],
   () => void fitCrumbs(),
   { flush: "post" },
 );
@@ -138,11 +140,9 @@ function goBack() {
       </button>
       <span v-if="i < visibleCrumbs.length - 1" class="crumb-sep" aria-hidden="true">›</span>
     </template>
-    <!-- The long wait's dots, in a room of their own (always there: see the
-         header). Said by the list's aria-busy and, later, by the page's live
-         sentence. -->
-    <span class="crumb-wait-room" aria-hidden="true">
-      <span v-if="waiting" class="wait-dots moving crumb-wait"><i></i><i></i><i></i></span>
+    <!-- Said by the list's aria-busy and, later, by the page's live sentence. -->
+    <span v-if="waiting" class="wait-dots moving crumb-wait" aria-hidden="true">
+      <i></i><i></i><i></i>
     </span>
   </nav>
 </template>
@@ -207,16 +207,7 @@ function goBack() {
 }
 
 /* The sign of a long wait (the shared .wait-dots), in the current crumb's
-   colour, right after it — in a room as wide as the three dots, kept even
-   when empty: fitCrumbs counts it, so the dots never push a crumb. */
-.crumb-wait-room {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  width: 1.45em;
-  height: 1em;
-}
-
+   colour, right after it. */
 .crumb-wait {
   color: hsl(var(--primary));
 }
