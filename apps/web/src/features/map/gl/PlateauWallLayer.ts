@@ -443,6 +443,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private slabPieceProg: GlProg | null = null;
   private gSlabPieceProg: GlProg | null = null;
   private slabMat = new Float32Array(16);
+  /** A frame's matrices as the programs take them (float32), kept across
+   *  frames: the mercator one with the mesh's origin folded in, the globe's
+   *  projection and globe-to-mercator ones. */
+  private frameMat = new Float32Array(16);
+  private globeProj = new Float32Array(16);
+  private globeG2m = new Float32Array(16);
   /**
    * The slabs' own layer, drawn with this one's programs and buffers: mapbox
    * draws the map's labels (the Standard style's have an occlusion opacity)
@@ -1716,14 +1722,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (!this.program || !this.buffer) return;
     // Fold the mesh origin into the (float64) matrix so float32 vertices keep
     // sub-metre precision: M' = M × T(origin).
-    const m = matrix;
-    const [tx, ty] = this.origin;
-    const t = m.slice();
-    t[12] = m[0] * tx + m[4] * ty + m[12];
-    t[13] = m[1] * tx + m[5] * ty + m[13];
-    t[14] = m[2] * tx + m[6] * ty + m[14];
-    t[15] = m[3] * tx + m[7] * ty + m[15];
-    const mat = new Float32Array(t);
+    // Into an array kept across frames: nothing is allocated per frame.
+    const mat = foldOrigin(matrix, this.origin[0], this.origin[1], this.frameMat);
 
     gl.disable(gl.CULL_FACE); // wall sheet is double-sided; lid winding is mixed
     gl.enable(gl.DEPTH_TEST);
@@ -2261,8 +2261,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     center: number[],
     pxRatio: number,
   ) {
-    const proj = new Float32Array(matrix);
-    const g2m = new Float32Array(globeToMerc);
+    // Two arrays kept across frames. The plateau's draw and the slabs' own
+    // each take their binders and use them before the other asks for its own.
+    const proj = this.globeProj;
+    const g2m = this.globeG2m;
+    proj.set(matrix);
+    g2m.set(globeToMerc);
     const setCommon = (p: GlProg) => {
       gl.useProgram(p.prog);
       gl.uniformMatrix4fv(p.uni.uProj, false, proj);
