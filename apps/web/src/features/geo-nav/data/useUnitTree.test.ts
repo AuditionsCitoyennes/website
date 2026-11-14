@@ -738,3 +738,46 @@ test("the filter dialog reopened while a place picker read is on its way: a refu
   assert.equal(times("fr:reg:84"), 2, "asked again after Retry-After");
   assert.equal(picker(tree)[0].lazy, undefined, "its children in");
 });
+
+test("retryFailed: a world that failed at the start is asked for again and goes on screen", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  fake.failWith(() => new ApiError("down", 500));
+  tree.request({ key: "", params: {} });
+  await wait(80);
+  assert.equal(tree.failed(), true, "the error line");
+  assert.equal(tree.retryFailed(), true);
+  assert.equal(tree.failed(), false, "loading while it is asked again");
+  await wait(80);
+  assert.equal(tree.failed(), true, "failed again");
+  fake.failWith(null);
+  const before = fake.calls.length;
+  assert.equal(tree.retryFailed(), true);
+  assert.equal(tree.failed(), false, "no error line while it is asked again");
+  await wait(120);
+  assert.deepEqual(
+    fake.calls.slice(before).map((c) => c.units),
+    [["world"]],
+  );
+  assert.equal(tree.shownKey(), "");
+  assert.equal(tree.failed(), false);
+  assert.equal(tree.retryFailed(), false, "nothing failed: nothing asked");
+  assert.equal(fake.calls.length, before + 1);
+});
+
+test("retryFailed: a scope's answer that failed under the tree on screen is asked for again", async () => {
+  const fake = fakeApi();
+  const { tree } = store(fake);
+  tree.request({ key: "", params: {} });
+  await wait(80);
+  fake.failWith((c) => (c.units.includes("fr:dep:69") ? new ApiError("down", 500) : null));
+  tree.ensure(["fr:dep:69"]);
+  await wait(80);
+  assert.equal(tree.failed("fr:dep:69"), true);
+  fake.failWith(null);
+  const before = fake.calls.length;
+  assert.equal(tree.retryFailed(), true);
+  await wait(120);
+  assert.ok(fake.calls.slice(before).some((c) => c.units.includes("fr:dep:69")));
+  assert.equal(tree.failed("fr:dep:69"), false);
+});

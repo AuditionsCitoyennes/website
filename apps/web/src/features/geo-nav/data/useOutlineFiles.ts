@@ -18,6 +18,12 @@
 // container: geometry must stay a plain, identity-stable object (the WeakMap
 // caches are keyed on it).
 //
+// Under `ac:recover` "auto" (shared/net/recoverSwitch.ts), a boot failed on
+// the network is not a fallback: the session turns "late" and the boot is
+// asked again after RECOVER_DELAYS_MS, then whenever the browser is back
+// online or the page shown again — which also lets a file failed on the
+// network be asked again by the next move.
+//
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's
 // only trace of it.
@@ -35,6 +41,8 @@ import {
 } from "@/features/geo";
 import { whenMapStill } from "@/features/map/lib";
 import { absoluteBase } from "@/shared/absoluteUrl";
+import { onReconnect } from "@/shared/net/reconnect";
+import { recover, RECOVER_DELAYS_MS } from "@/shared/net/recoverSwitch";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BundleState } from "../model/outlineRules";
 import { outlinesBuild } from "./outlinesBuild";
@@ -167,7 +175,9 @@ function createOutlineFiles(): OutlineFiles {
       ready.value = r;
       if (r === "late") {
         if (import.meta.env.DEV)
-          console.info(`[outlines] boot past ${BOOT_MS} ms, still under way`);
+          console.info(
+            `[outlines] boot late (past ${BOOT_MS} ms, or failed on the network), still under way`,
+          );
         if (perfOn) perfNote("outline.late", 0);
         return;
       }
@@ -184,6 +194,7 @@ function createOutlineFiles(): OutlineFiles {
     span: perfOn ? perfSpan : undefined,
     bootMs: BOOT_MS,
     bootCap: __TEST_TOOLS__ ? storedBootCap() : "late",
+    bootRetryMs: recover === "auto" ? RECOVER_DELAYS_MS : undefined,
     lowParallel: decorLow ? DECOR_PARALLEL : undefined,
     applyLow: decorLow
       ? stillApply({
@@ -193,6 +204,9 @@ function createOutlineFiles(): OutlineFiles {
         })
       : undefined,
   });
+
+  // For the page's life: the loader is the page's, not a mount's.
+  if (recover === "auto") onReconnect(() => loader.reconnect());
 
   // Reads version first: a computed calling an accessor tracks the store.
   const read = <T>(fn: (s: OutlineStore) => T): T => {

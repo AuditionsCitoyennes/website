@@ -64,7 +64,17 @@ import {
   setMeshMode,
   setReliefPrefetch,
 } from "@/features/map";
-import { bootList, outlinesDecor, setBootList, setOutlinesDecor } from "@/features/geo-nav";
+import {
+  bootList,
+  filtersLoad,
+  outlinesDecor,
+  prefetch,
+  setBootList,
+  setFiltersLoad,
+  setOutlinesDecor,
+  setPrefetch,
+} from "@/features/geo-nav";
+import { recover, setRecover } from "@/shared/net/recoverSwitch";
 import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
 import { compareState } from "./compare";
 import {
@@ -120,6 +130,9 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:card-open": bind(() => cardOpen, setCardOpen),
   "ac:home-boot": bind(() => homeBoot, setHomeBoot),
   "ac:hero": bind(() => hero, setHero),
+  "ac:recover": bind(() => recover, setRecover),
+  "ac:filters-load": bind(() => filtersLoad, setFiltersLoad),
+  "ac:prefetch": bind(() => prefetch, setPrefetch),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
