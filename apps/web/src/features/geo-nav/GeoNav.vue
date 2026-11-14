@@ -22,6 +22,8 @@ import {
   useScopeAnalysis,
 } from "@/features/analyses";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
+import FrancePoster from "@/shared/ui/FrancePoster.vue";
+import { curtainPoster, poster } from "@/shared/ui/posterSwitch";
 import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
@@ -180,6 +182,8 @@ onBeforeUnmount(() => clearTimeout(bootCap));
 // What the curtain covers: the map's box alone, the panel usable over it as
 // soon as its rows are in (`ac:boot-list`, bootListSwitch), or the whole page.
 const bootCover = computed(() => bootCurtainCover(bootList, props.preview));
+/** France under the curtain's spinner (`ac:poster`, shared/ui/posterSwitch). */
+const withPoster = curtainPoster(poster);
 
 // Direction of the level swap, from how deep the new scope sits in the
 // hierarchy: going deeper brings the new list in from the right, stepping back
@@ -835,6 +839,7 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
         role="status"
         aria-live="polite"
       >
+        <FrancePoster v-if="withPoster" class="boot-poster" />
         <span class="spinner spinner-lg" aria-hidden="true"></span>
         <p>Chargement de la carte…</p>
       </div>
@@ -965,6 +970,29 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
 .boot.boot-map.sheet {
   padding-right: 0;
   padding-bottom: var(--sheet-peek, 0px);
+}
+
+/* France under the spinner and its words (`ac:poster`), in the part of the
+   map the panel leaves free. */
+.boot-poster {
+  position: absolute;
+  inset: 10%;
+  width: auto;
+  height: auto;
+  opacity: 0.45;
+}
+
+.boot.boot-map .boot-poster {
+  right: calc(10% + var(--panel-cover, 0px));
+}
+
+.boot.boot-map.sheet .boot-poster {
+  right: 10%;
+  bottom: calc(10% + var(--sheet-peek, 0px));
+}
+
+.boot > :not(.boot-poster) {
+  position: relative;
 }
 
 /* Fade the curtain out only — it is covering the entrance animation, so it must
