@@ -39,6 +39,10 @@ const glyphSwitch = await import("../map/glyphSwitch");
 const mapPreloadPlan = await import("../../shared/boot/mapPreloadPlan");
 const glassSwitch = await import("../../shared/device/glassSwitch");
 const authClientSwitch = await import("../../shared/api/authClientSwitch");
+const fallbackSwitch = await import("../map/fallbackSwitch");
+const posterSwitch = await import("../../shared/ui/posterSwitch");
+const cardOpenSwitch = await import("../../shared/device/cardOpenSwitch");
+const homeBootPlan = await import("../../shared/boot/homeBootPlan");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -55,6 +59,11 @@ const MODULES = {
   mapPreload: "../../shared/boot/mapPreload.ts",
   glass: "../../shared/device/glassSwitch.ts",
   authClient: "../../shared/api/authClientSwitch.ts",
+  fallback: "../map/fallbackSwitch.ts",
+  poster: "../../shared/ui/posterSwitch.ts",
+  cardOpen: "../../shared/device/cardOpenSwitch.ts",
+  homeBootPlan: "../../shared/boot/homeBootPlan.ts",
+  homeBoot: "../../shared/boot/homeBoot.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -85,6 +94,11 @@ const KEYS: readonly DevKey[] = [
   "ac:map-preload",
   "ac:glass",
   "ac:auth-client",
+  "ac:map-fallback",
+  "ac:poster",
+  "ac:card-open",
+  "ac:home-boot",
+  "ac:hero",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -98,7 +112,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 20);
+  assert.equal(DEV_OPTIONS.length, 25);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -180,6 +194,11 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:map-preload": ["mapPreload", "setMapPreload"],
   "ac:glass": ["glass", "setGlass"],
   "ac:auth-client": ["authClient", "setAuthClient"],
+  "ac:map-fallback": ["fallback", "setMapFallback"],
+  "ac:poster": ["poster", "setPoster"],
+  "ac:card-open": ["cardOpen", "setCardOpen"],
+  "ac:home-boot": ["homeBoot", "setHomeBoot"],
+  "ac:hero": ["homeBoot", "setHero"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -214,9 +233,14 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
       "Contours voisins",
       "Police des noms",
       "Code de la carte",
+      "Carte indisponible",
+      "Image d'attente",
       "Niveau",
       "Verre dépoli",
+      "Ouverture de la carte",
       "Connexion",
+      "Accueil",
+      "Photo de l'accueil",
     ],
   );
 });
@@ -251,6 +275,11 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:map-preload"), [...mapPreloadPlan.MAP_PRELOADS]);
   assert.deepEqual(ids("ac:glass"), [...glassSwitch.GLASSES]);
   assert.deepEqual(ids("ac:auth-client"), [...authClientSwitch.AUTH_CLIENTS]);
+  assert.deepEqual(ids("ac:map-fallback"), [...fallbackSwitch.MAP_FALLBACKS]);
+  assert.deepEqual(ids("ac:poster"), [...posterSwitch.POSTERS]);
+  assert.deepEqual(ids("ac:card-open"), [...cardOpenSwitch.CARD_OPENS]);
+  assert.deepEqual(ids("ac:home-boot"), [...homeBootPlan.HOME_BOOTS]);
+  assert.deepEqual(ids("ac:hero"), [...homeBootPlan.HEROES]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -285,6 +314,11 @@ test("the default marked in each sentence is the module's", () => {
     "ac:map-preload": mapPreloadPlan.DEFAULT_MAP_PRELOAD,
     "ac:glass": glassSwitch.DEFAULT_GLASS,
     "ac:auth-client": authClientSwitch.DEFAULT_AUTH_CLIENT,
+    "ac:map-fallback": fallbackSwitch.DEFAULT_MAP_FALLBACK,
+    "ac:poster": posterSwitch.DEFAULT_POSTER,
+    "ac:card-open": cardOpenSwitch.DEFAULT_CARD_OPEN,
+    "ac:home-boot": homeBootPlan.DEFAULT_HOME_BOOT,
+    "ac:hero": homeBootPlan.DEFAULT_HERO,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
