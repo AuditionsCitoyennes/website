@@ -78,6 +78,8 @@ export function usePlateauLid({
   let dedupeSkips = 0;
   let adopted = 0;
   let lastCapturePx = 0; // backing-store width the last capture asked for
+  // What waits for the shot running to end (whenIdle).
+  const idleJobs = new Set<() => void>();
   let lidRecaptureTimer: ReturnType<typeof setTimeout> | null = null;
   // Bounds the current (or in-flight) lid texture covers. Guards against
   // re-shooting a texture we already have — snapshotMgr.capture() bumps its own
@@ -271,6 +273,11 @@ export function usePlateauLid({
         inFlightKey = "";
         inFlightId = 0;
         selectInFlight = false;
+        // No shot is running any more: what waited for that runs, once.
+        for (const job of [...idleJobs]) {
+          idleJobs.delete(job);
+          job();
+        }
       }
     }
   }
@@ -427,6 +434,18 @@ export function usePlateauLid({
     hasTexture: () => Number.isFinite(lidMpp) && !selectInFlight,
     /** The rectangle the current lid texture covers. */
     covered: () => lidCovered,
+    /** A shot is running (the hidden map is loading tiles and rendering). */
+    busy: () => !!inFlightKey,
+    /** Runs `job` once no shot is running: now if none is, else when the one
+     *  running ends (landed or not). Returns its cancellation. */
+    whenIdle: (job: () => void): (() => void) => {
+      if (!inFlightKey) {
+        job();
+        return () => {};
+      }
+      idleJobs.add(job);
+      return () => void idleJobs.delete(job);
+    },
     /** Hidden lid-snapshot map: pay the style init now (the load handler). */
     warmup: () => {
       if (!noLid) snapshotMgr.warmup(style);
