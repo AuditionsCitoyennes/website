@@ -49,6 +49,12 @@ export function lidCacheBudget(i: LidCacheBudgetInput): LidCacheBudget {
   return { bytes: 64 * MIB, count: 4 };
 }
 
+/** Whether a kept picture answers an ask for the same rectangle at `px`
+ *  backing-store pixels: it does when it was shot for at least as many — a
+ *  finer ask is shot anew, and its picture kept in the coarser one's place. */
+export const keptAnswers = (kept: { px: number } | null | undefined, px: number): boolean =>
+  !!kept && kept.px >= px;
+
 interface Entry<V> {
   value: V;
   bytes: number;

@@ -29,7 +29,10 @@
 // 6. The chain: a scope's bundles, root first (bundlesFor), loaded in turn.
 // 7. A panel row held under the pointer asks for its unit's bundle before the
 //    click (data/hoverPrefetch, GeoNav): a région's self is in it; a
-//    country's, its u/ (outlineRoles' prefetchKind).
+//    country's, its u/ (outlineRoles' prefetchKind). A touch screen, which
+//    no pointer hovers, asks the file of the one or two units holding the
+//    most testimonies under the first plateau, once the map is at rest
+//    (data/idlePrefetch, ac:outlines-ahead).
 // 8. An overseas territory's région reads its département's files (geo's
 //    OutlineStore.filesIdOf).
 import { countryOutline, lngNear, selfFileOf } from "@/features/geo";

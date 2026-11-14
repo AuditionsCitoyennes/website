@@ -13,7 +13,7 @@ import type { OutlineFC } from "../types";
 import type { LidKeptMeta, PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { SnapshotManager, type Snapshot } from "../plateau/mapSnapshot";
 import { lidCheck, lidMode } from "../plateau/lidSwitch";
-import { lidCacheBudget } from "../plateau/lidCache";
+import { keptAnswers, lidCacheBudget } from "../plateau/lidCache";
 import { lidCacheMode } from "../plateau/lidCacheSwitch";
 import { boundsOfFeatures, unionBounds } from "../lib/polygon";
 import { whenMapStill } from "../lib/stillMap";
@@ -89,8 +89,10 @@ export function usePlateauLid({
   // What waits for the shot running to end (whenIdle).
   const idleJobs = new Set<() => void>();
   // ac:lid-cache: the asks a kept picture answered, the shots of a run since
-  // left that were kept, and the one of those held until the map is still
-  // (its upload is not for the flight or the rise of the unit selected since).
+  // left that were handed to the layer to keep, and the one of those held
+  // until the map is still (its upload is not for the flight or the rise of
+  // the unit selected since).
+  let keeps = false; // pictures are kept (the budget at the last ask)
   let cacheHits = 0;
   let straysKept = 0;
   let strayHeld: { snap: Snapshot; key: string; meta: LidKeptMeta; cancel: () => void } | null =
@@ -186,7 +188,8 @@ export function usePlateauLid({
       lowMemory: (deviceSignals().deviceMemory ?? Infinity) <= 4,
     });
     plateauWall.setLidKeepBudget(budget);
-    return budget.bytes > 0;
+    keeps = budget.bytes > 0;
+    return keeps;
   }
 
   /** The held picture of a run since left is given up. */
@@ -305,7 +308,7 @@ export function usePlateauLid({
       // its own lid while it sinks. A shot running for another run goes on,
       // and is kept when it lands.
       const kept = plateauWall.keptLid(rect);
-      if (kept && kept.px >= px) {
+      if (kept && keptAnswers(kept, px)) {
         // The one showing already, or waiting for its plateau: nothing to do.
         const current = plateauWall.keptLidCurrent() === rect;
         if (current || plateauWall.showKeptLid(rect, unitOf(raised))) {
@@ -321,7 +324,7 @@ export function usePlateauLid({
       }
       // …or it landed for a run since left and is held for a still map: it
       // is this run's now, uploaded as a landing shot is.
-      if (strayHeld && strayHeld.key === rect && strayHeld.meta.px >= px) {
+      if (strayHeld && strayHeld.key === rect && keptAnswers(strayHeld.meta, px)) {
         const { snap, meta, cancel } = strayHeld;
         cancel();
         strayHeld = null;
@@ -335,8 +338,10 @@ export function usePlateauLid({
     }
     // A picture of this rectangle held for a still map is about to be stale.
     if (strayHeld?.key === rect) dropStray();
-    // A kept lid waiting for its plateau is not this shot's unit's.
-    plateauWall.cancelKeptLid();
+    // A kept lid waiting for another unit's plateau will not show: this
+    // shot's unit is the one selected now. (This unit's own stays: it shows
+    // at the commit if this shot, a finer one, has not landed by then.)
+    if (unitOf(raised) !== lidFor) plateauWall.cancelKeptLid();
     lidTargetKey = key;
     const id = ++captureCount;
     inFlightKey = key;
@@ -539,7 +544,8 @@ export function usePlateauLid({
       lidDedupeSkips: dedupeSkips,
       lidAdopted: adopted,
       // ac:lid-cache: the switch, the asks a kept picture answered, the shots
-      // of a run since left that were kept, and the layer's textures — what
+      // of a run since left handed to the layer to keep, the one held for a
+      // still map, and the layer's textures — what
       // is kept (the least recently shown first), its bytes and the cap, the
       // key showing, the uploads and the pictures shown again without one.
       lidCache: {
@@ -559,13 +565,14 @@ export function usePlateauLid({
     reset,
     /** A texture is showing (or has been): its resolution is known. Not while a
      *  select's shot runs ("ecran"): the lid showing is the previous unit's.
-     *  Nor when the lid is another unit's than the plateau standing (a kept
-     *  lid waiting for a plateau the visitor left before it stood): the run
-     *  for the standing unit then asks for its own again. */
+     *  Nor, while pictures are kept (ac:lid-cache), when the lid is another
+     *  unit's than the plateau standing — a kept lid waiting for a plateau
+     *  the visitor left before it stood: the run for the standing unit then
+     *  asks for its own again. */
     hasTexture: () =>
       Number.isFinite(lidMpp) &&
       !selectInFlight &&
-      (!lidFor || !plateauWall.scopeId || lidFor === plateauWall.scopeId),
+      (!keeps || !lidFor || !plateauWall.scopeId || lidFor === plateauWall.scopeId),
     /** The rectangle the current lid texture covers. */
     covered: () => lidCovered,
     /** A shot is running (the hidden map is loading tiles and rendering). */
