@@ -14,6 +14,7 @@
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
 // geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
 // map/threadSwitch, map/plateau/lidMapSwitch, map/plateau/lineMeshSwitch,
+// map/plateau/riseSwitch,
 // map/cacheBudget, analyses/devSwitch,
 // shared/device/deviceTier, shared/device/motion). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
@@ -80,7 +81,9 @@ export type DevKey =
   | "ac:lid-map"
   | "ac:map-caches"
   | "ac:line-mesh"
-  | "ac:motion";
+  | "ac:motion"
+  | "ac:rise"
+  | "ac:rise-order";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -569,6 +572,33 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Les traits violets des limites (communes, départements, régions, pays) sont remis à la puce graphique sous une forme plus ou moins lourde. « Allégés » (par défaut) remet chaque segment une seule fois, sous une forme huit fois plus petite, et ne trace qu'une fois la limite que deux territoires voisins partagent sur le dessus du relief : la carte occupe moins de mémoire, et l'image est la même. « Entiers » remet tout comme avant.",
     reloads: true,
     defaultId: "lean",
+  },
+  {
+    key: "ac:rise",
+    section: "carte",
+    label: "Montée",
+    choices: [
+      { id: "steps", label: "Pas à pas" },
+      { id: "transition", label: "Continue" },
+    ],
+    explain:
+      "Comment le sol monte et redescend avec le territoire choisi. « Pas à pas » (par défaut) redonne à la carte la hauteur du sol à chaque image, comme avant : la carte redessine alors tout le sol à chaque image. « Continue » lui donne la hauteur d'arrivée une seule fois et la laisse y aller seule, les parois et le dessus suivant le sol image par image : la carte a moins à redessiner, et le mouvement part plus doucement. Sans effet quand le sol reste plat (choix « Sol »).",
+    reloads: false,
+    defaultId: "steps",
+  },
+  {
+    key: "ac:rise-order",
+    section: "carte",
+    label: "Ordre",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "flight", label: "En vol" },
+      { id: "after", label: "À l'arrivée" },
+    ],
+    explain:
+      "Le moment où le territoire choisi se soulève. « Auto » (par défaut) suit le niveau de l'appareil (section Appareil) : « En vol » au niveau complet, « À l'arrivée » aux niveaux léger et minimal. « En vol » le soulève pendant que la carte se déplace vers lui, comme avant. « À l'arrivée » attend que la carte soit arrivée : pendant le déplacement le territoire reste à plat, ses contours déjà tracés, puis il monte ; la carte a moins à calculer pendant qu'elle bouge.",
+    reloads: false,
+    defaultId: "auto",
   },
   {
     key: "ac:analyses-pending",
