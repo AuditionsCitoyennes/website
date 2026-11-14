@@ -22,7 +22,7 @@ import type { MeshClient } from "./gl/meshClientCore";
 import { lateFilesMode } from "./plateau/lateFilesSwitch";
 import { meshMode } from "./plateau/meshSwitch";
 import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
-import { labelGlyphOptions, whenLabelFont } from "./labelFont";
+import { labelGlyphOptions, labelTileGate } from "./labelFont";
 import { useMapView, type MapView } from "./composables/useMapView";
 import { useScopeMask } from "./composables/useScopeMask";
 import { usePlateauFrames } from "./composables/usePlateauFrames";
@@ -403,9 +403,6 @@ function startWorkers() {
   }
 }
 
-/** The map's creation waiting for the labels' font (labelFont.ts), cancelled
- *  by an unmount meanwhile. */
-let cancelMount: () => void = () => {};
 onMounted(() => {
   if (!TOKEN && import.meta.env.DEV) {
     console.warn("No map: set VITE_MAPBOX_TOKEN in apps/web/.env");
@@ -414,9 +411,7 @@ onMounted(() => {
     emitReady(); // no map will ever load — release the boot overlay
     return;
   }
-  // At once, unless the labels are drawn with the site's font and it is not
-  // in yet (ac:glyphs, glyphSwitch.ts).
-  cancelMount = whenLabelFont(mountMap);
+  mountMap();
 });
 
 function mountMap() {
@@ -450,9 +445,13 @@ function mountMap() {
       // globe-native (dual mercator/ECEF programs morphed onto the sphere below
       // z6 via the experimental custom-layer API), so no projection juggling.
       // The plateau's `ac-dem://` DEM tiles answered in the page (relief/demHook.ts),
-      // every other URL left alone. Typed as sync by mapbox's .d.ts, but awaited
-      // at runtime (`params || {url}`): one cast.
-      transformRequest: demTransformRequest as unknown as mapboxgl.MapOptions["transformRequest"],
+      // every other URL left alone — and, where the labels are drawn with the
+      // site's font, a tile asked for before that font is in waits for it
+      // (labelFont.ts): the map itself never does. Typed as sync by mapbox's
+      // .d.ts, but awaited at runtime (`params || {url}`): one cast.
+      transformRequest: labelTileGate(
+        demTransformRequest,
+      ) as unknown as mapboxgl.MapOptions["transformRequest"],
       // The labels' letters: the style's files, or drawn on the device with
       // the site's font (ac:glyphs, labelFont.ts). The lid's map gets the same.
       ...labelGlyphOptions(),
@@ -496,16 +495,6 @@ function mountMap() {
       mask.applyOutline();
       mask.applyMask();
       pins.buildMarkers();
-      // The lid's hidden map (plateau/lidMapSwitch.ts): created now on the
-      // first place a plateau will stand on — the scope's outline when it is
-      // in, else what the first camera command frames — so the tiles it
-      // loads are the first lid's; with no place known, at the first shot.
-      lid.warmup(
-        boundsOfFeatures(
-          (props.outline?.features ?? []).filter((f) => f.properties?.kind === "scope"),
-        ),
-        props.camera?.type === "fit" ? (props.camera.bounds ?? null) : null,
-      );
       // ac:boot-workers=load: the two workers start only now.
       if (workersStartAt(bootWorkers) === "load") startWorkers();
       // The ground the plateaus will stand on (usePlateau): where it stays
@@ -520,6 +509,23 @@ function mountMap() {
       }
       if (props.camera) camera.runCamera({ ...props.camera, animate: false });
       view.emitView();
+      // The lid's hidden map (plateau/lidMapSwitch.ts): created on the first
+      // place a plateau will stand on — the scope's outline when it is in,
+      // else what the camera command frames — so the tiles it loads are the
+      // first lid's; with no place known, at the first shot. Now when this
+      // map's own tiles are in (the usual load: the hidden map then finds
+      // them in Mapbox's tile cache). When the command above moved the view,
+      // they are on their way: the hidden map waits for them (the first
+      // `idle`) rather than download the same tiles beside them.
+      const warmLid = () =>
+        lid.warmup(
+          boundsOfFeatures(
+            (props.outline?.features ?? []).filter((f) => f.properties?.kind === "scope"),
+          ),
+          props.camera?.type === "fit" ? (props.camera.bounds ?? null) : null,
+        );
+      if (map?.areTilesLoaded()) warmLid();
+      else map?.once("idle", warmLid);
       // INTRO: wait for the first idle (basemap fully painted, capped at 4 s),
       // then tilt + raise in one gesture (useMapCamera.beginIntro). A user
       // interaction or an animated flight before that releases the intro on
@@ -627,6 +633,13 @@ function mountMap() {
 
     setTimeout(() => map?.resize(), 0);
     setTimeout(() => map?.resize(), 300);
+
+    // A camera command given before this map existed (the page framed its
+    // first unit while the map's code was on its way) is the map's first
+    // view: run now, in one step, before the style is in — so before any
+    // tile is asked for. The view above is only that of a map nobody has
+    // framed yet.
+    if (props.camera) camera.runCamera({ ...props.camera, animate: false });
   } catch (e) {
     console.error("Mapbox init failed:", e);
     unavailable.value = true;
@@ -668,7 +681,6 @@ window.addEventListener(MAP_MOVED_EVENT, onMapMoved);
 // lid's hidden map; the resize observer; the markers; the still-map scheduler
 // let go of the map; the map itself; the flags; the frame bus; the probes.
 onBeforeUnmount(() => {
-  cancelMount();
   window.removeEventListener(MAP_MOVED_EVENT, onMapMoved);
   pins.dispose();
   camera.dispose();

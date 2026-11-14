@@ -10,7 +10,7 @@ import {
   type ShotIO,
 } from "./lidShot";
 import { lidTier, shotPixels, type LidTier } from "./lidTier";
-import { labelGlyphOptions } from "../labelFont";
+import { labelGlyphOptions, labelTileGate } from "../labelFont";
 import { nativePixelRatio, screenPerMapPixel } from "../pixelRatio";
 
 // One persistent HIDDEN Mapbox map used to snapshot the basemap for the plateau's
@@ -187,8 +187,11 @@ export class SnapshotManager {
       // Always mercator (the main map runs the style's globe, this one must not): a globe-rendered capture below ~z6 would be curved and useless as a
       // flat mercator lid texture.
       projection: "mercator",
-      // The main map's labels (ac:glyphs): the picture shows the letters the map shows.
+      // The main map's labels (ac:glyphs): the picture shows the letters the
+      // map shows, and its tiles wait for the labels' font as the map's do
+      // (labelFont.ts; awaited by mapbox, typed as sync: one cast).
       ...labelGlyphOptions(),
+      transformRequest: labelTileGate() as unknown as mapboxgl.MapOptions["transformRequest"],
       // Created on its first shot's rectangle: the tiles it asks for from its
       // first frame are that shot's, not the world's. As a centre and a zoom
       // (lidMapSwitch.ts cameraOver), not as `bounds` with a padding: Mapbox
