@@ -2,6 +2,8 @@
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ROUTE } from "@/shared/routes";
+import { deviceTier } from "@/shared/device/deviceTier";
+import { cardGrows, cardOpen } from "@/shared/device/cardOpenSwitch";
 import { MAP_MOVED_EVENT } from "@/features/map/events";
 import { loadTemoignagesExplorer } from "@/features/temoignages";
 import { useMapStage } from "./useMapStage";
@@ -97,7 +99,10 @@ async function open() {
   stage.opening.value = { top: from.top, left: from.left, width: from.width, height: from.height };
   try {
     await nextTick();
-    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    // Grows, unless reduced motion is asked for or, on a weak device, the
+    // page is to appear at once (`ac:card-open`, shared/device/cardOpenSwitch).
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (cardGrows(cardOpen, deviceTier(), reduced)) {
       // Where it starts, computed before it grows — or the growth has no start
       // to transition from and the stage just jumps to its end.
       void stageEl.value?.getBoundingClientRect();

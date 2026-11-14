@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { defineAsyncComponent, ref, toRef } from "vue";
+import FrancePoster from "@/shared/ui/FrancePoster.vue";
+import { ROUTE } from "@/shared/routes";
 import { useMapCardSlot } from "./useMapCardSlot";
 import { vReveal } from "./vReveal";
 
@@ -11,7 +13,9 @@ const props = defineProps<{
 // The map comes into this card (MapStage); clicking it opens the page, the
 // card growing into it.
 const mapCard = ref<HTMLElement | null>(null);
-useMapCardSlot(mapCard, toRef(props, "heroReady"));
+// On a weak device the card is not lent: a still picture of France and one
+// link to the page, where the map loads (homeMapPolicy.ts).
+const { still } = useMapCardSlot(mapCard, toRef(props, "heroReady"));
 
 // `!!`: a constant the template reads as is, so a build without the analyses
 // (vite.config's __ANALYSES__) drops their bullet.
@@ -56,7 +60,19 @@ const DevHomeMapSwitch = __TEST_TOOLS__
       <!-- The map comes into this card (MapStage); clicking it opens the
            page, the card growing into it. -->
       <div ref="mapCard" v-reveal class="map-card">
-        <div class="map-card-wait" aria-hidden="true">
+        <RouterLink
+          v-if="still"
+          :to="ROUTE.temoignages.path"
+          class="map-card-still"
+          aria-label="Explorer la carte des témoignages"
+        >
+          <FrancePoster class="map-card-poster" />
+          <span class="map-card-cta">
+            Explorer la carte
+            <span aria-hidden="true">→</span>
+          </span>
+        </RouterLink>
+        <div v-else class="map-card-wait" aria-hidden="true">
           <span class="spinner"></span>
         </div>
       </div>
@@ -116,6 +132,62 @@ const DevHomeMapSwitch = __TEST_TOOLS__
   display: grid;
   place-items: center;
   background: var(--gradient-surface);
+}
+
+/* The still card (a weak device): France, and the live card's button, at the
+   live card's place (MapStage's .map-stage-cta: top right). */
+.map-card-still {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: var(--gradient-surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.map-card-poster {
+  position: absolute;
+  inset: 12% 10% 8%;
+  width: auto;
+  height: auto;
+}
+
+.map-card-cta {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  background: hsl(var(--background) / 0.9);
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  font-size: var(--text-ui);
+  box-shadow: var(--shadow-lg);
+  transition:
+    transform 0.25s ease,
+    background 0.25s ease;
+}
+
+.map-card-still:hover .map-card-cta,
+.map-card-still:focus-visible .map-card-cta {
+  transform: translateY(-2px);
+  background: hsl(var(--background));
+}
+
+.map-card-still:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: -3px;
+  border-radius: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-card-cta {
+    transition: none;
+  }
 }
 
 /* ---- Phones and tablets ------------------------------------------------------- */
