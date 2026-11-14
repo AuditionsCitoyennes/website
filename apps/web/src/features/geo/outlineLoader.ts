@@ -779,7 +779,11 @@ export class OutlineLoader {
   /** The flush asked of the page's still moment, once. */
   private armFlush(): void {
     const late = this.o.late;
-    if (!late || this.flush !== "idle" || !this.kept.size) return;
+    if (!late || this.flush !== "idle") return;
+    if (!this.kept.size) {
+      this.batchWaited = false; // nothing left of the batch that was waited for
+      return;
+    }
     this.flush = "armed";
     late.whenStill(() => {
       this.flush = "idle";
