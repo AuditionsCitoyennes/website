@@ -61,6 +61,11 @@
 // the same object, its children come with it, the plateau rises with their
 // lines — and the u/ then has nothing left to write. Past it, the u/ is
 // written alone and the bundle is a late file like any other.
+//
+// `reask` (the page's « Réessayer », once a plateau has waited too long): the
+// attempts on the network the page says a plateau waits for are dropped and
+// made again at once. Such an attempt is none of its request's two: the
+// request, its callers and its timers go on as they were.
 
 import {
   checkResponse,
@@ -210,6 +215,10 @@ export class OutlineLoader {
   /** Network failures past their failedMs: the next ensure asks again. */
   private readonly retryable = new Set<string>();
   private readonly live = new Set<AbortController>();
+  /** The attempt on the network of each URL, and the URLs whose attempt
+   *  `reask` dropped (made again at once). */
+  private readonly attempts = new Map<string, { key: string; abort: AbortController }>();
+  private readonly reasked = new Set<string>();
   private root?: Promise<OutlineStatus>;
   /** root.json is in the store (a boot asked again starts at k/FR). */
   private rootIn = false;
@@ -432,6 +441,22 @@ export class OutlineLoader {
     if (row && this.o.store.has(id, row.st)) return true;
     const kind = this.selfKind(id);
     return !kind || this.failed.has(fileKey(kind, id)) || this.gaveUp.has(fileKey(kind, id));
+  }
+
+  /** The attempts on the network for a file `waited` names (by its key: the
+   *  files a plateau waits for) are dropped and made again now, each one at
+   *  the fetch priority it had. A file whose text is in (kept until the map
+   *  is still) is left alone. Returns the keys asked again. */
+  reask(waited: (key: string) => boolean): string[] {
+    const keys: string[] = [];
+    if (this.off()) return keys;
+    for (const [url, a] of this.attempts) {
+      if (this.kept.has(url) || !waited(a.key)) continue;
+      this.reasked.add(url);
+      a.abort.abort();
+      keys.push(a.key);
+    }
+    return keys;
   }
 
   private off(): boolean {
@@ -670,15 +695,15 @@ export class OutlineLoader {
         };
         try {
           if (this.off()) return NETWORK; // fell back while it waited: never sent
-          let r = await this.attempt(url, key, expect, false, as, held, landed);
+          let r = await this.attemptOn(url, key, expect, false, as, held, landed);
           if (!r.ok && r.reason === "network" && !this.off()) {
             await new Promise<void>((done) => this.o.setTimer(done, this.o.retryMs ?? 1_000));
             if (this.off()) return r;
-            r = await this.attempt(url, key, expect, false, as, held, landed);
+            r = await this.attemptOn(url, key, expect, false, as, held, landed);
           }
           // An immutable cache may hold an old SPA answer: ask past it once.
           if (!r.ok && isReleaseSkew(r.reason) && !this.off())
-            r = await this.attempt(url, key, expect, true, as, held, landed);
+            r = await this.attemptOn(url, key, expect, true, as, held, landed);
           return r;
         } finally {
           landed();
@@ -725,6 +750,25 @@ export class OutlineLoader {
     waiting.go(false, ask);
   }
 
+  /** One attempt of a request — made again, at once, for as long as `reask`
+   *  drops it: a dropped attempt is none of the request's (`low`, `landed`:
+   *  as `attempt` takes them). */
+  private async attemptOn(
+    url: string,
+    key: string,
+    expect: Expect,
+    reload: boolean,
+    ask: OutlineAsk,
+    low = false,
+    landed?: () => void,
+  ) {
+    for (;;) {
+      const r = await this.attempt(url, key, expect, reload, ask, low, landed);
+      const again = this.reasked.delete(url);
+      if (r.ok || !again || this.off()) return r;
+    }
+  }
+
   /** One attempt, now: `low` sends it at low fetch priority; `landed` is told
    *  when its text is kept (a low request gives its turn back). */
   private async attempt(
@@ -741,6 +785,7 @@ export class OutlineLoader {
     // Not AbortSignal.timeout: missing on iOS < 16.
     const timer = this.o.setTimer(() => abort.abort(), this.o.timeoutMs ?? 15_000);
     this.live.add(abort);
+    this.attempts.set(url, { key, abort });
     try {
       const fetched = span?.("outline.fetch", { key });
       let text: string;
@@ -778,6 +823,7 @@ export class OutlineLoader {
     } finally {
       this.o.clearTimer(timer);
       this.live.delete(abort);
+      this.attempts.delete(url);
     }
   }
 
