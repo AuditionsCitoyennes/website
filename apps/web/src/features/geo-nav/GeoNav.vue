@@ -790,6 +790,11 @@ const {
     lists?.retryFailed();
   },
 });
+/** « Réessayer »: the panel's reads, and the outline files' start if it waits. */
+function retryAll() {
+  outlines?.reconnect();
+  retryNow();
+}
 </script>
 
 <template>
@@ -921,7 +926,7 @@ const {
           <button
             type="button"
             class="ac-btn ac-btn--outline ac-btn--sm state-retry"
-            @click="retryNow"
+            @click="retryAll"
           >
             Réessayer
           </button>
