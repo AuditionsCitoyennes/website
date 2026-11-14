@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@ac/shared";
 import { config } from "../config";
 import { cappedFetch } from "./cappedFetch";
+import { timedFetch } from "./timedFetch";
 
 type DB = SupabaseClient<Database>;
 
@@ -9,12 +10,13 @@ type DB = SupabaseClient<Database>;
  * Service-role client — bypasses RLS. Use ONLY for privileged operations
  * (role management, account deletion, sending emails, AI analysis writes).
  * Falls back to the anon key if no service role is configured (privileged
- * ops will then fail RLS, but the server still boots).
+ * ops will then fail RLS, but the server still boots). Every client's calls
+ * have a time limit (lib/timedFetch.ts).
  */
 export const adminClient: DB = createClient<Database>(
   config.SUPABASE_URL,
   config.SUPABASE_SERVICE_ROLE_KEY || config.SUPABASE_ANON_KEY,
-  { auth: { persistSession: false, autoRefreshToken: false } },
+  { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: timedFetch() } },
 );
 
 /**
@@ -28,7 +30,7 @@ export function cappedServiceClient(maxBytes: number): DB {
     config.SUPABASE_SERVICE_ROLE_KEY || config.SUPABASE_ANON_KEY,
     {
       auth: { persistSession: false, autoRefreshToken: false },
-      global: { fetch: cappedFetch(maxBytes) },
+      global: { fetch: cappedFetch(maxBytes, timedFetch()) },
     },
   );
 }
@@ -37,7 +39,7 @@ export function cappedServiceClient(maxBytes: number): DB {
 export const publicClient: DB = createClient<Database>(
   config.SUPABASE_URL,
   config.SUPABASE_ANON_KEY,
-  { auth: { persistSession: false, autoRefreshToken: false } },
+  { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: timedFetch() } },
 );
 
 /**
@@ -53,5 +55,6 @@ export const publicClient: DB = createClient<Database>(
 export function clientForToken(token: string): DB {
   return createClient<Database>(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
     accessToken: async () => token,
+    global: { fetch: timedFetch() },
   });
 }
