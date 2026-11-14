@@ -67,6 +67,7 @@ function rig(
     noTransport?: boolean;
     dropPuts?: boolean;
     fallbackThrows?: boolean;
+    leanLines?: boolean;
   } = {},
 ) {
   let now = 0;
@@ -127,6 +128,7 @@ function rig(
     },
     capVertices: () => opts.cap ?? 300_000,
     knobs: () => opts.knobs ?? {},
+    leanLines: opts.leanLines,
   });
   /** The worker reads what was posted and runs its due tasks. */
   const work = () => {
@@ -190,6 +192,36 @@ test("a geometry travels once: the next request names its tokens only", async ()
     Buffer.from(a.mesh.linePositions!.buffer),
     Buffer.from(here.linePositions!.buffer),
   );
+});
+
+test("the session's line layout goes with every build: the worker's, the globe pass's and the fallback's", async () => {
+  const r = rig({ leanLines: true });
+  const fx = inputs();
+  const p = r.client.build(fx, { merc: true, globe: false });
+  await r.flush();
+  const a = (await p)!;
+  assert.equal(a.via, "worker");
+  assert.deepEqual(r.builds()[0].want, { merc: true, globe: false, lean: true });
+  assert.equal(a.mesh.lineLayout, "lean");
+  const g = r.client.buildGlobe(fx);
+  await r.flush();
+  assert.deepEqual(r.builds()[1].want, { merc: false, globe: true, lean: true });
+  const globe = (await g)!;
+  assert.equal(globe.mesh.lineLayout, "lean");
+  // 4 + 4 segments, one record each.
+  assert.equal(a.mesh.linePositions!.length, 8 * 6);
+  assert.equal(globe.mesh.gLinePositions!.length, 8 * 18);
+  // The worker lost: the fallback builds the same layout.
+  r.fail("error");
+  const here = (await r.client.build(inputs(8), BOTH))!;
+  assert.equal(here.via, "main");
+  assert.equal(here.mesh.lineLayout, "lean");
+  // A session without it asks for nothing more than before.
+  const plain = rig();
+  const q = plain.client.build(inputs(), BOTH);
+  await plain.flush();
+  assert.deepEqual(plain.builds()[0].want, BOTH);
+  assert.equal((await q)!.mesh.lineLayout, "full");
 });
 
 test("a mesh with no unit, the lines alone, is the page's own bit for bit", async () => {

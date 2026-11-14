@@ -71,5 +71,6 @@ export { tintCut, setTintCut, type TintCut } from "./threadSwitch";
 export { pinsRebuild, setPinsRebuild, type PinsRebuild } from "./threadSwitch";
 // When the lid's hidden map is created, and whether there is one: its DEV switch (the Témoignages page draws it).
 export { lidMap, setLidMap, type LidMap } from "./plateau/lidMapSwitch";
+export { lineMesh, setLineMesh, type LineMesh } from "./plateau/lineMeshSwitch";
 // How much the map keeps in memory of the places already seen: its DEV switch (the Témoignages page draws it).
 export { mapCaches, setMapCaches, type MapCaches } from "./cacheBudget";
