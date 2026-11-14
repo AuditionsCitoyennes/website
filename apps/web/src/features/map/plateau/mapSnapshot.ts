@@ -1,5 +1,6 @@
 import mapboxgl from "mapbox-gl";
 import { DEFAULT_LID_CHECK, type LidCheck, type LidMode } from "./lidSwitch";
+import { cameraOver } from "./lidMapSwitch";
 import {
   settleAndGrab,
   settleAndGrabPixels,
@@ -189,16 +190,11 @@ export class SnapshotManager {
       // The main map's labels (ac:glyphs): the picture shows the letters the map shows.
       ...labelGlyphOptions(),
       // Created on its first shot's rectangle: the tiles it asks for from its
-      // first frame are that shot's, not the world's.
-      ...(place
-        ? {
-            bounds: [
-              [place.minLng, place.minLat],
-              [place.maxLng, place.maxLat],
-            ] as [[number, number], [number, number]],
-            fitBoundsOptions: { padding: SHOT_PADDING },
-          }
-        : {}),
+      // first frame are that shot's, not the world's. As a centre and a zoom
+      // (lidMapSwitch.ts cameraOver), not as `bounds` with a padding: Mapbox
+      // would keep that padding as the map's, and `getBounds()`, which a
+      // shot reads as what its picture covers, would answer the padded part.
+      ...(place ? cameraOver(place, cssPx, SHOT_PADDING) : {}),
       // A weak device keeps fewer of the tiles its past shots used.
       ...(tiles !== null ? { maxTileCacheSize: tiles } : {}),
     });
