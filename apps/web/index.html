@@ -8,6 +8,19 @@
       name="description"
       content="Plateforme d'auditions citoyennes pour la démocratie participative."
     />
+    <!-- No icon yet: an empty one, or the browser asks for /favicon.ico and
+         gets this page back. -->
+    <link rel="icon" href="data:," />
+    <!-- The home page's ground until it renders, under the class the build's
+         inline script puts on <html> on "/" (shared/boot/homeBootPlan.ts:
+         HOME_SHELL_CLASS, HERO_GROUND). Inert without it. -->
+    <style>
+      html.ac-home-shell #app:empty,
+      html.ac-home-shell .app-main:empty {
+        min-height: 100svh;
+        background: hsl(260 30% 8%);
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>

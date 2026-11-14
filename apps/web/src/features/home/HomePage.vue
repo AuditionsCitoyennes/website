@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useMapStage } from "@/features/map-stage";
+import { endHomeShell } from "@/shared/boot/homeBoot";
 // First: the classes the sections share must come before the sections' own
 // styles in the cascade (a section's modifier of one of them wins by order).
 import "./home.css";
@@ -15,6 +16,10 @@ const stage = useMapStage();
 // load into its card under the "tot" policy (useMapCardSlot) — it must not
 // compete with it.
 const heroReady = ref(false);
+
+// In: the HTML's dark ground for the still empty page is no longer wanted
+// (shared/boot/homeBootPlan.ts).
+onMounted(endHomeShell);
 </script>
 
 <template>
