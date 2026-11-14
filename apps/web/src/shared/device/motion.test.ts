@@ -34,7 +34,12 @@ const win = {
   location: { reload: () => reloads++ },
   matchMedia: (query: string) => {
     asked.push(query);
-    return { matches: reduced };
+    // Live, as a MediaQueryList's is.
+    return {
+      get matches() {
+        return reduced;
+      },
+    };
   },
 };
 g.window = win;
@@ -117,16 +122,17 @@ test("motionFor: a forced choice whatever the device; auto short for reduced mot
   assert.equal(motionFor("auto", "minimal", true), "short");
 });
 
-test("prefersReducedMotion: matchMedia's answer, false where it cannot be asked", async () => {
+test("prefersReducedMotion: the query's live answer, asked once per window, false where it cannot be asked", async () => {
   const { prefersReducedMotion } = await load(false);
   asked = [];
   reduced = true;
   assert.equal(prefersReducedMotion(), true);
   reduced = false;
   assert.equal(prefersReducedMotion(), false);
-  assert.deepEqual(asked, ["(prefers-reduced-motion: reduce)", "(prefers-reduced-motion: reduce)"]);
-  // No matchMedia (an old webview), a matchMedia that throws, no window at all.
   reduced = true;
+  assert.equal(prefersReducedMotion(), true);
+  assert.deepEqual(asked, ["(prefers-reduced-motion: reduce)"]);
+  // No matchMedia (an old webview), a matchMedia that throws, no window at all.
   g.window = { location: win.location };
   assert.equal(prefersReducedMotion(), false);
   g.window = {
@@ -137,8 +143,19 @@ test("prefersReducedMotion: matchMedia's answer, false where it cannot be asked"
   assert.equal(prefersReducedMotion(), false);
   delete g.window;
   assert.equal(prefersReducedMotion(), false);
+  // The first window again: its query is still the one asked.
   g.window = win;
+  assert.equal(prefersReducedMotion(), true);
   reduced = false;
+  assert.equal(prefersReducedMotion(), false);
+  assert.deepEqual(asked, ["(prefers-reduced-motion: reduce)"]);
+  // Another window is asked anew.
+  const other = { matchMedia: () => ({ matches: true }) };
+  g.window = other;
+  assert.equal(prefersReducedMotion(), true);
+  g.window = win;
+  assert.equal(prefersReducedMotion(), false);
+  assert.equal(asked.length, 2);
 });
 
 test("motionNow under auto: the system setting and the device's tier of the moment", async () => {
