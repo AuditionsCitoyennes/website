@@ -148,3 +148,21 @@ test("store: 40 versions, never a pinned key nor the one just set; and a vertex 
   assert.ok(!after.includes(w.replies[41].key!));
   assert.equal(after.at(-1), w.replies[42].key);
 });
+
+test("store: the bounds a set carries are the ones in force, the pinned key and the one just set stay", async () => {
+  const w = core(null);
+  w.send(set([square(0, 0, 0.5)], 40));
+  await w.until(1);
+  const first = w.replies[0].key!;
+  for (let i = 1; i <= 5; i++) w.send(set([square(i, 0, 0.5)], 40, [first]));
+  await w.until(6);
+  assert.equal(w.c.keys().length, 6); // no bounds carried: the store's own (40)
+  // Three versions from now on: the pinned one, and the two newest.
+  w.send({ ...set([square(6, 0, 0.5)], 40, [first]), caps: { versions: 3, vertices: 1_000_000 } });
+  await w.until(7);
+  assert.deepEqual(w.c.keys(), [first, w.replies[5].key, w.replies[6].key]);
+  // A vertex bound under what is stored: only the pinned key and the one just set stay.
+  w.send({ ...set([square(7, 0, 0.5)], 40, [first]), caps: { versions: 3, vertices: 1 } });
+  await w.until(8);
+  assert.deepEqual(w.c.keys(), [first, w.replies[7].key]);
+});

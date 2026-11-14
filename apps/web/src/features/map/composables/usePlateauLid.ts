@@ -16,6 +16,7 @@ import { lidCheck, lidMode } from "../plateau/lidSwitch";
 import { keptAnswers, lidCacheBudget } from "../plateau/lidCache";
 import { lidCacheMode } from "../plateau/lidCacheSwitch";
 import { lidMap, lidMapFor, warmupAtLoad, type LidMapPlan } from "../plateau/lidMapSwitch";
+import { cacheBudgetAtCreation } from "../cacheBudget";
 import { boundsOfFeatures, unionBounds } from "../lib/polygon";
 import { whenMapStill } from "../lib/stillMap";
 
@@ -41,7 +42,12 @@ export function usePlateauLid({
   plateauActive,
   lidExtra,
 }: PlateauLidInputs) {
-  const snapshotMgr = new SnapshotManager(lidMode, lidCheck);
+  // The hidden map keeps fewer tiles on a weak device (../cacheBudget.ts).
+  const snapshotMgr = new SnapshotManager(
+    lidMode,
+    lidCheck,
+    () => cacheBudgetAtCreation().lidTiles,
+  );
   // "ancien" (DEV, plateau/lidSwitch): the lid as before, its sizes and its
   // bookkeeping.
   const before = lidMode === "ancien";

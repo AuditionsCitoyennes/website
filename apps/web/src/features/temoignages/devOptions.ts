@@ -13,7 +13,7 @@
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
 // geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
-// map/threadSwitch, map/plateau/lidMapSwitch, analyses/devSwitch,
+// map/threadSwitch, map/plateau/lidMapSwitch, map/cacheBudget, analyses/devSwitch,
 // shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -76,7 +76,8 @@ export type DevKey =
   | "ac:globe-late"
   | "ac:tint-cut"
   | "ac:pins-rebuild"
-  | "ac:lid-map";
+  | "ac:lid-map"
+  | "ac:map-caches";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -700,6 +701,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Au premier déplacement animé de la carte vers un territoire, la page chronomètre les images. « Activée » (par défaut) : si elles sont trop lentes, le niveau de l'appareil descend, et ce résultat est gardé trente jours dans ce navigateur (ligne « Images mesurées » ci-dessous). « Coupée » : rien n'est chronométré, comme avant.",
     reloads: true,
     defaultId: "on",
+  },
+  {
+    key: "ac:map-caches",
+    section: "appareil",
+    label: "Mémoire",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "large", label: "Grande" },
+      { id: "small", label: "Petite" },
+    ],
+    explain:
+      "Ce que la carte garde en mémoire pour revenir plus vite sur un endroit déjà vu : des morceaux de carte, la forme des territoires déjà soulevés et leur relief. « Auto » (par défaut) suit le niveau de l'appareil : « Grande » au niveau complet, « Petite » aux niveaux léger et minimal. « Grande » garde autant qu'avant. « Petite » garde trois à cinq fois moins : la page occupe moins de mémoire, et le retour sur un endroit vu depuis longtemps peut demander un court rechargement.",
+    reloads: true,
+    defaultId: "auto",
   },
   {
     key: "ac:auth-client",

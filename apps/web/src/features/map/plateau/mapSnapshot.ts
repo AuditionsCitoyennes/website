@@ -125,10 +125,14 @@ export class SnapshotManager {
   created = 0;
 
   /** `mode`: "ecran" sizes from the screen and parks; "ancien" is the lid as before.
-   *  `check`: how a shot is judged before it is returned (lidSwitch.ts). */
+   *  `check`: how a shot is judged before it is returned (lidSwitch.ts).
+   *  `tileCache`: the most tiles the hidden map keeps per source once they
+   *  leave its view, read when it is created (../cacheBudget.ts); null:
+   *  Mapbox's own sizing. */
   constructor(
     private readonly mode: LidMode = "ecran",
     private readonly check: LidCheck = DEFAULT_LID_CHECK,
+    private readonly tileCache: () => number | null = () => null,
   ) {}
 
   /**
@@ -163,6 +167,7 @@ export class SnapshotManager {
     this.px = px;
     this.createdBy = by;
     this.created++;
+    const tiles = this.tileCache();
     const cssPx = Math.round(px / (window.devicePixelRatio || 1));
     const el = document.createElement("div");
     el.style.cssText = `position:fixed;left:-10000px;top:0;width:${cssPx}px;height:${cssPx}px;`;
@@ -194,6 +199,8 @@ export class SnapshotManager {
             fitBoundsOptions: { padding: SHOT_PADDING },
           }
         : {}),
+      // A weak device keeps fewer of the tiles its past shots used.
+      ...(tiles !== null ? { maxTileCacheSize: tiles } : {}),
     });
     map.on("load", () => {
       this.loaded = true;

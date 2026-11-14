@@ -27,7 +27,16 @@ import {
 } from "./demRaster";
 import { keyOfJson, vertexCount, type Polygon } from "./demGeometry";
 
-export type DemSetJob = { t: "set"; id: number; json: string; height: number; pins: string[] };
+/** `caps`: the store's bounds in force on the page (a weak device's are
+ *  smaller: ../cacheBudget.ts); absent: MAX_VERSIONS and MAX_STORED_VERTICES. */
+export type DemSetJob = {
+  t: "set";
+  id: number;
+  json: string;
+  height: number;
+  pins: string[];
+  caps?: { versions: number; vertices: number };
+};
 export type DemTileJob = { t: "tile"; id: number; key: string; z: number; x: number; y: number };
 export type DemJob = DemSetJob | DemTileJob;
 
@@ -81,9 +90,11 @@ export function createDemWorkerCore(
   }
 
   // Oldest first, never the key just set nor a key a live slot holds.
-  function evict(keep: Set<string>): void {
+  function evict(keep: Set<string>, caps?: { versions: number; vertices: number }): void {
+    const versions = caps?.versions ?? MAX_VERSIONS;
+    const vertices = caps?.vertices ?? MAX_STORED_VERTICES;
     for (const k of [...store.keys()]) {
-      if (store.size <= MAX_VERSIONS && storedVertices <= MAX_STORED_VERTICES) return;
+      if (store.size <= versions && storedVertices <= vertices) return;
       if (keep.has(k)) continue;
       storedVertices -= store.get(k)!.vertices;
       store.delete(k);
@@ -104,7 +115,7 @@ export function createDemWorkerCore(
         storedVertices += vertices;
       }
       store.set(key, held);
-      evict(new Set([key, ...m.pins]));
+      evict(new Set([key, ...m.pins]), m.caps);
       const { bbox } = held.sel;
       return { id: m.id, key, bbox, vertices: held.vertices, ms: performance.now() - t0 };
     }

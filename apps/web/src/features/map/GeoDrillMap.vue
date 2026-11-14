@@ -37,6 +37,7 @@ import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { noteRenderer } from "@/shared/device/deviceTier";
 import { antialiasNow, capMapsNow } from "./graphicsSwitch";
+import { cacheBudgetAtCreation, tileCacheOption } from "./cacheBudget";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import { rendererOf } from "./relief/groundSwitch";
 import type { MarkGeometry } from "./gl/pendingMark";
@@ -430,6 +431,8 @@ function mountMap() {
       // in-shader, but the plateau wall/lid/lines are raw geometry and alias
       // hard without it. Off where the graphics are slow (graphicsSwitch.ts).
       antialias: antialiasNow(),
+      // A weak device keeps fewer of the tiles that left the view (cacheBudget.ts).
+      ...tileCacheOption(cacheBudgetAtCreation().mapTiles),
       // Its own resize watching off: ours (below) resizes, re-frames AND draws
       // at once. With both, mapbox's could clear the canvas after ours drew it.
       trackResize: false,
