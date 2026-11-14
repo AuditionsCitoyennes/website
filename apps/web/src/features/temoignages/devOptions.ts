@@ -6,7 +6,9 @@
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
 // geo-nav/bootListSwitch, map/bootWorkersSwitch, geo-nav/data/outlinesDecorSwitch,
 // map/glyphSwitch, analyses/devSwitch, shared/device/deviceTier, shared/device/glassSwitch,
-// shared/boot/mapPreload, shared/api/authClientSwitch). Under the « Appareil » row
+// shared/boot/mapPreload, shared/api/authClientSwitch, map/fallbackSwitch,
+// shared/ui/posterSwitch, shared/device/cardOpenSwitch, shared/boot/homeBoot).
+// Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
@@ -41,7 +43,12 @@ export type DevKey =
   | "ac:glyphs"
   | "ac:map-preload"
   | "ac:glass"
-  | "ac:auth-client";
+  | "ac:auth-client"
+  | "ac:map-fallback"
+  | "ac:poster"
+  | "ac:card-open"
+  | "ac:home-boot"
+  | "ac:hero";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -272,6 +279,33 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     defaultId: "html",
   },
   {
+    key: "ac:map-fallback",
+    section: "carte",
+    label: "Carte indisponible",
+    choices: [
+      { id: "visiteur", label: "Visiteur" },
+      { id: "ancien", label: "Ancien" },
+      { id: "essai", label: "Essai" },
+    ],
+    explain:
+      "Ce que montre le cadre de la carte quand elle ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée). « Visiteur » (par défaut) montre la France en image, en retrait, sous une phrase simple ; « Ancien » affiche la phrase destinée aux développeurs, comme avant ; « Essai » ne démarre pas la carte du tout, pour voir ce cadre sur n'importe quel appareil.",
+    reloads: true,
+    defaultId: "visiteur",
+  },
+  {
+    key: "ac:poster",
+    section: "carte",
+    label: "Image d'attente",
+    choices: [
+      { id: "non", label: "Non" },
+      { id: "france", label: "France" },
+    ],
+    explain:
+      "Pendant le chargement de la carte, son cadre montre un indicateur de chargement sur un fond uni (« Non », par défaut, comme avant) ou, derrière lui, la France et ses régions en image, en retrait (« France ») : le cadre a une image dès l'ouverture de la page, jusqu'à ce que la vraie carte la remplace.",
+    reloads: true,
+    defaultId: "non",
+  },
+  {
     key: "ac:analyses-pending",
     section: "analyses",
     label: "Analyses en attente",
@@ -346,7 +380,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "minimal", label: "Minimal" },
     ],
     explain:
-      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte et le verre des panneaux en dépendent (voir « Police des noms » et « Verre dépoli »).",
+      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte, le verre des panneaux, l'ouverture de la carte de l'accueil et la carte de l'accueil elle-même (une image sur un appareil faible) en dépendent (voir « Police des noms », « Verre dépoli » et « Ouverture de la carte »).",
     reloads: true,
     defaultId: "auto",
   },
@@ -365,6 +399,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     defaultId: "auto",
   },
   {
+    key: "ac:card-open",
+    section: "appareil",
+    label: "Ouverture de la carte",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "grandir", label: "Grandir" },
+      { id: "direct", label: "Directe" },
+    ],
+    explain:
+      "Quand on touche la carte de l'accueil, elle grandit jusqu'à occuper la page des témoignages (« Grandir », comme avant) ou la page apparaît aussitôt (« Directe », comme quand le système demande moins d'animations). « Auto » (par défaut) fait grandir la carte sur un appareil de niveau « Complet » et ouvre la page aussitôt sur un appareil « Léger » ou « Minimal » (voir « Niveau »), où chaque image de l'agrandissement redessine toute la carte.",
+    reloads: true,
+    defaultId: "auto",
+  },
+  {
     key: "ac:auth-client",
     section: "site",
     label: "Connexion",
@@ -376,6 +424,33 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Le code de la connexion aux comptes, environ 47 ko compressés. « À la demande » (par défaut) ne le télécharge que pour un visiteur déjà connecté, au retour d'un lien reçu par e-mail ou sur la page de connexion : les autres visiteurs ont des pages plus légères. « Au démarrage », l'ancien comportement, le télécharge sur toutes les pages dès l'ouverture.",
     reloads: true,
     defaultId: "demande",
+  },
+  {
+    key: "ac:home-boot",
+    section: "site",
+    label: "Accueil",
+    choices: [
+      { id: "tot", label: "Tôt" },
+      { id: "ancien", label: "Ancien" },
+    ],
+    explain:
+      "La toute première image des pages. « Tôt » (par défaut) met le thème clair ou sombre dès la première image, et sur l'accueil peint le fond sombre de la photo tout de suite et demande le code de l'accueil en même temps que celui du site. « Ancien », comme avant, peut montrer un instant la page claire puis sombre, et une page vide jusqu'à ce que le code de l'accueil soit arrivé.",
+    reloads: true,
+    defaultId: "tot",
+  },
+  {
+    key: "ac:hero",
+    section: "site",
+    label: "Photo de l'accueil",
+    choices: [
+      { id: "portrait", label: "Portrait" },
+      { id: "html", label: "Portrait tôt" },
+      { id: "ancien", label: "Ancien" },
+    ],
+    explain:
+      "La grande photo de l'accueil. « Portrait » (par défaut) envoie aux écrans en hauteur (téléphones, tablettes tenues droites) une copie découpée à leur forme, un peu plus compressée : environ 240 ko sur un téléphone au lieu de 760 ko, le même cadrage. « Portrait tôt » la demande en plus dès l'arrivée sur la page, en même temps que le code du site : un essai, pas encore mesuré. « Ancien » envoie la même grande copie à tous les écrans, et Safari en télécharge alors deux ou trois tailles l'une après l'autre.",
+    reloads: true,
+    defaultId: "portrait",
   },
 ];
 
