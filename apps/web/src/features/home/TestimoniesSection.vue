@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { defineAsyncComponent, ref, toRef } from "vue";
-import FrancePoster from "@/shared/ui/FrancePoster.vue";
 import { ROUTE } from "@/shared/routes";
 import { useMapCardSlot } from "./useMapCardSlot";
 import { vReveal } from "./vReveal";
@@ -16,6 +15,8 @@ const mapCard = ref<HTMLElement | null>(null);
 // On a weak device the card is not lent: a still picture of France and one
 // link to the page, where the map loads (homeMapPolicy.ts).
 const { still } = useMapCardSlot(mapCard, toRef(props, "heroReady"));
+// Its own small file: a strong device never asks for it.
+const FrancePoster = defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"));
 
 // `!!`: a constant the template reads as is, so a build without the analyses
 // (vite.config's __ANALYSES__) drops their bullet.
@@ -147,9 +148,10 @@ const DevHomeMapSwitch = __TEST_TOOLS__
 
 .map-card-poster {
   position: absolute;
-  inset: 12% 10% 8%;
-  width: auto;
-  height: auto;
+  top: 20%;
+  left: 10%;
+  width: 80%;
+  height: 74%;
 }
 
 .map-card-cta {

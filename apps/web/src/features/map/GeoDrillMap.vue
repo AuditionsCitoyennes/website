@@ -679,13 +679,16 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 .map-fallback--poster {
   overflow: hidden;
   background: var(--gradient-surface);
+  /* In the part of the box the panel leaves free (GeoNav's --panel-cover). */
+  padding-right: calc(1.5rem + var(--panel-cover, 0px));
 }
 
 .map-fallback-poster {
   position: absolute;
-  inset: 8%;
-  width: auto;
-  height: auto;
+  top: 8%;
+  left: 8%;
+  width: calc(84% - var(--panel-cover, 0px));
+  height: 84%;
   opacity: 0.55;
 }
 
