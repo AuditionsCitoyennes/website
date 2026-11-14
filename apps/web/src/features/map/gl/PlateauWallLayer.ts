@@ -11,8 +11,10 @@
 
 import mapboxgl from "mapbox-gl";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
+import { deviceTier } from "@/shared/device/deviceTier";
 import type { Snapshot } from "../plateau/mapSnapshot";
 import { meshMode } from "../plateau/meshSwitch";
+import { globeLate, lateGlobeFor } from "../threadSwitch";
 import { pieceOutline, ringSectorArcs, slabPointPx, type PieceBox, type SlabRect } from "../lib";
 import type { OutlineFC, SlabSpec, SlabThemesSpec } from "../types";
 import { polysOf } from "../lib/polygon";
@@ -370,6 +372,14 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private globeTask: { cancel: () => void } | null = null;
   /** ac:mesh=worker: who builds the deferred globe set (null: this layer). */
   private globeProvider: GlobeProvider | null = null;
+  /** ac:globe-late: the globe set asked of the worker as its mesh was
+   *  (askGlobeAhead), until that mesh is applied; and whether a globe frame
+   *  drew no plateau while waiting for the set of the mesh standing. */
+  private globeAhead: {
+    features: OutlineFC["features"];
+    job: ReturnType<GlobeProvider["build"]>;
+  } | null = null;
+  private globeSkipped = false;
   /** The testing tools' count of setGeometry calls and the last call's input,
    *  for meshDigest (declared only: a build without them has no field). */
   declare private meshProbe?: { calls: number; input: OutlineFC["features"][] };
@@ -787,6 +797,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       this.cancelGlobePass();
       gen = this.globeDefer.begin(lazy ? { features, heightM, focus, context } : null);
     }
+    // A mesh built here: an answer asked ahead for another one is not its own.
+    this.globeAhead = null;
+    this.globeSkipped = false;
     this.applyMesh(
       buildPlateauMesh(features, heightM, focus, context, {
         merc: true,
@@ -810,13 +823,33 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     if (lazy) this.scheduleGlobePass(gen);
   }
 
+  /** The page's live worker for the deferred globe set, or null (another
+   *  mesh mode, no worker, or a worker lost). */
+  private liveGlobeProvider(): GlobeProvider | null {
+    const provider = meshMode === "worker" ? this.globeProvider : null;
+    return provider?.live() ? provider : null;
+  }
+
+  /** ac:globe-late (../threadSwitch.ts), unless "page": the globe set of the
+   *  mesh being built from `src` in the worker, asked of the worker now,
+   *  behind that mesh — not at the map's next idle after it is applied. The
+   *  apply of the mesh built from the same `src.features` array takes the
+   *  answer (applyBuilt); any other apply drops it. */
+  askGlobeAhead(src: GlobeInputs) {
+    this.globeAhead = null;
+    const provider = this.liveGlobeProvider();
+    if (!provider || !lateGlobeFor(globeLate.value, deviceTier()).ahead) return;
+    this.globeAhead = { features: src.features, job: provider.build(src) };
+  }
+
   /** ac:mesh=worker: a mesh built in the worker (gl/meshClient.ts), applied
    *  as setGeometry applies its own — the same span (here the apply alone),
    *  a new generation of the deferred globe set. A mesh without its globe
-   *  set holds `src` for it and asks the worker for it (setGlobeProvider) at
-   *  the map's next idle, or at once when `opts.globe` (the mode for the
-   *  camera at this apply) is "eager"; a globe frame before it lands builds
-   *  it here (ensureGlobe). `opts.start`: the mode the build was asked with. */
+   *  set holds `src` for it: the worker was asked for it as the mesh was
+   *  (askGlobeAhead), or is asked (setGlobeProvider) at the map's next idle,
+   *  or at once when `opts.globe` (the mode for the camera at this apply) is
+   *  "eager"; a globe frame before it lands builds it here, or waits for it
+   *  (ensureGlobe). `opts.start`: the mode the build was asked with. */
   applyBuilt(
     m: MeshOut,
     src: GlobeInputs,
@@ -828,6 +861,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.cancelGlobePass();
     const deferred = !m.gWallPositions;
     const gen = this.globeDefer.begin(deferred ? src : null);
+    const ahead = this.globeAhead?.features === src.features ? this.globeAhead.job : null;
+    this.globeAhead = null;
+    this.globeSkipped = false;
     this.applyMesh(m, src);
     if (endSpan) {
       endSpan({
@@ -840,7 +876,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
         ...opts,
       });
     }
-    if (deferred) this.scheduleGlobePass(gen, opts.globe === "eager");
+    if (!deferred) return;
+    const provider = ahead ? this.liveGlobeProvider() : null;
+    if (ahead && provider) this.workerGlobePass(gen, provider, ahead);
+    else this.scheduleGlobePass(gen, opts.globe === "eager");
   }
 
   /** ac:mesh=worker: who builds the deferred globe set (null: this layer). */
@@ -1026,18 +1065,32 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
 
   /** ac:mesh=worker: generation `gen`'s globe set from the worker, assigned
    *  when it comes if `gen` still holds it — not stale, cancelled, or built
-   *  meanwhile by a globe frame (ensureGlobe). */
-  private workerGlobePass(gen: number, provider: GlobeProvider) {
+   *  meanwhile by a globe frame (ensureGlobe). Asked once per generation:
+   *  `ahead` is the answer already on its way (askGlobeAhead). An answer
+   *  without a set leaves the generation to the first globe frame, which
+   *  builds it here. One repaint when it comes, if the globe is on screen or
+   *  a globe frame was drawn without the plateau meanwhile. */
+  private workerGlobePass(
+    gen: number,
+    provider: GlobeProvider,
+    ahead?: ReturnType<GlobeProvider["build"]>,
+  ) {
     if (__TEST_TOOLS__ && (window as { __acMeshIdle?: string }).__acMeshIdle === "hold") return;
-    const inputs = this.globeDefer.claim(gen);
+    const inputs = this.globeDefer.ask(gen);
     if (!inputs) return;
-    void provider.build(inputs).then((g) => {
-      if (!g || !this.globeDefer.claim(gen)) return;
+    void (ahead ?? provider.build(inputs)).then((g) => {
+      const skipped = this.globeSkipped && gen === this.globeDefer.current;
+      if (skipped) this.globeSkipped = false;
+      const map = this.map;
+      if (!g) {
+        if (this.globeDefer.noAnswer(gen) && skipped) map?.triggerRepaint();
+        return;
+      }
+      if (!this.globeDefer.claim(gen)) return;
       this.applyGlobe(g);
       this.globeDefer.markBuilt(gen);
       if (perfOn) perfNote("plateau.globeBuild", g.ms, { scope: this.scopeId, mesh: "worker" });
-      const map = this.map;
-      if (map && map.getZoom() < 6) map.triggerRepaint();
+      if (map && (skipped || map.getZoom() < 6)) map.triggerRepaint();
     });
   }
 
@@ -1069,13 +1122,37 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
 
   /** The globe set a globe frame draws: built now, synchronously, when it is
    *  still deferred (ac:mesh=merc: a zoom-out before the idle pass ran). Null:
-   *  none to draw (the layer re-added before its next setGeometry). */
-  private ensureGlobe() {
+   *  none to draw (the layer re-added before its next setGeometry) — or,
+   *  where ac:globe-late says a globe frame waits (../threadSwitch.ts), none
+   *  yet: the worker is building it, asked now if it was not, and its answer
+   *  repaints the map once. `force` (the testing tools' fingerprint): built
+   *  here whatever the switch says. */
+  private ensureGlobe(force = false) {
     const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = this;
     if (gWallPositions && gLidPositions && gLinePositions && gHaloPositions) {
       return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions };
     }
-    return this.buildGlobe(this.globeDefer.current, true);
+    const gen = this.globeDefer.current;
+    if (!force && this.globeFrameWaits(gen)) {
+      this.globeSkipped = true;
+      return null;
+    }
+    return this.buildGlobe(gen, true);
+  }
+
+  /** Whether a globe frame that finds generation `gen`'s set missing leaves
+   *  it to the worker: the switch says wait, the worker lives, and its answer
+   *  is on its way — asked here when it was not (the pass was waiting for the
+   *  map's idle). False once an answer came back empty: built here then. */
+  private globeFrameWaits(gen: number) {
+    const provider = this.liveGlobeProvider();
+    if (!provider || !lateGlobeFor(globeLate.value, deviceTier()).wait) return false;
+    if (this.globeDefer.asking(gen)) return true;
+    this.workerGlobePass(gen, provider);
+    if (!this.globeDefer.asking(gen)) return false;
+    // Asked now: the pass that waited for the map's idle has nothing left to do.
+    this.cancelGlobePass();
+    return true;
   }
 
   /** The testing tools' fingerprint of the mesh setGeometry last built
@@ -1089,7 +1166,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  tools. */
   meshDigest(opts?: { globe?: boolean }) {
     if (!__TEST_TOOLS__) return null;
-    if (opts?.globe) this.ensureGlobe();
+    if (opts?.globe) this.ensureGlobe(true);
     const { total, parts } = digestParts([
       ["positions", this.positions],
       ["lidPositions", this.lidPositions],
@@ -1488,6 +1565,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       // The held inputs dropped: a pass held for this mesh never lands after it.
       this.cancelGlobePass();
       this.globeDefer.cancel();
+      this.globeAhead = null;
     }
     this.pendingMark.onRemove(gl);
     if (this.program) gl.deleteProgram(this.program);
