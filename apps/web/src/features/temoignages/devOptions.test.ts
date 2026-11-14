@@ -54,6 +54,7 @@ const ahead = await import("../geo-nav/data/prefetchSwitch");
 const kept = await import("../map/plateau/lidCacheSwitch");
 const slow = await import("../geo-nav/model/slowSignSwitch");
 const graphics = await import("../map/graphicsSwitch");
+const thread = await import("../map/threadSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -86,6 +87,7 @@ const MODULES = {
   kept: "../map/plateau/lidCacheSwitch.ts",
   slow: "../geo-nav/model/slowSignSwitch.ts",
   graphics: "../map/graphicsSwitch.ts",
+  thread: "../map/threadSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -138,6 +140,10 @@ const KEYS: readonly DevKey[] = [
   "ac:msaa",
   "ac:dpr",
   "ac:frame-measure",
+  "ac:lines-mesh",
+  "ac:globe-late",
+  "ac:tint-cut",
+  "ac:pins-rebuild",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -151,7 +157,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 42);
+  assert.equal(DEV_OPTIONS.length, 46);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -255,6 +261,10 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:msaa": ["graphics", "setMsaaChoice"],
   "ac:dpr": ["graphics", "setDprChoice"],
   "ac:frame-measure": ["graphics", "setFrameMeasure"],
+  "ac:lines-mesh": ["thread", "setLinesMesh"],
+  "ac:globe-late": ["thread", "setGlobeLate"],
+  "ac:tint-cut": ["thread", "setTintCut"],
+  "ac:pins-rebuild": ["thread", "setPinsRebuild"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -360,6 +370,10 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:msaa"), [...graphics.MSAA_CHOICES]);
   assert.deepEqual(ids("ac:dpr"), [...graphics.DPR_CHOICES]);
   assert.deepEqual(ids("ac:frame-measure"), [...graphics.FRAME_MEASURES]);
+  assert.deepEqual(ids("ac:lines-mesh"), [...thread.LINES_MESHES]);
+  assert.deepEqual(ids("ac:globe-late"), [...thread.GLOBE_LATES]);
+  assert.deepEqual(ids("ac:tint-cut"), [...thread.TINT_CUTS]);
+  assert.deepEqual(ids("ac:pins-rebuild"), [...thread.PINS_REBUILDS]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -418,6 +432,10 @@ test("the default marked in each sentence is the module's", () => {
     "ac:msaa": graphics.DEFAULT_MSAA,
     "ac:dpr": graphics.DEFAULT_DPR,
     "ac:frame-measure": graphics.DEFAULT_FRAME_MEASURE,
+    "ac:lines-mesh": thread.DEFAULT_LINES_MESH,
+    "ac:globe-late": thread.DEFAULT_GLOBE_LATE,
+    "ac:tint-cut": thread.DEFAULT_TINT_CUT,
+    "ac:pins-rebuild": thread.DEFAULT_PINS_REBUILD,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);

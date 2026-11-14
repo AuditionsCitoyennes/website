@@ -12,7 +12,8 @@
 // (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
 // what the page knows of the device listed under it, what the map does where
 // the graphics are slow and whether it times its first flight
-// (map/graphicsSwitch) —, each with its
+// (map/graphicsSwitch), where the map's work runs during a selection
+// (map/threadSwitch) —, each with its
 // sentences for a tester and a mark on the ones that reload the page. A choice
 // that is not its switch's default is marked: a count on the button,
 // « modifié » on its row, and at the top of the dialog the count again with
@@ -60,12 +61,15 @@ import {
   lidCacheMode,
   dprChoice,
   frameMeasure,
+  globeLate,
   lidCheck,
   lidMode,
+  linesMesh,
   meshMode,
   outlineWait,
   regionSelfMode,
   msaaChoice,
+  pinsRebuild,
   reliefGround,
   reliefPrefetch,
   setBootWorkers,
@@ -75,20 +79,25 @@ import {
   setLidCacheMode,
   setDprChoice,
   setFrameMeasure,
+  setGlobeLate,
   setLidCheck,
   mapFallback,
   setLidMode,
   setMapFallback,
+  setLinesMesh,
   setMeshMode,
   setOutlineWait,
   setRegionSelfMode,
   setMsaaChoice,
+  setPinsRebuild,
   setReliefGround,
   setReliefPrefetch,
   setTapAnswerMode,
   setTapFrameMode,
   tapAnswerMode,
   tapFrameMode,
+  setTintCut,
+  tintCut,
 } from "@/features/map";
 import {
   bootList,
@@ -179,6 +188,10 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:msaa": bind(() => msaaChoice, setMsaaChoice),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
+  "ac:lines-mesh": bind(() => linesMesh.value, setLinesMesh),
+  "ac:globe-late": bind(() => globeLate.value, setGlobeLate),
+  "ac:tint-cut": bind(() => tintCut.value, setTintCut),
+  "ac:pins-rebuild": bind(() => pinsRebuild.value, setPinsRebuild),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
