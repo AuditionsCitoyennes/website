@@ -366,6 +366,22 @@ waited on it past the cap — one file fetched, no request failed, no plateau.
 `localStorage` `ac:outlines-boot=fallback` (testing tools: the dev server and
 staging) restores that cap, to compare.
 
+A file that lands while nothing waits for it — a département's communes, the
+neighbours' own outlines, the countries' world outlines, the file of a unit
+the visitor has already left — is kept as text and parsed, checked and stored
+only once the map is still (no flight, no rise or sink, no pointer down; 5 s
+at the latest), every kept file in one write, and the files of one batch
+together. Only the file the selected unit's plateau waits for is stored as it
+lands. Around a standing plateau the new lines are then drawn by one reshape
+in place: the plateau pipeline runs once per selection. Each file is asked at
+a fetch priority (high for the one a plateau waits for, low for the others)
+and none is aborted; a plateau whose own file shares the link with the file
+of a unit just left waits once more for it (2.4 s in all, not 1.2 s) and is
+not remembered as slow for the session. `localStorage` `ac:late-files=direct`
+(testing tools; the DEV dialog's « Fichiers tardifs ») restores the behaviour
+before 2026-11-14: every file stored as it lands, each write a new run of the
+pipeline, no fetch priority.
+
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps
 (`scripts/deploy/outlines.sh fetch` / `install`) and its fail-closed

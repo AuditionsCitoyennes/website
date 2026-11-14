@@ -24,11 +24,19 @@
 // online or the page shown again — which also lets a file failed on the
 // network be asked again by the next move.
 //
+// Late files (ac:late-files, map/plateau/lateFilesSwitch.ts; "quiet", the
+// default): a file nothing waits for — what `setUrgent`'s rule says, GeoNav's
+// (model/useMapFeed) — is kept as text by the loader and stored once the map
+// is still (the map's whenMapStill, or LATE_CAP_MS at the latest), every kept
+// file in one write: one bump of `version`, one rebuild. `held` names them
+// meanwhile. "direct": every file stored as it lands, as before.
+//
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's
 // only trace of it.
 import { markRaw, shallowRef, type ShallowRef } from "vue";
 import {
+  fileKey,
   OUTLINE_WAIT_MS,
   OutlineLoader,
   OutlineStore,
@@ -39,6 +47,7 @@ import {
   type OutlineRow,
   type OutlineStatus,
 } from "@/features/geo";
+import { LATE_CAP_MS, lateFilesMode } from "@/features/map";
 import { whenMapStill } from "@/features/map/lib";
 import { absoluteBase } from "@/shared/absoluteUrl";
 import { onReconnect } from "@/shared/net/reconnect";
@@ -47,6 +56,7 @@ import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BundleState } from "../model/outlineRules";
 import { outlinesBuild } from "./outlinesBuild";
 import { DECOR_PARALLEL, outlinesDecor, stillApply } from "./outlinesDecorSwitch";
+import { createSelfHold } from "./selfHold";
 
 export { OUTLINE_WAIT_MS };
 
@@ -81,6 +91,8 @@ export interface OutlineFiles {
   gaveUp: ShallowRef<ReadonlySet<string>>;
   /** Units whose plateau stopped waiting for its self (holdSelf). */
   heldOut: ShallowRef<ReadonlySet<string>>;
+  /** fileKeys in memory as text, not stored yet (the late files, kept quiet). */
+  held: ShallowRef<ReadonlySet<string>>;
   build: string;
   /** Ends with "/". */
   base: string;
@@ -100,14 +112,28 @@ export interface OutlineFiles {
   has(id: string, tier: string): boolean;
   bundleLoaded(id: string): boolean;
   /** A plateau waits for this unit's self: in OUTLINE_WAIT_MS, unless it is
-   *  stored by then, the unit joins `heldOut` for the session. Once per wait. */
+   *  stored by then, the unit joins `heldOut` for the session. Once per wait.
+   *  A wait the file of a unit just left crossed goes on once more, and then
+   *  holds the unit out until `leaveSelf` only (data/selfHold.ts). */
   holdSelf(id: string): void;
+  /** The unit is no longer the selection: a hold-out that was for its visit ends. */
+  leaveSelf(id: string): void;
+  /** Its file of this kind is in memory as text, not stored yet. */
+  isHeld(kind: OutlineKind, id: string): boolean;
+  /** The file's key, as `setUrgent`'s rule is asked it. */
+  keyOf(kind: OutlineKind, id: string): string;
+  /** The rule saying whether the selected unit's plateau waits for a file
+   *  (by its key), now; null: none does. Asked as each file lands. */
+  setUrgent(rule: ((key: string) => boolean) | null): void;
+  /** The kept files that rule now calls urgent are stored at once. */
+  flushDue(): void;
   pin(ids: Iterable<string>): number;
   ensureRoot(): Promise<OutlineFilesStatus>;
   /** The network may be back (the panel's « Réessayer »): a start waiting
    *  for its next attempt makes it now (OutlineLoader.reconnect). */
   reconnect(): void;
-  ensureBundle(id: string): Promise<OutlineFilesStatus>;
+  /** `due`: the selected unit's plateau waits for it (its fetch priority). */
+  ensureBundle(id: string, due?: boolean): Promise<OutlineFilesStatus>;
   ensureSelf(id: string): Promise<OutlineFilesStatus>;
   /** Their g/, and the u/ of `selves` (micro-states), in one write
    *  (`decor`: a decorative batch, see outlinesDecorSwitch.ts). */
@@ -141,7 +167,11 @@ function createOutlineFiles(): OutlineFiles {
   const failed = shallowRef<ReadonlySet<string>>(new Set());
   const gaveUp = shallowRef<ReadonlySet<string>>(new Set());
   const heldOut = shallowRef<ReadonlySet<string>>(new Set());
-  const holding = new Set<string>();
+  const held = shallowRef<ReadonlySet<string>>(new Set());
+  /** The units of `heldOut` held out for their visit only (leaveSelf). */
+  const visitOnly = new Set<string>();
+  const quiet = lateFilesMode === "quiet";
+  let urgent: ((key: string) => boolean) | null = null;
   // The probe's rawCheck reads them; testing tools only (dev and staging).
   // Weak, so an evicted geometry is still collected and the LRU stays real.
   const seen: WeakRef<object>[] = [];
@@ -206,6 +236,45 @@ function createOutlineFiles(): OutlineFiles {
           clearTimer: (timer) => window.clearTimeout(timer as number),
         })
       : undefined,
+    late: quiet
+      ? {
+          urgent: (key) => !!urgent?.(key),
+          // The map's still moment — or LATE_CAP_MS, by a timer of its own: the
+          // scheduler drops its jobs when the map is unmounted.
+          whenStill(job) {
+            let ran = false;
+            const run = () => {
+              if (ran) return;
+              ran = true;
+              window.clearTimeout(cap);
+              cancel();
+              job();
+            };
+            const cancel = whenMapStill(run);
+            const cap = window.setTimeout(run, LATE_CAP_MS);
+          },
+          onHeld() {
+            held.value = loader.held;
+          },
+        }
+      : undefined,
+  });
+  const selfStored = (id: string) => {
+    const fid = store.filesIdOf(id); // an overseas région's self is its département's
+    const row = store.rowOf(fid);
+    return !!row && store.has(fid, row.st);
+  };
+  const selfHold = createSelfHold({
+    waitMs: OUTLINE_WAIT_MS,
+    extraMs: OUTLINE_WAIT_MS,
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    stored: selfStored,
+    abandoned: () => loader.abandoned(),
+    abandonedDone: () => loader.abandonedDone,
+    onHeldOut(id, session) {
+      if (!session) visitOnly.add(id);
+      heldOut.value = new Set(heldOut.value).add(id);
+    },
   });
 
   // For the page's life: the loader is the page's, not a mount's.
@@ -224,6 +293,7 @@ function createOutlineFiles(): OutlineFiles {
     failed,
     gaveUp,
     heldOut,
+    held,
     build,
     base,
     isFailed: (kind, id) => {
@@ -257,19 +327,23 @@ function createOutlineFiles(): OutlineFiles {
     bundleLoaded: (id) => read((s) => s.bundleLoaded(id)),
     pin: (ids) => store.pin(ids),
     holdSelf: (id) => {
-      if (holding.has(id) || heldOut.value.has(id)) return;
-      holding.add(id);
-      window.setTimeout(() => {
-        holding.delete(id);
-        const fid = store.filesIdOf(id); // an overseas région's self is its département's
-        const row = store.rowOf(fid);
-        if (row && store.has(fid, row.st)) return; // in time: nothing given up
-        heldOut.value = new Set(heldOut.value).add(id);
-      }, OUTLINE_WAIT_MS);
+      if (!heldOut.value.has(id)) selfHold.hold(id);
     },
+    leaveSelf: (id) => {
+      if (!visitOnly.delete(id)) return;
+      const next = new Set(heldOut.value);
+      next.delete(id);
+      heldOut.value = next;
+    },
+    isHeld: (kind, id) => held.value.has(fileKey(kind, store.filesIdOf(id))),
+    keyOf: (kind, id) => fileKey(kind, store.filesIdOf(id)),
+    setUrgent: (rule) => {
+      urgent = rule;
+    },
+    flushDue: () => loader.flushDue(),
     ensureRoot: () => loader.ensureRoot(),
     reconnect: () => loader.reconnect(),
-    ensureBundle: (id) => loader.ensureBundle(id),
+    ensureBundle: (id, due = false) => loader.ensureBundle(id, due),
     ensureSelf: (id) => loader.ensureSelf(id),
     ensureGlobe: (ids, selves = [], decor = false) =>
       loader.ensureGlobe(ids, selves, decor && decorLow),

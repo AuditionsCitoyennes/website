@@ -19,6 +19,7 @@ import { stillMap } from "./lib/stillMap";
 import { resetPlateauStood } from "./lib/plateauStood";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import type { MeshClient } from "./gl/meshClientCore";
+import { lateFilesMode } from "./plateau/lateFilesSwitch";
 import { meshMode } from "./plateau/meshSwitch";
 import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
 import { labelGlyphOptions, whenLabelFont } from "./labelFont";
@@ -610,7 +611,12 @@ watch(
     }
     mask.applyOutline();
     mask.applyMask(); // the hole is cut from props.outline — follow it immediately
-    void plateau.ensurePlateau(); // selection changed → re-raise the new area
+    // ac:late-files "quiet": the outline is judged against what stands — a
+    // run of the pipeline for a new unit or shape, one reshape in place for
+    // lines that changed around the standing plateau, nothing for an outline
+    // that changes nothing (usePlateau.outlineChanged). "direct": a run, always.
+    if (lateFilesMode === "quiet") plateau.outlineChanged();
+    else void plateau.ensurePlateau(); // selection changed → re-raise the new area
   },
 );
 watch(

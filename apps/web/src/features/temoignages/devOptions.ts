@@ -5,11 +5,12 @@
 // modules own the keys, the defaults and the reads (dataSource.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
 // geo-nav/bootListSwitch, map/bootWorkersSwitch, geo-nav/data/outlinesDecorSwitch,
-// map/glyphSwitch, map/plateau/tapAnswerSwitch, analyses/devSwitch, shared/device/deviceTier,
-// shared/device/glassSwitch, shared/boot/mapPreload, shared/api/authClientSwitch,
-// map/fallbackSwitch, shared/ui/posterSwitch, shared/device/cardOpenSwitch,
-// shared/boot/homeBoot, shared/net/recoverSwitch, geo-nav/data/bootReadsSwitch).
-// Under the « Appareil » row
+// map/glyphSwitch, shared/device/glassSwitch, shared/boot/mapPreload,
+// shared/api/authClientSwitch, map/fallbackSwitch, shared/ui/posterSwitch,
+// shared/device/cardOpenSwitch, shared/boot/homeBoot, shared/net/recoverSwitch,
+// geo-nav/data/bootReadsSwitch,
+// map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
+// analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
@@ -34,6 +35,7 @@ export type DevKey =
   | "ac:frame-fill"
   | "ac:tap-answer"
   | "ac:tap-frame"
+  | "ac:late-files"
   | "ac:analyses-pending"
   | "ac:slab-lid-verre"
   | "ac:slab-text"
@@ -339,6 +341,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     reloads: false,
     defaultId: "same",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
+  },
+  {
+    key: "ac:late-files",
+    section: "carte",
+    label: "Fichiers tardifs",
+    choices: [
+      { id: "quiet", label: "Au calme" },
+      { id: "direct", label: "Direct" },
+    ],
+    explain:
+      "Les contours arrivent par fichiers, et certains arrivent après coup : les communes d'un département, les voisins, le fichier d'un territoire déjà quitté. « Au calme » (par défaut) les garde de côté et ne les trace qu'une fois la carte immobile, tous d'un coup, sans faire redescendre ni remonter le relief ; « Direct » les trace dès qu'ils arrivent, même en plein déplacement, comme avant.",
+    reloads: true,
+    defaultId: "quiet",
   },
   {
     key: "ac:analyses-pending",
