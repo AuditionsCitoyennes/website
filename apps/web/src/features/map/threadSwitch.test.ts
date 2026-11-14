@@ -2,7 +2,8 @@
 // with `node --import tsx --test` (root "test:scripts"): the kept value,
 // garbage and a throwing storage; the page's value with and without the
 // testing tools (the module read again under a fresh query); a choice kept
-// without a reload; what each « Globe » choice asks on each device tier.
+// without a reload; what each « Globe » and « Gris » choice asks on each
+// device tier.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -54,8 +55,8 @@ const SWITCHES = [
   },
   {
     key: "ac:tint-cut",
-    choices: ["worker", "page"],
-    fallback: "worker",
+    choices: ["auto", "worker", "page"],
+    fallback: "auto",
     now: (m: Mod) => m.tintCut.value,
     set: (m: Mod, v: string) => m.setTintCut(v as never),
     listed: (m: Mod) => [m.TINT_CUTS, m.DEFAULT_TINT_CUT] as const,
@@ -135,4 +136,16 @@ test("« Globe »: what each choice asks of a deferred globe set, by device tier
   assert.deepEqual(lateGlobeFor("auto", "full"), { ahead: true, wait: false });
   assert.deepEqual(lateGlobeFor("auto", "light"), { ahead: true, wait: true });
   assert.deepEqual(lateGlobeFor("auto", "minimal"), { ahead: true, wait: true });
+});
+
+test("« Gris »: who cuts the grey sheet, by choice and device tier", async () => {
+  const { tintCutFor } = await load(false);
+  for (const tier of ["full", "light", "minimal"] as const) {
+    assert.equal(tintCutFor("page", tier), "page");
+    assert.equal(tintCutFor("worker", tier), "worker");
+  }
+  // Where the page's thread is fast the cut takes less than the worker's round trip.
+  assert.equal(tintCutFor("auto", "full"), "page");
+  assert.equal(tintCutFor("auto", "light"), "worker");
+  assert.equal(tintCutFor("auto", "minimal"), "worker");
 });

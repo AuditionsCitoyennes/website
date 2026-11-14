@@ -63,7 +63,7 @@
 //   plateau.coldStart ac:cold-start=early: a note (0 ms) when a run holding
 //                     for an outline starts the sink and the coming unit's
 //                     lid (usePlateau.coldStart; detail: scope, sink)
-//   tint.workerCut    ac:tint-cut=worker: a grey sheet's cut in the worker, its
+//   tint.workerCut    ac:tint-cut: a grey sheet's cut in the worker, its
 //                     own time, noted when the answer is received
 //                     (ScopeTintLayer; detail: vertices); tint.setSelection
 //                     then times only the cuts made on the page

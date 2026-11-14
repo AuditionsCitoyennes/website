@@ -26,9 +26,14 @@
 //
 // `ac:tint-cut` (« Gris »): the flat view's grey sheet, cut around the
 // selection (gl/tintSheet.ts).
-// - "worker" (the default): cut by the mesh worker, asked at the act and laid
-//   when it answers, a frame or two later. Needs a live worker; else "page".
+// - "worker": cut by the mesh worker, asked at the act and laid when it
+//   answers, a few frames later (the clicked territory clears then, not in
+//   the click's own frame). Needs a live worker; else "page".
 // - "page": cut on the page, in the act.
+// - "auto" (the default): "worker" on a device whose tier is "light" or
+//   "minimal", where the page's thread is the slow part; "page" on every
+//   other, where the cut takes less than the worker's round trip
+//   (`tintCutFor`).
 //
 // `ac:pins-rebuild` (« Points »): the pins and the hit rings, brought in line
 // with the units to plot.
@@ -37,7 +42,9 @@
 // - "now": in the act.
 //
 // Each is read where it is used, at each use: a choice applies from the next
-// selection, without a reload. Production has neither keys nor switches: the
+// selection, without a reload; under "auto" the device's tier is read then
+// too (shared/device/deviceTier: a tier measured in the first flight applies
+// from the next selection). Production has neither keys nor switches: the
 // four defaults.
 //
 // No import but vue's ref (the DEV dialog redraws on them) and nothing run at
@@ -114,10 +121,10 @@ export function lateGlobeFor(
 
 // ---- ac:tint-cut -------------------------------------------------------------------
 
-export type TintCut = "worker" | "page";
+export type TintCut = "auto" | "worker" | "page";
 /** The choice of a build without the testing tools, and the switch's default. */
-export const DEFAULT_TINT_CUT: TintCut = "worker";
-export const TINT_CUTS: readonly TintCut[] = ["worker", "page"];
+export const DEFAULT_TINT_CUT: TintCut = "auto";
+export const TINT_CUTS: readonly TintCut[] = ["auto", "worker", "page"];
 
 /** The choice now. */
 export const tintCut = ref<TintCut>(
@@ -129,6 +136,13 @@ export function setTintCut(choice: TintCut) {
   if (!__TEST_TOOLS__) return;
   tintCut.value = choice;
   keep("ac:tint-cut", choice);
+}
+
+/** Who cuts a grey sheet asked for now: the choice, or under "auto" the
+ *  worker on a device whose tier is not "full". */
+export function tintCutFor(choice: TintCut, tier: "full" | "light" | "minimal"): "worker" | "page" {
+  if (choice !== "auto") return choice;
+  return tier === "full" ? "page" : "worker";
 }
 
 // ---- ac:pins-rebuild ---------------------------------------------------------------

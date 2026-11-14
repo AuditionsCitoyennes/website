@@ -514,13 +514,14 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Gris",
     choices: [
+      { id: "auto", label: "Auto" },
       { id: "worker", label: "Arrière-plan" },
       { id: "page", label: "Page" },
     ],
     explain:
-      "Autour du territoire choisi, la carte est grisée ; ce gris est redécoupé à chaque nouveau choix. « Arrière-plan » (par défaut) fait ce découpage hors de la page : le gris change une ou deux images après le toucher. « Page » le fait dans la page, au moment du toucher, comme avant. Sans effet si Maillage n'est pas sur son dernier choix.",
+      "Autour du territoire choisi, la carte est grisée ; ce gris est redécoupé à chaque nouveau choix. « Auto » (par défaut) suit le niveau de l'appareil (section Appareil) : « Page » au niveau complet, « Arrière-plan » aux niveaux léger et minimal. « Page » fait ce découpage dans la page, au moment du toucher, comme avant : le territoire touché s'éclaircit aussitôt. « Arrière-plan » le fait hors de la page, qui a moins à calculer : le territoire touché s'éclaircit quelques images plus tard. Sans effet si Maillage n'est pas sur son dernier choix.",
     reloads: false,
-    defaultId: "worker",
+    defaultId: "auto",
   },
   {
     key: "ac:pins-rebuild",
