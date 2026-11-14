@@ -7,7 +7,7 @@ import {
   mapPreloadScript,
   type PlanChunk,
 } from "./src/shared/boot/mapPreloadPlan";
-import { homeBootScript, homePreloadFiles } from "./src/shared/boot/homeBootPlan";
+import { afterCharset, homeBootScript, homePreloadFiles } from "./src/shared/boot/homeBootPlan";
 import { HERO_IMAGE, heroSources } from "./src/features/home/homeImages";
 
 // The outline build the site reads (features/geo-nav/data/useOutlineFiles):
@@ -74,7 +74,8 @@ function planChunks(bundle: Record<string, unknown> | undefined): PlanChunk[] {
 }
 
 // The home page's first render from the HTML (shared/boot/homeBootPlan.ts): a
-// small inline script, first in <head>, puts the theme's class on <html> and,
+// small inline script, right after <meta charset> (which must stay in the
+// first 1024 bytes), puts the theme's class on <html> and,
 // on "/", the hero's dark ground under the still empty page, asks for the home
 // page's chunk and stylesheet, and (`ac:hero` "html") for the photograph. A
 // build only, like the map's. `testTools`: the script reads the DEV switches.
@@ -85,14 +86,14 @@ function homeBootHtml(mode: string): Plugin {
     apply: "build",
     transformIndexHtml: {
       order: "post",
-      handler(_html, ctx) {
+      handler(html, ctx) {
         const script = homeBootScript({
           files: homePreloadFiles(planChunks(ctx.bundle)),
           hero: heroSources(HERO_IMAGE, "portrait"),
           heroOrigin: new URL(HERO_IMAGE.src).origin,
           testTools,
         });
-        return [{ tag: "script", children: script, injectTo: "head-prepend" }];
+        return afterCharset(html, script);
       },
     },
   };

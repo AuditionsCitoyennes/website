@@ -139,7 +139,9 @@ export function homeBootScript(input: {
     `if(b==="tot"){d.classList.add(${JSON.stringify(HOME_SHELL_CLASS)});` +
     `${JSON.stringify(files.js)}.forEach(function(f){a("modulepreload",f,0,1)});` +
     `${JSON.stringify(files.css)}.forEach(function(f){a("preload",f,"style",1)})}` +
-    (heroLinks.length
+    // The photograph's links: "html" is a DEV choice, so a build without the
+    // testing tools (whose `p` is baked to the default) leaves them out.
+    (testTools && heroLinks.length
       ? `if(p==="html"){` +
         (heroOrigin ? `a("preconnect",${JSON.stringify(heroOrigin)});` : "") +
         `${JSON.stringify(heroLinks)}.forEach(function(s){var l=document.createElement("link");` +
@@ -149,4 +151,21 @@ export function homeBootScript(input: {
       : "") +
     `})();`
   );
+}
+
+/**
+ * index.html with the inline script placed right after `<meta charset>`, so
+ * the charset declaration stays within the document's first 1024 bytes (the
+ * HTML spec's rule); with no charset, first in <head>.
+ */
+export function afterCharset(html: string, script: string): string {
+  const tag = `<script>${script}</script>`;
+  const charset = /<meta\s+charset=[^>]*>/i.exec(html);
+  if (charset) {
+    const at = charset.index + charset[0].length;
+    const line = html.slice(html.lastIndexOf("\n", charset.index) + 1, charset.index);
+    const indent = /^[ \t]*$/.test(line) ? line : "";
+    return `${html.slice(0, at)}\n${indent}${tag}${html.slice(at)}`;
+  }
+  return html.replace(/<head[^>]*>/i, (head) => `${head}${tag}`);
 }
