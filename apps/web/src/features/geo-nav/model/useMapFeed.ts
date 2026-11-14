@@ -127,6 +127,15 @@ export function useMapFeed(inputs: MapFeedInputs) {
     return raisedOutlineDue(s) || (!raisedGeometryFor(s) && !geometryKnownAbsent(s));
   });
 
+  /** The unit that hold is for, and its box (its row's: the box of the
+   *  outline on its way) — what the map can start before the outline lands
+   *  (the map's ac:cold-start). The same object while the hold lasts. */
+  const coming = computed(() => {
+    if (!scopePending.value) return null;
+    const s = currentScope.value;
+    return { id: s.id, bounds: s.bounds };
+  });
+
   /** The outline has every geometry it will get: nothing of the scope's own,
    *  its children's or its neighbours' is still on its way (the perf probes'
    *  "drill → boundaries ready", shared/perf; a neighbouring département's own
@@ -461,5 +470,5 @@ export function useMapFeed(inputs: MapFeedInputs) {
     );
   }
 
-  return { outline, scopePending, outlineReady, mapUnits };
+  return { outline, scopePending, coming, outlineReady, mapUnits };
 }
