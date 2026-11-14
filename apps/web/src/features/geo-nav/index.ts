@@ -18,3 +18,14 @@ if (__TEST_TOOLS__) void import("./data/outlinesProbe");
 export { bootList, setBootList, BOOT_LISTS, DEFAULT_BOOT_LIST } from "./bootListSwitch";
 // When the decorative outlines come (testing tools: the DEV dialog's « Contours voisins » row).
 export { outlinesDecor, setOutlinesDecor, OUTLINES_DECORS } from "./data/outlinesDecorSwitch";
+// Which reads of the map page wait (testing tools: the DEV dialog's « Données
+// des filtres » and « Préchargement des témoignages » rows).
+export {
+  FILTERS_IDLE_CAP_MS,
+  FILTERS_IDLE_MS,
+  filtersDataWanted,
+  filtersLoad,
+  prefetch,
+  setFiltersLoad,
+  setPrefetch,
+} from "./data/bootReadsSwitch";

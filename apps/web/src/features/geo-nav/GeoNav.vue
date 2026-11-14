@@ -46,6 +46,7 @@ import { useAnalysesRing } from "./ring/useAnalysesRing";
 import { usePlaqueFocus } from "./ring/usePlaqueFocus";
 import type { UnitTree } from "./data/useUnitTree";
 import { useServerLists } from "./data/useServerLists";
+import { usePanelRecovery } from "./data/usePanelRecovery";
 
 const props = defineProps<{
   groups: LocationGroup[];
@@ -771,6 +772,24 @@ if (unitTree) {
 const listsLoading = computed(() => lists?.resultsLoading.value ?? false);
 /** The results could not be had. */
 const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
+/** After a network failure, what the panel could not have is asked again by
+ *  itself (`ac:recover`, data/usePanelRecovery). */
+const {
+  on: recoverOn,
+  offline: netOffline,
+  retryNow,
+} = usePanelRecovery({
+  state: () =>
+    props.isError || scopeFailed.value || listsFailed.value || placeFailed.value
+      ? "failed"
+      : props.loading || listsLoading.value || placeLoading.value
+        ? "busy"
+        : "ok",
+  retry: () => {
+    unitTree?.retryFailed();
+    lists?.retryFailed();
+  },
+});
 </script>
 
 <template>
@@ -883,6 +902,29 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
 
         <div v-if="loading || listsLoading" class="state">
           <LoadingDots label="Chargement des témoignages…" />
+          <p v-if="recoverOn && netOffline" class="state-note" role="status">
+            Pas de connexion à internet pour le moment. Les témoignages s'afficheront dès son
+            retour.
+          </p>
+        </div>
+        <div v-else-if="(isError || scopeFailed || listsFailed) && recoverOn" class="state">
+          <p role="status">
+            <template v-if="netOffline">
+              Pas de connexion à internet pour le moment. Les témoignages s'afficheront dès son
+              retour.
+            </template>
+            <template v-else>
+              Les témoignages n'ont pas pu être chargés. La page réessaiera d'elle-même, vous pouvez
+              aussi réessayer maintenant.
+            </template>
+          </p>
+          <button
+            type="button"
+            class="ac-btn ac-btn--outline ac-btn--sm state-retry"
+            @click="retryNow"
+          >
+            Réessayer
+          </button>
         </div>
         <div v-else-if="isError || scopeFailed || listsFailed" class="state">
           Impossible de charger les témoignages.
@@ -1121,6 +1163,12 @@ const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
   padding: 2rem 1rem;
   text-align: center;
   color: hsl(var(--muted-foreground));
+}
+.state-note {
+  margin-top: 0.75rem;
+}
+.state-retry {
+  margin-top: 1rem;
 }
 
 @media (max-width: 899px) {

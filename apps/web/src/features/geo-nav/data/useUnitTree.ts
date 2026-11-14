@@ -131,6 +131,9 @@ export interface UnitTreeOptions {
   onTextIgnored?: (req: CountsRequest, minChars: number | undefined) => void;
   /** The place reads (placesApi's fetchCounts; a fake in the tests). */
   fetch?: Parameters<typeof createCountsBatcher>[0]["fetch"];
+  /** The analyses figures with every answer but the place picker's (none:
+   *  with them). A build without the analyses reads none: it asks for none. */
+  facts?: boolean;
 }
 
 export function useUnitTree(opts: UnitTreeOptions) {
@@ -394,7 +397,11 @@ export function useUnitTree(opts: UnitTreeOptions) {
       stores.set(req.key, known);
       return known;
     }
-    const ks = new KeyStore({ key: req.key, params: req.params, facts: req.key !== EMPTY_KEY });
+    const ks = new KeyStore({
+      key: req.key,
+      params: req.params,
+      facts: req.key !== EMPTY_KEY && opts.facts !== false,
+    });
     // In place of a stale one (still on screen until this one is).
     stores.delete(req.key);
     stores.set(req.key, ks);
@@ -447,6 +454,29 @@ export function useUnitTree(opts: UnitTreeOptions) {
       if (chainKnown(next)) settleNext();
       else askChain(next);
     }
+  }
+
+  /** The network may be back (the page's recovery: a wait passed, the browser
+   *  online again, a « Réessayer »): what failed under the store on screen and
+   *  the next one is asked for again — the scope's chain, as a scope change
+   *  asks, and every other unit that failed. Whether anything was. */
+  function retryFailed(): boolean {
+    let retried = false;
+    for (const ks of [shown, next]) {
+      if (!ks?.failed.size) continue;
+      const ids = [...ks.failed];
+      forgetFailures(ks);
+      retried = true;
+      if (ks === shown && !ks.stale) ensureIn(ks, ids);
+    }
+    if (!retried) return false;
+    status.value++;
+    if (shown && !shown.stale) ensureIn(shown, chain.slice(-2));
+    if (next) {
+      if (chainKnown(next)) settleNext();
+      else askChain(next);
+    }
+    return true;
   }
 
   /** Asks the store on screen for these units' subtrees (those on view) —
@@ -790,6 +820,7 @@ export function useUnitTree(opts: UnitTreeOptions) {
     sideVersion,
     request,
     setScope,
+    retryFailed,
     ensure,
     addStub,
     setCarry,

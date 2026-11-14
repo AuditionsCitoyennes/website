@@ -7,7 +7,8 @@
 // geo-nav/bootListSwitch, map/bootWorkersSwitch, geo-nav/data/outlinesDecorSwitch,
 // map/glyphSwitch, analyses/devSwitch, shared/device/deviceTier, shared/device/glassSwitch,
 // shared/boot/mapPreload, shared/api/authClientSwitch, map/fallbackSwitch,
-// shared/ui/posterSwitch, shared/device/cardOpenSwitch, shared/boot/homeBoot).
+// shared/ui/posterSwitch, shared/device/cardOpenSwitch, shared/boot/homeBoot,
+// shared/net/recoverSwitch, geo-nav/data/bootReadsSwitch).
 // Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -48,7 +49,10 @@ export type DevKey =
   | "ac:poster"
   | "ac:card-open"
   | "ac:home-boot"
-  | "ac:hero";
+  | "ac:hero"
+  | "ac:recover"
+  | "ac:filters-load"
+  | "ac:prefetch";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -451,6 +455,47 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "La grande photo de l'accueil. « Portrait » (par défaut) envoie aux écrans en hauteur (téléphones, tablettes tenues droites) une copie découpée à leur forme, un peu plus compressée : environ 240 ko sur un téléphone au lieu de 760 ko, le même cadrage. « Portrait tôt » la demande en plus dès l'arrivée sur la page, en même temps que le code du site : un essai, pas encore mesuré. « Ancien » envoie la même grande copie à tous les écrans, et Safari en télécharge alors deux ou trois tailles l'une après l'autre.",
     reloads: true,
     defaultId: "portrait",
+  },
+  {
+    key: "ac:recover",
+    section: "site",
+    label: "Reprise après coupure",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "ancien", label: "Ancien" },
+    ],
+    explain:
+      "Ce que fait la page des témoignages quand le réseau manque. « Auto » (par défaut) redemande d'elle-même ce qui n'a pas pu venir, après 2, 5, 10, 20 puis 30 secondes, puis dès que le navigateur retrouve le réseau ou que la page revient à l'écran : les contours de la carte, la liste des lieux, les résultats. En attendant, le panneau le dit en une phrase, avec un bouton « Réessayer ». « Ancien », comme avant : la carte reste sans contours jusqu'au prochain chargement de la page, et le reste n'est redemandé qu'en changeant de lieu.",
+    reloads: true,
+    defaultId: "auto",
+  },
+  {
+    key: "ac:filters-load",
+    section: "site",
+    label: "Données des filtres",
+    choices: [
+      { id: "repos", label: "Au repos" },
+      { id: "ouverture", label: "À l'ouverture" },
+      { id: "demarrage", label: "Au démarrage" },
+    ],
+    explain:
+      "Quand la page demande ce que seule la fenêtre des filtres affiche : la liste de tous les lieux et le nombre de témoignages par thème. « Au repos » (par défaut) attend que la liste des lieux soit affichée, puis trois secondes et un moment calme : le démarrage a deux demandes de moins. « À l'ouverture » attend que la fenêtre des filtres s'ouvre, qui montre alors un instant son chargement. « Au démarrage », comme avant, les demande dès l'arrivée sur la page.",
+    reloads: true,
+    defaultId: "repos",
+  },
+  {
+    key: "ac:prefetch",
+    section: "site",
+    label: "Préchargement des témoignages",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "trois", label: "Trois" },
+      { id: "un", label: "Un" },
+    ],
+    explain:
+      "Quand un lieu s'ouvre, la page demande à l'avance les premiers témoignages de ses premières auditions, pour qu'elles s'ouvrent aussitôt. « Auto » (par défaut) le fait pour trois auditions, et pour une seule quand le navigateur dit que le visiteur économise ses données ou que sa connexion est lente. « Trois », comme avant, le fait pour trois partout ; « Un » pour une seule partout : les suivantes montrent un instant leur chargement.",
+    reloads: true,
+    defaultId: "auto",
   },
 ];
 
