@@ -13,7 +13,7 @@
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
 // geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
-// analyses/devSwitch,
+// map/threadSwitch, analyses/devSwitch,
 // shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -71,7 +71,11 @@ export type DevKey =
   | "ac:relief-ground"
   | "ac:msaa"
   | "ac:dpr"
-  | "ac:frame-measure";
+  | "ac:frame-measure"
+  | "ac:lines-mesh"
+  | "ac:globe-late"
+  | "ac:tint-cut"
+  | "ac:pins-rebuild";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -477,6 +481,59 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Ce qui se passe sous le territoire choisi quand il se soulève. « Auto » (par défaut) suit le niveau de l'appareil (section Appareil) : « Relief » au niveau complet, « Plat » aux niveaux léger et minimal. Avec « Relief », le sol monte avec le territoire. Avec « Plat », le sol reste en bas : seuls les parois et le dessus montent, ce qui demande moins de calcul, et les points des lieux sont posés sur le dessus. Le choix vaut à partir du prochain territoire choisi.",
     reloads: false,
     defaultId: "auto",
+  },
+  {
+    key: "ac:lines-mesh",
+    section: "carte",
+    label: "Traits seuls",
+    choices: [
+      { id: "worker", label: "Arrière-plan" },
+      { id: "page", label: "Page" },
+    ],
+    explain:
+      "Quand aucun territoire n'est soulevé (« Monde », par exemple), la carte ne trace que les contours. « Arrière-plan » (par défaut) prépare ces contours hors de la page, comme pour un territoire en relief : la page ne se fige pas, et ils arrivent quand l'ancien relief a fini de redescendre. « Page » les prépare dans la page, comme avant. Sans effet si Maillage n'est pas sur son dernier choix.",
+    reloads: false,
+    defaultId: "worker",
+  },
+  {
+    key: "ac:globe-late",
+    section: "carte",
+    label: "Globe",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "page", label: "Page" },
+      { id: "wait", label: "Attendre" },
+    ],
+    explain:
+      "Un territoire vu de près reçoit d'abord sa forme pour la carte à plat ; sa forme pour le globe (la vue de très loin) est préparée à part, hors de la page. Si le globe s'affiche avant qu'elle soit prête, « Auto » (par défaut) la demande plus tôt, puis fait comme « Page » au niveau complet de l'appareil (section Appareil) et comme « Attendre » aux niveaux léger et minimal. « Page » la calcule dans la page, qui peut se figer un instant, comme avant. « Attendre » la demande plus tôt et, tant qu'elle n'est pas là, ne dessine ni le relief ni les contours, pendant quelques images.",
+    reloads: false,
+    defaultId: "auto",
+  },
+  {
+    key: "ac:tint-cut",
+    section: "carte",
+    label: "Gris",
+    choices: [
+      { id: "worker", label: "Arrière-plan" },
+      { id: "page", label: "Page" },
+    ],
+    explain:
+      "Autour du territoire choisi, la carte est grisée ; ce gris est redécoupé à chaque nouveau choix. « Arrière-plan » (par défaut) fait ce découpage hors de la page : le gris change une ou deux images après le toucher. « Page » le fait dans la page, au moment du toucher, comme avant. Sans effet si Maillage n'est pas sur son dernier choix.",
+    reloads: false,
+    defaultId: "worker",
+  },
+  {
+    key: "ac:pins-rebuild",
+    section: "carte",
+    label: "Points",
+    choices: [
+      { id: "next", label: "Image suivante" },
+      { id: "now", label: "Tout de suite" },
+    ],
+    explain:
+      "Quand les lieux à montrer changent, la carte met à jour ses points et les zones où un clic choisit un territoire. « Image suivante » (par défaut) le fait juste après l'image qui suit le toucher, pour que cette première image arrive plus vite. « Tout de suite » le fait au moment du toucher, comme avant.",
+    reloads: false,
+    defaultId: "next",
   },
   {
     key: "ac:analyses-pending",
