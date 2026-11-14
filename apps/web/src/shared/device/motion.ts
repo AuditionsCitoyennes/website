@@ -80,15 +80,19 @@ export function motionFor(choice: MotionChoice, tier: DeviceTier, reducedMotion:
   return reducedMotion || tier !== "full" ? "short" : "full";
 }
 
+/** The system's reduced-motion query, asked once per window: its `matches`
+ *  follows the setting, and the panel reads it at every render. */
+let query: { win: Window; list: MediaQueryList } | null = null;
+
 /** The system asks for reduced motion. False where it cannot be asked (no
  *  window, no matchMedia). */
 export function prefersReducedMotion(): boolean {
   try {
-    return (
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    );
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    if (query?.win !== window) {
+      query = { win: window, list: window.matchMedia("(prefers-reduced-motion: reduce)") };
+    }
+    return query.list.matches;
   } catch {
     return false;
   }
