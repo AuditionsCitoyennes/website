@@ -4,14 +4,21 @@
 // browser, never in a headless preview, so diagnosing "the map looks
 // low-detail" needs a way to read the live state from the console) and
 // `__acFrame` (the frame bus, DEV). Testing tools only (__TEST_TOOLS__): the
-// map's idleness check, `__acPerf.rendersIn(ms)`, and the plateau mesh's
-// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest).
+// map's idleness check, `__acPerf.rendersIn(ms)`, the plateau mesh's
+// fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest), the two
+// motion counters of `__acPerf.dump().probes` (motionProbes.ts:
+// `motion-mutations`, `plateau-runs`), and the still-map scheduler's state:
+// `__acPerf.busy()` (what keeps the map from being still now) and
+// `__acPerf.whenStill(timeoutMs?)` (a promise of how long a job asked now
+// waits for the map to be still).
 
 import type mapboxgl from "mapbox-gl";
 import type { usePlateauFrames } from "../composables/usePlateauFrames";
 import type { usePlateau } from "../composables/usePlateau";
 import type { usePlateauLid } from "../composables/usePlateauLid";
 import type { usePlateauSlabs } from "../composables/usePlateauSlabs";
+import { stillMap, whenMapStill } from "../lib/stillMap";
+import { installMotionProbes } from "./motionProbes";
 import { installPerfVocabulary } from "./perfVocabulary";
 
 type Probes = {
@@ -48,6 +55,24 @@ function rendersIn(
       map.off("idle", onIdle);
       resolve({ renders, idleFired, map: true });
     }, ms);
+  });
+}
+
+/** The still-map scheduler, asked from the console: an empty job, and how long
+ *  it waited — on a still map a turn, in a flight until the flight's end. */
+function whenStill(timeoutMs?: number) {
+  const t0 = performance.now();
+  const busyAtAsk = stillMap.busy();
+  return new Promise((resolve) => {
+    whenMapStill(
+      () =>
+        resolve({
+          waitedMs: Math.round(performance.now() - t0),
+          busyAtAsk,
+          busyAtRun: stillMap.busy(),
+        }),
+      timeoutMs === undefined ? {} : { timeoutMs },
+    );
   });
 }
 
@@ -92,10 +117,21 @@ export function installProbes({
   if (import.meta.env.DEV) w.__acFrame = frames.probe;
   const rendersInProbe = __TEST_TOOLS__ ? (ms = 1000) => rendersIn(getMap(), ms) : null;
   if (rendersInProbe && w.__acPerf) w.__acPerf.rendersIn = rendersInProbe;
+  if (__TEST_TOOLS__ && w.__acPerf) {
+    w.__acPerf.busy = stillMap.busy;
+    w.__acPerf.whenStill = whenStill;
+  }
   if (__TEST_TOOLS__ && meshDigest) w.__acMeshHash = meshDigest;
+  // The map's mutators wrapped and counted while the map moves (testing tools).
+  const uninstallMotion = __TEST_TOOLS__ && map ? installMotionProbes(map) : null;
   return () => {
     if (import.meta.env.DEV && w.__acFrame === frames.probe) delete w.__acFrame;
     if (__TEST_TOOLS__ && w.__acPerf?.rendersIn === rendersInProbe) delete w.__acPerf.rendersIn;
+    if (__TEST_TOOLS__ && w.__acPerf?.whenStill === whenStill) {
+      delete w.__acPerf.busy;
+      delete w.__acPerf.whenStill;
+    }
     if (__TEST_TOOLS__ && meshDigest && w.__acMeshHash === meshDigest) delete w.__acMeshHash;
+    if (uninstallMotion) uninstallMotion();
   };
 }

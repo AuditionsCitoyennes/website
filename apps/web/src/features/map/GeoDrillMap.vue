@@ -12,6 +12,7 @@ import mapboxgl from "mapbox-gl";
 import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
 import { toLngLat } from "./lib/polygon";
+import { stillMap } from "./lib/stillMap";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import type { MeshClient } from "./gl/meshClientCore";
 import { meshMode } from "./plateau/meshSwitch";
@@ -271,6 +272,9 @@ onMounted(() => {
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-left");
     attrib = newAttribution();
     map.addControl(attrib, creditCorner());
+    // The still-map scheduler (lib/stillMap.ts) watches this map: its moves and
+    // the pointers down on it. No job is scheduled by anything yet.
+    stillMap.attach(map);
     uninstallProbes = installProbes({
       getMap,
       frames,
@@ -333,6 +337,7 @@ onMounted(() => {
         unavailable.value = true;
         emitReady(); // nothing more is coming — never strand a boot overlay
         pins.clear();
+        stillMap.detach(map);
         map.remove();
         map = null;
       }
@@ -455,8 +460,8 @@ window.addEventListener(MAP_MOVED_EVENT, onMapMoved);
 // Teardown, in today's order: the window listener; the pins' pending frames;
 // the camera's padding timer and pointer listeners; the plateau's and the
 // slabs' animations and the theme observer; the plateau pipeline aborted; the
-// lid's hidden map; the resize observer; the markers; the map itself; the flags;
-// the frame bus; the probes.
+// lid's hidden map; the resize observer; the markers; the still-map scheduler
+// let go of the map; the map itself; the flags; the frame bus; the probes.
 onBeforeUnmount(() => {
   window.removeEventListener(MAP_MOVED_EVENT, onMapMoved);
   pins.dispose();
@@ -472,6 +477,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   resizeObserver = null;
   pins.clear();
+  if (map) stillMap.detach(map);
   map?.remove();
   map = null;
   mapReady = false;
