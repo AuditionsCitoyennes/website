@@ -3,8 +3,8 @@
 // garbage and a throwing storage; the page's value with and without the
 // testing tools (the module read again under a fresh query); a choice kept
 // with a reload; the plan each choice gives each device tier and each lid
-// mode; what the visible map's load does about the hidden map; the camera a
-// hidden map is created on.
+// mode; what the visible map's load does about the hidden map, and when; the
+// camera a hidden map is created on.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -144,6 +144,43 @@ test("warmupAtLoad: the world at boot, the first place when one is known, nothin
   assert.equal(warmupAtLoad("first-place", undefined, { ...FRAMED, minLng: 20 }), null);
   // "none": never.
   assert.equal(warmupAtLoad("none", FR, FRAMED), null);
+});
+
+test("warmupMoment: the world at the load, a place at the load unless the load's command moved the visible map", async () => {
+  const { warmupMoment, warmupAtLoad } = await load(false);
+  // "boot" (and the lid as before, whose plan is "boot"): at the load, moved or not.
+  assert.equal(warmupMoment(warmupAtLoad("boot", FR, FRAMED)!, false), "load");
+  assert.equal(warmupMoment(warmupAtLoad("boot", FR, FRAMED)!, true), "load");
+  // A place: at the load when the view is the one whose tiles are in, else at the first idle.
+  assert.equal(warmupMoment(warmupAtLoad("first-place", FR, FRAMED)!, false), "load");
+  assert.equal(warmupMoment(warmupAtLoad("first-place", null, FRAMED)!, true), "idle");
+});
+
+test("tilesInSight, tilesMoved: a view adjusted over the same tiles has not moved, one on other tiles has", async () => {
+  const { tilesInSight, tilesMoved } = await load(false);
+  // France on a phone, zoom 3.4: columns 3 and 4, rows 2 and 3 of level 3.
+  const fr = { zoom: 3.4, minLat: 37, maxLat: 55, minLng: -8, maxLng: 12 };
+  assert.equal(tilesInSight(fr), "3/3/4/2/3");
+  // The same place fitted again, a little tighter: the same tiles.
+  const again = { zoom: 3.55, minLat: 38, maxLat: 54.5, minLng: -7, maxLng: 11 };
+  assert.equal(tilesInSight(again), "3/3/4/2/3");
+  assert.equal(tilesMoved(fr, again), false);
+  assert.equal(tilesMoved(fr, { ...fr }), false);
+  // Another level, or a rectangle reaching another column: other tiles.
+  assert.equal(tilesMoved({ ...fr, zoom: 4.5 }, fr), true);
+  assert.equal(tilesMoved(fr, { ...fr, maxLng: 46 }), true);
+  assert.equal(tilesMoved(fr, { ...fr, minLat: -10 }), true);
+  // The whole world at zoom 0: one tile, the rows kept inside the level.
+  assert.equal(
+    tilesInSight({ zoom: 0.3, minLat: -89, maxLat: 89, minLng: -170, maxLng: 170 }),
+    "0/0/0/0/0",
+  );
+  // A view that cannot be read counts as moved.
+  assert.equal(tilesInSight(null), null);
+  assert.equal(tilesInSight({ ...fr, zoom: NaN }), null);
+  assert.equal(tilesMoved(null, fr), true);
+  assert.equal(tilesMoved(fr, null), true);
+  assert.equal(tilesMoved(null, null), true);
 });
 
 test("cameraOver: the centre and the zoom that frame a rectangle in a square map, its margin left free", async () => {

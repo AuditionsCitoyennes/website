@@ -15,7 +15,13 @@ import { SnapshotManager, type Snapshot } from "../plateau/mapSnapshot";
 import { lidCheck, lidMode } from "../plateau/lidSwitch";
 import { keptAnswers, lidCacheBudget } from "../plateau/lidCache";
 import { lidCacheMode } from "../plateau/lidCacheSwitch";
-import { lidMap, lidMapFor, warmupAtLoad, type LidMapPlan } from "../plateau/lidMapSwitch";
+import {
+  lidMap,
+  lidMapFor,
+  warmupAtLoad,
+  warmupMoment,
+  type LidMapPlan,
+} from "../plateau/lidMapSwitch";
 import { cacheBudgetAtCreation } from "../cacheBudget";
 import { boundsOfFeatures, unionBounds } from "../lib/polygon";
 import { whenMapStill } from "../lib/stillMap";
@@ -662,22 +668,30 @@ export function usePlateauLid({
       idleJobs.add(job);
       return () => void idleJobs.delete(job);
     },
-    /** The visible map's load: the hidden map created now — on the world
+    /** The visible map's load: the hidden map created — on the world
      *  ("boot"), or on the first place a plateau will stand on, when one is
      *  known ("first-place": `outline`, the rectangle of the scope's outline,
      *  else `framed`, the one the first camera command frames) — or not at
-     *  all yet (plateau/lidMapSwitch.ts). */
-    warmup: (outline: Bounds | null = null, framed: Bounds | null = null) => {
+     *  all yet (plateau/lidMapSwitch.ts). Created now; on a place, with
+     *  `visibleMoved` (the load's camera command moved the visible map onto
+     *  other tiles), at the visible map's first `idle` instead, once those
+     *  tiles are in. */
+    warmup: (outline: Bounds | null = null, framed: Bounds | null = null, visibleMoved = false) => {
       plan = planNow();
       const warm = warmupAtLoad(plan, outline, framed);
       if (!warm) return;
       // On a place: at the size of a select's shot taken before its flight
       // (the floor), which the first shot is when the intro's tilt starts it.
-      snapshotMgr.warmup(
-        style,
-        warm.place,
-        warm.place ? snapshotMgr.pixelBudget(0, plateauWall.maxTextureSize) : 0,
-      );
+      // (A shot taken meanwhile has created the map: nothing left to do.)
+      const create = () =>
+        snapshotMgr.warmup(
+          style,
+          warm.place,
+          warm.place ? snapshotMgr.pixelBudget(0, plateauWall.maxTextureSize) : 0,
+        );
+      const m = getMap();
+      if (m && warmupMoment(warm, visibleMoved) === "idle") m.once("idle", create);
+      else create();
     },
     /** The main map's WebGL context was lost: the layer's lid textures went
      *  with it, and the lid's bookkeeping starts over. */

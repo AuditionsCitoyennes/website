@@ -17,9 +17,9 @@
 // Read once per page load: switching reloads the page. Production has neither
 // key nor switch: DEFAULT_GLYPHS, so "auto".
 //
-// The browser part (the font loaded before the map is made, the options both
-// maps get) is labelFont.ts; this module is pure, loadable under node
-// (glyphSwitch.test.ts).
+// The browser part (the font loaded before a map draws its first letter, the
+// options both maps get) is labelFont.ts; this module is pure, loadable under
+// node (glyphSwitch.test.ts).
 
 import type { DeviceTier } from "@/shared/device/deviceTier";
 
@@ -84,12 +84,13 @@ export const LABEL_WEIGHTS = ["200 450", "600"] as const;
 /**
  * What draws the labels for this page load:
  * - "mapbox": the style's letter files, downloaded (today's look);
- * - "site": the device, with the site's font (LABEL_FACE, loaded before the
- *   map is made);
+ * - "site": the device, with the site's font (LABEL_FACE, in before a map
+ *   asks for its first tile, so before its first letter);
  * - "system": the device, with the system's sans-serif alone: the site's font
  *   did not come in time (a very slow link) or failed. Never the site's font
  *   later in the visit: Mapbox keeps each letter it drew, so a font landing
- *   midway would mix two faces inside one name.
+ *   midway would mix two faces inside one name (labelFont.ts takes the
+ *   site's faces away from the page then).
  */
 export type LabelFont = "mapbox" | "site" | "system";
 
@@ -100,18 +101,58 @@ export const LABEL_FAMILIES = {
   system: "system-ui, sans-serif",
 } as const;
 
-/** How long the map waits for the site's font, ms, when it is not in yet. On
- *  the audit's weak phone the font was in 3 s before the map was made: a wait
- *  is the exception, and a link too slow for 90 kB in this time would be slower
+/** How long after the first map was made its tiles may wait for the site's
+ *  font, ms. The map itself never waits: it is made at once, its style and
+ *  its sprite come while the font does, and only a tile asked for before the
+ *  font is in is held (labelFont.ts). On the bench's weak phone the font is
+ *  in 0.8 s before the first tile is asked for: a held tile is the
+ *  exception, and a link too slow for 90 kB in this time would be slower
  *  still for the 400 kB of letter files. */
 export const LABEL_FONT_WAIT_MS = 1500;
+
+/** How long a tile asked for at `now` may still wait for the font, ms: what
+ *  is left of LABEL_FONT_WAIT_MS since the first map was made at `madeAt`
+ *  (none once that time has passed, the whole of it when no map was made). */
+export function fontHoldMs(
+  madeAt: number | null,
+  now: number,
+  wait: number = LABEL_FONT_WAIT_MS,
+): number {
+  return Math.max(0, Math.min(wait, (madeAt ?? now) + wait - now));
+}
+
+/** Mapbox's name for a tile request, as `transformRequest` is told it. */
+export const TILE_REQUEST = "Tile";
+
+/**
+ * A map's `transformRequest` whose tile requests wait for the labels' font:
+ * Mapbox awaits what this answers before it sends a request, and it draws a
+ * label's letters only when a tile's data is in, so a map whose tiles wait
+ * for the font draws no letter before it. `pending()` answers the wait while
+ * the font is not settled, null once it is (and from then on every request
+ * goes through untouched). Any other request (the style, the sprite) is never
+ * held: they load while the font does. `next`: the map's own
+ * `transformRequest`, if it has one.
+ */
+export function tilesAfterFont<A extends unknown[], R>(
+  pending: () => Promise<unknown> | null,
+  next?: (url: string, type?: string, ...rest: A) => R,
+): (url: string, type?: string, ...rest: A) => R | undefined | Promise<R | undefined> {
+  return (url, type, ...rest) => {
+    const wait = type === TILE_REQUEST ? pending() : null;
+    if (!wait) return next?.(url, type, ...rest);
+    const go = () => next?.(url, type, ...rest);
+    return wait.then(go, go);
+  };
+}
 
 /** The subsets of the labels' face, as the site's stylesheet declares them
  *  (@fontsource-variable/source-sans-3, its "wght-normal" files; the test
  *  checks the ranges against the package): Latin, which French needs, and
- *  Latin Extended, for the names abroad (ł, ő, ș…). Both are loaded before the
- *  map is made. No other script: its letters come from the system's font, all
- *  of them, rather than a face landing midway (see LabelFont). */
+ *  Latin Extended, for the names abroad (ł, ő, ș…). Both are in before a map
+ *  draws its first letter. No other script: its letters come from the
+ *  system's font, all of them, rather than a face landing midway (see
+ *  LabelFont). */
 export const LABEL_SUBSETS = [
   {
     subset: "latin",

@@ -1,7 +1,7 @@
 // The labels' letters switch (glyphSwitch.ts): which devices draw them with
 // the site's font, the plan and the map options each case gives, the wait for
-// the font, the kept mode read back from storage, and the face's ranges
-// against the site's own stylesheet. Run with `node --import tsx --test`
+// the font and the tile requests held for it, the kept mode read back from
+// storage, and the face's ranges against the site's own stylesheet. Run with `node --import tsx --test`
 // (root "test:scripts"). Pure: no Vue component, no DOM.
 
 import assert from "node:assert/strict";
@@ -15,14 +15,18 @@ const {
   GLYPHS,
   LABEL_FACE,
   LABEL_FAMILIES,
+  LABEL_FONT_WAIT_MS,
   LABEL_SUBSETS,
   LABEL_WEIGHTS,
+  TILE_REQUEST,
+  fontHoldMs,
   glyphMapOptions,
   glyphs,
   labelFontPlan,
   labelsLocal,
   settleWithin,
   storedGlyphs,
+  tilesAfterFont,
 } = await import("./glyphSwitch");
 
 /** A localStorage stand-in for one test, removed after it. */
@@ -145,10 +149,69 @@ test("the wait: the load's answer when it comes first, false when the time runs 
   let land: (v: boolean) => void = () => {};
   const slow = settleWithin(new Promise<boolean>((r) => (land = r)), 1500, t4.timer);
   t4.fire();
-  land(true); // the font lands after the wait: the map was already made without it
+  land(true); // the font lands after the wait: the verdict was the system's font
   assert.equal(await slow, false);
 });
 
 test("the wait with a real timer runs out", async () => {
   assert.equal(await settleWithin(new Promise<boolean>(() => {}), 5), false);
+});
+
+test("a tile's wait is what is left of the time since the first map was made", () => {
+  // Asked as the map is made: the whole wait. Later: what is left. Past it: none.
+  assert.equal(fontHoldMs(1000, 1000), LABEL_FONT_WAIT_MS);
+  assert.equal(fontHoldMs(1000, 1400), LABEL_FONT_WAIT_MS - 400);
+  assert.equal(fontHoldMs(1000, 1000 + LABEL_FONT_WAIT_MS), 0);
+  assert.equal(fontHoldMs(1000, 9000), 0);
+  // No map made yet: the whole wait, never more (a clock read before `madeAt` too).
+  assert.equal(fontHoldMs(null, 5000), LABEL_FONT_WAIT_MS);
+  assert.equal(fontHoldMs(1000, 900), LABEL_FONT_WAIT_MS);
+  assert.equal(fontHoldMs(1000, 1100, 300), 200);
+});
+
+test("tile requests wait for the font, every other request goes at once", async () => {
+  let settle: () => void = () => {};
+  let pending: Promise<void> | null = new Promise<void>((r) => (settle = r));
+  const seen: string[] = [];
+  const next = (url: string, type?: string, opts?: { tag: string }) => {
+    seen.push(`${type}:${url}:${opts?.tag ?? ""}`);
+    return { url: `${url}?x` };
+  };
+  const gate = tilesAfterFont(() => pending, next);
+
+  // The style, the sprite, a source's description: straight through, the
+  // map's own answer returned as it is (not a promise).
+  assert.deepEqual(gate("style.json", "Style"), { url: "style.json?x" });
+  assert.deepEqual(gate("sprite.png", "SpriteImage"), { url: "sprite.png?x" });
+  assert.deepEqual(gate("tiles.json", "Source"), { url: "tiles.json?x" });
+  assert.deepEqual(seen, ["Style:style.json:", "SpriteImage:sprite.png:", "Source:tiles.json:"]);
+
+  // A tile: held, with its own arguments, until the font is settled.
+  const held = gate("3/4/2.pbf", TILE_REQUEST, { tag: "a" });
+  assert.ok(held instanceof Promise);
+  await Promise.resolve();
+  assert.equal(seen.length, 3, "not sent while the font is on its way");
+  settle();
+  assert.deepEqual(await held, { url: "3/4/2.pbf?x" });
+  assert.equal(seen[3], "Tile:3/4/2.pbf:a");
+
+  // Settled: tiles go at once from then on, the answer no longer a promise.
+  pending = null;
+  assert.deepEqual(gate("3/4/3.pbf", TILE_REQUEST), { url: "3/4/3.pbf?x" });
+});
+
+test("a held tile goes even when the wait fails, and a map without its own hook answers nothing", async () => {
+  const seen: string[] = [];
+  const gate = tilesAfterFont(
+    () => Promise.reject(new Error("no font")),
+    (url: string) => void seen.push(url),
+  );
+  await gate("1/0/0.pbf", TILE_REQUEST);
+  assert.deepEqual(seen, ["1/0/0.pbf"]);
+
+  // No hook of its own (the lid's hidden map): `undefined`, which Mapbox
+  // reads as "the URL as it is", at once or after the wait.
+  const bare = tilesAfterFont(() => Promise.resolve());
+  assert.equal(bare("style.json", "Style"), undefined);
+  assert.equal(await bare("1/0/0.pbf", TILE_REQUEST), undefined);
 });
