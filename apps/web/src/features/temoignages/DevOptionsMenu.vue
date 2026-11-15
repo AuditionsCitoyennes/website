@@ -43,16 +43,18 @@ import {
   slabTextScale,
 } from "@/features/analyses";
 import {
+  bootWorkers,
   lidCheck,
   lidMode,
   meshMode,
   reliefPrefetch,
+  setBootWorkers,
   setLidCheck,
   setLidMode,
   setMeshMode,
   setReliefPrefetch,
 } from "@/features/map";
-import { bootList, setBootList } from "@/features/geo-nav";
+import { bootList, outlinesDecor, setBootList, setOutlinesDecor } from "@/features/geo-nav";
 import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
 import { compareState } from "./compare";
 import {
@@ -97,6 +99,8 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
   "ac:boot-list": bind(() => bootList, setBootList),
+  "ac:boot-workers": bind(() => bootWorkers, setBootWorkers),
+  "ac:outlines-decor": bind(() => outlinesDecor, setOutlinesDecor),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

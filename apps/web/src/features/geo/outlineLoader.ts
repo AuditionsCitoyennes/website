@@ -19,6 +19,13 @@
 // response that has long arrived (`bootCap: "fallback"` ends the session
 // there instead). An overseas région's files are its département's
 // (OutlineStore.filesIdOf): each public method reads them by that id.
+//
+// A batch can be "low" (decoration: ensureGlobe and batchSelf's `low`): its
+// requests go at low fetch priority, at most `lowParallel` at a time — a
+// request's abort timer starts when its turn comes, never while it waits —
+// and its one write goes through `applyLow` (the page: when the map is
+// still). A caller that is not low asking a URL still waiting for its turn
+// starts it at once, at the default priority.
 
 import {
   checkResponse,
@@ -60,7 +67,7 @@ export interface OutlineLoaderOptions {
   /** Default credentials and no custom header: no CORS preflight. */
   fetchFn: (
     url: string,
-    init: { signal: AbortSignal; cache?: "reload" },
+    init: { signal: AbortSignal; cache?: "reload"; priority?: "low" },
   ) => Promise<OutlineResponse>;
   /** Ends with "/". */
   base: string;
@@ -91,6 +98,19 @@ export interface OutlineLoaderOptions {
   /** A file failed on the network is asked again by the first ensure this
    *  long after (not before: a dead network is not asked on every move). */
   failedMs?: number;
+  /** At most this many low requests at once (none: no limit); the others
+   *  wait their turn, their abort timer not armed yet. */
+  lowParallel?: number;
+  /** How a low batch's write is applied (none: at once). It must call
+   *  `write` once; the batch settles after it. */
+  applyLow?: (write: () => void) => void;
+}
+
+/** A low request waiting for its turn: its URL and its start (`low`: it
+ *  takes a turn; false: started at once by a caller that is not low). */
+interface LowWait {
+  url: string;
+  go: (low: boolean) => void;
 }
 
 type Expect = { build: string; kind: "root" } | { build: string; kind: OutlineKind; id: string };
@@ -111,6 +131,9 @@ export class OutlineLoader {
   private readonly retryable = new Set<string>();
   private readonly live = new Set<AbortController>();
   private root?: Promise<OutlineStatus>;
+  /** Low requests running, and those waiting for their turn (in order). */
+  private lowRunning = 0;
+  private readonly lowQueue: LowWait[] = [];
 
   constructor(options: OutlineLoaderOptions) {
     this.o = options;
@@ -174,20 +197,27 @@ export class OutlineLoader {
     }
   }
 
-  /** The selves of these units not stored yet, in ONE write. */
-  async batchSelf(units: string[]): Promise<OutlineStatus[]> {
+  /** The selves of these units not stored yet, in ONE write (`low`:
+   *  decoration, see the header). */
+  async batchSelf(units: string[], low = false): Promise<OutlineStatus[]> {
     if (await this.stopped()) return units.map(() => "fallback");
     const ids = units.map((u) => this.o.store.filesIdOf(u));
-    return this.many(ids, (id) => {
-      const row = this.o.store.rowOf(id);
-      return row && this.o.store.has(id, row.st) ? "loaded" : this.selfKind(id);
-    });
+    return this.many(
+      ids,
+      (id) => {
+        const row = this.o.store.rowOf(id);
+        return row && this.o.store.has(id, row.st) ? "loaded" : this.selfKind(id);
+      },
+      true,
+      low,
+    );
   }
 
   /** The world-tier outlines of these countries (g:1 rows), and the u/ of
    *  `selves` (micro-states, drawn with their self), in ONE write. No wait is
-   *  armed: no plateau stands on this batch. */
-  async ensureGlobe(ids: string[], selves: string[] = []): Promise<OutlineStatus[]> {
+   *  armed: no plateau stands on this batch (`low`: decoration, see the
+   *  header). */
+  async ensureGlobe(ids: string[], selves: string[] = [], low = false): Promise<OutlineStatus[]> {
     const all = [...ids, ...selves];
     if (await this.stopped()) return all.map(() => "fallback");
     const self = new Set(selves);
@@ -196,7 +226,7 @@ export class OutlineLoader {
       const kind = self.has(id) ? "u" : "g";
       return store.loaded(kind, id) ? "loaded" : store.rowOf(id)?.[kind] ? kind : null;
     };
-    return this.many(all, want, false);
+    return this.many(all, want, false, low);
   }
 
   /** Warms the HTTP cache with a declared file (a hover): never writes, never
@@ -262,11 +292,12 @@ export class OutlineLoader {
   }
 
   /** Several files, settled together and written in one call; `hold`: each
-   *  self file arms its give-up timer. */
+   *  self file arms its give-up timer; `low`: a decorative batch (header). */
   private async many(
     ids: string[],
     want: (id: string) => OutlineKind | "loaded" | null,
     hold = true,
+    low = false,
   ): Promise<OutlineStatus[]> {
     const { base, build } = this.o;
     const jobs = new Map<string, Promise<Checked<unknown>>>();
@@ -279,7 +310,7 @@ export class OutlineLoader {
         const stop = kind === "g" || !hold ? () => {} : this.waitFor(key);
         jobs.set(
           key,
-          this.request(fileUrl(base, build, kind, id), key, { build, kind, id }).finally(stop),
+          this.request(fileUrl(base, build, kind, id), key, { build, kind, id }, low).finally(stop),
         );
       }
       return { key };
@@ -296,7 +327,17 @@ export class OutlineLoader {
       fate.set(key, r.ok ? "loaded" : this.fail(key, r.reason, false));
     }
     if (this.off()) return ids.map(() => "fallback");
-    this.write(files);
+    const apply = low ? this.o.applyLow : undefined;
+    if (apply && files.length) {
+      // Its one write when the page says (the map still): never after a fallback.
+      await new Promise<void>((done) =>
+        apply(() => {
+          if (!this.off()) this.write(files);
+          done();
+        }),
+      );
+      if (this.off()) return ids.map(() => "fallback");
+    } else this.write(files);
     return plan.map((p) => p.status ?? fate.get(p.key!)!);
   }
 
@@ -367,27 +408,67 @@ export class OutlineLoader {
   /** The shared request of a URL: one network retry, then one skew confirm
    *  (whichever attempt saw the skew); no further attempt once the session
    *  fell back (its callers then answer "fallback"). */
-  private request(url: string, key: string, expect: Expect): Promise<Checked<unknown>> {
+  private request(
+    url: string,
+    key: string,
+    expect: Expect,
+    low = false,
+  ): Promise<Checked<unknown>> {
     let job = this.inflight.get(url);
     if (!job) {
       job = (async () => {
-        let r = await this.attempt(url, key, expect, false);
-        if (!r.ok && r.reason === "network" && !this.off()) {
-          await new Promise<void>((done) => this.o.setTimer(done, this.o.retryMs ?? 1_000));
-          if (this.off()) return r;
-          r = await this.attempt(url, key, expect, false);
+        // A low request waits its turn BEFORE any abort timer is armed: the
+        // timer counts from the request's real start, never from its place in
+        // the queue. The turn is held through the retry and the skew confirm.
+        const held = low ? await this.turn(url) : false;
+        try {
+          if (this.off()) return NETWORK; // fell back while it waited: never sent
+          let r = await this.attempt(url, key, expect, false, held);
+          if (!r.ok && r.reason === "network" && !this.off()) {
+            await new Promise<void>((done) => this.o.setTimer(done, this.o.retryMs ?? 1_000));
+            if (this.off()) return r;
+            r = await this.attempt(url, key, expect, false, held);
+          }
+          // An immutable cache may hold an old SPA answer: ask past it once.
+          if (!r.ok && isReleaseSkew(r.reason) && !this.off())
+            r = await this.attempt(url, key, expect, true, held);
+          return r;
+        } finally {
+          if (held) this.turnEnd();
         }
-        // An immutable cache may hold an old SPA answer: ask past it once.
-        if (!r.ok && isReleaseSkew(r.reason) && !this.off())
-          r = await this.attempt(url, key, expect, true);
-        return r;
       })().finally(() => this.inflight.delete(url));
       this.inflight.set(url, job);
-    }
+    } else if (!low) this.promote(url);
     return job;
   }
 
-  private async attempt(url: string, key: string, expect: Expect, reload: boolean) {
+  /** A low request's turn: at once while fewer than `lowParallel` run (true:
+   *  it holds a turn, to give back), else when one ends — or at once, holding
+   *  none, when a caller that is not low asks its URL (false). */
+  private turn(url: string): Promise<boolean> {
+    const cap = this.o.lowParallel;
+    if (cap === undefined || this.lowRunning < cap) {
+      this.lowRunning++;
+      return Promise.resolve(true);
+    }
+    return new Promise((go) => this.lowQueue.push({ url, go }));
+  }
+  /** A turn given back: the next low request waiting starts. */
+  private turnEnd(): void {
+    const next = this.lowQueue.shift();
+    if (next) next.go(true);
+    else this.lowRunning = Math.max(0, this.lowRunning - 1);
+  }
+  /** A caller that is not low asks this URL: if it waits its turn, it starts now. */
+  private promote(url: string): void {
+    const at = this.lowQueue.findIndex((w) => w.url === url);
+    if (at === -1) return;
+    const [waiting] = this.lowQueue.splice(at, 1);
+    waiting.go(false);
+  }
+
+  /** One attempt, now: `low` sends it at low fetch priority. */
+  private async attempt(url: string, key: string, expect: Expect, reload: boolean, low: boolean) {
     const { span } = this.o;
     const abort = new AbortController();
     // Not AbortSignal.timeout: missing on iOS < 16.
@@ -397,9 +478,11 @@ export class OutlineLoader {
       const fetched = span?.("outline.fetch", { key });
       let text: string;
       try {
-        const init = reload
-          ? { signal: abort.signal, cache: "reload" as const }
-          : { signal: abort.signal };
+        const init: { signal: AbortSignal; cache?: "reload"; priority?: "low" } = {
+          signal: abort.signal,
+        };
+        if (reload) init.cache = "reload";
+        if (low) init.priority = "low";
         const res = await this.o.fetchFn(url, init);
         const bad = checkResponse({
           ok: res.ok,
