@@ -175,6 +175,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private vertexCount = 0;
   private dirty = false;
   private scale = 0; // animated rise 0..1
+  // The rise read from mapbox's terrain at each draw (followScale), else null.
+  private scaleSource: (() => number | null) | null = null;
   // ---- what the frame bus reads (see onFrame): the raised unit as last given
   // to setGeometry, its sampled rim, and the camera of the last frame drawn ----
   scopeId = ""; // the raised unit's id, '' when none
@@ -1352,6 +1354,23 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   }
 
   /**
+   * The rise read at each frame, from when it is given until null is: a
+   * terrain transition's (usePlateau, `ac:rise=transition`), where mapbox
+   * interpolates the ground's height and this layer must draw with the height
+   * of the very frame it is called in. `read` answers that frame's rise, or
+   * null to keep the last one. Asks for no frame: its caller does.
+   */
+  followScale(read: (() => number | null) | null) {
+    this.scaleSource = read;
+  }
+
+  /** The followed rise, taken at the head of each of this layer's draws. */
+  private syncScale() {
+    const v = this.scaleSource?.();
+    if (v !== null && v !== undefined) this.scale = v;
+  }
+
+  /**
    * Keep the camera this frame is drawn with, for the frame bus. Copied into
    * preallocated arrays: mapbox hands over fresh ones every frame
    * (customLayerMatrix() is a slice), and nothing here holds on to them.
@@ -1807,6 +1826,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     centerInMercator?: number[],
     pixelsPerMeterRatio?: number,
   ) {
+    this.syncScale();
     // GLOBE regime (zoom < 6): mapbox passes the extra projection args and the
     // camera is the globe camera — draw via the morph programs. At z ≥ 6 it calls
     // with 2 args (pure mercator pipeline) and the classic path below runs.
@@ -2107,6 +2127,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     centerInMercator?: number[],
     pixelsPerMeterRatio?: number,
   ) {
+    this.syncScale();
     const ss = this.scale * this.slabP;
     if (!this.slabWallCount || ss <= 0.001) return;
     gl.disable(gl.CULL_FACE); // wall sheet is double-sided; lid winding is mixed
