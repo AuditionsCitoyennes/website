@@ -70,6 +70,7 @@ export {
   globeBatch,
   prefetchKind,
   rowKnownAbsent,
+  selfAheadOf,
   selfFileOf,
   siblingSelves,
   type RoleRow,

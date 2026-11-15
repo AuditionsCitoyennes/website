@@ -382,6 +382,29 @@ not remembered as slow for the session. `localStorage` `ac:late-files=direct`
 before 2026-11-14: every file stored as it lands, each write a new run of the
 pipeline, no fetch priority.
 
+A French région or département whose own outline is not in memory is not made
+to wait for its `k/` bundle (itself and every child): its `u/` file — the same
+self, alone — is asked first, at high priority, and the bundle at low
+priority. The plateau rises as soon as the self is stored; the bundle's
+children are drawn on it by one reshape in place once the map is still (their
+pills and hit areas come with their lines). The store keeps one object per
+outline and tier, so the bundle's copy of the self adds nothing: no new shape,
+no second run of the pipeline. A bundle that lands within 80 ms of the self
+(a fast link, the HTTP cache) is stored with it, and the plateau rises with
+its children's lines as before. A row hovered in the list prefetches the same
+two files in the same order. `ac:region-self=bundle` (the DEV dialog's
+« Contour seul ») asks the bundle alone, as before 2026-11-14.
+
+How long a plateau waits for its own outline while a coarser outline of the
+same unit is in memory (a région's entry in `k/FR`, a country's `g/`) is
+`ac:outline-wait` (« Attente du contour »): `1200` (the default, as before),
+`400` or `0` ms. Past it the plateau rises on the coarse shape; the fine one,
+stored at a still moment, replaces it at the plateau's height, with no sink
+and no rise. With no coarse shape in memory the wait stays 1.2 s. While the
+map holds for an outline, `ac:cold-start=early` (« Avant le contour ») sinks
+the plateau standing and shoots the coming unit's lid over its box at once;
+`hold` (the default) leaves both for the outline's landing, as before.
+
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps
 (`scripts/deploy/outlines.sh fetch` / `install`) and its fail-closed

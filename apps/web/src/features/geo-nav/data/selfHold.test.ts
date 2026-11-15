@@ -94,3 +94,42 @@ test("an abandoned file first seen at the wait's end counts too", () => {
   t.tick(1200);
   assert.deepEqual(t.out, [["fr:reg:84", false]]);
 });
+
+test("a shorter wait (a coarse shape to rise on): held out at its end, for the session", () => {
+  const t = setup();
+  t.hold.hold("fr:reg:84", 400);
+  t.tick(399);
+  assert.deepEqual(t.out, []);
+  t.tick(1);
+  assert.deepEqual(t.out, [["fr:reg:84", true]]);
+});
+
+test("a shorter wait crossed by an abandoned file goes on by its own length, once", () => {
+  const t = setup();
+  t.state.abandoned = true;
+  t.hold.hold("fr:reg:84", 400);
+  t.tick(400);
+  assert.deepEqual(t.out, []);
+  t.tick(399);
+  assert.deepEqual(t.out, []);
+  t.tick(1);
+  assert.deepEqual(t.out, [["fr:reg:84", false]]);
+});
+
+test("no wait: held out at once, with no timer, for this visit only", () => {
+  const t = setup();
+  t.hold.hold("fr:reg:84", 0);
+  assert.deepEqual(t.out, [["fr:reg:84", false]]);
+  assert.equal(t.timers.length, 0);
+  assert.equal(t.hold.holding("fr:reg:84"), false);
+  // Asked again (the next visit): again at once.
+  t.hold.hold("fr:reg:84", 0);
+  assert.equal(t.out.length, 2);
+});
+
+test("no wait, its self already stored: nothing held out", () => {
+  const t = setup();
+  t.state.stored.add("fr:reg:84");
+  t.hold.hold("fr:reg:84", 0);
+  assert.deepEqual(t.out, []);
+});

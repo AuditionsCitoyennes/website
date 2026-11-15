@@ -30,7 +30,13 @@
 // request's abort timer starts when its turn comes, never while it waits —
 // and its one write goes through `applyLow` (the page: when the map is
 // still). A caller that is not low asking a URL still waiting for its turn
-// starts it at once, at the default priority.
+// starts it at once, at the default priority — or, under the late files'
+// rules, for what that caller asks it.
+//
+// With the late files (below) too: a low request whose text is kept gives
+// its turn back as it lands (it is off the network), so the next one waiting
+// starts — a low batch kept together could never be whole otherwise; the
+// flush writes it, and the low batch's own write then finds it stored.
 //
 // Late files (`late`, the page's ac:late-files "quiet"; without it nothing
 // below applies). Each ask says what it is for: "due" — the selected unit's
@@ -48,10 +54,13 @@
 // "due" ask joins, or one that turned urgent, is written at once. A request
 // only a prefetch made is never kept (it never writes).
 //
-// Both together: a low request whose text is kept gives its turn back as it
-// lands (it is off the network), so the next one waiting starts — a low batch
-// kept together could never be whole otherwise; the flush writes it, and the
-// low batch's own write then finds it stored.
+// A self ahead of its bundle (`selfGraceMs`, the page's ac:region-self
+// "first"): the page asks a unit's u/ ("due", ensureSelf) and its bundle
+// ("late") together. The u/, once in, waits `selfGraceMs` for a bundle still
+// on the network: one that lands in that time is written first — its self is
+// the same object, its children come with it, the plateau rises with their
+// lines — and the u/ then has nothing left to write. Past it, the u/ is
+// written alone and the bundle is a late file like any other.
 
 import {
   checkResponse,
@@ -153,6 +162,9 @@ export interface OutlineLoaderOptions {
   applyLow?: (write: () => void) => void;
   /** The late files' rules (none: every file is parsed and written as it lands). */
   late?: OutlineLateOptions;
+  /** How long a self from its u/ waits, once in, for its unit's bundle still
+   *  on the network (none, or 0: written at once). */
+  selfGraceMs?: number;
 }
 
 /** A low request waiting for its turn: its URL and its start (`low`: it
@@ -331,9 +343,7 @@ export class OutlineLoader {
     if (!kind) return "absent";
     const stop = this.waitFor(fileKey(kind, id));
     try {
-      return kind === "u"
-        ? await this.load("u", id, false, "due")
-        : await this.ensureBundle(id, true);
+      return kind === "u" ? await this.loadSelf(id) : await this.ensureBundle(id, true);
     } finally {
       stop();
     }
@@ -453,6 +463,32 @@ export class OutlineLoader {
     const r = await this.request(fileUrl(base, build, kind, id), key, { build, kind, id }, ask);
     if (this.off()) return "fallback";
     if (!r.ok) return this.fail(key, r.reason, root);
+    this.write([r.file as OutlineFileV1]);
+    return "loaded";
+  }
+
+  /** A self from its u/, asked "due": requested, then written — after
+   *  `selfGraceMs` at most while its unit's bundle is on the network (see the
+   *  header), and not at all when that bundle brought the self meanwhile. */
+  private async loadSelf(id: string): Promise<OutlineStatus> {
+    const key = fileKey("u", id);
+    if (this.failed.has(key) && !this.retry(key)) return "failed";
+    const { base, build, store } = this.o;
+    const expect = { build, kind: "u", id } as const;
+    const r = await this.request(fileUrl(base, build, "u", id), key, expect, "due");
+    if (this.off()) return "fallback";
+    if (!r.ok) return this.fail(key, r.reason, false);
+    const bundle = this.inflight.get(fileUrl(base, build, "k", id));
+    const grace = this.o.selfGraceMs ?? 0;
+    if (bundle && grace > 0) {
+      await Promise.race([
+        bundle,
+        new Promise<void>((done) => this.o.setTimer(() => done(), grace)),
+      ]);
+      if (this.off()) return "fallback";
+      const row = store.rowOf(id);
+      if (row && store.has(id, row.st)) return "loaded"; // the bundle's: the same object
+    }
     this.write([r.file as OutlineFileV1]);
     return "loaded";
   }

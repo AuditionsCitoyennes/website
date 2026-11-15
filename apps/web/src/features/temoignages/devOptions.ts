@@ -10,7 +10,7 @@
 // shared/device/cardOpenSwitch, shared/boot/homeBoot, shared/net/recoverSwitch,
 // geo-nav/data/bootReadsSwitch,
 // map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
-// analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
+// map/plateau/coldTapSwitch, analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
@@ -36,6 +36,9 @@ export type DevKey =
   | "ac:tap-answer"
   | "ac:tap-frame"
   | "ac:late-files"
+  | "ac:outline-wait"
+  | "ac:region-self"
+  | "ac:cold-start"
   | "ac:analyses-pending"
   | "ac:slab-lid-verre"
   | "ac:slab-text"
@@ -354,6 +357,46 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Les contours arrivent par fichiers, et certains arrivent après coup : les communes d'un département, les voisins, le fichier d'un territoire déjà quitté. « Au calme » (par défaut) les garde de côté et ne les trace qu'une fois la carte immobile, tous d'un coup, sans faire redescendre ni remonter le relief ; « Direct » les trace dès qu'ils arrivent, même en plein déplacement, comme avant.",
     reloads: true,
     defaultId: "quiet",
+  },
+  {
+    key: "ac:outline-wait",
+    section: "carte",
+    label: "Attente du contour",
+    choices: [
+      { id: "1200", label: "1,2 s" },
+      { id: "400", label: "0,4 s" },
+      { id: "0", label: "Aucune" },
+    ],
+    explain:
+      "Le contour précis d'un territoire arrive par un fichier. S'il tarde, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile. « 1,2 s » (par défaut) attend le fichier jusqu'à 1,2 seconde, comme avant ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
+    reloads: false,
+    defaultId: "1200",
+  },
+  {
+    key: "ac:region-self",
+    section: "carte",
+    label: "Contour seul",
+    choices: [
+      { id: "first", label: "D'abord" },
+      { id: "bundle", label: "Ensemble" },
+    ],
+    explain:
+      "Le contour d'une région existe en deux fichiers : un petit, la région seule, et un gros, la région avec tous ses départements. « D'abord » (par défaut) demande le petit en premier : la région se soulève dès qu'il est là, et les lignes de ses départements sont tracées dessus quand le gros arrive, une fois la carte immobile. « Ensemble » attend le gros fichier, comme avant : la région se soulève plus tard, ses départements déjà tracés. De même pour un département et ses communes.",
+    reloads: false,
+    defaultId: "first",
+  },
+  {
+    key: "ac:cold-start",
+    section: "carte",
+    label: "Avant le contour",
+    choices: [
+      { id: "hold", label: "Attendre" },
+      { id: "early", label: "Commencer" },
+    ],
+    explain:
+      "Ce que fait la carte quand on choisit un territoire dont le contour n'est pas encore arrivé. « Attendre » (par défaut) laisse le territoire d'avant soulevé jusqu'à l'arrivée du contour, comme avant ; « Commencer » le fait redescendre tout de suite et prépare déjà l'image du dessus du nouveau relief, pour que celui-ci se soulève plus vite une fois son contour arrivé.",
+    reloads: false,
+    defaultId: "hold",
   },
   {
     key: "ac:analyses-pending",

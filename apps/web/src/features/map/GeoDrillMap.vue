@@ -36,6 +36,7 @@ import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import type { MarkGeometry } from "./gl/pendingMark";
+import type { ComingUnit } from "./lib/coldStart";
 import type { TapMark } from "./plateau/tapAnswerSwitch";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
@@ -61,6 +62,9 @@ const props = defineProps<{
   /** The scope's boundary geometry is still loading (cold cache) — hold the
    *  current plateau instead of tearing it down for a transient blank. */
   scopePending?: boolean;
+  /** The unit that hold is for (its id, its box): what the map can start
+   *  before its outline lands (ac:cold-start, lib/coldStart.ts). */
+  coming?: ComingUnit | null;
   /** Unit hovered OUTSIDE the map (a panel row) — drives the same highlight the
    *  map's own pointer does. Null/absent leaves the map's hover to the pointer. */
   hoveredId?: string | null;
@@ -229,6 +233,7 @@ const plateau = usePlateau({
   introPending: camera.introPending,
   outline: () => props.outline,
   scopePending: () => props.scopePending,
+  coming: () => props.coming,
   lid,
   flatCamera: camera.flatCamera,
   applyMask: mask.applyMask,

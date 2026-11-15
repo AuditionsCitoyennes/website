@@ -64,6 +64,14 @@ export function selfFileOf(row: RoleRow | undefined): OutlineKind | null {
   return row.g ? "g" : null;
 }
 
+/** The file a unit's self can be asked from AHEAD of its bundle: its u/, when
+ *  its row declares both (a French région or département: that u/ is the
+ *  bundle's self alone, byte-identical, without the children). Null: its
+ *  self comes with the one file selfFileOf names. */
+export function selfAheadOf(row: RoleRow | undefined): "u" | null {
+  return row && !rowKnownAbsent(row) && row.k && row.u ? "u" : null;
+}
+
 /** What a hover asks for ahead of the click: the one file its self comes
  *  from, when that is a k/ or a u/ (a g/ is the globe batch's). */
 export function prefetchKind(row: RoleRow | undefined): "k" | "u" | null {
