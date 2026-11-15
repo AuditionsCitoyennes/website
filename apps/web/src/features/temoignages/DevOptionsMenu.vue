@@ -31,6 +31,9 @@ import {
 import { glass, setGlass } from "@/shared/device/glassSwitch";
 import { mapPreload, setMapPreload } from "@/shared/boot/mapPreload";
 import { authClient, setAuthClient } from "@/shared/api/authClientSwitch";
+import { poster, setPoster } from "@/shared/ui/posterSwitch";
+import { cardOpen, setCardOpen } from "@/shared/device/cardOpenSwitch";
+import { hero, homeBoot, setHero, setHomeBoot } from "@/shared/boot/homeBoot";
 import {
   frameFill,
   pendingAnalysesMode,
@@ -55,7 +58,9 @@ import {
   setBootWorkers,
   setGlyphs,
   setLidCheck,
+  mapFallback,
   setLidMode,
+  setMapFallback,
   setMeshMode,
   setReliefPrefetch,
 } from "@/features/map";
@@ -110,6 +115,11 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:map-preload": bind(() => mapPreload, setMapPreload),
   "ac:glass": bind(() => glass, setGlass),
   "ac:auth-client": bind(() => authClient, setAuthClient),
+  "ac:map-fallback": bind(() => mapFallback, setMapFallback),
+  "ac:poster": bind(() => poster, setPoster),
+  "ac:card-open": bind(() => cardOpen, setCardOpen),
+  "ac:home-boot": bind(() => homeBoot, setHomeBoot),
+  "ac:hero": bind(() => hero, setHero),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

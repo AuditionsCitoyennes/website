@@ -46,10 +46,14 @@ export interface PlanChunk {
   css: readonly string[];
 }
 
-/** The files to ask for: the map page's chunks and everything they import
+/** The files to ask for: the map page's chunks (or those of `modules`: the
+ *  home page's, shared/boot/homeBootPlan.ts) and everything they import
  *  statically that the entry does not already load, then their stylesheets;
  *  URLs from the site's root, in a stable order. */
-export function mapPreloadFiles(chunks: readonly PlanChunk[]): { js: string[]; css: string[] } {
+export function mapPreloadFiles(
+  chunks: readonly PlanChunk[],
+  modules: RegExp = MAP_PAGE_MODULES,
+): { js: string[]; css: string[] } {
   const byFile = new Map(chunks.map((c) => [c.fileName, c]));
   const closure = (start: readonly string[]) => {
     const seen = new Set<string>();
@@ -63,7 +67,7 @@ export function mapPreloadFiles(chunks: readonly PlanChunk[]): { js: string[]; c
   };
   const entry = closure(chunks.filter((c) => c.isEntry).map((c) => c.fileName));
   const page = closure(
-    chunks.filter((c) => MAP_PAGE_MODULES.test(c.facadeModuleId ?? "")).map((c) => c.fileName),
+    chunks.filter((c) => modules.test(c.facadeModuleId ?? "")).map((c) => c.fileName),
   );
   const js = [...page].filter((f) => !entry.has(f)).sort();
   const entryCss = new Set([...entry].flatMap((f) => byFile.get(f)!.css));

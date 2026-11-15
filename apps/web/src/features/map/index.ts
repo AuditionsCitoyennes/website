@@ -16,3 +16,5 @@ export { reliefPrefetch, setReliefPrefetch, type ReliefPrefetch } from "./relief
 export { bootWorkers, setBootWorkers, BOOT_WORKERS, type BootWorkers } from "./bootWorkersSwitch";
 // Where the labels' letters come from: its DEV switch (the Témoignages page draws it).
 export { glyphs, setGlyphs, GLYPHS, type Glyphs } from "./glyphSwitch";
+// What the map's box shows when the map cannot start: its DEV switch (the Témoignages page draws it).
+export { mapFallback, setMapFallback, MAP_FALLBACKS, type MapFallback } from "./fallbackSwitch";

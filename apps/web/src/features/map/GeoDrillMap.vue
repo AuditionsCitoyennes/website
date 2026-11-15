@@ -7,7 +7,7 @@
 // callbacks, never this component; the hot per-frame state (the map, the GL
 // layer, typed arrays, frame buffers) is plain `let`s owned by one module and
 // never wrapped in ref/reactive.
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import mapboxgl from "mapbox-gl";
 // Mapbox's own stylesheet, with the map's code rather than in the stylesheet
 // every page waits for (main.ts): Vite loads it before this chunk runs.
@@ -36,6 +36,11 @@ import { installPmtilesProbe } from "./dev/pmtiles";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
+import { fallbackForced, fallbackView, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
+
+// The picture of France under the fallback sentence: a rare path (the map
+// nearly always starts), so its file is asked for only when it shows.
+const FrancePoster = defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"));
 
 const props = defineProps<{
   units: MapUnit[];
@@ -104,7 +109,11 @@ const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? "";
 const STYLE = import.meta.env.VITE_MAPBOX_STYLE || "mapbox://styles/mapbox/dark-v11";
 
 const el = ref<HTMLElement | null>(null);
-const unavailable = ref(!TOKEN);
+// No map: no token in the build, or not started on purpose (`ac:map-fallback`
+// "essai"); later, the style refused or the engine failing. What the box then
+// shows: fallbackSwitch.ts.
+const unavailable = ref(!TOKEN || fallbackForced(mapFallback));
+const fallback = fallbackView(mapFallback);
 
 // The map, a plain variable: the composables read it through `getMap`, never
 // hold it. Null before mount and after unmount.
@@ -272,7 +281,10 @@ function startWorkers() {
  *  by an unmount meanwhile. */
 let cancelMount: () => void = () => {};
 onMounted(() => {
-  if (!el.value || !TOKEN) {
+  if (!TOKEN && import.meta.env.DEV) {
+    console.warn("No map: set VITE_MAPBOX_TOKEN in apps/web/.env");
+  }
+  if (!el.value || unavailable.value) {
     emitReady(); // no map will ever load — release the boot overlay
     return;
   }
@@ -366,7 +378,11 @@ function mountMap() {
     map.on("error", (e) => {
       const status = (e.error as { status?: number } | undefined)?.status;
       if ((status === 401 || status === 403) && map && !initialLoadDone) {
-        console.error("Mapbox style request unauthorized — check VITE_MAPBOX_TOKEN");
+        console.error(
+          import.meta.env.DEV
+            ? "Mapbox style request unauthorized — check VITE_MAPBOX_TOKEN"
+            : "Mapbox style request unauthorized",
+        );
         unavailable.value = true;
         emitReady(); // nothing more is coming — never strand a boot overlay
         pins.clear();
@@ -629,11 +645,15 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 </script>
 
 <template>
-  <div v-if="unavailable" class="map-root map-fallback">
+  <div v-if="unavailable && fallback.developerHint" class="map-root map-fallback">
     <p>
       Carte indisponible.<br />
       <span class="hint">Configurez <code>VITE_MAPBOX_TOKEN</code> dans apps/web/.env</span>
     </p>
+  </div>
+  <div v-else-if="unavailable" class="map-root map-fallback map-fallback--poster">
+    <FrancePoster class="map-fallback-poster" />
+    <p class="map-fallback-text">{{ MAP_FALLBACK_TEXT }}</p>
   </div>
   <div v-else ref="el" class="map-root"></div>
 </template>
@@ -656,5 +676,33 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 
 .map-fallback .hint {
   font-size: var(--text-caption);
+}
+
+/* France, muted, behind one sentence: it reads as a stand-in, not as the map. */
+.map-fallback--poster {
+  overflow: hidden;
+  background: var(--gradient-surface);
+  /* In the part of the box the panel leaves free (GeoNav's --panel-cover). */
+  padding-right: calc(1.5rem + var(--panel-cover, 0px));
+}
+
+.map-fallback-poster {
+  position: absolute;
+  top: 8%;
+  left: 8%;
+  width: calc(84% - var(--panel-cover, 0px));
+  height: 84%;
+  opacity: 0.55;
+}
+
+.map-fallback-text {
+  position: relative;
+  max-width: 22rem;
+  padding: 0.6rem 1rem;
+  border-radius: 999px;
+  background: hsl(var(--background) / 0.9);
+  color: hsl(var(--foreground));
+  font-size: var(--text-body);
+  box-shadow: var(--shadow-lg);
 }
 </style>

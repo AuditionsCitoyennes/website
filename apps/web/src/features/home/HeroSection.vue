@@ -2,7 +2,24 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useSubmitTestimony } from "@/features/testify";
 import { ROUTE } from "@/shared/routes";
-import { HERO_IMAGE as hero, srcFor, srcsetFor } from "./homeImages";
+import { hero as heroMode } from "@/shared/boot/homeBoot";
+import { pictureMedia } from "@/shared/boot/homeBootPlan";
+import { HERO_IMAGE as hero, heroSources, srcFor } from "./homeImages";
+
+// The photograph's copies: cut to a portrait screen's shape on a phone, today's
+// on a wide screen (`ac:hero`, shared/boot/homeBootPlan.ts). The last source
+// is the <img>'s own.
+const sources = heroSources(hero, heroMode);
+const fallback = sources[sources.length - 1];
+const cuts = sources.slice(0, -1).map((s) => ({ ...s, media: pictureMedia(s)! }));
+const imgSrc = srcFor(hero, 1920);
+// In "ancien" the <img> gets its copies from the template, as before. With the
+// cuts, once it stands in the <picture> beside its sources (onMounted): Vue
+// sets an element's attributes before it puts it in its parent, and WebKit
+// starts a download at each of them (src, then srcset, then sizes, then the
+// <picture>'s source): three to four copies of the photo on an iPhone.
+const bound = heroMode === "ancien";
+const templateAttrs = bound ? { src: imgSrc, srcset: fallback.srcset, sizes: fallback.sizes } : {};
 
 // `ready` once the photograph is shown — or could not be: at once when it is
 // there already (cached, or decoded before this ran), else when it loads or
@@ -14,6 +31,12 @@ let stopWaiting: (() => void) | null = null;
 
 onMounted(() => {
   const img = heroImg.value;
+  if (img && !bound) {
+    // sizes and srcset first: when src comes, the choice is already made.
+    img.sizes = fallback.sizes;
+    img.srcset = fallback.srcset;
+    img.src = imgSrc;
+  }
   if (!img || img.complete) {
     emit("ready");
     return;
@@ -55,17 +78,24 @@ function glideTo(e: MouseEvent, id: string) {
     :class="{ 'hero--top': hero.textAt === 'top' }"
     aria-labelledby="hero-title"
   >
-    <img
-      ref="heroImg"
-      class="hero-img"
-      :src="srcFor(hero, 1920)"
-      :srcset="srcsetFor(hero, [960, 1440, 1920, 2560])"
-      sizes="(max-aspect-ratio: 3/2) calc((100vh - 4rem) * 1.5), 100vw"
-      :alt="hero.alt"
-      :style="{ objectPosition: hero.position ?? '50% 50%' }"
-      fetchpriority="high"
-      decoding="async"
-    />
+    <picture>
+      <source
+        v-for="c in cuts"
+        :key="c.media"
+        :media="c.media"
+        :srcset="c.srcset"
+        :sizes="c.sizes"
+      />
+      <img
+        ref="heroImg"
+        class="hero-img"
+        v-bind="templateAttrs"
+        :alt="hero.alt"
+        :style="{ objectPosition: hero.position ?? '50% 50%' }"
+        fetchpriority="high"
+        decoding="async"
+      />
+    </picture>
     <div class="hero-shade" aria-hidden="true"></div>
     <div class="hero-content container-page">
       <h1 id="hero-title" class="hero-title">Auditions<br />Citoyennes</h1>
