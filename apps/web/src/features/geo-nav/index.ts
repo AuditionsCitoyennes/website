@@ -9,6 +9,8 @@ export { EMPTY_KEY, onPlacesReload, placesKeys } from "./keys";
 export { fetchFacets, retryable, retryWait, RETRIES, type CountsRequest } from "./data/placesApi";
 export { bySort, groupOwnAuditions, resultBounds } from "./model/auditions";
 export { compareTrees, type TreeComparison, type TreeDiff } from "./data/compareTrees";
+// What a pan does to the selected zone (ac:scope-drag), for the DEV dialog.
+export { scopeDragMode, setScopeDragMode } from "./model/scopeHold";
 // A lieu's label as the tree gives it (the comparer names the server's lieux so).
 export { placeLabel } from "@/features/geo";
 

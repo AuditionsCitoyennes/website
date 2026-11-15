@@ -144,6 +144,7 @@ const scope = useScope({
   root,
   index,
   containsPoint,
+  outlined: (u) => !!raisedGeometryFor(u),
   isDesktop,
   // The layout a view must have been measured in: the ring's view padding or
   // the wide panel's when there is one, else the camera's — both set up below.

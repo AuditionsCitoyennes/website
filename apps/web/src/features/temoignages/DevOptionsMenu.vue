@@ -6,7 +6,8 @@
 // « Options de test », a row for each switch of devOptions.ts — the data
 // source and the place tree (dataSource.ts), the plateau's lid, its check, its
 // mesh, the relief's prefetch and the answer to a tap (map), the boot curtain's cover
-// (geo-nav/bootListSwitch), the framing and the analyses' slabs
+// (geo-nav/bootListSwitch), what a pan does to the selected zone (geo-nav), the framing
+// and the analyses' slabs
 // (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
 // what the page knows of the device listed under it —, each with its
 // sentences for a tester and a mark on the ones that reload the page. A choice
@@ -81,10 +82,12 @@ import {
   filtersLoad,
   outlinesDecor,
   prefetch,
+  scopeDragMode,
   setBootList,
   setFiltersLoad,
   setOutlinesDecor,
   setPrefetch,
+  setScopeDragMode,
 } from "@/features/geo-nav";
 import { recover, setRecover } from "@/shared/net/recoverSwitch";
 import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
@@ -130,6 +133,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:outline-wait": bind(() => outlineWait.value, setOutlineWait),
   "ac:region-self": bind(() => regionSelfMode.value, setRegionSelfMode),
   "ac:cold-start": bind(() => coldStartMode.value, setColdStartMode),
+  "ac:scope-drag": bind(() => scopeDragMode.value, setScopeDragMode),
   "ac:analyses-pending": bind(() => pendingAnalysesMode.value, setPendingAnalysesMode),
   "ac:slab-lid-verre": bind(() => slabLidMode.value, setSlabLidMode),
   "ac:slab-text": bind(() => slabTextMode.value, setSlabTextMode),
