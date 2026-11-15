@@ -29,6 +29,9 @@ defineProps<{
   sheetHidden: boolean;
   /** The breadcrumb's trail; null while the results are listed (no trail). */
   crumbs: GeoUnit[] | null;
+  /** A territory was tapped and its plateau is on its way: the list is
+   *  the new level's already, the map is not there yet (`aria-busy`). */
+  busy?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -115,7 +118,12 @@ defineExpose({ el, peekEl, safeEl, listEl });
       />
     </header>
 
-    <div ref="listEl" class="panel-list" :inert="sheetHidden || undefined">
+    <div
+      ref="listEl"
+      class="panel-list"
+      :inert="sheetHidden || undefined"
+      :aria-busy="busy || undefined"
+    >
       <slot />
     </div>
   </aside>

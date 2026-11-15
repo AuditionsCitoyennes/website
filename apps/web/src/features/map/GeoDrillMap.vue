@@ -29,11 +29,13 @@ import { useSlabOcclusion } from "./composables/useSlabOcclusion";
 import { usePlateauLid } from "./composables/usePlateauLid";
 import { useMapCamera } from "./composables/useMapCamera";
 import { useMapPins } from "./composables/useMapPins";
-import { usePlateau } from "./composables/usePlateau";
+import { usePlateau, type PlateauSettle } from "./composables/usePlateau";
 import { usePlateauSlabs } from "./composables/usePlateauSlabs";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
+import type { MarkGeometry } from "./gl/pendingMark";
+import type { TapMark } from "./plateau/tapAnswerSwitch";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 import { fallbackForced, fallbackView, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
@@ -95,6 +97,13 @@ const emit = defineEmits<{
    * gesture (and for each wheel notch): the listener must be idempotent.
    */
   userGesture: [];
+  /**
+   * A run of the plateau pipeline has come to its verdict for unit `scopeId`
+   * ("" when the map was cleared): see PlateauSettle. Fires inside the block
+   * that applies the plateau, before its first rise frame: what a pending
+   * mark (`markPending`) waits for.
+   */
+  plateauSettled: [scopeId: string, how: PlateauSettle];
 }>();
 
 /** `ready` fires at most once. */
@@ -226,6 +235,7 @@ const plateau = usePlateau({
   clearSlabs: () => slabs.clearSlabs(),
   forgetLidExtra: () => slabs.forgetLidExtra(),
   meshClient: () => meshClient,
+  onSettled: (scopeId, how) => emit("plateauSettled", scopeId, how),
 });
 const slabs = usePlateauSlabs({
   getMap,
@@ -237,6 +247,48 @@ const slabs = usePlateauSlabs({
   lid,
   hidePinsUnderSlabs: pins.hidePinsUnderSlabs,
 });
+
+// ---- A tapped unit's PENDING mark (the parent decides when: see GeoNav's
+// model/tapPendingCore) — drawn by the plateau's layer in buffers of its own,
+// and worn by the unit's pill ----
+/**
+ * Mark unit `id` as tapped, its plateau on its way: `mark.stroke` and
+ * `mark.fill` on its territory, from its outline as it is in `units` NOW (so
+ * before the selection replaces them), `mark.pill` on its pill. One repaint;
+ * nothing moves until `endPending`. A newer mark replaces this one. Answers
+ * "shown", "none" (nothing could be shown: a unit with no outline in memory
+ * and no pill), or that no verdict will follow (`plateauSettled`): "standing"
+ * (the unit's plateau stands already) and "unavailable" (no map, or its
+ * style not loaded yet).
+ */
+function markPending(id: string, mark: TapMark): "shown" | "none" | "standing" | "unavailable" {
+  if (!map || !mapReady) return "unavailable";
+  if (plateau.active() && plateauWall.scopeId === id) {
+    endPending("off");
+    return "standing";
+  }
+  const unit = props.units.find((u) => u.id === id);
+  const pill = mark.pill && !!unit && !unit.isLeaf;
+  const g = unit && !unit.isLeaf ? (unit.geometry as MarkGeometry | undefined) : undefined;
+  const drawn = !!g && (mark.stroke || mark.fill);
+  if (drawn) plateauWall.setPending(id, g, mark);
+  else plateauWall.clearPending();
+  pins.setPendingPin(pill ? id : "");
+  return drawn || pill ? "shown" : "none";
+}
+/**
+ * The pending mark ends. "rise": its unit's plateau has just committed (call
+ * it from `plateauSettled`): the mark moves onto the new lid and fades as it
+ * rises — or goes at once under reduced motion. "off": at once (the
+ * selection went elsewhere, or no plateau will come). The pill goes at once.
+ */
+function endPending(how: "rise" | "off") {
+  pins.setPendingPin("");
+  if (how === "rise") {
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    plateauWall.commitPending(!still);
+  } else plateauWall.clearPending();
+}
 
 /** What the map does once the camera has come to rest (gesture or flight). */
 function onCameraSettled() {
@@ -344,6 +396,7 @@ function mountMap() {
       lid,
       slabs,
       meshDigest: __TEST_TOOLS__ ? (o) => plateauWall.meshDigest(o) : null,
+      pendingMark: () => plateauWall.pendingState(),
     });
 
     // The slabs' opaque lids take the site's card colour, and follow the theme.
@@ -527,6 +580,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   resizeObserver = null;
   pins.clear();
+  plateauWall.clearPending();
   if (map) stillMap.detach(map);
   map?.remove();
   map = null;
@@ -594,6 +648,9 @@ defineExpose({
   /** The analyses' ring: the part picked and the one hovered on the unit
    *  `scopeId`'s — the raised parts and the bar follow. */
   setRing: slabs.setRing,
+  /** A tapped unit's pending mark, set and ended (see the functions). */
+  markPending,
+  endPending,
   /** A wheel turned over something laid on the map (the analyses' plates):
    *  mapbox listens on its canvas container only, so it is handed
    *  over there as the map's own — deltas, mode, position and modifier keys,

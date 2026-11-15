@@ -45,6 +45,7 @@ const cardOpenSwitch = await import("../../shared/device/cardOpenSwitch");
 const homeBootPlan = await import("../../shared/boot/homeBootPlan");
 const recoverSwitch = await import("../../shared/net/recoverSwitch");
 const bootReadsSwitch = await import("../geo-nav/data/bootReadsSwitch");
+const tap = await import("../map/plateau/tapAnswerSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -68,6 +69,7 @@ const MODULES = {
   homeBoot: "../../shared/boot/homeBoot.ts",
   recover: "../../shared/net/recoverSwitch.ts",
   bootReads: "../geo-nav/data/bootReadsSwitch.ts",
+  tap: "../map/plateau/tapAnswerSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -106,6 +108,8 @@ const KEYS: readonly DevKey[] = [
   "ac:recover",
   "ac:filters-load",
   "ac:prefetch",
+  "ac:tap-answer",
+  "ac:tap-frame",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -119,7 +123,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 28);
+  assert.equal(DEV_OPTIONS.length, 30);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -209,6 +213,8 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:recover": ["recover", "setRecover"],
   "ac:filters-load": ["bootReads", "setFiltersLoad"],
   "ac:prefetch": ["bootReads", "setPrefetch"],
+  "ac:tap-answer": ["tap", "setTapAnswerMode"],
+  "ac:tap-frame": ["tap", "setTapFrameMode"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -296,6 +302,8 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:recover"), [...recoverSwitch.RECOVERS]);
   assert.deepEqual(ids("ac:filters-load"), [...bootReadsSwitch.FILTERS_LOADS]);
   assert.deepEqual(ids("ac:prefetch"), [...bootReadsSwitch.PREFETCHES]);
+  assert.deepEqual(ids("ac:tap-answer"), [...tap.TAP_ANSWER_MODES]);
+  assert.deepEqual(ids("ac:tap-frame"), [...tap.TAP_FRAME_MODES]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -305,7 +313,8 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:slab-size"), scale);
   assert.deepEqual(ids("ac:frame-fill"), scale);
   assert.deepEqual(row("ac:lid-check").inactiveWhen, { key: "ac:lid", id: "aucun" });
-  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 1);
+  assert.deepEqual(row("ac:tap-frame").inactiveWhen, { key: "ac:tap-answer", id: "off" });
+  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 2);
 });
 
 test("the default marked in each sentence is the module's", () => {
@@ -338,6 +347,8 @@ test("the default marked in each sentence is the module's", () => {
     "ac:recover": recoverSwitch.DEFAULT_RECOVER,
     "ac:filters-load": bootReadsSwitch.DEFAULT_FILTERS_LOAD,
     "ac:prefetch": bootReadsSwitch.DEFAULT_PREFETCH,
+    "ac:tap-answer": tap.DEFAULT_TAP_ANSWER,
+    "ac:tap-frame": tap.DEFAULT_TAP_FRAME,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
