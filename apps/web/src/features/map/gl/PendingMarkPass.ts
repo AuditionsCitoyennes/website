@@ -146,6 +146,20 @@ export class PendingMarkPass {
     this.repaint();
   }
 
+  /** No plateau came for the marked unit: the mark fades where it stands
+   *  (the commit's fade, MARK_FADE_MS: bounded, nothing rebuilt) — or goes
+   *  at once (`animate` false: reduced motion). */
+  drain(animate: boolean) {
+    if (!this.spec) return;
+    if (!animate) {
+      this.clear();
+      return;
+    }
+    if (this.fadeT0) return; // fading already
+    this.fadeT0 = performance.now();
+    this.repaint();
+  }
+
   /** No mark, at once. */
   clear() {
     if (!this.spec) return;

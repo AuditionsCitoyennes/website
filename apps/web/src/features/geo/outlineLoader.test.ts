@@ -1240,3 +1240,105 @@ test("(S4) a self that fails while its bundle comes: the bundle still brings it"
   assert.ok(t.store.selfOf("fr:reg:84"));
   assert.equal(t.loader.selfSettled("fr:reg:84"), true);
 });
+
+// ---- reask: the attempts a plateau waits for, dropped and made again ----
+
+test("(R1) a hung attempt asked again: dropped, made again at once, none of the request's two", async () => {
+  const t = setup({ "k/fr_reg_84": ["hang", "hang", "json"] });
+  await t.boot();
+  const r = t.loader.ensureBundle("fr:reg:84", true);
+  await t.tick(5_000);
+  assert.deepEqual(
+    t.loader.reask(() => true),
+    ["k/fr_reg_84"],
+  );
+  await t.tick(0);
+  assert.equal(t.requests[0].signal.aborted, true);
+  assert.equal(t.requests.length, 2); // no retry pause: asked at once
+  assert.deepEqual(
+    t.loader.reask(() => true),
+    ["k/fr_reg_84"],
+  );
+  await t.tick(0);
+  assert.equal(await r, "loaded");
+  assert.equal(t.requests.length, 3);
+  assert.equal(t.armed.includes(1_000), false);
+  assert.equal(t.loader.failed.size, 0);
+  assert.equal(t.writes.length, 1);
+});
+
+test("(R2) an attempt asked again that then fails on the network keeps the request's own retry", async () => {
+  const t = setup({ "k/fr_reg_84": ["hang", 503, "json"] });
+  await t.boot();
+  const r = t.loader.ensureBundle("fr:reg:84", true);
+  await t.tick(0);
+  t.loader.reask(() => true);
+  await t.tick(999);
+  assert.equal(t.requests.length, 2);
+  await t.tick(1);
+  assert.equal(await r, "loaded");
+  assert.equal(t.requests.length, 3);
+});
+
+test("(R3) only the files named are asked again; with nothing on the network, nothing is", async () => {
+  const t = setup({ "k/fr_reg_84": ["hang", "json"], "u/fr_dep_69": ["hang"] });
+  await t.boot();
+  assert.deepEqual(
+    t.loader.reask(() => true),
+    [],
+  );
+  const bundle = t.loader.ensureBundle("fr:reg:84", true);
+  void t.loader.ensureSelf("fr:dep:69");
+  await t.tick(0);
+  assert.deepEqual(
+    t.loader.reask((key) => key === "k/fr_reg_84"),
+    ["k/fr_reg_84"],
+  );
+  await t.tick(0);
+  assert.equal(await bundle, "loaded");
+  const self = t.requests.filter((q) => q.url.includes("u/fr_dep_69"));
+  assert.equal(self.length, 1);
+  assert.equal(self[0].signal.aborted, false);
+});
+
+test("(R4) the attempt made again keeps its fetch priority, and a file kept as text is left alone", async () => {
+  const t = quiet({ "k/fr_reg_84": ["hang", "json"] });
+  await t.boot();
+  t.urgent.add("k/fr_reg_84");
+  const r = t.loader.ensureBundle("fr:reg:84", true);
+  await t.tick(0);
+  assert.deepEqual(
+    t.loader.reask((key) => t.urgent.has(key)),
+    ["k/fr_reg_84"],
+  );
+  await t.tick(0);
+  assert.equal(await r, "loaded");
+  assert.deepEqual(
+    t.requests.map((q) => q.priority),
+    ["high", "high"],
+  );
+  // A late file, in as text and waiting for a still map: nothing to ask again.
+  void t.loader.ensureBundle("fr:dep:69");
+  await t.tick(0);
+  assert.equal(t.loader.held.has("k/fr_dep_69"), true);
+  assert.deepEqual(
+    t.loader.reask(() => true),
+    [],
+  );
+  await t.still();
+  assert.equal(t.store.bundleLoaded("fr:dep:69"), true);
+  assert.equal(t.requests.filter((q) => q.url.includes("k/fr_dep_69")).length, 1);
+});
+
+test("(R5) a session that fell back asks nothing again", async () => {
+  const t = setup({ "k/fr_reg_84": ["hang"], "u/fr_dep_69": ["html"] });
+  await t.boot();
+  void t.loader.ensureBundle("fr:reg:84", true);
+  await t.tick(0);
+  assert.equal(await t.loader.ensureSelf("fr:dep:69"), "fallback"); // a release skew
+  assert.deepEqual(
+    t.loader.reask(() => true),
+    [],
+  );
+  assert.equal(t.requests.filter((q) => q.url.includes("k/fr_reg_84")).length, 1);
+});

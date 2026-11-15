@@ -100,3 +100,17 @@ export function outlineVerdict(
   if (!state.standing || !sameShape(next, state.standing)) return "run";
   return sameLines(linesOf(features), state.dressed) ? "nothing" : "redress";
 }
+
+/** What asking once more for unit `scopeId`'s plateau does (the panel's
+ *  « Réessayer », its outline being in memory): "running", a run for it is
+ *  under way and is left alone (it has its own watchdogs; a second one would
+ *  only add work); "standing", its plateau stands; "rerun", neither: the
+ *  pipeline is run again from the outline as it is. */
+export function retryVerdict(
+  scopeId: string,
+  state: Pick<PlateauState, "standing" | "running">,
+): "rerun" | "running" | "standing" {
+  if (state.running?.scopeId === scopeId) return "running";
+  if (state.standing?.scopeId === scopeId) return "standing";
+  return "rerun";
+}

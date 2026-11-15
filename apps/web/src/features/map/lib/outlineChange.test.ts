@@ -7,6 +7,7 @@ import {
   linesOf,
   outlineVerdict,
   raisedShapeOf,
+  retryVerdict,
   type OutlineFeatureLike,
   type PlateauState,
 } from "./outlineChange";
@@ -111,4 +112,17 @@ test("a run under way for this very shape is left alone; for another, it is repl
   // unit selected again is a run (it brings it back up), not "nothing".
   const old = standingFor([feature("scope", "fr:dep:01", AIN)]);
   assert.equal(outlineVerdict([feature("scope", "fr:dep:01", AIN)], { ...old, running }), "run");
+});
+
+test("a plateau asked once more: run again unless its run is under way or it stands", () => {
+  const rhone = raisedShapeOf([scope])!;
+  assert.equal(retryVerdict("fr:dep:69", NOTHING_UP), "rerun");
+  assert.equal(retryVerdict("fr:dep:69", { standing: null, running: rhone }), "running");
+  assert.equal(retryVerdict("fr:dep:69", standingFor([scope])), "standing");
+  // Committed and still rising: under way.
+  assert.equal(retryVerdict("fr:dep:69", { ...standingFor([scope]), running: rhone }), "running");
+  // Another unit's run, another unit's plateau: neither is this one's.
+  const ainUp = standingFor([feature("scope", "fr:dep:01", AIN)]);
+  assert.equal(retryVerdict("fr:dep:69", ainUp), "rerun");
+  assert.equal(retryVerdict("fr:dep:69", { standing: null, running: ainUp.standing }), "rerun");
 });

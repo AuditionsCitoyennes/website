@@ -417,6 +417,23 @@ map holds for an outline, `ac:cold-start=early` (« Avant le contour ») sinks
 the plateau standing and shoots the coming unit's lid over its box at once;
 `hold` (the default) leaves both for the outline's landing, as before.
 
+A unit with no coarse shape in memory (a commune whose département's bundle
+is still on its way) holds for as long as that file takes: up to two 15 s
+attempts. The visitor is told meanwhile. Once the camera has landed, 0.8 s
+at least after the tap, three small dots move beside the tapped unit's pill
+and after its name in the panel's trail (CSS only, 3.9 s of motion at most,
+still under reduced motion). Five seconds after the tap with no plateau, the
+tap's mark drains and the panel says « La carte met plus de temps que
+prévu. » with a « Réessayer » button (over the map's top on a phone whose
+sheet is lowered). The button asks again for the missing piece only: while
+the map holds for an outline, the attempts on the network that the plateau
+waits for are dropped and made again at once, at the same priority, without
+counting as one of the request's two (`OutlineLoader.reask`); with the
+outline in memory, the plateau's own run is made once more unless one is
+under way. The scope, the camera, the lists and the files' chain are left as
+they are. `ac:slow-sign=off` (« Attente longue ») shows neither dots nor
+sentence, as before 2026-11-14.
+
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps
 (`scripts/deploy/outlines.sh fetch` / `install`) and its fail-closed

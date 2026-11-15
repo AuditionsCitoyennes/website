@@ -690,6 +690,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.pendingMark.clear();
   }
 
+  /** No plateau came for the marked unit (a long wait turned late): the mark
+   *  fades where it stands; `animate` false (reduced motion): it goes at once. */
+  drainPending(animate: boolean) {
+    this.pendingMark.drain(animate);
+  }
+
   /** Highlight (or clear) the hovered unit's fill (restarts the inward sweep). */
   setHovered(id: string) {
     if (this.hoveredFillId === id) return;

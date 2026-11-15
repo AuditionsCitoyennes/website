@@ -11,7 +11,8 @@
 // geo-nav/data/bootReadsSwitch,
 // map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
-// geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch, analyses/devSwitch,
+// geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
+// geo-nav/model/slowSignSwitch, analyses/devSwitch,
 // shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -44,6 +45,7 @@ export type DevKey =
   | "ac:scope-drag"
   | "ac:outlines-ahead"
   | "ac:lid-cache"
+  | "ac:slow-sign"
   | "ac:analyses-pending"
   | "ac:slab-lid-verre"
   | "ac:slab-text"
@@ -442,6 +444,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Le dessus du relief est une image de la carte, que la page fabrique pour chaque territoire choisi. « Oui » (par défaut) garde les dernières images, deux à quatre selon l'appareil : quand on revient sur un territoire déjà vu, il se soulève tout de suite avec son image, sans que la page la refasse. « Non » refait l'image à chaque fois, comme avant. Sans effet si Couvercle est « Ancien » ou « Aucun ».",
     reloads: false,
     defaultId: "on",
+  },
+  {
+    key: "ac:slow-sign",
+    section: "carte",
+    label: "Attente longue",
+    choices: [
+      { id: "on", label: "Signe" },
+      { id: "off", label: "Rien" },
+    ],
+    explain:
+      "Quand un territoire touché tarde à se soulever. « Signe » (par défaut) : une fois la carte arrivée sur lui, et au plus tôt 0,8 seconde après le toucher, trois petits points bougent à côté de son étiquette sur la carte et de son nom dans le panneau, jusqu'à ce qu'il se soulève ; ils restent immobiles si l'appareil demande moins d'animations. Au bout de 5 secondes sans rien, la marque du territoire s'efface et le panneau dit « La carte met plus de temps que prévu. », avec un bouton « Réessayer » qui redemande seulement ce qui manque. « Rien » ne montre ni points ni message, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "on",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
     key: "ac:analyses-pending",

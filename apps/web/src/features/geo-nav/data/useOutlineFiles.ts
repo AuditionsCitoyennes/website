@@ -150,6 +150,10 @@ export interface OutlineFiles {
   setUrgent(rule: ((key: string) => boolean) | null): void;
   /** The kept files that rule now calls urgent are stored at once. */
   flushDue(): void;
+  /** The files that rule calls urgent and that are still on the network are
+   *  asked again now (the panel's « Réessayer »): the attempt under way is
+   *  dropped, a new one starts at once (OutlineLoader.reask). Their keys. */
+  reaskWaited(): string[];
   pin(ids: Iterable<string>): number;
   ensureRoot(): Promise<OutlineFilesStatus>;
   /** The network may be back (the panel's « Réessayer »): a start waiting
@@ -369,6 +373,7 @@ function createOutlineFiles(): OutlineFiles {
       urgent = rule;
     },
     flushDue: () => loader.flushDue(),
+    reaskWaited: () => loader.reask((key) => !!urgent?.(key)),
     ensureRoot: () => loader.ensureRoot(),
     reconnect: () => loader.reconnect(),
     ensureBundle: (id, due = false) => loader.ensureBundle(id, due),
