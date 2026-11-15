@@ -20,6 +20,7 @@ import type { MeshReply } from "./meshCore";
 import type { GlobeProvider } from "./PlateauWallLayer";
 import type { TintCutter } from "./ScopeTintLayer";
 import { cacheBudgetNow } from "../cacheBudget";
+import { leanLines } from "../plateau/lineMeshSwitch";
 
 type Knobs = {
   __acMeshCap?: unknown;
@@ -52,6 +53,7 @@ export function warmMeshWorker(): MeshClient {
     },
     fallbackBuild: (i, want) =>
       buildPlateauMesh(i.features, i.heightM, i.focus, i.context, { ...want, concat: true }),
+    leanLines,
     // MESH_TOKEN_CAP_VERTICES on a device of the "full" tier, fewer on a
     // weak one (../cacheBudget.ts), read at each apply.
     capVertices: () =>

@@ -44,10 +44,12 @@ export interface MeshSet {
   meta: MeshMeta[];
 }
 
-/** The sets to build: mercator, globe, or both. */
+/** The sets to build: mercator, globe, or both — and `lean`, the boundary
+ *  lines in the lean layout (ac:line-mesh, gl/lineSegments.ts; absent: full). */
 export interface MeshWant {
   merc: boolean;
   globe: boolean;
+  lean?: boolean;
 }
 
 /** A geometry sent for the first time under `token`. */
@@ -172,7 +174,12 @@ export function createMeshCore(deps: MeshCoreDeps) {
     const focus = featuresOf(req.focus, missing);
     const context = featuresOf(req.context, missing);
     if (missing.length) return { t: "missing", id: req.id, tokens: [...new Set(missing)] };
-    const want = { merc: req.want.merc, globe: req.want.globe, concat: true };
+    const want = {
+      merc: req.want.merc,
+      globe: req.want.globe,
+      concat: true,
+      lean: req.want.lean === true,
+    };
     const t0 = performance.now();
     const mesh = buildPlateauMesh(scope, req.heightM, focus, context, want);
     for (let k = 1; k < (req.slow ?? 1); k++) {

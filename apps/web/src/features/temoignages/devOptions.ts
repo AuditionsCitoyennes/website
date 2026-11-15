@@ -13,7 +13,8 @@
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
 // geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
-// map/threadSwitch, map/plateau/lidMapSwitch, map/cacheBudget, analyses/devSwitch,
+// map/threadSwitch, map/plateau/lidMapSwitch, map/plateau/lineMeshSwitch,
+// map/cacheBudget, analyses/devSwitch,
 // shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -77,7 +78,8 @@ export type DevKey =
   | "ac:tint-cut"
   | "ac:pins-rebuild"
   | "ac:lid-map"
-  | "ac:map-caches";
+  | "ac:map-caches"
+  | "ac:line-mesh";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -553,6 +555,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     reloads: true,
     defaultId: "auto",
     inactiveWhen: { key: "ac:lid", id: "aucun" },
+  },
+  {
+    key: "ac:line-mesh",
+    section: "carte",
+    label: "Traits",
+    choices: [
+      { id: "lean", label: "Allégés" },
+      { id: "full", label: "Entiers" },
+    ],
+    explain:
+      "Les traits violets des limites (communes, départements, régions, pays) sont remis à la puce graphique sous une forme plus ou moins lourde. « Allégés » (par défaut) remet chaque segment une seule fois, sous une forme huit fois plus petite, et ne trace qu'une fois la limite que deux territoires voisins partagent sur le dessus du relief : la carte occupe moins de mémoire, et l'image est la même. « Entiers » remet tout comme avant.",
+    reloads: true,
+    defaultId: "lean",
   },
   {
     key: "ac:analyses-pending",

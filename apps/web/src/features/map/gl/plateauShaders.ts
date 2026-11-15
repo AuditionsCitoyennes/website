@@ -104,6 +104,63 @@ export const G_LINE_VS = `attribute vec3 aMerc;
     gl_Position = p + vec4(n * aSide * (uWidth + 2.0) / uViewport * p.w, 0.0, 0.0);
   }`;
 
+// ---- the boundary lines in the lean layout (ac:line-mesh=lean,
+// gl/lineSegments.ts): a segment's two ends are per-instance attributes, and
+// each of the quad's six corners says which end it stands at and its two
+// signs (aCorner: LINE_CORNERS). The end is picked, not mixed, so p, q and
+// everything after them are the full layout's values. A range that stands
+// for two segments lying on each other (uTwice = 1) is blended once at the
+// opacity two passes of a give: a + a(1 − a) ----
+const LEAN_EXTRUDE_GLSL = `
+    vec2 d = (q.xy / q.w - p.xy / p.w) * uViewport;
+    float len = length(d);
+    vec2 n = len > 0.0 ? vec2(-d.y, d.x) / len : vec2(0.0, 0.0);
+    vSide = aCorner.z;
+    gl_Position = p + vec4(n * aCorner.y * (uWidth + 2.0) / uViewport * p.w, 0.0, 0.0);`;
+export const LINE_LEAN_VS = `attribute vec3 aA;
+  attribute vec3 aB;
+  attribute vec3 aCorner;
+  uniform mat4 uMatrix;
+  uniform float uScale;
+  uniform vec2 uViewport;
+  uniform float uWidth;
+  varying float vSide;
+  void main() {
+    bool atB = aCorner.x > 0.5;
+    vec3 pos = atB ? aB : aA;
+    vec3 other = atB ? aA : aB;
+    vec4 p = uMatrix * vec4(pos.xy, pos.z * uScale, 1.0);
+    vec4 q = uMatrix * vec4(other.xy, other.z * uScale, 1.0);${LEAN_EXTRUDE_GLSL}
+  }`;
+export const LINE_LEAN_FS = `precision highp float;
+  varying float vSide;
+  uniform float uWidth;
+  uniform float uAlpha;
+  uniform float uTwice;
+  void main() {
+    float a = clamp((uWidth * 0.5 + 1.0) * (1.0 - abs(vSide)), 0.0, 1.0) * uAlpha;
+    a += uTwice * a * (1.0 - a);
+    gl_FragColor = vec4(0.486, 0.361, 1.0, 1.0) * a;
+  }`;
+export const G_LINE_LEAN_VS = `attribute vec3 aAMerc;
+  attribute vec3 aAEcefLo;
+  attribute vec3 aAEcefHi;
+  attribute vec3 aBMerc;
+  attribute vec3 aBEcefLo;
+  attribute vec3 aBEcefHi;
+  attribute vec3 aCorner;
+  uniform vec2 uViewport;
+  uniform float uWidth;
+  varying float vSide;
+  ${GLOBE_PROJECT_GLSL}
+  void main() {
+    bool atB = aCorner.x > 0.5;
+    vec4 a = morphProject(aAMerc, aAEcefLo, aAEcefHi);
+    vec4 b = morphProject(aBMerc, aBEcefLo, aBEcefHi);
+    vec4 p = atB ? b : a;
+    vec4 q = atB ? a : b;${LEAN_EXTRUDE_GLSL}
+  }`;
+
 // ---- the hover fill: opaque violet swept inward — each vertex carries its
 // normalised distance to the unit's boundary, and uFillT moves the filled
 // band from the edge (d = 0) toward the centre (d = 1) ----

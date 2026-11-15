@@ -208,6 +208,7 @@ test("MeshOut has exactly its fields", () => {
     "lidVertexCount",
     "lineVertexCount",
     "haloVertexCount",
+    "lineLayout",
     "origin",
     "lineGroups",
     "haloW",
