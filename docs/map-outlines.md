@@ -395,6 +395,18 @@ its children's lines as before. A row hovered in the list prefetches the same
 two files in the same order. `ac:region-self=bundle` (the DEV dialog's
 « Contour seul ») asks the bundle alone, as before 2026-11-14.
 
+A touch screen has no pointer to hover a row with. There, once the first
+plateau stands (France, on the Témoignages page), its lid has landed and the
+map is at rest (no flight, no rise, no finger down, its tiles in), the one or
+two units under it that hold the most testimonies have a file asked ahead, at
+low priority, into the HTTP cache: the one file a tap's plateau waits for
+(the `u/` self where it goes ahead of its bundle; about 60 and 47 kB on the
+wire for the two largest régions of the seed). Two units on a device whose
+tier is "full", one on a weaker one; none under Save-Data or on a link the
+browser calls slow-2g, 2g or 3g; none while the map is the home page's card;
+once per page. `ac:outlines-ahead=off` (the DEV dialog's « Contours d'avance »)
+asks nothing ahead on a touch screen, as before 2026-11-14.
+
 How long a plateau waits for its own outline while a coarser outline of the
 same unit is in memory (a région's entry in `k/FR`, a country's `g/`) is
 `ac:outline-wait` (« Attente du contour »): `1200` (the default, as before),

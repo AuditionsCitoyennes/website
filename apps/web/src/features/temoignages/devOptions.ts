@@ -10,7 +10,8 @@
 // shared/device/cardOpenSwitch, shared/boot/homeBoot, shared/net/recoverSwitch,
 // geo-nav/data/bootReadsSwitch,
 // map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
-// map/plateau/coldTapSwitch, geo-nav/model/scopeHold, analyses/devSwitch,
+// map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
+// geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch, analyses/devSwitch,
 // shared/device/deviceTier). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
@@ -41,6 +42,8 @@ export type DevKey =
   | "ac:region-self"
   | "ac:cold-start"
   | "ac:scope-drag"
+  | "ac:outlines-ahead"
+  | "ac:lid-cache"
   | "ac:analyses-pending"
   | "ac:slab-lid-verre"
   | "ac:slab-text"
@@ -413,6 +416,32 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Ce que devient le territoire choisi quand on fait glisser la carte. « Auto » (par défaut) fait « Garder » sur un écran tactile et « Suivre » avec une souris ; « Garder » laisse le territoire choisi tant qu'une partie de lui reste visible : il ne change que s'il sort presque entièrement de la vue, ou si on dézoome au-delà de lui ; « Suivre » passe au territoire qui se trouve au centre de la vue dès que le centre quitte le territoire choisi, comme avant.",
     reloads: false,
     defaultId: "auto",
+  },
+  {
+    key: "ac:outlines-ahead",
+    section: "carte",
+    label: "Contours d'avance",
+    choices: [
+      { id: "idle", label: "Au repos" },
+      { id: "off", label: "Jamais" },
+    ],
+    explain:
+      "Sur un écran tactile, la page peut télécharger d'avance le contour de quelques territoires, pour qu'ils se soulèvent sans attendre ce fichier quand on les touche. « Au repos » (par défaut) télécharge celui des deux régions qui comptent le plus de témoignages (une seule sur un appareil lent), une fois la France soulevée et la carte immobile ; rien si le navigateur demande d'économiser les données ou annonce une connexion lente. « Jamais » ne télécharge rien d'avance, comme avant. Avec une souris, rien ne change : le contour d'un territoire est demandé quand le pointeur s'arrête sur sa ligne dans la liste.",
+    reloads: false,
+    defaultId: "idle",
+  },
+  {
+    key: "ac:lid-cache",
+    section: "carte",
+    label: "Images gardées",
+    choices: [
+      { id: "on", label: "Oui" },
+      { id: "off", label: "Non" },
+    ],
+    explain:
+      "Le dessus du relief est une image de la carte, que la page fabrique pour chaque territoire choisi. « Oui » (par défaut) garde les dernières images, deux à quatre selon l'appareil : quand on revient sur un territoire déjà vu, il se soulève tout de suite avec son image, sans que la page la refasse. « Non » refait l'image à chaque fois, comme avant. Sans effet si Couvercle est « Ancien » ou « Aucun ».",
+    reloads: false,
+    defaultId: "on",
   },
   {
     key: "ac:analyses-pending",

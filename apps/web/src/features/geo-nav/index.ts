@@ -11,6 +11,8 @@ export { bySort, groupOwnAuditions, resultBounds } from "./model/auditions";
 export { compareTrees, type TreeComparison, type TreeDiff } from "./data/compareTrees";
 // What a pan does to the selected zone (ac:scope-drag), for the DEV dialog.
 export { scopeDragMode, setScopeDragMode } from "./model/scopeHold";
+// Whether a touch screen asks outline files ahead (ac:outlines-ahead), for the DEV dialog.
+export { prefetchMode, setPrefetchMode } from "./data/prefetchSwitch";
 // A lieu's label as the tree gives it (the comparer names the server's lieux so).
 export { placeLabel } from "@/features/geo";
 
