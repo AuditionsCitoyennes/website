@@ -63,6 +63,12 @@
 //   plateau.coldStart ac:cold-start=early: a note (0 ms) when a run holding
 //                     for an outline starts the sink and the coming unit's
 //                     lid (usePlateau.coldStart; detail: scope, sink)
+//   tint.workerCut    ac:tint-cut: a grey sheet's cut in the worker, its
+//                     own time, noted when the answer is received
+//                     (ScopeTintLayer; detail: vertices); tint.setSelection
+//                     then times only the cuts made on the page
+//   tint.roundTrip    …its request posted → its answer received, both on
+//                     the page (gl/meshClient.ts; detail: puts, cloneMs)
 // Reserved for the phases to come, so their tables share one vocabulary:
 // outline.fetch, outline.decode, outline.fallback.
 // plateau.setGeometry's detail names the mesh mode that built it (`mesh`:

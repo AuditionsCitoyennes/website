@@ -26,6 +26,8 @@ const CORE = [
   "gl/meshWorker.ts",
   "gl/meshCore.ts",
   "gl/meshFlat.ts",
+  // The flat view's grey sheet, cut in the worker too (ac:tint-cut).
+  "gl/tintSheet.ts",
 ];
 
 const FORBIDDEN = (spec: string) =>

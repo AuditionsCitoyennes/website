@@ -4,15 +4,22 @@
 // opacity, and what the draped sheet's colour looks like on screen.
 
 import type mapboxgl from "mapbox-gl";
-import earcut from "earcut";
-import { perfOn, perfSpan } from "@/shared/perf/perf";
-import { ringBasesOf, type PBase } from "../lib/projection";
+import { deviceTier } from "@/shared/device/deviceTier";
+import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
+import { tintCut, tintCutFor } from "../threadSwitch";
+import { digestParts } from "./meshDigest";
 import { buildProgram, type GlProg, type MapFogInternals } from "./program";
+import { createTintCuts, type TintCutFn } from "./tintCuts";
+import { cutTintSheet, type MaskGeom, type TintSheet } from "./tintSheet";
 
-/** A (multi)polygon whose rings the grey is cut around. */
-export type MaskGeom = { type?: string; coordinates?: unknown };
-export const sameGeoms = (a: MaskGeom[], b: MaskGeom[]) =>
-  a.length === b.length && a.every((g, i) => g === b[i]);
+export type { MaskGeom } from "./tintSheet";
+export { sameGeoms } from "./tintCuts";
+
+/** ac:tint-cut: who cuts the sheet off the page (the mesh worker,
+ *  gl/meshClient.ts; `ms`: the cut's own time). Null: no sheet (the worker
+ *  lost, or the cut superseded) — cut here if it is still wanted. `live()`
+ *  false before the worker is there and once it is lost. */
+export type TintCutter = { live(): boolean; cut: TintCutFn };
 
 /** The grey's opacity — the draped sheet's (`fill-opacity`) and the GL sheet's. */
 export const MASK_OPACITY = 0.5;
@@ -68,7 +75,6 @@ export class ScopeTintLayer implements mapboxgl.CustomLayerInterface {
   private map: mapboxgl.Map | null = null;
   private prog: GlProg | null = null;
   private buffer: WebGLBuffer | null = null;
-  private geoms: MaskGeom[] = [];
   private positions = new Float32Array(0);
   private vertexCount = 0;
   private dirty = false;
@@ -77,94 +83,87 @@ export class ScopeTintLayer implements mapboxgl.CustomLayerInterface {
   private biasUnits = TINT_DEPTH_BIAS_UNITS;
   private globe: boolean | null = null;
 
+  /** Called when a sheet cut off the page is laid (setSelection had answered
+   *  false: on its way). */
+  onLaid: (() => void) | null = null;
+  /** ac:tint-cut: who cuts the sheet off the page (null: this layer). */
+  private cutter: TintCutter | null = null;
+  /** Testing tools: who cut the sheet laid, and how many were laid. */
+  private laid = { via: "page" as "page" | "worker", count: 0 };
+  /** Which sheet is laid and which is on its way (gl/tintCuts.ts). */
+  private cuts = createTintCuts({
+    cutter: () =>
+      this.cutter?.live() && tintCutFor(tintCut.value, deviceTier()) === "worker"
+        ? this.cutter.cut
+        : null,
+    cutHere: (geoms) => {
+      const end = perfOn ? perfSpan("tint.setSelection") : null;
+      const sheet = cutTintSheet(geoms);
+      if (end) end({ vertices: sheet.positions.length / 2 });
+      return sheet;
+    },
+    lay: (sheet, via) => this.lay(sheet, via),
+    onLate: () => this.onLaid?.(),
+    onCut: (ms, vertices) => {
+      if (perfOn) perfNote("tint.workerCut", ms, { vertices });
+    },
+  });
+
+  /** ac:tint-cut: who cuts the sheet off the page. Null (the map's
+   *  unmount): nobody, and a cut on its way is forgotten. */
+  setCutter(c: TintCutter | null) {
+    this.cutter = c;
+    if (!c) this.cuts.drop();
+  }
+
+  /** ac:tint-cut: the sheet around `geoms` asked of the cutter ahead
+   *  of the setSelection that will lay it (a plateau about to stand: the
+   *  grey changes in the block that puts its mesh up). Nothing without a
+   *  live cutter, for no geometry, or for the selection laid or on its way. */
+  prepare(geoms: MaskGeom[]) {
+    this.cuts.prepare(geoms);
+  }
+
   /** Cut the sheet around `geoms` (empty → no grey). Rebuilds only when the
    *  geometry OBJECTS change: boundary data is identity-stable, and this is
-   *  called on every pass of the plateau pipeline. Returns whether it rebuilt. */
+   *  called on every pass of the plateau pipeline. Returns whether the sheet
+   *  laid changed in this call — false too when its cut is on its way from
+   *  the cutter (ac:tint-cut): `onLaid` is called when it lands. */
   setSelection(geoms: MaskGeom[]): boolean {
-    if (sameGeoms(geoms, this.geoms)) return false;
-    const end = perfOn ? perfSpan("tint.setSelection") : null;
-    this.geoms = geoms;
-    // Outer rings become holes; a selection's INNER rings are enclaves of some
-    // other unit (the Enclave des Papes is Vaucluse, wholly surrounded by
-    // Drôme), which the plateau leaves un-raised — so they are greyed back in,
-    // as polygons of their own sitting exactly inside a hole. Assumes what
-    // admin boundaries give: outer rings that neither overlap nor nest (no part
-    // of the selection inside its own enclave) — `worldMaskData` shares that.
-    const holes: PBase[][] = [];
-    const enclaves: PBase[][] = [];
-    for (const g of geoms) {
-      for (const rings of ringBasesOf(g)) {
-        if (!rings[0]?.length) continue;
-        holes.push(rings[0]);
-        for (let i = 1; i < rings.length; i++) if (rings[i]?.length) enclaves.push(rings[i]);
-      }
-    }
-    const out: number[] = [];
-    if (holes.length) {
-      // Coordinates are relative to a vertex of the selection: float32 keeps
-      // sub-metre precision on those small offsets, and the origin is re-added
-      // in the (float64) matrix each frame — the same fold PlateauWallLayer uses.
-      const ox = holes[0][0].x;
-      const oy = Math.min(1, Math.max(0, holes[0][0].y));
-      this.origin = [ox, oy];
-      // The world, one copy to each side so the grey does not stop at ±180°.
-      const W = [-1 - ox, -oy, 2 - ox, 1 - oy];
-      // Mercator y runs off to infinity toward the poles. Pin it to the world's
-      // edge so every hole stays inside the frame below — earcut silently drops
-      // a hole that pokes out of its outer ring, which would grey the selection.
-      const relY = (p: PBase) => Math.min(W[3], Math.max(W[1], p.y - oy));
-      let x0 = Infinity;
-      let y0 = Infinity;
-      let x1 = -Infinity;
-      let y1 = -Infinity;
-      for (const ring of holes) {
-        for (const p of ring) {
-          x0 = Math.min(x0, p.x - ox);
-          x1 = Math.max(x1, p.x - ox);
-          y0 = Math.min(y0, relY(p));
-          y1 = Math.max(y1, relY(p));
-        }
-      }
-      // Earcut works inside a FRAME one selection-span wide around the holes,
-      // not against the world's corners: its triangles stay short and local
-      // (where the float32 fold is precise). The rest of the world is the ring
-      // of eight triangles between frame and world — they share the frame's
-      // corners with earcut's output, so no T-junction can open a crack.
-      const pad = Math.max(x1 - x0, y1 - y0, 1e-7);
-      const F = [
-        Math.max(W[0], x0 - pad),
-        Math.max(W[1], y0 - pad),
-        Math.min(W[2], x1 + pad),
-        Math.min(W[3], y1 + pad),
-      ];
-      const sheet: number[] = [F[0], F[1], F[2], F[1], F[2], F[3], F[0], F[3]];
-      const holeStarts: number[] = [];
-      for (const ring of holes) {
-        holeStarts.push(sheet.length / 2);
-        for (const p of ring) sheet.push(p.x - ox, relY(p));
-      }
-      for (const i of earcut(sheet, holeStarts, 2)) out.push(sheet[i * 2], sheet[i * 2 + 1]);
-      const corners = (r: number[]) => [r[0], r[1], r[2], r[1], r[2], r[3], r[0], r[3]];
-      const f = corners(F);
-      const w = corners(W);
-      for (let i = 0; i < 4; i++) {
-        const j = ((i + 1) % 4) * 2;
-        const k = i * 2;
-        out.push(w[k], w[k + 1], w[j], w[j + 1], f[j], f[j + 1]);
-        out.push(w[k], w[k + 1], f[j], f[j + 1], f[k], f[k + 1]);
-      }
-      for (const ring of enclaves) {
-        const flat: number[] = [];
-        for (const p of ring) flat.push(p.x - ox, relY(p));
-        for (const i of earcut(flat, undefined, 2)) out.push(flat[i * 2], flat[i * 2 + 1]);
-      }
-    }
-    this.positions = new Float32Array(out);
-    this.vertexCount = out.length / 2;
+    return this.cuts.select(geoms);
+  }
+
+  /** A cut sheet laid: drawn from the next frame on. */
+  private lay(sheet: TintSheet, via: "page" | "worker") {
+    this.positions = sheet.positions;
+    this.vertexCount = sheet.positions.length / 2;
+    // No triangle: nothing is drawn, the origin stays where it was.
+    if (this.vertexCount) this.origin = sheet.origin;
     this.dirty = true;
-    if (end) end({ vertices: this.vertexCount });
+    if (__TEST_TOOLS__) this.laid = { via, count: this.laid.count + 1 };
     this.map?.triggerRepaint();
-    return true;
+  }
+
+  /** The testing tools' fingerprint of the sheet laid (`__acTintHash`,
+   *  dev/probes.ts): its triangles' bytes and its origin, so a sheet cut by
+   *  the worker and one cut by the page are compared bit for bit; who cut
+   *  it, how many were laid, and the cut on its way. Null without the
+   *  tools. */
+  digest() {
+    if (!__TEST_TOOLS__) return null;
+    const { total, parts } = digestParts([
+      ["positions", this.positions],
+      ["origin", JSON.stringify(this.vertexCount ? this.origin : null)],
+    ]);
+    return {
+      total,
+      parts,
+      vertices: this.vertexCount,
+      holes: this.cuts.laid().length,
+      via: this.laid.via,
+      laid: this.laid.count,
+      pending: this.cuts.pending(),
+    };
   }
 
   onAdd(map: mapboxgl.Map, gl: WebGL2RenderingContext) {
