@@ -25,7 +25,8 @@
 //
 // Read once per page load: switching reloads the page (the hidden map is
 // created at the main map's load). Production has neither key nor switch:
-// DEFAULT_LID_MODE, DEFAULT_LID_CHECK.
+// DEFAULT_LID_MODE, DEFAULT_LID_CHECK. When the hidden map is created, on
+// what, and whether a device has one at all: `ac:lid-map`, lidMapSwitch.ts.
 
 export type LidMode = "ecran" | "ancien" | "aucun";
 

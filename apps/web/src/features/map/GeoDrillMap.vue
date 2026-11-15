@@ -14,7 +14,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
-import { toLngLat } from "./lib/polygon";
+import { boundsOfFeatures, toLngLat } from "./lib/polygon";
 import { stillMap } from "./lib/stillMap";
 import { resetPlateauStood } from "./lib/plateauStood";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
@@ -37,6 +37,7 @@ import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
 import { noteRenderer } from "@/shared/device/deviceTier";
 import { antialiasNow, capMapsNow } from "./graphicsSwitch";
+import { cacheBudgetAtCreation, tileCacheOption } from "./cacheBudget";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import { rendererOf } from "./relief/groundSwitch";
 import type { MarkGeometry } from "./gl/pendingMark";
@@ -430,6 +431,8 @@ function mountMap() {
       // in-shader, but the plateau wall/lid/lines are raw geometry and alias
       // hard without it. Off where the graphics are slow (graphicsSwitch.ts).
       antialias: antialiasNow(),
+      // A weak device keeps fewer of the tiles that left the view (cacheBudget.ts).
+      ...tileCacheOption(cacheBudgetAtCreation().mapTiles),
       // Its own resize watching off: ours (below) resizes, re-frames AND draws
       // at once. With both, mapbox's could clear the canvas after ours drew it.
       trackResize: false,
@@ -489,7 +492,16 @@ function mountMap() {
       mask.applyOutline();
       mask.applyMask();
       pins.buildMarkers();
-      lid.warmup(); // hidden lid-snapshot map: pay style init now
+      // The lid's hidden map (plateau/lidMapSwitch.ts): created now on the
+      // first place a plateau will stand on — the scope's outline when it is
+      // in, else what the first camera command frames — so the tiles it
+      // loads are the first lid's; with no place known, at the first shot.
+      lid.warmup(
+        boundsOfFeatures(
+          (props.outline?.features ?? []).filter((f) => f.properties?.kind === "scope"),
+        ),
+        props.camera?.type === "fit" ? (props.camera.bounds ?? null) : null,
+      );
       // ac:boot-workers=load: the two workers start only now.
       if (workersStartAt(bootWorkers) === "load") startWorkers();
       // The ground the plateaus will stand on (usePlateau): where it stays
