@@ -1,0 +1,9 @@
+# The headers Cloudflare serves with the site's files (Vite copies public/
+# into dist/; the staging deploy appends its own rules below these).
+
+# Built files carry a hash of their content in their name: a name never
+# changes content, so the browser keeps them a year and never asks again.
+# index.html (every path of the app) is not under /assets/ and keeps the
+# default: asked again on each visit, so a release reaches the visitor.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

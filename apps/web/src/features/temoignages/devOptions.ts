@@ -5,7 +5,8 @@
 // modules own the keys, the defaults and the reads (dataSource.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
 // geo-nav/bootListSwitch, map/bootWorkersSwitch, geo-nav/data/outlinesDecorSwitch,
-// map/glyphSwitch, analyses/devSwitch, shared/device/deviceTier). Under the « Appareil » row
+// map/glyphSwitch, analyses/devSwitch, shared/device/deviceTier, shared/device/glassSwitch,
+// shared/boot/mapPreload, shared/api/authClientSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
@@ -18,7 +19,7 @@ import type {
   TierVerdict,
 } from "@/shared/device/deviceTier";
 
-export type DevSection = "donnees" | "carte" | "analyses" | "appareil";
+export type DevSection = "donnees" | "carte" | "analyses" | "appareil" | "site";
 
 export type DevKey =
   | "ac:data-source"
@@ -37,7 +38,10 @@ export type DevKey =
   | "ac:boot-list"
   | "ac:boot-workers"
   | "ac:outlines-decor"
-  | "ac:glyphs";
+  | "ac:glyphs"
+  | "ac:map-preload"
+  | "ac:glass"
+  | "ac:auth-client";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -91,6 +95,11 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
     id: "appareil",
     title: "Appareil",
     intro: "Ce que la page sait de la puissance de cet appareil.",
+  },
+  {
+    id: "site",
+    title: "Site",
+    intro: "Le chargement des pages, hors de la carte.",
   },
 ];
 
@@ -250,6 +259,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     defaultId: "auto",
   },
   {
+    key: "ac:map-preload",
+    section: "carte",
+    label: "Code de la carte",
+    choices: [
+      { id: "html", label: "Tôt" },
+      { id: "page", label: "Avec la page" },
+    ],
+    explain:
+      "Le gros fichier du code de la carte, sur la page des témoignages. « Tôt » (par défaut) le demande dès l'arrivée, en même temps que le reste du site : la liste et la carte arrivent un peu plus tôt, mais la toute première image de la page un peu plus tard. « Avec la page », l'ancien comportement, ne le demande qu'une fois la page lancée.",
+    reloads: true,
+    defaultId: "html",
+  },
+  {
     key: "ac:analyses-pending",
     section: "analyses",
     label: "Analyses en attente",
@@ -324,9 +346,36 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "minimal", label: "Minimal" },
     ],
     explain:
-      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, seule la police des noms de la carte en dépend (voir « Police des noms »).",
+      "Le niveau de puissance retenu pour cet appareil. « Auto » (par défaut) le déduit des signaux listés ci-dessous : peu de mémoire, peu de cœurs, l'économie de données ou une connexion lente donnent « Léger » ; un affichage calculé sans puce graphique donne « Minimal » ; des images trop lentes pendant un déplacement de la carte font descendre d'un niveau ou de deux. Les trois autres choix imposent un niveau. Pour l'instant, la police des noms de la carte et le verre des panneaux en dépendent (voir « Police des noms » et « Verre dépoli »).",
     reloads: true,
     defaultId: "auto",
+  },
+  {
+    key: "ac:glass",
+    section: "appareil",
+    label: "Verre dépoli",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "flou", label: "Flou" },
+      { id: "plein", label: "Plein" },
+    ],
+    explain:
+      "Le verre dépoli des panneaux (le panneau des lieux, l'en-tête, les étiquettes des analyses, le bouton de la carte de l'accueil). « Auto » (par défaut) floute ce qu'il y a derrière sur un appareil de niveau « Complet » et le laisse net sur un appareil « Léger » ou « Minimal » (voir « Niveau »), car le flou se redessine à chaque mouvement de la carte. « Flou » floute sur tous les appareils ; « Plein » sur aucun, le verre un peu plus opaque : c'est ainsi que Chrome affichait le site jusqu'ici.",
+    reloads: true,
+    defaultId: "auto",
+  },
+  {
+    key: "ac:auth-client",
+    section: "site",
+    label: "Connexion",
+    choices: [
+      { id: "demande", label: "À la demande" },
+      { id: "demarrage", label: "Au démarrage" },
+    ],
+    explain:
+      "Le code de la connexion aux comptes, environ 47 ko compressés. « À la demande » (par défaut) ne le télécharge que pour un visiteur déjà connecté, au retour d'un lien reçu par e-mail ou sur la page de connexion : les autres visiteurs ont des pages plus légères. « Au démarrage », l'ancien comportement, le télécharge sur toutes les pages dès l'ouverture.",
+    reloads: true,
+    defaultId: "demande",
   },
 ];
 
