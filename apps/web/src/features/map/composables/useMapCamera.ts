@@ -10,6 +10,7 @@
 import mapboxgl from "mapbox-gl";
 import type { Bounds } from "@/features/geo";
 import { perfOn, perfSpan } from "@/shared/perf/perf";
+import { motionNow } from "@/shared/device/motion";
 import { FIT_PITCH_DEG, fitSilhouette, type FitShape, type SlabCam } from "../lib";
 import { plateauHeightM, pointInPolygon, polysOf, toLngLat, toLngLatBounds } from "../lib/polygon";
 import { fitHullOf } from "../lib/projection";
@@ -344,7 +345,10 @@ export function useMapCamera({
     const duration = cmd.animate === false ? 0 : 550;
     if (cmd.type === "spotlight") {
       const center = toLngLat(cmd.center);
-      if (cmd.arc && duration > 0) {
+      // Under short motion (shared/device/motion: reduced motion, a weak
+      // device) the hop goes straight, by the ease below: no pull-back, whose
+      // way out and back draws more frames and asks for tiles it then drops.
+      if (cmd.arc && duration > 0 && motionNow() === "full") {
         const to = new mapboxgl.LngLat(center[0], center[1]);
         const meters = map.getCenter().distanceTo(to);
         // The further the hop, the longer the flight — but never a long wait.
@@ -502,8 +506,9 @@ export function useMapCamera({
   /**
    * The cold-load INTRO (the load handler's first idle, or 4 s): the finished
    * flat basemap first, then one animated tilt to ELEV_PITCH with the plateau's
-   * rise landing in its tail. A user interaction or an animated flight before
-   * that releases the intro on its own (runCamera).
+   * rise landing in its tail — under short motion (shared/device/motion) the
+   * tilt in one step, the rise right after it. A user interaction or an
+   * animated flight before that releases the intro on its own (runCamera).
    */
   function beginIntro() {
     const m = getMap();
@@ -527,7 +532,13 @@ export function useMapCamera({
     // it for a static finished view.
     onReady();
     if (!userInteracted) {
-      const INTRO_TILT_MS = 900;
+      // Under short motion (shared/device/motion: the system asks for
+      // reduced motion, or a weak device) the camera goes to the tilted
+      // framing in one step: no 0.9 s of frames over the whole map at boot.
+      // Otherwise the tilt is the designed entrance, played even where
+      // mapbox would skip an animation (`essential`).
+      const short = motionNow() === "short";
+      const INTRO_TILT_MS = short ? 0 : 900;
       // The last fit was flat (the intro's first step): the tilt ends on
       // that fit at the pitch — its unit as a fit leaves it, centred
       // (fitCamera) —, and the slabs of the unit are sized for the
@@ -540,7 +551,7 @@ export function useMapCamera({
         const cam =
           cmd?.type === "fit" ? fitCamera(mm, cmd, padding, ELEV_PITCH, cmd.maxZoom ?? 14) : null;
         if (!cam) {
-          mm.easeTo({ pitch: ELEV_PITCH, duration: INTRO_TILT_MS, essential: true });
+          mm.easeTo({ pitch: ELEV_PITCH, duration: INTRO_TILT_MS, essential: !short });
           return;
         }
         fitCam = { key, seq: ++fitCamSeq, ...cam };
@@ -551,7 +562,7 @@ export function useMapCamera({
           padding,
           ...aimed(padding),
           duration: INTRO_TILT_MS,
-          essential: true,
+          essential: !short,
         });
       });
     }

@@ -100,6 +100,8 @@ export function usePlateauLid({
   // showing or running, and the running shots a newer plateau run adopted.
   let dedupeSkips = 0;
   let adopted = 0;
+  // …and the shots taken again after the visible map's context came back.
+  let contextReshoots = 0;
   let lastCapturePx = 0; // backing-store width the last capture asked for
   // What waits for the shot running to end (whenIdle).
   const idleJobs = new Set<() => void>();
@@ -552,6 +554,27 @@ export function usePlateauLid({
     lidRefineBlockedByGain = false;
   }
 
+  /**
+   * The visible map's WebGL context was lost and has come back
+   * (useContextRestore): the lid's texture went with the old one, and its
+   * bitmap was closed when it was uploaded. What was known of it is forgotten
+   * and the standing plateau's whole unit (`raised`, for the run `seq`) is
+   * shot again, sized from the camera of the moment. A shot already running
+   * is left to land instead: its bitmap is the page's, not the lost
+   * context's. Nothing where there is no lid ("none").
+   */
+  function onContextRestored(seq: number, raised: OutlineFC["features"]) {
+    const running = inFlightKey;
+    reset();
+    if (plan === "none" || !raised.length) return;
+    if (running) {
+      lidTargetKey = running; // still the shot on its way
+      return;
+    }
+    contextReshoots++;
+    void shootLid(seq, raised, undefined, true, false, true);
+  }
+
   /** The lid's share of the __acPlateau probe (read-only, present in production). */
   function probe() {
     const vm = viewMpp();
@@ -605,6 +628,8 @@ export function usePlateauLid({
         strayHeld: strayHeld?.key ?? null,
         ...plateauWall.lidTextureStats(),
       },
+      // Shots taken again after the visible map's context came back.
+      lidContextReshoots: contextReshoots,
     };
   }
 
@@ -664,6 +689,8 @@ export function usePlateauLid({
       dropStray();
       snapshotMgr.destroy();
     },
+    /** The visible map's context came back: the standing lid shot again. */
+    onContextRestored,
     probe,
   };
 }

@@ -15,7 +15,7 @@
 // geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
 // map/threadSwitch, map/plateau/lidMapSwitch, map/plateau/lineMeshSwitch,
 // map/cacheBudget, analyses/devSwitch,
-// shared/device/deviceTier). Under the « Appareil » row
+// shared/device/deviceTier, shared/device/motion). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
@@ -79,7 +79,8 @@ export type DevKey =
   | "ac:pins-rebuild"
   | "ac:lid-map"
   | "ac:map-caches"
-  | "ac:line-mesh";
+  | "ac:line-mesh"
+  | "ac:motion";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -729,6 +730,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     explain:
       "Ce que la carte garde en mémoire pour revenir plus vite sur un endroit déjà vu : des morceaux de carte, la forme des territoires déjà soulevés et leur relief. « Auto » (par défaut) suit le niveau de l'appareil : « Grande » au niveau complet, « Petite » aux niveaux léger et minimal. « Grande » garde autant qu'avant. « Petite » garde trois à cinq fois moins : la page occupe moins de mémoire, et le retour sur un endroit vu depuis longtemps peut demander un court rechargement.",
     reloads: true,
+    defaultId: "auto",
+  },
+  {
+    key: "ac:motion",
+    section: "appareil",
+    label: "Mouvement",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "full", label: "Complet" },
+      { id: "short", label: "Court" },
+    ],
+    explain:
+      "Les mouvements de la carte et du panneau. « Auto » (par défaut) suit l'appareil : « Court » si le système demande de réduire les animations ou si le niveau de l'appareil est léger ou minimal, « Complet » sinon. « Complet » joue tout comme avant : à l'arrivée la carte s'incline en une seconde, le territoire choisi monte en un tiers de seconde, le panneau s'élargit et une audition se déplie en glissant, la carte prend du recul pour passer d'un résultat à un autre. « Court » : la carte s'incline d'un coup, le territoire monte plus vite, le panneau et l'audition s'ouvrent d'un coup, la carte va tout droit d'un résultat à l'autre. Les autres déplacements de la carte ne changent pas.",
+    reloads: false,
     defaultId: "auto",
   },
   {

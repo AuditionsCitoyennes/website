@@ -29,6 +29,7 @@ import type mapboxgl from "mapbox-gl";
 import { canonicalCopies, type Bounds, type HeightClass, type WrapGeometry } from "@/features/geo";
 import { perfEnd, perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import { deviceTier } from "@/shared/device/deviceTier";
+import { motionMs, motionNow } from "@/shared/device/motion";
 import { globeSetMode } from "../gl/globeDeferral";
 import { WALL_OVERSHOOT } from "../gl/mesh";
 import type { MeshClient, MeshResult } from "../gl/meshClientCore";
@@ -116,7 +117,8 @@ export interface PlateauInputs {
  */
 export type PlateauSettle = "rise" | "same" | "quiet" | "cleared" | "failed";
 
-/** The plateau's rise and sink, ms (the slabs ride them too). */
+/** The plateau's rise and sink, ms (the slabs ride them too); under short
+ *  motion a share of them (shared/device/motion motionMs). */
 export const RISE_MS = 300;
 export const SINK_MS = 150;
 
@@ -327,6 +329,9 @@ export function usePlateau({
     if (exagAnim && exagAnim.target === to) return exagAnim.done;
     if (!exagAnim && terrainExag === to) return Promise.resolve();
     cancelExagAnim();
+    // Shorter under short motion (shared/device/motion: the system asks for
+    // reduced motion, or a weak device).
+    ms = motionMs(ms, motionNow());
     const done: Promise<void> = new Promise((resolve) => {
       const from = terrainExag;
       const t0 = performance.now();

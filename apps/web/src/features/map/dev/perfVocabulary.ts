@@ -69,6 +69,11 @@
 //                     then times only the cuts made on the page
 //   tint.roundTrip    …its request posted → its answer received, both on
 //                     the page (gl/meshClient.ts; detail: puts, cloneMs)
+//   gl.contextLost    a note (0 ms): the map's WebGL context was lost
+//                     (composables/useContextRestore.ts; detail: losses)
+//   gl.contextRestored  …and came back: the time the custom layers took to
+//                     be set up again (detail: restores, failed — the steps
+//                     that threw, comma-separated)
 // Reserved for the phases to come, so their tables share one vocabulary:
 // outline.fetch, outline.decode, outline.fallback.
 // plateau.setGeometry's detail names the mesh mode that built it (`mesh`:
