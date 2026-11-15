@@ -1,4 +1,4 @@
-import { computed, markRaw, ref, watch, type Ref } from "vue";
+import { computed, getCurrentScope, markRaw, onScopeDispose, ref, watch, type Ref } from "vue";
 import { useQuery, type QueryClient } from "@tanstack/vue-query";
 import {
   AUDITION_THEMES,
@@ -22,7 +22,11 @@ import {
 } from "@/features/filters";
 import {
   EMPTY_KEY,
+  FILTERS_IDLE_CAP_MS,
+  FILTERS_IDLE_MS,
   fetchFacets,
+  filtersDataWanted,
+  filtersLoad,
   placesKeys,
   retryable,
   retryWait,
@@ -88,6 +92,14 @@ export function useTestimonyFiltering(input: {
   const filters = useFilters(locationTree);
   const { topics, locations, dateFrom, dateTo, verified, needle, chips } = filters;
   const filtersOpen = ref(false);
+  /** The Filtres dialog opened once: its data is wanted from then on. */
+  const dialogOpened = ref(false);
+  watch(filtersOpen, (open) => {
+    if (open) dialogOpened.value = true;
+  });
+  /** Under `ac:filters-load` "repos": the idle moment after the page's own
+   *  tree is on screen passed (FILTERS_IDLE_MS, then an idle callback). */
+  const filtersIdle = ref(false);
   // Not once the dialog is closing (a node still open as it fades out).
   const loadLocationChildren = server
     ? (node: LocNode) => {
@@ -102,6 +114,8 @@ export function useTestimonyFiltering(input: {
     unitTree = markRaw(
       useUnitTree({
         queryClient: server.queryClient,
+        // The figures only where something reads them: the analyses, the comparer.
+        facts: __ANALYSES__ || server.comparing,
         onTextIgnored: (req, minChars) =>
           sf.noteTextIgnored(fold((req.params.q ?? "").trim()), minChars),
       }),
@@ -114,12 +128,48 @@ export function useTestimonyFiltering(input: {
       (key) => tree.request({ key, params: key === EMPTY_KEY ? {} : sf.params.value }),
       { immediate: true },
     );
+    // "repos": the page's own tree on screen, FILTERS_IDLE_MS later the
+    // browser's first idle moment (at most FILTERS_IDLE_CAP_MS more) lets the
+    // dialog's data come.
+    if (filtersLoad === "repos") {
+      let timer = 0;
+      let idle = 0;
+      const stopWatch = watch(
+        () => !preview() && tree.shownKey() !== null,
+        (shown) => {
+          if (!shown || timer || filtersIdle.value) return;
+          timer = window.setTimeout(() => {
+            const done = () => (filtersIdle.value = true);
+            if (typeof window.requestIdleCallback === "function")
+              idle = window.requestIdleCallback(done, { timeout: FILTERS_IDLE_CAP_MS });
+            else done();
+          }, FILTERS_IDLE_MS);
+        },
+        { immediate: true },
+      );
+      if (getCurrentScope())
+        onScopeDispose(() => {
+          stopWatch();
+          window.clearTimeout(timer);
+          if (idle) window.cancelIdleCallback(idle);
+        });
+    }
     // The place picker's tree: asked for once the page's own tree is on
-    // screen (the card's is that tree), so that the dialog opens on it, and
-    // again at each opening, should it have failed.
+    // screen (the card's is that tree) and the dialog's data is wanted
+    // (`ac:filters-load`, geo-nav/data/bootReadsSwitch: by default at an idle
+    // moment after that, or at the dialog's first opening), so that the
+    // dialog opens on it, and again at each opening, should it have failed.
+    // A place chosen asks for it at once: its chip is named from it.
     watch(
       () =>
-        server.comparing || (!preview() && tree.shownKey() !== null) || locations.value.length > 0,
+        server.comparing ||
+        (!preview() &&
+          filtersDataWanted(filtersLoad, {
+            opened: dialogOpened.value,
+            idle: filtersIdle.value,
+            treeShown: tree.shownKey() !== null,
+          })) ||
+        locations.value.length > 0,
       (want) => {
         if (want) tree.wantEmpty();
       },
@@ -238,7 +288,19 @@ export function useTestimonyFiltering(input: {
     ? useQuery({
         queryKey: placesKeys.facets(),
         queryFn: ({ signal }) => fetchFacets(signal),
-        enabled: computed(() => !preview()),
+        // The dialog's own data (`ac:filters-load`): from the start under
+        // "demarrage", as the place picker's tree otherwise.
+        enabled: computed(
+          () =>
+            !preview() &&
+            (filtersLoad === "demarrage" ||
+              server.comparing ||
+              filtersDataWanted(filtersLoad, {
+                opened: dialogOpened.value,
+                idle: filtersIdle.value,
+                treeShown: unitTree?.shownKey() !== null,
+              })),
+        ),
         retry: (failures, err) => retryable(err) && failures < RETRIES,
         retryDelay: (failures, err) => retryWait(failures + 1, err),
         shallow: true,

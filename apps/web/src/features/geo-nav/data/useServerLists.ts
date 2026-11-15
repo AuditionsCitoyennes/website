@@ -53,6 +53,7 @@ import {
   type LieuAuditions,
   type TestimoniesPage,
 } from "./listsApi";
+import { prefetch, prefetchCount, type LinkSignals } from "./bootReadsSwitch";
 import {
   firstPageOnly,
   orderSig,
@@ -67,8 +68,13 @@ import {
 /** A list's answer is fresh this long (the app's default). */
 const STALE_MS = 5 * 60 * 1000;
 /** The open lieu's first auditions (panel order) whose first testimony page
- *  is asked for ahead: each is a miss the visitor pays for (30 per 10 s). */
-const PREFETCH_MAX = 3;
+ *  is asked for ahead: each is a miss the visitor pays for (30 per 10 s).
+ *  Three, but one on a link the visitor wants spared (`ac:prefetch`,
+ *  bootReadsSwitch: data saver, 2g, 3g). */
+const PREFETCH_MAX = prefetchCount(
+  prefetch,
+  (navigator as { connection?: LinkSignals }).connection,
+);
 
 /** An audition of a list: what the panel's line shows. */
 export interface ListedAudition {
@@ -600,8 +606,27 @@ export function useServerLists(inputs: ServerListsInputs) {
     }
   });
 
+  /** What failed on screen is asked for again (the results, the open lieu's
+   *  auditions, the open audition's testimonies). Whether anything was. */
+  function retryFailed(): boolean {
+    let retried = false;
+    if (resultsFailed.value) {
+      void resultsQuery.refetch();
+      retried = true;
+    }
+    if (placeList.value.failed) {
+      void lieuQuery.refetch();
+      retried = true;
+    }
+    if (openId.value && testimoniesFor(openId.value).failed) {
+      void testimoniesQuery.refetch();
+      retried = true;
+    }
+    return retried;
+  }
+
   // What failed is asked for again at the next scope change, as the tree's
-  // units are.
+  // units are (and by the page's recovery: retryFailed).
   watch(
     () => currentScope.value.id,
     () => {
@@ -675,6 +700,7 @@ export function useServerLists(inputs: ServerListsInputs) {
     loadMoreResults,
     resultsLoading,
     resultsFailed,
+    retryFailed,
     unknownOpen,
     loadThrough,
     firstAuditionAt,

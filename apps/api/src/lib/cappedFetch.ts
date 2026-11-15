@@ -17,10 +17,13 @@ export class AnswerTooLargeError extends Error {
   }
 }
 
-/** globalThis.fetch (as it is at call time), its answers cut at `maxBytes`. */
-export function cappedFetch(maxBytes: number): typeof fetch {
+/** `base` (globalThis.fetch as it is at call time by default), its answers cut at `maxBytes`. */
+export function cappedFetch(
+  maxBytes: number,
+  base: typeof fetch = (input, init) => globalThis.fetch(input, init),
+): typeof fetch {
   return async (input, init) => {
-    const res = await globalThis.fetch(input, init);
+    const res = await base(input, init);
     const declared = Number(res.headers.get("content-length") ?? 0);
     if (declared > maxBytes) {
       await res.body?.cancel();
