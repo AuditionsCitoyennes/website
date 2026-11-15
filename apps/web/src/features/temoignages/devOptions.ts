@@ -24,6 +24,7 @@
 
 import type {
   DeviceSignals,
+  MeasureRecord,
   DeviceTier,
   TierReason,
   TierVerdict,
@@ -323,7 +324,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "essai", label: "Essai" },
     ],
     explain:
-      "Ce que montre le cadre de la carte quand elle ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée). « Visiteur » (par défaut) montre la France en image, en retrait, sous une phrase simple ; « Ancien » affiche la phrase destinée aux développeurs, comme avant ; « Essai » ne démarre pas la carte du tout, pour voir ce cadre sur n'importe quel appareil.",
+      "Ce que montre le cadre de la carte quand elle ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée). « Visiteur » (par défaut) montre la France en image, en retrait, sous une phrase simple ; « Ancien » affiche la phrase destinée aux développeurs, comme avant ; « Essai » ne démarre pas la carte du tout, pour voir ce cadre sur n'importe quel appareil. Le même cadre, avec un bouton « Réessayer », sert quand le fond de carte n'arrive pas malgré les nouveaux essais (ligne « Reprise après coupure ») : l'image de la France et la phrase simple, ou « Carte indisponible. » seul avec « Ancien ».",
     reloads: true,
     defaultId: "visiteur",
   },
@@ -744,7 +745,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "off", label: "Coupée" },
     ],
     explain:
-      "Au premier déplacement animé de la carte vers un territoire, la page chronomètre les images. « Activée » (par défaut) : si elles sont trop lentes, le niveau de l'appareil descend, et ce résultat est gardé trente jours dans ce navigateur (ligne « Images mesurées » ci-dessous). « Coupée » : rien n'est chronométré, comme avant.",
+      "Au premier déplacement animé de la carte vers un territoire, la page chronomètre les images. « Activée » (par défaut) : si elles sont trop lentes, le niveau de l'appareil descend pour ce chargement de page seulement, et le navigateur le note. Le niveau plus bas n'est gardé trente jours que si un autre chargement de page, commencé au moins une minute plus tard, mesure encore des images lentes ; une mesure correcte entre les deux efface la note (ligne « Images mesurées » ci-dessous). « Coupée » : rien n'est chronométré, comme avant.",
     reloads: true,
     defaultId: "on",
   },
@@ -825,7 +826,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "ancien", label: "Ancien" },
     ],
     explain:
-      "Ce que fait la page des témoignages quand le réseau manque. « Auto » (par défaut) redemande d'elle-même ce qui n'a pas pu venir, après 2, 5, 10, 20 puis 30 secondes, puis dès que le navigateur retrouve le réseau ou que la page revient à l'écran : les contours de la carte, la liste des lieux, les résultats. En attendant, le panneau le dit en une phrase, avec un bouton « Réessayer ». « Ancien », comme avant : la carte reste sans contours jusqu'au prochain chargement de la page, et le reste n'est redemandé qu'en changeant de lieu.",
+      "Ce que fait la page des témoignages quand le réseau manque. « Auto » (par défaut) redemande d'elle-même ce qui n'a pas pu venir, après 2, 5, 10, 20 puis 30 secondes, puis dès que le navigateur retrouve le réseau ou que la page revient à l'écran : les contours de la carte, la liste des lieux, les résultats. En attendant, le panneau le dit en une phrase, avec un bouton « Réessayer ». Le fond de carte, quand il n'arrive pas, est redemandé trois fois, après 1, 2 puis 4 secondes ; ensuite le cadre de la carte le dit (ligne « Carte indisponible ») avec son propre bouton « Réessayer », et la liste des lieux reste utilisable pendant tout ce temps. « Ancien », comme avant : la carte reste sans contours jusqu'au prochain chargement de la page, un fond de carte qui n'arrive pas laisse un cadre vide, et le reste n'est redemandé qu'en changeant de lieu.",
     reloads: true,
     defaultId: "auto",
   },
@@ -901,9 +902,22 @@ export function tierFacts(
   signals: DeviceSignals,
   detected: TierVerdict,
   inForce: TierVerdict,
+  kept?: MeasureRecord,
 ): DevFact[] {
   const why = detected.reasons.map((r) => REASON_LABELS[r]).join(", ");
   const m = signals.measured;
+  const day = (at: number) => new Date(at).toLocaleDateString("fr-FR");
+  // What the measure's two strikes have come to (deviceTier's strikeRule):
+  // a step kept, a step for this page load only, or a note waiting.
+  const strike = !kept
+    ? ""
+    : m && kept.step
+      ? ", gardé trente jours"
+      : m
+        ? ", pour ce chargement de page seulement"
+        : kept.note
+          ? ` ; des images lentes notées le ${day(kept.note.at)}, à confirmer`
+          : "";
   return [
     {
       label: "Niveau détecté",
@@ -928,9 +942,10 @@ export function tierFacts(
     { label: "Puce graphique", value: signals.renderer ?? "non lue" },
     {
       label: "Images mesurées",
-      value: m
-        ? `${TIER_LABELS[m.tier]} (${KIND_LABELS[m.kind]}), le ${new Date(m.at).toLocaleDateString("fr-FR")}`
-        : "aucune descente",
+      value:
+        (m
+          ? `${TIER_LABELS[m.tier]} (${KIND_LABELS[m.kind]}), le ${day(m.at)}`
+          : "aucune descente") + strike,
     },
   ];
 }

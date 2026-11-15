@@ -4,8 +4,9 @@
 // audit's four profiles, the kept step's validity, the decision and its two
 // kinds of weak; then the module's own state under stubbed globals (imported
 // under a fresh query each time, its choice being read at load, as
-// meshSwitch.test.ts): the switch read only with the testing tools, a step
-// kept for the next visit and applied to the session, the reset.
+// meshSwitch.test.ts): the switch read only with the testing tools, a slow
+// flight stepping its page load down and noted, the step kept at the second
+// strike (strikeRule), the reset.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -25,9 +26,13 @@ const {
   decideTier,
   isSoftwareRenderer,
   judgeFrameTimes,
+  SECOND_STRIKE_GAP_MS,
   lowerStep,
+  parseStoredRecord,
   parseStoredStep,
   readHints,
+  storedRecord,
+  strikeRule,
 } = tier;
 type DeviceSignals = import("./deviceTier").DeviceSignals;
 type MeasuredStep = import("./deviceTier").MeasuredStep;
@@ -221,6 +226,107 @@ test("a kept step is read back whole, for 30 days, and anything else is none", (
   ]) {
     assert.equal(parseStoredStep(raw, now), null, String(raw));
   }
+});
+
+test("the record: a kept step, a note, both or neither, each valid for itself", () => {
+  const now = 1_800_000_000_000;
+  const kept = { tier: "light", kind: "cpu", at: now - 5000 } as const;
+  const note = { tier: "minimal", kind: "gpu", at: now - 1000 } as const;
+  const NONE_KEPT = { step: null, note: null };
+  assert.deepEqual(parseStoredRecord(null, now), NONE_KEPT);
+  assert.deepEqual(parseStoredRecord("{", now), NONE_KEPT);
+  assert.deepEqual(parseStoredRecord(JSON.stringify(kept), now), { step: kept, note: null });
+  assert.deepEqual(parseStoredRecord(JSON.stringify({ note }), now), { step: null, note });
+  assert.deepEqual(parseStoredRecord(JSON.stringify({ ...kept, note }), now), { step: kept, note });
+  // A note alone is not a step; a note past its time or malformed is none.
+  assert.equal(parseStoredStep(JSON.stringify({ note }), now), null);
+  assert.deepEqual(parseStoredRecord(JSON.stringify({ note }), now + MEASURE_KEPT_MS), NONE_KEPT);
+  assert.deepEqual(parseStoredRecord(JSON.stringify({ ...kept, note: "light" }), now), {
+    step: kept,
+    note: null,
+  });
+  assert.deepEqual(parseStoredRecord(JSON.stringify({ note: { ...note, at: now + 9 } }), now), {
+    step: null,
+    note: null,
+  });
+  // Written and read back.
+  assert.equal(storedRecord(NONE_KEPT), null);
+  for (const record of [
+    { step: kept, note: null },
+    { step: null, note },
+    { step: kept, note },
+  ]) {
+    assert.deepEqual(parseStoredRecord(storedRecord(record), now), record);
+  }
+});
+
+test("two strikes: the rule", () => {
+  const t0 = 1_800_000_000_000;
+  const GAP = SECOND_STRIKE_GAP_MS;
+  const EMPTY = { step: null, note: null };
+  const light = { tier: "light", kind: "unknown" } as const;
+  const lightCpu = { tier: "light", kind: "cpu" } as const;
+  const minimal = { tier: "minimal", kind: "gpu" } as const;
+  const at = (now: number, loadStart = now - 3000) => ({ now, loadStart });
+
+  // A fine flight on a clean record: nothing, the very same record.
+  const fine = strikeRule(EMPTY, null, at(t0));
+  assert.equal(fine.session, null);
+  assert.equal(fine.record, EMPTY);
+
+  // First strike: down for the page, noted, nothing kept.
+  const one = strikeRule(EMPTY, light, at(t0));
+  assert.deepEqual(one.session, { ...light, at: t0 });
+  assert.deepEqual(one.record, { step: null, note: { ...light, at: t0 } });
+
+  // Slow again in a page load started under a minute after the note (the
+  // same one, or a reload): down for the page, the first note as it was.
+  for (const loadStart of [t0 - 3000, t0 + 1000, t0 + GAP - 1]) {
+    const again = strikeRule(one.record, light, { now: loadStart + 5000, loadStart });
+    assert.deepEqual(again.session, { ...light, at: loadStart + 5000 });
+    assert.deepEqual(again.record, one.record, String(loadStart - t0));
+  }
+
+  // Second strike: a page load started a minute after the note, slow again.
+  const two = strikeRule(one.record, lightCpu, { now: t0 + GAP + 4000, loadStart: t0 + GAP });
+  assert.deepEqual(two.session, { ...lightCpu, at: t0 + GAP + 4000 });
+  assert.deepEqual(two.record, { step: { ...lightCpu, at: t0 + GAP + 4000 }, note: null });
+  // …which part is slow: this flight's word, else the note's.
+  const noteTold = { step: null, note: { ...lightCpu, at: t0 } };
+  assert.equal(strikeRule(noteTold, light, at(t0 + GAP + 4000)).record.step?.kind, "cpu");
+
+  // A fine flight in between forgets the note: the next slow one is a first strike.
+  const forgot = strikeRule(one.record, null, at(t0 + GAP + 4000));
+  assert.equal(forgot.session, null);
+  assert.deepEqual(forgot.record, EMPTY);
+  assert.deepEqual(strikeRule(forgot.record, light, at(t0 + 3 * GAP)).record, {
+    step: null,
+    note: { ...light, at: t0 + 3 * GAP },
+  });
+
+  // The two strikes disagree: the milder is kept, the page stands at what it measured.
+  const mixed = strikeRule(one.record, minimal, at(t0 + 2 * GAP));
+  assert.equal(mixed.session?.tier, "minimal");
+  assert.deepEqual(mixed.record, { step: { ...light, at: t0 + 2 * GAP }, note: null });
+  const noteMinimal = { step: null, note: { ...minimal, at: t0 } };
+  const mixed2 = strikeRule(noteMinimal, lightCpu, at(t0 + 2 * GAP));
+  assert.deepEqual(mixed2.record, { step: { ...lightCpu, at: t0 + 2 * GAP }, note: null });
+
+  // A step already kept: a fine flight keeps it, a flight no lower changes
+  // nothing, a lower one takes its own two strikes.
+  const kept = { step: { ...light, at: t0 }, note: null };
+  assert.equal(strikeRule(kept, null, at(t0 + GAP)).record, kept);
+  const same = strikeRule(kept, light, at(t0 + GAP));
+  assert.equal(same.session, kept.step);
+  assert.equal(same.record, kept);
+  const lower1 = strikeRule(kept, minimal, at(t0 + GAP));
+  assert.equal(lower1.session?.tier, "minimal");
+  assert.deepEqual(lower1.record, { step: kept.step, note: { ...minimal, at: t0 + GAP } });
+  // …that note forgotten by a flight that is slow but no lower than the kept step…
+  assert.deepEqual(strikeRule(lower1.record, light, at(t0 + 3 * GAP)).record, kept);
+  // …or confirmed.
+  const lower2 = strikeRule(lower1.record, minimal, at(t0 + 3 * GAP));
+  assert.deepEqual(lower2.record, { step: { ...minimal, at: t0 + 3 * GAP }, note: null });
 });
 
 test("auto: a strong or silent device is full", () => {
@@ -437,36 +543,126 @@ test("the probe without a document answers null, once", async () => {
   assert.equal(m.deviceTier(), "full");
 });
 
-test("a slow first flight steps down at once and is kept for the next visit", async () => {
+test("a slow first flight steps this page load down, and is only noted", async () => {
   const s = storage();
   g.localStorage = s;
   setNavigator({}); // an iPhone: no hint
+  // In the past of the real clock: the module reads the kept step at Date.now().
+  const t0 = Date.now() - 3_600_000;
   const m = await load(false);
   assert.equal(m.deviceTier(), "full");
-  assert.equal(m.reportFrameTimes(flight(33, [100, 50])), null); // a fine flight
-  assert.equal(m.deviceTier(), "full");
+  assert.equal(m.reportFrameTimes(flight(33, [100, 50]), { now: t0, loadStart: t0 - 5000 }), null);
+  assert.equal(m.deviceTier(), "full"); // a fine flight
   assert.equal(s.kept.size, 0);
 
-  const stepped = m.reportFrameTimes(flight(20, [133, 50, 50, 67]));
+  const stepped = m.reportFrameTimes(flight(20, [133, 50, 50, 67]), {
+    now: t0,
+    loadStart: t0 - 5000,
+  });
   assert.equal(stepped?.tier, "light");
   assert.equal(m.deviceTier(), "light");
   assert.equal(m.cpuWeak(), true);
-  const kept = JSON.parse(s.kept.get("ac:tier-measured")!) as MeasuredStep;
-  assert.deepEqual({ tier: kept.tier, kind: kept.kind }, { tier: "light", kind: "unknown" });
+  assert.deepEqual(JSON.parse(s.kept.get("ac:tier-measured")!), {
+    note: { tier: "light", kind: "unknown", at: t0 },
+  });
+  assert.deepEqual(m.measureRecord(t0), {
+    step: null,
+    note: { tier: "light", kind: "unknown", at: t0 },
+  });
 
-  // A fine flight afterwards lifts nothing; a worse one steps further.
-  assert.equal(m.reportFrameTimes(flight(33))?.tier, "light");
-  assert.equal(m.reportFrameTimes(flight(8, [467, 283, 117, 50]))?.tier, "minimal");
+  // A fine flight afterwards lifts nothing in this page load; a worse one steps further.
+  const sameLoad = { now: t0 + 2000, loadStart: t0 - 5000 };
+  assert.equal(m.reportFrameTimes(flight(33), sameLoad)?.tier, "light");
+  assert.equal(s.kept.has("ac:tier-measured"), false, "…but it forgets the note");
+  assert.equal(m.reportFrameTimes(flight(8, [467, 283, 117, 50]), sameLoad)?.tier, "minimal");
   assert.equal(m.deviceTier(), "minimal");
+  assert.deepEqual(JSON.parse(s.kept.get("ac:tier-measured")!), {
+    note: { tier: "minimal", kind: "unknown", at: t0 + 2000 },
+  });
 
-  // The next visit reads it; the reset forgets it.
+  // The next page load starts from the full tier: nothing was kept.
   const next = await load(false);
-  assert.equal(next.deviceTier(), "minimal");
-  assert.deepEqual(next.deviceVerdict().reasons, ["frames"]);
-  next.forgetMeasuredStep();
   assert.equal(next.deviceTier(), "full");
+  assert.deepEqual(next.deviceVerdict().reasons, []);
+});
+
+test("the second strike keeps the step; a fine flight in between forgets the note", async () => {
+  const s = storage();
+  g.localStorage = s;
+  setNavigator({});
+  // In the past of the real clock: the module reads the kept step at Date.now().
+  const t0 = Date.now() - 3_600_000;
+  const slow = flight(20, [133, 50, 50, 67]);
+  const MIN = 60_000;
+
+  // First page load: slow, noted.
+  const first = await load(false);
+  first.reportFrameTimes(slow, { now: t0, loadStart: t0 - 4000 });
+  // A reload right away (started 30 s after the note), slow again: the same
+  // bad moment. Down for the page, nothing kept, the first note as it was.
+  const soon = await load(false);
+  assert.equal(soon.deviceTier(), "full");
+  assert.equal(
+    soon.reportFrameTimes(slow, { now: t0 + 40_000, loadStart: t0 + 30_000 })?.tier,
+    "light",
+  );
+  assert.deepEqual(soon.measureRecord(t0 + 40_000), {
+    step: null,
+    note: { tier: "light", kind: "unknown", at: t0 },
+  });
+  // A page load started a minute after the note, slow again: kept.
+  const second = await load(false);
+  assert.equal(second.deviceTier(), "full");
+  assert.equal(
+    second.reportFrameTimes(slow, { now: t0 + MIN + 9000, loadStart: t0 + MIN })?.tier,
+    "light",
+  );
+  assert.deepEqual(JSON.parse(s.kept.get("ac:tier-measured")!), {
+    tier: "light",
+    kind: "unknown",
+    at: t0 + MIN + 9000,
+  });
+  // The visits after it start light, with the reason; a fine flight there lifts nothing.
+  const third = await load(false);
+  assert.equal(third.deviceTier(), "light");
+  assert.deepEqual(third.deviceVerdict().reasons, ["frames"]);
+  assert.equal(third.reportFrameTimes(flight(33))?.tier, "light");
+  assert.equal(s.kept.has("ac:tier-measured"), true);
+  // The reset forgets it.
+  third.forgetMeasuredStep();
+  assert.equal(third.deviceTier(), "full");
   assert.equal(s.kept.has("ac:tier-measured"), false);
+
+  // Again from nothing: slow, then a fine page load, then slow — the note
+  // was forgotten in between, so the third page load is a first strike.
+  const a = await load(false);
+  a.reportFrameTimes(slow, { now: t0, loadStart: t0 - 4000 });
+  assert.equal(s.kept.has("ac:tier-measured"), true);
+  const b2 = await load(false);
+  assert.equal(
+    b2.reportFrameTimes(flight(33), { now: t0 + 2 * MIN, loadStart: t0 + 2 * MIN }),
+    null,
+  );
+  assert.equal(s.kept.has("ac:tier-measured"), false, "the note is forgotten");
+  const c = await load(false);
+  assert.equal(
+    c.reportFrameTimes(slow, { now: t0 + 4 * MIN, loadStart: t0 + 4 * MIN })?.tier,
+    "light",
+  );
+  assert.deepEqual(c.measureRecord(t0 + 4 * MIN), {
+    step: null,
+    note: { tier: "light", kind: "unknown", at: t0 + 4 * MIN },
+  });
   assert.equal((await load(false)).deviceTier(), "full");
+
+  // A flight too short to judge is neither a strike nor a fine flight.
+  const d = await load(false);
+  assert.equal(
+    d.reportFrameTimes([200, 200], { now: t0 + 6 * MIN, loadStart: t0 + 6 * MIN }),
+    null,
+  );
+  assert.equal(d.reportFrameTimes(flight(4), { now: t0 + 6 * MIN, loadStart: t0 + 6 * MIN }), null);
+  assert.equal(s.kept.has("ac:tier-measured"), true, "the note stays");
 });
 
 test("a step measured with the storage blocked lasts for the page", async () => {

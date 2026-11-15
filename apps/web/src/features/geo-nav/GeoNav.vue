@@ -28,6 +28,7 @@ import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
 import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
+import { slowWaitPlace } from "./model/retryNotice";
 import { createNavState, type MapView } from "./navState";
 import { bootCurtainCover, bootList } from "./bootListSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
@@ -452,9 +453,12 @@ function onMapView(view: MapView) {
   tap.landed();
 }
 /** « Réessayer » pressed. The button goes with the sentence: a focus it held
- *  moves to the trail's current crumb, not to the page. */
+ *  moves to the trail's current crumb, not to the page. Shown over the map
+ *  while the panel's own failure message is off screen (model/retryNotice),
+ *  it asks for what that message's button would have, too. */
 function onRetryWait() {
   const held = !!document.activeElement?.closest(".slow-wait");
+  if (panelFailureUp.value) retryPanel();
   if (!tap.retry() || !held) return;
   void nextTick(() => panelEl.value?.querySelector<HTMLElement>(".crumb.current")?.focus());
 }
@@ -894,10 +898,35 @@ const {
     lists?.retryFailed();
   },
 });
-/** « Réessayer »: the panel's reads, and the outline files' start if it waits. */
-function retryAll() {
+/** The panel's reads asked again, and the outline files' start if it waits. */
+function retryPanel() {
   outlines?.reconnect();
   retryNow();
+}
+/** The panel's body shows its failure message and its « Réessayer » (the
+ *  template's branch below). */
+const panelFailureUp = computed(
+  () =>
+    recoverOn &&
+    !(props.loading || listsLoading.value) &&
+    (props.isError || scopeFailed.value || listsFailed.value),
+);
+/** Where the long wait's sentence and its « Réessayer » show: never beside
+ *  the panel's own (model/retryNotice). */
+const slowWaitAt = computed(() =>
+  slowWaitPlace({
+    late: waitStage.value === "late",
+    sheetHidden: sheetHidden.value,
+    preview: !!asCard.value,
+    panelFailure: panelFailureUp.value,
+  }),
+);
+/** The panel's « Réessayer ». The only button on screen while the tapped
+ *  territory's plateau is late too: it then asks again for the piece that
+ *  plateau misses, as the long wait's own button would. */
+function retryAll() {
+  retryPanel();
+  if (waitStage.value === "late") tap.retry();
 }
 </script>
 
@@ -956,14 +985,12 @@ function retryAll() {
     <p class="analyses-live" aria-live="polite">{{ analysesLive }}</p>
     <!-- The territory just tapped stands on the map, or is long in coming
          (model/useTapPending). -->
-    <p class="analyses-live" aria-live="polite">{{ tapLive }}</p>
+    <p class="analyses-live" aria-live="polite">
+      {{ waitStage === "late" && slowWaitAt === "none" ? "" : tapLive }}
+    </p>
     <!-- …long enough for the page to say so (ac:slow-sign). On a phone whose
          sheet is lowered the panel's head is off screen: said over the map. -->
-    <SlowWaitNotice
-      v-if="waitStage === 'late' && sheetHidden && !preview"
-      floating
-      @retry="onRetryWait"
-    />
+    <SlowWaitNotice v-if="slowWaitAt === 'floating'" floating @retry="onRetryWait" />
 
     <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over
          the map's box only (`bootCover` "map", bootListSwitch): no z-index of
@@ -1024,7 +1051,8 @@ function retryAll() {
         <template #head-actions><slot name="head-actions" /></template>
         <template #head-below><slot name="head-below" /></template>
         <template #head-notice>
-          <SlowWaitNotice v-if="waitStage === 'late' && !sheetHidden" @retry="onRetryWait" />
+          <!-- Not beside the panel's own failure message and its button, below. -->
+          <SlowWaitNotice v-if="slowWaitAt === 'head'" @retry="onRetryWait" />
         </template>
 
         <div v-if="loading || listsLoading" class="state">

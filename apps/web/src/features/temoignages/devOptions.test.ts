@@ -580,6 +580,28 @@ test("« Appareil » lists the tier detected, the two kinds of weak and every si
   assert.equal(value("Connexion"), "non indiquée");
   assert.equal(value("Puce graphique"), "non lue");
   assert.match(value("Images mesurées")!, /^Léger \(cause non mesurée\), le \d{2}\/11\/2026$/);
+  // The measure's two strikes, in words: kept, for this page load only, noted.
+  const measured = (kept: Parameters<typeof tierFacts>[3]) =>
+    tierFacts(silent, tier.decideTier(silent), tier.decideTier(silent), kept).find(
+      (f) => f.label === "Images mesurées",
+    )!.value;
+  assert.match(
+    measured({ step: silent.measured, note: null }),
+    /^Léger \(cause non mesurée\), le \d{2}\/11\/2026, gardé trente jours$/,
+  );
+  assert.match(
+    measured({ step: null, note: silent.measured }),
+    /^Léger \(cause non mesurée\), le \d{2}\/11\/2026, pour ce chargement de page seulement$/,
+  );
+  const noted = tierFacts(strong, auto, auto, { step: null, note: silent.measured });
+  assert.match(
+    noted.find((f) => f.label === "Images mesurées")!.value,
+    /^aucune descente\u00a0; des images lentes notées le \d{2}\/11\/2026, à confirmer$/,
+  );
+  assert.equal(
+    tierFacts(strong, auto, auto, { step: null, note: null }).at(-1)!.value,
+    "aucune descente",
+  );
   // Every reason and every kind has its words, with no loose space.
   const every = tierFacts(
     { ...silent, measured: { ...silent.measured, kind: "gpu" } },
