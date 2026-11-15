@@ -18,6 +18,7 @@ import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import type { MeshClient } from "./gl/meshClientCore";
 import { meshMode } from "./plateau/meshSwitch";
 import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
+import { labelGlyphOptions, whenLabelFont } from "./labelFont";
 import { useMapView, type MapView } from "./composables/useMapView";
 import { useScopeMask } from "./composables/useScopeMask";
 import { usePlateauFrames } from "./composables/usePlateauFrames";
@@ -264,11 +265,21 @@ function startWorkers() {
   }
 }
 
+/** The map's creation waiting for the labels' font (labelFont.ts), cancelled
+ *  by an unmount meanwhile. */
+let cancelMount: () => void = () => {};
 onMounted(() => {
   if (!el.value || !TOKEN) {
     emitReady(); // no map will ever load — release the boot overlay
     return;
   }
+  // At once, unless the labels are drawn with the site's font and it is not
+  // in yet (ac:glyphs, glyphSwitch.ts).
+  cancelMount = whenLabelFont(mountMap);
+});
+
+function mountMap() {
+  if (!el.value) return;
   try {
     mapboxgl.accessToken = TOKEN;
     resetPlateauStood(); // a new map: its first plateau is still to come
@@ -298,6 +309,9 @@ onMounted(() => {
       // every other URL left alone. Typed as sync by mapbox's .d.ts, but awaited
       // at runtime (`params || {url}`): one cast.
       transformRequest: demTransformRequest as unknown as mapboxgl.MapOptions["transformRequest"],
+      // The labels' letters: the style's files, or drawn on the device with
+      // the site's font (ac:glyphs, labelFont.ts). The lid's map gets the same.
+      ...labelGlyphOptions(),
     });
     // The two workers start with the map object (ac:boot-workers, default
     // "early"): neither touches the style, so neither waits for its load.
@@ -451,7 +465,7 @@ onMounted(() => {
     }
     map = null;
   }
-});
+}
 
 /**
  * Draw now rather than at the next frame. A resized canvas is blank until it
@@ -479,6 +493,7 @@ window.addEventListener(MAP_MOVED_EVENT, onMapMoved);
 // lid's hidden map; the resize observer; the markers; the still-map scheduler
 // let go of the map; the map itself; the flags; the frame bus; the probes.
 onBeforeUnmount(() => {
+  cancelMount();
   window.removeEventListener(MAP_MOVED_EVENT, onMapMoved);
   pins.dispose();
   camera.dispose();
