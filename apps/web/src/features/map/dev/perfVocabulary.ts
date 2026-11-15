@@ -54,6 +54,12 @@
 //                     with the sink: the mesh's time past the sink's end, 0
 //                     if it came first) (usePlateau; detail: scope, path —
 //                     same, quiet, swap —, first)
+//   plateau.outline   ac:late-files=quiet: a note (0 ms) per outline judged
+//                     against what stands (usePlateau.outlineChanged; detail:
+//                     verdict — run, owed, redress, nothing)
+//   plateau.redress   ac:late-files=quiet: the standing plateau's lines
+//                     reshaped in place, from the outline to the mesh applied
+//                     (usePlateau.redress; detail: scope, lines)
 // Reserved for the phases to come, so their tables share one vocabulary:
 // outline.fetch, outline.decode, outline.fallback.
 // plateau.setGeometry's detail names the mesh mode that built it (`mesh`:

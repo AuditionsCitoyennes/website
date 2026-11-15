@@ -118,7 +118,9 @@ export function useCamera(inputs: CameraInputs) {
       if (outlines?.mode.value === "fichiers") {
         if (unit.levelKey === "country" && selfFileOf(outlines.rowOf(unit.id)) === "u")
           void outlines.ensureSelf(unit.id);
-        else void outlines.ensureBundle(unit.id);
+        // Due (its fetch priority) while its self is not in: its plateau
+        // waits for this file; with its self in, it brings its children only.
+        else void outlines.ensureBundle(unit.id, !outlines.selfOf(unit.id));
       }
       const geometry = byBox ? undefined : raisedGeometryFor(unit);
       // markRaw: the command lives in a deep ref, and the geometry must never be

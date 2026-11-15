@@ -85,6 +85,10 @@ export function useMapFeed(inputs: MapFeedInputs) {
   // landed on the same content never re-fired that watcher, so after a teardown
   // (style reload, layer re-add) nothing rose again. Rebuilds are cheap now — the
   // per-geometry projection/mesh caches in GeoDrillMap absorb the real cost.
+  // The map does not run its pipeline for each of them all the same: it judges
+  // every fresh outline against the plateau that STANDS (ac:late-files "quiet",
+  // map/lib/outlineChange.ts) — the same content does nothing while it stands
+  // and raises it again once it does not, which a memoised identity could not.
   const outline = computed<OutlineFC>(() => {
     // Deep in the micropin zone → no plateau, no boundaries: the empty outline
     // drives the map's animated teardown (sink, then clear). An open lieu does
@@ -311,16 +315,40 @@ export function useMapFeed(inputs: MapFeedInputs) {
         plateauStood: decorStood.value,
         capPassed: decorCapPassed.value,
       });
+    // The late files' rule (ac:late-files, data/useOutlineFiles): a file is
+    // urgent — stored as it lands, asked at high priority — only while the
+    // scope's plateau is pending and the file is on its chain (its bundles,
+    // a country's u/). Every other file (a standing scope's children, its
+    // neighbours, the world's outlines, the file of a scope since left) is
+    // kept and stored when the map is still.
+    const urgent = (key: string): boolean => {
+      if (!filesActive() || !scopePending.value) return false;
+      const s = currentScope.value;
+      if (
+        s.levelKey === "country" &&
+        selfFileOf(files.rowOf(s.id)) === "u" &&
+        key === files.keyOf("u", s.id)
+      )
+        return true;
+      return bundlesFor(view, chainOf(s)).some((b) => files.keyOf("k", b) === key);
+    };
+    files.setUrgent(urgent);
+    onScopeDispose(() => files.setUrgent(null));
     // The scope's chain (rule 6): its bundles root first, each awaited — a
     // commune's row comes with its département's bundle, an arrondissement's
     // with its ville's. A newer scope runs its own chain: this one stops at
     // its next step. A self due from the start is waited for OUTLINE_WAIT_MS.
     watch(
       () => currentScope.value.id,
-      async (id) => {
+      async (id, left) => {
+        // A hold-out that was for the visit of the scope left ends with it.
+        if (left) files.leaveSelf(left);
         if (!filesActive()) return;
         const scope = currentScope.value;
         if (raisedOutlineDue(scope)) files.holdSelf(id);
+        // A file of this scope's chain kept as text (it landed while the
+        // scope was elsewhere) and now waited for: stored at once.
+        files.flushDue();
         // A country with no bundle: its u/ first (once its row is known).
         if (scope.levelKey === "country")
           void files.ensureRoot().then(() => {
@@ -328,7 +356,8 @@ export function useMapFeed(inputs: MapFeedInputs) {
               void files.ensureSelf(id);
           });
         for (const b of bundlesFor(view, chainOf(scope))) {
-          await files.ensureBundle(b);
+          // Due while the scope's plateau waits (its fetch priority).
+          await files.ensureBundle(b, scopePending.value);
           if (currentScope.value.id !== id) return;
         }
       },
@@ -345,7 +374,9 @@ export function useMapFeed(inputs: MapFeedInputs) {
         void mapView.value; // a landing re-reads the pin below
         const s = currentScope.value;
         const cross = crossRegionDeps.value;
-        if (view.bundleState(s.id) === "loading") return "";
+        // Its bundle settled — or in memory, kept until the map is still: the
+        // neighbours are asked meanwhile and stored with it, in one write.
+        if (view.bundleState(s.id) === "loading" && !files.isHeld("k", s.id)) return "";
         const parent = s.parentId ? index.value.get(s.parentId) : undefined;
         // At a country, the countries whose box meets its own, once its self
         // is in (or given up on): their lines beside its raised edge.
