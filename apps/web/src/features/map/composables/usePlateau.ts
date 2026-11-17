@@ -50,7 +50,8 @@ import {
   type RaisedShape,
 } from "../lib/outlineChange";
 import { boxCovers, boxFeature, coldStartPlan, type ComingUnit } from "../lib/coldStart";
-import { isFlying, whenLanded } from "../lib/landing";
+import { isFlying, whenLanded, type Landing } from "../lib/landing";
+import { createRiseHold } from "../lib/riseHold";
 import { riseProgress } from "../lib/rise";
 import { stillMap } from "../lib/stillMap";
 import { markPlateauStood } from "../lib/plateauStood";
@@ -119,7 +120,19 @@ export interface PlateauInputs {
   /** What stands above flat ground changed (`lift()`): the pins are brought
    *  in line (useMapPins). */
   onLift?: () => void;
+  /** How long the rise of unit `scopeId`, just committed, is held, ms (the
+   *  pending mark's violet leaves the unit first: gl/PendingMarkPass). Read
+   *  right after `onSettled`; absent or 0: no hold. */
+  riseGate?: (scopeId: string) => number;
+  /** What became of the rise a verdict "rise", "same" or "quiet" announced
+   *  for unit `scopeId`: it starts now ("start"), the plateau is up already
+   *  and nothing rises ("none"), or it will not come ("dropped": the plateau
+   *  went meanwhile, or the run failed). */
+  onRise?: (scopeId: string, how: PlateauRise) => void;
 }
+
+/** See PlateauInputs.onRise. */
+export type PlateauRise = "start" | "none" | "dropped";
 
 /**
  * How a run of the plateau pipeline ended, for unit `scopeId`:
@@ -155,6 +168,8 @@ export function usePlateau({
   meshClient,
   onSettled,
   onLift,
+  riseGate,
+  onRise,
 }: PlateauInputs) {
   // Whether a plateau is currently standing — the draped hover-fill fallback only
   // applies when none stands or is coming (the world, or a scope with no boundary
@@ -547,19 +562,30 @@ export function usePlateau({
     }
   }
 
-  // ---- ac:rise-order=after: the rise waits for the camera's flight to land ----
-  // The wait in progress (one at a time), and whether a committed plateau is
-  // still waiting to rise — over flat ground its pins are lifted when it
-  // does, not before. The wait is the PLATEAU's, not its run's: a later run
-  // for the same unit (its outline refined: a quiet swap at the height it is
-  // at) leaves it be, and the rise it owes still comes. It is dropped where
-  // the plateau goes: another unit selected, the plateau cleared or failed,
-  // the unmount.
-  let landWait: { cancel: () => void } | null = null;
+  /** What became of a rise, told (PlateauInputs.onRise); a listener that
+   *  throws must not take the run with it. */
+  function rose(scopeId: string, how: PlateauRise) {
+    try {
+      onRise?.(scopeId, how);
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn("[plateau] onRise failed:", err);
+    }
+  }
+
+  // ---- What a committed plateau's rise waits for (lib/riseHold.ts): the
+  // gate (`riseGate`: a tapped unit's violet leaves it first) and, with
+  // ac:rise-order=after, the camera's landing ----
+  // One wait at a time, and whether a committed plateau is still waiting to
+  // rise — over flat ground its pins are lifted when it does, not before.
+  // The wait is the PLATEAU's, not its run's: a later run for the same unit
+  // (its outline refined: a quiet swap at the height it is at) leaves it be,
+  // or takes it over when it comes to a rise of its own, and the rise owed
+  // still comes. It is dropped where the plateau goes: another unit
+  // selected, the plateau cleared or failed, the unmount.
+  const riseHold = createRiseHold();
   let riseWaiting = false;
   function dropLanding() {
-    landWait?.cancel();
-    landWait = null;
+    riseHold.drop();
     riseWaiting = false;
   }
 
@@ -571,29 +597,53 @@ export function usePlateau({
     riseStartFor(riseOrder.value, deviceTier()) === "after" &&
     isFlying(map);
 
-  /** The camera's landing awaited (LAND_WAIT_CAP_MS at most) for the plateau
-   *  of `scope`; false when that plateau is no longer the one standing, the
-   *  wait was dropped or taken over by a newer one, or the map is gone: no
-   *  rise then. Over flat ground the pins are lifted at its end (a caller
-   *  that lifts them at its commit sets `riseWaiting` before it does). */
-  async function landing(map: mapboxgl.Map, scope: string): Promise<boolean> {
+  /**
+   * The rise of the plateau of `scope`, cleared to start: at once (the same
+   * task) when nothing holds it, else once the gate has passed and, with
+   * `waits`, the camera has landed (LAND_WAIT_CAP_MS at most). Meanwhile the
+   * map is not "still" (lib/stillMap.ts: no late file is stored between the
+   * commit and the rise) and, over flat ground, the pins stay down; they are
+   * lifted at its end. False: no rise — that plateau is no longer the one
+   * standing, the wait was dropped, the map is gone (`onRise` "dropped"), or
+   * a later run for the same plateau took the wait over (nothing said: that
+   * run tells).
+   */
+  async function riseCleared(map: mapboxgl.Map, scope: string, waits: boolean): Promise<boolean> {
+    const gateMs = Math.max(0, riseGate?.(scope) ?? 0);
+    if (!waits && gateMs <= 0) {
+      // A wait an earlier run left for this plateau: this run rises it now.
+      riseHold.take();
+      if (riseWaiting) {
+        riseWaiting = false;
+        onLift?.();
+      }
+      rose(scope, "start");
+      return true;
+    }
     const t0 = performance.now();
-    landWait?.cancel();
-    const wait = whenLanded(map, LAND_WAIT_CAP_MS);
-    landWait = wait;
-    riseWaiting = true;
-    const how = await wait.done;
-    if (landWait === wait) {
-      landWait = null;
-      riseWaiting = false;
+    const release = stillMap.hold();
+    const land = waits ? whenLanded(map, LAND_WAIT_CAP_MS) : undefined;
+    let landed: Landing | null = null;
+    void land?.done.then((how) => (landed = how));
+    if (!riseWaiting) {
+      riseWaiting = true;
+      onLift?.();
     }
+    const how = await riseHold.wait(scope, gateMs, land);
+    release();
+    if (how === "taken") return false;
     if (perfOn) {
-      if (how === "landed") riseRuns.landed++;
-      else if (how === "cap") riseRuns.capped++;
-      perfNote("plateau.riseWait", performance.now() - t0, { scope, how });
+      if (waits) {
+        if (landed === "landed") riseRuns.landed++;
+        else if (landed === "cap") riseRuns.capped++;
+        perfNote("plateau.riseWait", performance.now() - t0, { scope, how: landed ?? how });
+      }
+      if (gateMs > 0) perfNote("plateau.riseGate", performance.now() - t0, { scope, gateMs, how });
     }
-    const current = how !== "cancelled" && !!getMap() && plateauActive && plateauScopeId === scope;
+    const current = how === "start" && !!getMap() && plateauActive && plateauScopeId === scope;
+    if (how === "start") riseWaiting = false;
     if (current) onLift?.();
+    rose(scope, current ? "start" : "dropped");
     return current;
   }
 
@@ -1007,13 +1057,13 @@ export function usePlateau({
           onLift?.();
           settled(scopeId, refined ? "quiet" : "same");
           if (terrainExag !== 1) {
-            if (waits && !(await landing(map, scopeId))) return;
+            if (!(await riseCleared(map, scopeId, waits))) return;
             // A rise that waited is the selection's own, taken over from the
             // run that committed it: timed as that one's would have been.
             const endRise = waits && perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
             await animateTerrain(1, RISE_MS);
             if (endRise) endRise();
-          }
+          } else rose(scopeId, "none");
           if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
           return;
         }
@@ -1045,7 +1095,7 @@ export function usePlateau({
         // The commit is whole: a pending mark on this unit goes now, in the
         // commit's block, also when the rise waits for the camera.
         settled(scopeId, "rise");
-        if (waits && !(await landing(map, scopeId))) return;
+        if (!(await riseCleared(map, scopeId, waits))) return;
         const endFlatRise = perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
         await animateTerrain(1, RISE_MS);
         if (endFlatRise) endFlatRise();
@@ -1091,12 +1141,12 @@ export function usePlateau({
         settled(scopeId, "same");
         if (terrainExag !== 1) {
           const waits = waitsForLanding(map);
-          if (waits && !(await landing(map, scopeId))) return;
+          if (!(await riseCleared(map, scopeId, waits))) return;
           // (As over flat ground: a rise that waited is timed.)
           const endRise = waits && perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
           await animateTerrain(1, RISE_MS);
           if (endRise) endRise();
-        }
+        } else rose(scopeId, "none");
         if (seq === plateauSeq && terrainExag === 1) markPlateauStood();
         return;
       }
@@ -1251,6 +1301,9 @@ export function usePlateau({
         plateauActive = true;
         applyMask();
         settled(scopeId, "quiet");
+        // Up, or on its way: nothing more rises. A rise still owed (the run
+        // that committed it holds it, riseCleared) is told by that hold.
+        if (terrainExag === 1 || exagAnim?.target === 1) rose(scopeId, "none");
         return;
       }
       // ac:mesh=worker: the sink and the mesh both, the commit below one block.
@@ -1292,7 +1345,7 @@ export function usePlateau({
       // LOD re-tessellation can show mid-flight — chosen over a delayed rise.
       // (ac:rise-order=after, a weak device's by default: it starts once the
       // flight has landed, the unit flat meanwhile.)
-      if (waitsForLanding(map) && !(await landing(map, scopeId))) return;
+      if (!(await riseCleared(map, scopeId, waitsForLanding(map)))) return;
       const endRise = perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;
       await animateTerrain(1, RISE_MS);
       if (endRise) endRise();
@@ -1334,6 +1387,7 @@ export function usePlateau({
         applyMask();
         onLift?.();
         settled(scopeId, "failed");
+        rose(scopeId, "dropped");
       }
     } finally {
       if (seq === plateauSeq) runEnded();
