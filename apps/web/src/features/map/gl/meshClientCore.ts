@@ -551,7 +551,7 @@ export function createMeshClient(deps: MeshClientDeps) {
       puts: alloc.puts,
       regime: p.regime,
       front: p.front,
-      delayMs: knobs?.delayMs,
+      // Not the builds' delay: a slowed plateau is studied with its mark on time.
       fail: knobs?.fail,
     };
     try {
