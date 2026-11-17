@@ -55,6 +55,7 @@ import { rendererOf } from "./relief/groundSwitch";
 import type { MarkGeometry } from "./gl/pendingMark";
 import type { ComingUnit } from "./lib/coldStart";
 import type { TapMark } from "./plateau/tapAnswerSwitch";
+import { createTapProgress, type TapStep } from "./plateau/tapProgress";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 import { fallbackForced, fallbackView, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
@@ -286,8 +287,13 @@ const plateau = usePlateau({
   clearSlabs: () => slabs.clearSlabs(),
   forgetLidExtra: () => slabs.forgetLidExtra(),
   meshClient: () => meshClient,
-  onSettled: (scopeId, how) => emit("plateauSettled", scopeId, how),
+  onSettled: (scopeId, how) => {
+    // The run's verdict is the last step of a tapped unit's progress.
+    if (how === "rise" || how === "same" || how === "quiet") pendingStep(scopeId, { t: "settled" });
+    emit("plateauSettled", scopeId, how);
+  },
   onLift: pins.syncLift,
+  onProgress: (scopeId, step) => pendingStep(scopeId, step),
 });
 const slabs = usePlateauSlabs({
   getMap,
@@ -299,6 +305,21 @@ const slabs = usePlateauSlabs({
   lid,
   hidePinsUnderSlabs: pins.hidePinsUnderSlabs,
 });
+
+// How far the data of the tapped unit's plateau has come (plateau/
+// tapProgress.ts): fed by the pipeline's run for it and by the parent (its
+// outline's file), read by the testing tools.
+const tapProgress = createTapProgress();
+/** A real step toward the plateau of unit `id` (the parent: its outline's
+ *  file; the pipeline: its run). Another unit's is ignored. */
+function pendingStep(id: string, step: TapStep) {
+  tapProgress.note(id, step);
+}
+/** The pending state of unit `id` has ended, however it did (the parent's
+ *  model/tapPendingCore): what was kept for it goes. */
+function pendingEnded(id: string) {
+  if (tapProgress.id() === id) tapProgress.end();
+}
 
 // ---- A tapped unit's PENDING mark (the parent decides when: see GeoNav's
 // model/tapPendingCore) — drawn by the plateau's layer in buffers of its own,
@@ -313,12 +334,19 @@ const slabs = usePlateauSlabs({
  * (the unit's plateau stands already) and "unavailable" (no map, or its
  * style not loaded yet).
  */
-function markPending(id: string, mark: TapMark): "shown" | "none" | "standing" | "unavailable" {
+function markPending(
+  id: string,
+  mark: TapMark,
+  again = false,
+): "shown" | "none" | "standing" | "unavailable" {
   if (!map || !mapReady) return "unavailable";
   if (plateau.active() && plateauWall.scopeId === id) {
     endPending("off");
     return "standing";
   }
+  // The unit's progress starts over, unless it was pending already (`again`:
+  // « Réessayer », the same unit tapped once more): what came in still counts.
+  tapProgress.begin(id, { key: !plateau.flatWanted(), mesh: !!meshClient }, again);
   const unit = props.units.find((u) => u.id === id);
   const pill = mark.pill && !!unit && !unit.isLeaf;
   const g = unit && !unit.isLeaf ? (unit.geometry as MarkGeometry | undefined) : undefined;
@@ -515,6 +543,7 @@ function mountMap() {
       slabs,
       meshDigest: __TEST_TOOLS__ ? (o) => plateauWall.meshDigest(o) : null,
       pendingMark: () => plateauWall.pendingState(),
+      tapProgress: () => tapProgress.state(),
       tintDigest: __TEST_TOOLS__ ? mask.tintDigest : null,
       context: glContext,
     });
@@ -874,6 +903,9 @@ defineExpose({
   /** A tapped unit's pending mark, set and ended (see the functions). */
   markPending,
   endPending,
+  /** A real step of the tapped unit's data, and the end of its pending state. */
+  pendingStep,
+  pendingEnded,
   /** The long wait's sign on the pending pill; the plateau asked once more. */
   setPendingWait,
   retryPlateau,

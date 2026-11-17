@@ -57,11 +57,14 @@ function harness(opts: { off?: boolean; slow?: boolean } = {}) {
     said: "",
     /** `mark` answers false from now (the plateau stands, the switch went off). */
     noMark: false,
+    /** `again`, as each mark was asked. */
+    agains: [] as boolean[],
   };
   const core = createTapPending({
-    mark: (unit) => {
+    mark: (unit, again) => {
       if (opts.off || s.noMark) return false;
       log.push(`mark ${unit.id}`);
+      s.agains.push(again);
       return true;
     },
     unmark: (how) => log.push(`unmark ${how}`),
@@ -449,6 +452,37 @@ test("« Réessayer » outside a late wait does nothing; with no mark to be had 
   assert.equal(core.wait(), "none");
   assert.ok(!log.some((l) => l.startsWith("reask")));
   assert.equal(clock.live(), 0);
+});
+
+test("a mark is asked `again` on « Réessayer » and for the unit already pending, never otherwise", () => {
+  const { core, clock, s, writeScope } = harness({ slow: true });
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  core.begin(RHONE); // the same unit tapped once more while it waits
+  core.begin(ISERE); // another unit
+  writeScope("fr:dep:38");
+  clock.run(SLOW_WAIT_MS);
+  assert.equal(core.wait(), "late");
+  assert.equal(core.retry(), true);
+  core.settled("fr:dep:38", "rise");
+  core.begin(ISERE); // tapped again once its state has ended: a new tap
+  assert.deepEqual(s.agains, [false, true, false, true, false]);
+});
+
+test("every end is told, a late wait's included, whose mark went when it turned late", () => {
+  const { core, clock, log, writeScope } = harness({ slow: true });
+  core.begin(RHONE);
+  writeScope("fr:dep:69");
+  clock.run(SLOW_WAIT_MS);
+  assert.equal(log.includes("unmark drain"), true);
+  const before = log.length;
+  writeScope("fr:reg:84"); // the scope went elsewhere
+  const after = log.slice(before);
+  assert.equal(after[0], `end fr:dep:69 moved ${SLOW_WAIT_MS}`);
+  assert.equal(
+    after.some((l) => l.startsWith("unmark")),
+    false,
+  ); // no second unmark
 });
 
 test("the sign off (or not wired): the state before it — the cap, no stage, landings ignored", () => {

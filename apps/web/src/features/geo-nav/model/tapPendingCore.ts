@@ -81,8 +81,10 @@ export function readySentence(unit: PendingUnit): string {
 
 export interface TapPendingDeps {
   /** Show the mark on the map for `unit` (replacing any other); false: the
-   *  switch is off, there is no pending state at all. */
-  mark(unit: PendingUnit): boolean;
+   *  switch is off, there is no pending state at all. `again`: the unit was
+   *  pending already (« Réessayer », or the same unit tapped once more while
+   *  it waited) — what has arrived for it since its first tap still counts. */
+  mark(unit: PendingUnit, again: boolean): boolean;
   /** End the mark on the map: fading as the plateau rises ("rise"), at once
    *  ("off"), or fading where it stands, no plateau having come ("drain"). */
   unmark(how: "rise" | "off" | "drain"): void;
@@ -96,7 +98,9 @@ export interface TapPendingDeps {
   onChange(unit: PendingUnit | null): void;
   /** The polite live region's text ("" clears it). */
   say(text: string): void;
-  /** The testing tools' count of how each state ended. */
+  /** A state ended, however it did (a late one too, whose mark went when
+   *  it turned late): the map lets go of what it kept for the unit, and the
+   *  testing tools count the ends. */
   onEnd?(unit: PendingUnit, end: PendingEnd, heldMs: number): void;
   now(): number;
   /** The long wait's sign is on (read at each tap); absent: off. */
@@ -170,10 +174,11 @@ export function createTapPending(deps: TapPendingDeps) {
    *  scope is written. False: no pending state (the switch is off). */
   function begin(unit: PendingUnit): boolean {
     const had = current !== null;
+    const again = current?.unit.id === unit.id;
     if (current) end("replaced");
     // The same sentence twice in a row is not said twice: cleared first.
     deps.say("");
-    if (!deps.mark(unit)) {
+    if (!deps.mark(unit, again)) {
       // Switched off since the last tap: that tap's mark goes too.
       if (had) deps.unmark("off");
       deps.onChange(null);
@@ -251,7 +256,7 @@ export function createTapPending(deps: TapPendingDeps) {
     const c = current;
     if (!c || c.stage !== "late") return false;
     deps.say("");
-    if (!deps.mark(c.unit)) {
+    if (!deps.mark(c.unit, true)) {
       end("none");
       return false;
     }

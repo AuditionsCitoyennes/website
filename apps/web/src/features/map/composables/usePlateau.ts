@@ -64,6 +64,7 @@ import {
 } from "../lib/terrainFollow";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
+import type { PlateauStep } from "../plateau/tapProgress";
 import { liftOf, type PlateauLift } from "../plateau/lift";
 import { GROUND_DATA_URL } from "../relief/demGround";
 import { loadReliefClient } from "../relief/demHook";
@@ -120,6 +121,10 @@ export interface PlateauInputs {
   /** What stands above flat ground changed (`lift()`): the pins are brought
    *  in line (useMapPins). */
   onLift?: () => void;
+  /** A real step of the run for unit `scopeId` toward its plateau: what the
+   *  run waits for, then each piece as it comes in (plateau/tapProgress.ts:
+   *  a tapped unit's loading line). Only the current run reports. */
+  onProgress?: (scopeId: string, step: PlateauStep) => void;
   /** How long the rise of unit `scopeId`, just committed, is held, ms (the
    *  pending mark's violet leaves the unit first: gl/PendingMarkPass). Read
    *  right after `onSettled`; absent or 0: no hold. */
@@ -168,6 +173,7 @@ export function usePlateau({
   meshClient,
   onSettled,
   onLift,
+  onProgress,
   riseGate,
   onRise,
 }: PlateauInputs) {
@@ -562,6 +568,15 @@ export function usePlateau({
     }
   }
 
+  /** A run's step, told (PlateauInputs.onProgress), the same way. */
+  function progress(scopeId: string, step: PlateauStep) {
+    try {
+      onProgress?.(scopeId, step);
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn("[plateau] onProgress failed:", err);
+    }
+  }
+
   /** What became of a rise, told (PlateauInputs.onRise); a listener that
    *  throws must not take the run with it. */
   function rose(scopeId: string, how: PlateauRise) {
@@ -943,6 +958,15 @@ export function usePlateau({
     if (client && startMode === "lazy") {
       plateauWall.askGlobeAhead({ features: raised, heightM, focus, context });
     }
+    // The mesh is in (the tapped unit's loading line). Attached before any
+    // wait of the run on it, so the step is told before the run goes on; a
+    // job never rejects, the second handler is for form.
+    void job?.then(
+      () => {
+        if (seq === plateauSeq) progress(scopeId, { t: "mesh" });
+      },
+      () => {},
+    );
     // Start the lid snapshot IMMEDIATELY — it depends on nothing but the geometry,
     // and it's the longest pole (hidden-map tiles + capture). Started here it runs
     // through the sink, the version key and the whole camera flight, landing around
@@ -982,6 +1006,9 @@ export function usePlateau({
     // again: its outline refined, or a watcher re-run), a new one reads the
     // switch.
     const flat = changed ? groundNow() === "flat" : flatGround;
+    // What this run waits for (no await since `job` was made: its step
+    // cannot come first).
+    progress(scopeId, { t: "run", key: !flat, mesh: !!job });
     // What puts this run's mesh up, made where the run is about to (after its
     // awaits): `early`, and `putMesh`.
     const meshPutter = () => {
@@ -1114,6 +1141,7 @@ export function usePlateau({
       c.onReliefLost(() => void ensurePlateau());
       const { key } = await c.registerSelection(demRaised, heightM);
       if (endKey) endKey();
+      if (seq === plateauSeq) progress(scopeId, { t: "key" });
       // Nothing standing, so no sink to wait for: a fixed hold after the
       // registration, timed against the lid shot's settle wait so the commit
       // lands just before its readback, not frames ahead of it with GPU work

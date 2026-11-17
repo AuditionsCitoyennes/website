@@ -27,8 +27,13 @@ export interface TapPendingInputs {
   nav: NavState;
   /** GeoDrillMap, once mounted: its pending mark. */
   mapCmp: Ref<{
-    markPending: (id: string, mark: TapMark) => "shown" | "none" | "standing" | "unavailable";
+    markPending: (
+      id: string,
+      mark: TapMark,
+      again?: boolean,
+    ) => "shown" | "none" | "standing" | "unavailable";
     endPending: (how: "rise" | "off" | "drain") => void;
+    pendingEnded: (id: string) => void;
     setPendingWait: (on: boolean) => void;
   } | null>;
   /** « Réessayer »: ask again the one piece `unit`'s plateau still misses
@@ -72,7 +77,7 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
   }
 
   const core = createTapPending({
-    mark: (unit) => {
+    mark: (unit, again) => {
       const hover = window.matchMedia?.("(hover: hover)").matches ?? true;
       const mark = tapMarkFor(tapAnswerMode.value, tapIsTouch(lastPointer, hover));
       if (!mark.stroke && !mark.fill && !mark.pill) return false;
@@ -80,7 +85,7 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
       // outline in memory): the list is busy and the sentence is said alike.
       // Not when no verdict would end it: the unit's plateau stands, or
       // there is no map.
-      const shown = mapCmp.value?.markPending(unit.id, mark) ?? "unavailable";
+      const shown = mapCmp.value?.markPending(unit.id, mark, again) ?? "unavailable";
       return shown === "shown" || shown === "none";
     },
     unmark: (how) => mapCmp.value?.endPending(how),
@@ -91,6 +96,10 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
     onChange: (unit) => (pendingUnit.value = unit),
     say: (text) => (live.value = text),
     onEnd: (unit, end, heldMs) => {
+      // The map lets go of what it kept for the unit (how far its data had
+      // come) — not when a newer tap replaced the state: that tap has
+      // already marked its own unit, the same one included.
+      if (end !== "replaced") mapCmp.value?.pendingEnded(unit.id);
       if (!perfOn) return;
       ends[end] = (ends[end] ?? 0) + 1;
       last = { id: unit.id, end, heldMs: Math.round(heldMs) };
