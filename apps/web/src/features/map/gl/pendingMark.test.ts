@@ -1,10 +1,11 @@
 // The pending mark's pure pieces (pendingMark.ts): its meshes for one unit in
 // each regime — the loading line, one record per segment with the share of
 // the whole boundary's length reached at each end (the rings one after the
-// other, the longest first), and the flat fill in the hover
-// fill's layout, bisected on the globe —, the height they are built at,
-// where a unit's are built, and the line's and the fill's small functions of
-// time. No __TEST_TOOLS__ stub on purpose: the builder's import closure must
+// other, the longest first) and its ring's depth (what caps the line's width
+// around an islet), the flat fill in the hover fill's layout, bisected on
+// the globe, and a large unit's thinned stand-in —, the height they are
+// built at, where a unit's are built, and the line's and the fill's small
+// functions of time. No __TEST_TOOLS__ stub on purpose: the builder's import closure must
 // not read it. Run with `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
@@ -14,20 +15,24 @@ import {
   G_MARK_FILL_FLOATS,
   G_MARK_LINE_FLOATS,
   MARK_CREEP_FREEZE_MS,
+  MARK_CREEP_LEAD,
   MARK_CREEP_MAX,
   MARK_FILL_FLOATS,
   MARK_FILL_MAX_EDGE_DEG,
   MARK_LINE_FLOATS,
   MARK_LINE_FULL_PX,
   MARK_LINE_MIN_SHARE,
+  MARK_LINE_RING_SHARE,
   MARK_LINE_WIDTH,
   MARK_PAGE_MAX_SPAN_DEG,
   MARK_PAGE_MAX_VERTICES,
   MARK_REF_M,
+  MARK_STANDIN_VERTICES,
   buildMark,
   buildMarkFill,
   buildMarkLine,
-  creepCeil,
+  buildMarkStandIn,
+  creepLead,
   creepShown,
   easeStep,
   fadeAlpha,
@@ -59,21 +64,70 @@ const near = (a: number, b: number, eps = 1e-6) =>
 test("a square's line in the flat view: a record per segment, relative to its first vertex", () => {
   const g = square();
   const line = buildMarkLine(g, "merc")!;
-  assert.equal(MARK_LINE_FLOATS, 8);
+  assert.equal(MARK_LINE_FLOATS, 9);
   assert.equal(ringVertexCount(g), 5);
   assert.equal(line.segCount, 4);
   assert.equal(line.segs.length, 4 * MARK_LINE_FLOATS);
   const a = baseOf(4, 45);
   const b = baseOf(5, 45);
   assert.deepEqual(line.origin, [a.x, a.y]);
-  // The first segment: A, then B, at the reference height, then the two lengths.
-  const s0 = Array.from(line.segs.subarray(0, 8));
+  // The first segment: A, then B, at the reference height, then the two
+  // lengths and the ring's depth.
+  const s0 = Array.from(line.segs.subarray(0, 9));
   assert.ok(near(s0[0], 0) && near(s0[1], 0));
   assert.ok(near(s0[2], MARK_REF_M * a.zPerM));
   assert.ok(near(s0[3], b.x - a.x) && near(s0[4], b.y - a.y));
   assert.ok(near(s0[5], MARK_REF_M * b.zPerM));
   assert.equal(s0[6], 0);
   assert.ok(s0[7] > 0 && s0[7] < 1);
+  // One ring, the whole boundary: its area over its perimeter squared. A
+  // square's is 1/16 (a little off: a degree is not square on the map).
+  assert.ok(s0[8] > 0.055 && s0[8] < 0.0625, `depth ${s0[8]}`);
+  for (let i = 1; i < 4; i++) assert.equal(line.segs[i * MARK_LINE_FLOATS + 8], s0[8]);
+});
+
+test("a ring's depth: its area over its perimeter, as a share of the whole boundary — small for an islet, smaller still for a ragged one, the same in both regimes", () => {
+  // A 4° square, a 0.2° islet, and a comb as long as the islet is wide.
+  const comb: [number, number][] = [[20, 0]];
+  for (let i = 0; i < 10; i++) {
+    comb.push([20 + i * 0.02 + 0.01, 0.2], [20 + i * 0.02 + 0.02, 0]);
+  }
+  comb.push([20, 0]);
+  const g: MarkGeometry = {
+    type: "MultiPolygon",
+    coordinates: [[ring(0, 0, 4)], [ring(10, 0, 0.2)], [comb]],
+  };
+  const depthOf = (regime: "merc" | "globe") => {
+    const line = buildMarkLine(g, regime)!;
+    const stride = regime === "merc" ? MARK_LINE_FLOATS : G_MARK_LINE_FLOATS;
+    return [0, 4, 8].map((seg) => line.segs[seg * stride + stride - 1]);
+  };
+  const [big, islet, ragged] = depthOf("merc");
+  assert.ok(big > 0.04, `the mainland ${big}`);
+  // Twenty times smaller a ring: about twenty times less deep.
+  assert.ok(near(big / islet, 20, 0.1), `${big / islet}`);
+  // As wide as the islet, five times its perimeter, half its area.
+  assert.ok(ragged < islet / 2, `${ragged} against ${islet}`);
+  const globe = depthOf("globe");
+  for (const [i, d] of [big, islet, ragged].entries()) assert.ok(near(globe[i], d, 1e-5));
+  // What the shader makes of it: at 100 px a degree the mainland's line has
+  // room for the full width, the islet's for about a pixel.
+  const total = 16 + 0.8 + 4.03; // degrees of boundary, about
+  const widthPx = (depth: number) => depth * total * 100 * MARK_LINE_RING_SHARE;
+  assert.ok(widthPx(big) > MARK_LINE_WIDTH * 2);
+  assert.ok(widthPx(islet) > 1.5 && widthPx(islet) < 3, `${widthPx(islet)} px`);
+  // A ring with no surface carries no line.
+  const flat: MarkGeometry = {
+    type: "Polygon",
+    coordinates: [
+      [
+        [0, 0],
+        [1, 0],
+        [0, 0],
+      ],
+    ],
+  };
+  assert.equal(buildMarkLine(flat, "merc")!.segs[8], 0);
 });
 
 test("the lengths run from 0 to 1 along the whole boundary: one ring after the other, the longest first, each segment starting where the one before ended", () => {
@@ -89,12 +143,12 @@ test("the lengths run from 0 to 1 along the whole boundary: one ring after the o
     assert.equal(line.segs.length, 12 * stride);
     // The records stay in the outline's order; only their lengths are ordered.
     const ends = [0, 1, 2].map((r) => {
-      let prev = line.segs[r * 4 * stride + stride - 2];
+      let prev = line.segs[r * 4 * stride + stride - 3];
       const from = prev;
       for (let i = 0; i < 4; i++) {
         const o = (r * 4 + i) * stride;
-        const lenA = line.segs[o + stride - 2];
-        const lenB = line.segs[o + stride - 1];
+        const lenA = line.segs[o + stride - 3];
+        const lenB = line.segs[o + stride - 2];
         assert.equal(lenA, prev, `${regime} ring ${r} segment ${i}: starts where the last ended`);
         assert.ok(lenB > lenA, "monotone");
         prev = lenB;
@@ -131,7 +185,7 @@ test("at a low progress only the longest ring is reached: no dash on every islan
 
 test("the globe's line: absolute, each end as mercator, ECEF on the ground and at the reference height", () => {
   const line = buildMarkLine(square(), "globe")!;
-  assert.equal(G_MARK_LINE_FLOATS, 20);
+  assert.equal(G_MARK_LINE_FLOATS, 21);
   assert.deepEqual(line.origin, [0, 0]);
   const a = baseOf(4, 45);
   const s0 = Array.from(line.segs.subarray(0, 9));
@@ -267,16 +321,71 @@ test("a plain globe fill: earcut's own triangles, the same edge as the bisected 
   assert.equal(buildMark(g, "globe", false)!.fill.fillCount, 6);
 });
 
-test("the line's width: thinner around a unit small on screen, never under half, never over the full width", () => {
+test("the line's width: thinner around a unit small on screen, never under its floor, never over the full width", () => {
   assert.equal(markLineWidth(10, 6), MARK_LINE_WIDTH); // 910 px wide: the full width
   const px = (span: number, zoom: number) => (span / 360) * 512 * 2 ** zoom;
   assert.ok(near(px(1, 5), 45.5, 1e-2));
   assert.equal(markLineWidth(1, 5), MARK_LINE_WIDTH * MARK_LINE_MIN_SHARE); // 45 px: the floor
-  const mid = markLineWidth(1, 6.5); // about 129 px
+  const mid = markLineWidth(1, 7); // about 182 px
   assert.ok(mid > MARK_LINE_WIDTH * MARK_LINE_MIN_SHARE && mid < MARK_LINE_WIDTH);
-  assert.ok(near(markLineWidth(1, 6.5) / MARK_LINE_WIDTH, px(1, 6.5) / MARK_LINE_FULL_PX));
+  assert.ok(near(markLineWidth(1, 7) / MARK_LINE_WIDTH, px(1, 7) / MARK_LINE_FULL_PX));
   assert.equal(markLineWidth(Number.NaN, 5), MARK_LINE_WIDTH);
-  assert.ok(MARK_LINE_WIDTH <= 2.5); // a boundary line is 0.9 to 1.7
+  // Over a boundary line (0.9 to 1.7), and no band: 3 px drawn with its soft edge.
+  assert.ok(MARK_LINE_WIDTH > 1.7 && MARK_LINE_WIDTH <= 2);
+  assert.ok(MARK_LINE_WIDTH * MARK_LINE_MIN_SHARE >= 1);
+});
+
+test("a large unit's stand-in: its outline thinned to about 1,500 vertices, filled plain, small rings dropped", () => {
+  const circle = (x: number, y: number, r: number, n: number): [number, number][] => {
+    const out: [number, number][] = [];
+    for (let i = 0; i <= n; i++) {
+      const a = ((i % n) / n) * 2 * Math.PI;
+      out.push([x + r * Math.cos(a), y + r * Math.sin(a)]);
+    }
+    return out;
+  };
+  // A mainland with a lake, a large island, an islet of a few vertices.
+  const g: MarkGeometry = {
+    type: "MultiPolygon",
+    coordinates: [
+      [circle(0, 45, 5, 9000), circle(0, 45, 1, 600)],
+      [circle(20, 45, 1, 2400)],
+      [circle(30, 45, 0.1, 12)],
+    ],
+  };
+  const vertices = ringVertexCount(g);
+  assert.ok(vertices > MARK_PAGE_MAX_VERTICES);
+  const k = Math.ceil(vertices / MARK_STANDIN_VERTICES); // every 9th vertex
+  for (const regime of ["merc", "globe"] as const) {
+    const fill = buildMarkStandIn(g, regime)!;
+    const stride = regime === "merc" ? MARK_FILL_FLOATS : G_MARK_FILL_FLOATS;
+    assert.equal(fill.fill.length, fill.fillCount * stride);
+    // Earcut's count for the rings kept: n − 2 triangles a ring, + 2 a hole.
+    const kept = [9000, 600, 2400].map((n) => Math.ceil(n / k));
+    assert.equal(fill.fillCount, 3 * (kept[0] + kept[1] + kept[2] - 2));
+    assert.ok(fill.fillCount <= 3 * MARK_STANDIN_VERTICES);
+    assert.equal(fill.fillCount, buildMarkStandIn(g, regime, vertices)!.fillCount);
+  }
+  // Nearly the same surface as the real fill (flat view: the triangles' area).
+  const area = (f: { fill: Float32Array; fillCount: number }) => {
+    let a = 0;
+    for (let t = 0; t < f.fillCount; t += 3) {
+      const [x0, y0, x1, y1, x2, y2] = [0, 1, 2].flatMap((c) => [
+        f.fill[(t + c) * MARK_FILL_FLOATS],
+        f.fill[(t + c) * MARK_FILL_FLOATS + 1],
+      ]);
+      a += Math.abs((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)) / 2;
+    }
+    return a;
+  };
+  const real = area(buildMarkFill(g, "merc")!);
+  assert.ok(near(area(buildMarkStandIn(g, "merc")!), real, 1e-3));
+  // A small unit's is its own outline, whole.
+  assert.equal(buildMarkStandIn(square(), "merc")!.fillCount, 6);
+  // Nothing left to fill: null.
+  assert.equal(buildMarkStandIn({ type: "Polygon", coordinates: [] }, "merc"), null);
+  assert.equal(buildMarkStandIn({ type: "Point", coordinates: [1, 2] }, "globe"), null);
+  assert.equal(buildMarkStandIn(g, "merc", 10_000_000), null); // thinned to nothing
 });
 
 test("the line's ease: from where it is to its step, ease-out, exact at both ends", () => {
@@ -288,23 +397,31 @@ test("the line's ease: from where it is to its step, ease-out, exact at both end
   assert.ok(mid > 0.4 && mid < 0.6); // past the middle: ease-out
 });
 
-test("the creep: toward a ceiling short of the end, never under its base, frozen after a while", () => {
-  for (const base of [0, 0.25, 0.54, 0.8, 0.9, 0.95]) {
-    const ceil = creepCeil(base);
-    assert.ok(ceil >= base, `ceil ${ceil} ≥ base ${base}`);
-    assert.ok(ceil <= Math.max(base, MARK_CREEP_MAX));
-    let last = base;
-    for (let ms = 0; ms <= 10_000; ms += 250) {
-      const v = creepShown(base, ms);
-      assert.ok(v >= last - 1e-12 && v <= ceil, `${base} at ${ms}: ${v}`);
-      last = v;
-    }
-    assert.equal(creepShown(base, MARK_CREEP_FREEZE_MS), creepShown(base, 60_000)); // frozen
-    assert.equal(creepShown(base, 0), base);
-    assert.equal(creepShown(base, -5), base);
+test("the creep: a small lead on top of the real value, frozen after a while, never the end", () => {
+  assert.equal(creepLead(0), 0);
+  assert.equal(creepLead(-5), 0);
+  let last = 0;
+  for (let ms = 0; ms <= 10_000; ms += 250) {
+    const lead = creepLead(ms);
+    assert.ok(lead >= last && lead < MARK_CREEP_LEAD, `${ms}: ${lead}`);
+    last = lead;
   }
-  assert.equal(creepCeil(0), 0.5);
-  assert.equal(creepCeil(0.95), 0.95); // past the cap already: no creep at all
+  assert.equal(creepLead(MARK_CREEP_FREEZE_MS), creepLead(60_000)); // frozen
+  assert.ok(creepLead(MARK_CREEP_FREEZE_MS) > MARK_CREEP_LEAD * 0.9);
+  assert.ok(MARK_CREEP_LEAD <= 0.08); // a few hundredths of the boundary
+  for (const real of [0, 0.164, 0.25, 0.54, 0.8, 0.88, 0.9, 0.95]) {
+    for (let ms = 0; ms <= 10_000; ms += 250) {
+      const v = creepShown(real, ms);
+      // Never under the real value, never more than the lead past it.
+      assert.ok(v >= real && v <= real + MARK_CREEP_LEAD, `${real} at ${ms}: ${v}`);
+      assert.ok(v <= Math.max(real, MARK_CREEP_MAX));
+    }
+    assert.equal(creepShown(real, 0), real);
+  }
+  // The lead is the same whatever the real value: a real step of any length
+  // moves the line by that length.
+  assert.ok(near(creepShown(0.4, 2000) - creepShown(0.164, 2000), 0.4 - 0.164));
+  assert.equal(creepShown(0.95, 4000), 0.95); // past the cap already: no lead at all
 });
 
 test("a fade: 1 until it starts, linear, 0 from its end — and at once without a time", () => {
@@ -313,7 +430,9 @@ test("a fade: 1 until it starts, linear, 0 from its end — and at once without 
   assert.ok(near(fadeAlpha(1058.5, 1000, 117), 0.5));
   assert.equal(fadeAlpha(1117, 1000, 117), 0);
   assert.equal(fadeAlpha(1500, 1000, 117), 0);
-  assert.equal(fadeAlpha(1000, 1000, 0), 0); // reduced motion: gone in one frame
+  // No time: a plain step at its start (reduced motion).
+  assert.equal(fadeAlpha(1000, 1000, 0), 0);
+  assert.equal(fadeAlpha(999, 1000, 0), 1);
 });
 
 test("the unfill: the fade squared — most of the violet gone early, the same ends", () => {
@@ -322,6 +441,7 @@ test("the unfill: the fade squared — most of the violet gone early, the same e
   assert.ok(near(unfillAlpha(1058.5, 1000, 117), 0.25));
   assert.equal(unfillAlpha(1117, 1000, 117), 0);
   assert.equal(unfillAlpha(1000, 1000, 0), 0);
+  assert.equal(unfillAlpha(990, 1000, 0), 1); // reduced motion: whole until its step
 });
 
 test("the fill's threshold draws the asked share of the hover fill's opacity", () => {

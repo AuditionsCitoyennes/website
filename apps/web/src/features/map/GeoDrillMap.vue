@@ -354,7 +354,8 @@ let lastMark: {
 
 /** How the mark moves now (shared/device/motion): the line eases between
  *  steps under full motion and jumps otherwise; the fill's fade is shorter
- *  under short motion; reduced motion fades nothing. */
+ *  under short motion; reduced motion eases and fades nothing — the end is
+ *  two plain steps (the pass holds each one a few frames). */
 function markMotion(): MarkMotion {
   const reduced = prefersReducedMotion();
   const motion = motionNow();
@@ -443,8 +444,8 @@ function showMark(
       fill: mark.fill,
       spanDeg,
       rgb: TAP_LINE_RGB[tapLineColor.value],
-      // The slow slide between steps: not under reduced motion; under short
-      // motion (a weak device's) drawn a few times a second only.
+      // The small lead of ac:tap-steps "creep": not under reduced motion;
+      // under short motion (a weak device's) drawn a few times a second only.
       creep: tapStepsMode.value === "creep" && motion.animate,
       creepTickMs: motion.stepMs > 0 ? MARK_CREEP_TICK_MS : MARK_CREEP_TICK_SHORT_MS,
     },
@@ -460,10 +461,23 @@ function showMark(
 
 /** A real step toward the plateau of unit `id` (the parent: its outline's
  *  file; the pipeline: its run). Another unit's is ignored. The line follows;
- *  the data all in, the fill starts to leave. */
+ *  the data all in, the fill starts to leave. A run that starts without the
+ *  unit's file ends the mark instead, its line where it stood. */
 function pendingStep(id: string, step: TapStep) {
   const r = tapProgress.note(id, step);
-  if (step.t === "run" && tapProgress.id() === id) markLate(id);
+  if (step.t === "run" && tapProgress.id() === id) {
+    if (tapProgress.waived()) {
+      // The run starts on a coarser outline, the unit's file given up on
+      // (ac:outline-wait): the line has measured a file that has not come,
+      // so it is not run to the end — the mark fades where it stands, and
+      // the plateau's rise waits for that fade (the pass's gate). A unit
+      // with no mark yet gets none.
+      unmarked = null;
+      if (plateauWall.pendingId === id) plateauWall.drainPending(markMotion());
+      return;
+    }
+    markLate(id);
+  }
   if (!r || plateauWall.pendingId !== id) return;
   if (r.done) {
     plateauWall.finishPending(markMotion(), tapEndMode.value);

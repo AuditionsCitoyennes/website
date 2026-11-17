@@ -23,10 +23,11 @@
 // A run that starts while the outline's file is still on its way rises on a
 // coarser outline of the unit, in memory since before the tap (the page
 // stopped waiting for the file: geo-nav's selfHold, ac:outline-wait). The
-// line measures what the plateau rises on: from then on the file is no
-// longer part of it. It is never counted as arrived, and nothing jumps: the
-// value keeps what it showed, and what is left of the boundary is shared
-// among the run's own requirements (re-based: the run, the key, the mesh).
+// file the line measured has not come, and no timer may move the line: from
+// then on the tap is `waived` — the value keeps what it showed, never 1,
+// `note` answers null, and the page lets the mark fade where it stands
+// before that plateau rises (GeoDrillMap.pendingStep). Only a later run that
+// finds the file stored (« Réessayer ») counts again.
 //
 // 1 means "the data of the run that was current is all in". A later run for
 // the same unit (a finer outline landing during the sink, the relief lost
@@ -68,10 +69,9 @@ interface State {
   stored: boolean;
   /** The current run's needs. */
   run: { key: boolean; mesh: boolean } | null;
-  /** A run started without the outline's file: the file left the count,
-   *  the value it showed then (`base`) is where the rest starts from. */
+  /** The current run started without the outline's file: the value is
+   *  kept as it was. */
   waived: boolean;
-  base: number;
   keyIn: boolean;
   meshIn: boolean;
   settled: boolean;
@@ -102,10 +102,7 @@ export function createTapProgress() {
       TAP_WEIGHT_RUN +
       (c.run.key && c.keyIn ? TAP_WEIGHT_KEY : 0) +
       (c.run.mesh && c.meshIn ? TAP_WEIGHT_MESH : 0);
-    // The file given up on: what the line had not covered, shared among the
-    // run's own requirements.
-    if (c.waived) return Math.min(TAP_OPEN_CAP, c.base + (1 - c.base) * (restIn / rest));
-    // Else a run is declared with the outline in memory: its weight is in.
+    // A run is declared with the outline in memory: its weight is in.
     return Math.min(TAP_OPEN_CAP, (cold + restIn) / (cold + rest));
   }
 
@@ -125,7 +122,6 @@ export function createTapProgress() {
         stored: false,
         run: null,
         waived: false,
-        base: 0,
         keyIn: false,
         meshIn: false,
         settled: false,
@@ -150,12 +146,9 @@ export function createTapProgress() {
           break;
         }
         case "run":
-          // Without the outline's file: it leaves the count (once: a later
-          // run keeps the base the first one took).
-          if (c.cold && !c.stored && !c.waived) {
-            c.waived = true;
-            c.base = c.value;
-          }
+          // Without the outline's file: the line stops where it is — until
+          // a later run finds the file stored (a retry's).
+          c.waived = c.cold && !c.stored;
           // A new run: its own key and mesh are still to come.
           c.run = { key: step.key, mesh: step.mesh };
           c.keyIn = false;
@@ -171,6 +164,7 @@ export function createTapProgress() {
           c.settled = true;
           break;
       }
+      if (c.waived) return null; // the file has not come: nothing moves the line
       const next = Math.max(c.value, compute(c));
       if (next === c.value) return null;
       c.value = next;
@@ -183,6 +177,8 @@ export function createTapProgress() {
     /** The unit followed, "" when none, and its value (0 when none). */
     id: () => s?.id ?? "",
     value: () => s?.value ?? 0,
+    /** A run for the unit started without its outline's file. */
+    waived: () => !!s?.waived,
     /** What the testing tools read. */
     state: () => (s ? { ...s, expect: { ...s.expect }, run: s.run ? { ...s.run } : null } : null),
   };

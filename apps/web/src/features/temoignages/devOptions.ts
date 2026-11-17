@@ -377,13 +377,13 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Avancée de la ligne",
     choices: [
-      { id: "creep", label: "En continu" },
       { id: "steps", label: "Par étapes" },
+      { id: "creep", label: "En continu" },
     ],
     explain:
-      "Comment la ligne de chargement avance entre deux arrivées de données. « En continu » (par défaut) : elle avance à chaque donnée qui arrive et, pendant l'attente, glisse aussi lentement vers l'étape suivante, sans jamais l'atteindre avant la donnée ni faire le tour complet avant que tout soit arrivé ; « Par étapes » : elle ne bouge que lorsqu'une donnée arrive. Sans effet si Réponse au toucher est « Aucune ».",
+      "Comment la ligne de chargement avance entre deux arrivées de données. « Par étapes » (par défaut) : elle ne bouge que lorsqu'une donnée arrive ; « En continu » : elle glisse aussi un peu pendant l'attente, de quelques centièmes de la frontière au plus au-delà de ce qui est arrivé, sans jamais faire le tour complet avant que tout soit arrivé. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
-    defaultId: "creep",
+    defaultId: "steps",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
@@ -432,15 +432,15 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Attente du contour",
     choices: [
-      { id: "1200", label: "1,2 s" },
       { id: "file", label: "Le fichier" },
+      { id: "1200", label: "1,2 s" },
       { id: "400", label: "0,4 s" },
       { id: "0", label: "Aucune" },
     ],
     explain:
-      "Le contour précis d'un territoire arrive par un fichier. S'il tarde, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile ; la ligne de chargement mesure alors ce sur quoi le territoire se soulève, et ne compte plus ce fichier. « 1,2 s » (par défaut) attend le fichier jusqu'à 1,2 seconde, comme avant ; « Le fichier » fait attendre un territoire touché ou cliqué jusqu'à l'arrivée de son fichier (4 secondes au plus), pour qu'il se soulève directement sur son contour précis, la ligne avançant avec le fichier ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
+      "Le contour précis d'un territoire arrive par un fichier. « Le fichier » (par défaut) : un territoire touché ou cliqué attend son fichier, 4 secondes au plus, la ligne de chargement avançant avec lui, et se soulève directement sur son contour précis ; un territoire atteint autrement (un déplacement de la carte, le fil d'Ariane, un lien) l'attend 1,2 seconde. Passé ce délai, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile ; la marque du toucher s'efface alors là où elle en est, sans que la ligne ait fait le tour. « 1,2 s » attend le fichier 1,2 seconde dans tous les cas, comme avant ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
     reloads: false,
-    defaultId: "1200",
+    defaultId: "file",
   },
   {
     key: "ac:region-self",

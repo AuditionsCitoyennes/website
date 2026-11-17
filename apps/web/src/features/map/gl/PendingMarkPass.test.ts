@@ -4,10 +4,12 @@
 // mark held stays idle); the line is built with the fill, not drawn at 0 and
 // never shows more than its target; a step eases over a bounded number of
 // frames, or jumps; the data all in, the line first, then the fill fades and
-// the gate falls to 0; the release rides the new lid; a large unit's meshes
-// come from off the frame and join only while the mark still waits, and are
-// never built for a mark that can no longer show them; nothing is rebuilt
-// for the same geometry; dropped meshes leave the GPU. Run with
+// the gate falls to 0 (reduced motion: two plain steps, each held); the
+// release rides the new lid; a large unit is filled with a stand-in in the
+// tap's frame, its real meshes come from off the frame and take its place,
+// and are never built for a mark that can no longer show them; the creep's
+// lead is small, bounded, and rides on top of the real value; nothing is
+// rebuilt for the same geometry; dropped meshes leave the GPU. Run with
 // `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
@@ -19,16 +21,21 @@ import {
   type PendingMarkSpec,
 } from "./PendingMarkPass";
 import {
+  G_MARK_LINE_FLOATS,
   MARK_CREEP_FREEZE_MS,
+  MARK_CREEP_LEAD,
   MARK_CREEP_TICK_MS,
   MARK_CREEP_TICK_SHORT_MS,
   MARK_FADE_MS,
   MARK_GROUND_LINE_M,
+  MARK_LINE_FLOATS,
   MARK_LINE_HOLD_CAP_MS,
   MARK_LINE_MIN_SHARE,
   MARK_LINE_WIDTH,
   MARK_PAGE_MAX_VERTICES,
+  MARK_REDUCED_HOLD_MS,
   MARK_REF_M,
+  MARK_STANDIN_VERTICES,
   MARK_STEP_MS,
   MARK_UNFILL_MS,
   buildMark,
@@ -83,7 +90,7 @@ const FULL: MarkMotion = {
 };
 /** Short motion (a weak device): the line jumps, the fill's fade is shorter. */
 const SHORT: MarkMotion = { animate: true, stepMs: 0, unfillMs: 47, outMs: MARK_FADE_MS };
-/** Reduced motion: nothing fades. */
+/** Reduced motion: nothing eases, nothing fades. */
 const STILL: MarkMotion = { animate: false, stepMs: 0, unfillMs: 0, outMs: MARK_FADE_MS };
 
 /** A context that records the calls made on it; locations are their names. */
@@ -229,7 +236,7 @@ test("the line is built with the fill, in the first frame, and not drawn at prog
   pass.set(spec());
   frame();
   assert.equal(count("drawArraysInstanced"), 0);
-  assert.equal(pass.state()!.lineBytes, 4 * 8 * 4); // four segments, 32 bytes each
+  assert.equal(pass.state()!.lineBytes, 4 * MARK_LINE_FLOATS * 4); // four segments
   assert.equal(count("bufferData"), 2);
   pass.setProgress(0.25, SHORT);
   frame();
@@ -250,7 +257,7 @@ test("a line alone (no fill asked) is built at its first progress", () => {
   assert.equal(count("bufferData"), 0);
   pass.setProgress(0.25, SHORT);
   frame();
-  assert.equal(pass.state()!.lineBytes, 4 * 8 * 4);
+  assert.equal(pass.state()!.lineBytes, 4 * MARK_LINE_FLOATS * 4);
   assert.equal(count("drawArraysInstanced"), 1);
 });
 
@@ -375,22 +382,6 @@ test("the gate is 0 for anything that is not a fill on screen under « then »",
   bad.frame();
   bad.pass.finish(FULL, "then");
   assert.equal(bad.pass.gateMs(), 0);
-  // A large unit's fill, not arrived.
-  const late = harness();
-  const p = provider();
-  late.pass.setProvider(p);
-  late.pass.set(spec({ g: large() }));
-  late.frame();
-  late.pass.finish(FULL, "then");
-  assert.equal(late.pass.gateMs(), 0);
-  // Reduced motion.
-  const still = harness();
-  still.pass.set(spec());
-  still.frame();
-  still.pass.finish(STILL, "then");
-  assert.equal(still.pass.gateMs(), 0);
-  still.frame();
-  assert.equal(still.pass.state()!.fillAlpha, 0); // gone in one frame
   // « together ».
   const together = harness();
   together.pass.set(spec());
@@ -398,6 +389,54 @@ test("the gate is 0 for anything that is not a fill on screen under « then »",
   together.pass.finish(FULL, "together");
   assert.equal(together.pass.gateMs(), 0);
   assert.equal(together.pass.state()!.fillAlpha, 1); // the fill waits for the rise
+});
+
+test("reduced motion: the end is two plain steps — the line whole over the fill, then the fill gone — and the gate covers both", () => {
+  const h = harness();
+  h.pass.set(spec());
+  h.frame();
+  h.pass.setProgress(0.4, STILL);
+  h.frame();
+  let before = h.repaints();
+  h.pass.finish(STILL, "then");
+  assert.equal(h.repaints(), before + 1);
+  assert.equal(h.pass.gateMs(), 2 * MARK_REDUCED_HOLD_MS);
+  // The first step: the line whole, at once, the violet still there.
+  h.frame();
+  assert.equal(h.shown(), 1);
+  assert.equal(h.uniform("uProgress"), MARK_PROGRESS_FULL);
+  assert.equal(h.pass.state()!.fillAlpha, 1);
+  assert.equal(h.uniform("uFillT"), fillThreshold(1)); // never a partial opacity
+  // Held: no frame asked while nothing changes.
+  before = h.repaints();
+  h.advance(MARK_REDUCED_HOLD_MS - 1);
+  h.frame();
+  assert.equal(h.repaints(), before);
+  assert.equal(h.pass.state()!.fillAlpha, 1);
+  // The second step, by a timer: the fill gone in one frame, the line whole.
+  h.advance(1);
+  assert.equal(h.repaints(), before + 1);
+  const fills = h.count("drawArrays");
+  h.frame();
+  assert.equal(h.count("drawArrays"), fills);
+  assert.equal(h.pass.state()!.fillAlpha, 0);
+  assert.equal(h.pass.gateMs(), MARK_REDUCED_HOLD_MS); // seen unfilled before it rises
+  assert.equal(h.pass.active, true);
+  h.advance(MARK_REDUCED_HOLD_MS);
+  assert.equal(h.pass.gateMs(), 0);
+  // The rise: the mark goes at once.
+  before = h.repaints();
+  h.pass.release(1500, STILL);
+  assert.equal(h.pass.active, false);
+  h.advance(10_000);
+  assert.equal(h.timers.size, 0);
+  // « together »: no step of its own, no gate.
+  const together = harness();
+  together.pass.set(spec());
+  together.frame();
+  together.pass.finish(STILL, "together");
+  assert.equal(together.pass.gateMs(), 0);
+  assert.equal(together.pass.state()!.fillAlpha, 1);
 });
 
 test("the data in before any frame: the fill still shows and fades, the gate counts it", () => {
@@ -442,7 +481,7 @@ test("a regime first drawn once the violet is gone: the line alone is built, nev
   assert.equal(h.count("bufferData"), uploads + 1); // the line's segments only
   const s = h.pass.state()!;
   assert.equal(s.fillBytes, 6 * 4 * 4); // the flat view's fill, no globe fill
-  assert.equal(s.lineBytes, 4 * 8 * 4 + 4 * 20 * 4);
+  assert.equal(s.lineBytes, 4 * MARK_LINE_FLOATS * 4 + 4 * G_MARK_LINE_FLOATS * 4);
 });
 
 test("after a blocked main thread: one frame shows the line at its target, the fill gone, in order", () => {
@@ -531,7 +570,7 @@ test("on the globe a mark draws in its own pass only: ground before the walls, r
   draw(false);
   assert.equal(h.count("drawArrays"), 1);
   assert.equal(h.count("drawArraysInstanced"), 1);
-  assert.equal(h.pass.state()!.lineBytes, 4 * 20 * 4); // the globe's records, 80 bytes each
+  assert.equal(h.pass.state()!.lineBytes, 4 * G_MARK_LINE_FLOATS * 4); // the globe's records
   // Released: its plateau rises — the raised pass from now.
   h.pass.finish(FULL, "together");
   h.pass.release(1500, FULL);
@@ -685,34 +724,46 @@ test("a geometry no builder reads: given up, never retried, never thrown", () =>
   assert.equal(h.count("bufferData"), 0);
 });
 
-test("a large unit: nothing is built in the tap's frame; its meshes come from the provider and join", async () => {
+test("a large unit: a stand-in fill in the tap's frame, nothing triangulated whole; its real meshes come from the provider and take its place", async () => {
   const h = harness();
   const p = provider();
   h.pass.setProvider(p);
   const g = large();
   h.pass.set(spec({ g }), 0.3);
-  assert.equal(h.pass.fillAtOnce("merc"), false);
+  assert.equal(h.pass.fillAtOnce("merc"), true); // the stand-in, by the first frame
   h.frame();
-  assert.equal(h.count("bufferData"), 0);
-  assert.equal(h.count("drawArrays"), 0);
+  assert.equal(h.count("bufferData"), 1); // the stand-in alone
+  assert.equal(h.count("drawArrays"), 1);
+  assert.equal(h.count("drawArraysInstanced"), 0); // no line yet
+  let s = h.pass.state()!;
+  assert.deepEqual(
+    [s.fillVia, s.fillLateMs, s.fillPlain, s.lineSegs],
+    ["stand-in", null, true, null],
+  );
+  // The cost of a small unit's: about MARK_STANDIN_VERTICES boundary vertices.
+  const whole = buildMark(g, "merc")!;
+  assert.ok(s.fillVerts! <= 3 * MARK_STANDIN_VERTICES, `${s.fillVerts} vertices`);
+  assert.ok(s.fillVerts! < whole.fill.fillCount / 2);
+  assert.equal(h.pass.ownsFill("merc"), true);
   assert.deepEqual(
     p.asks.map((a) => [a.regime, a.front]),
     [["merc", true]],
   );
-  h.frame(); // asked once
+  h.frame(); // asked once, the stand-in built once
   assert.equal(p.asks.length, 1);
+  assert.equal(h.count("bufferData"), 1);
   h.advance(20);
   const before = h.repaints();
-  p.asks[0].answer(buildMark(g, "merc"));
+  p.asks[0].answer(whole);
   await settle();
   assert.equal(h.repaints(), before + 1); // one repaint for the arrival
-  assert.deepEqual(h.filled, ["fr:dep:69"]);
+  assert.deepEqual(h.filled, []); // the violet was there: nothing to hand over
   h.frame();
-  assert.equal(h.count("drawArrays"), 1);
+  assert.equal(h.count("drawArrays"), 3);
   assert.equal(h.count("drawArraysInstanced"), 1); // the line came with it
-  const s = h.pass.state()!;
-  assert.equal(s.fillVia, "worker");
-  assert.equal(s.fillLateMs, 20);
+  s = h.pass.state()!;
+  assert.deepEqual([s.fillVia, s.fillLateMs, s.fillPlain], ["stand-in", null, false]);
+  assert.equal(s.fillVerts, whole.fill.fillCount);
   assert.equal(h.pass.ownsFill("merc"), true);
   // The other regime, should the projection change: asked behind the builds.
   h.pass.prepare(h.gl, "globe");
@@ -723,6 +774,45 @@ test("a large unit: nothing is built in the tap's frame; its meshes come from th
       ["globe", false],
     ],
   );
+});
+
+test("a large unit whose real fill lands before any frame joins the mark; the stand-in is then not built", async () => {
+  const h = harness();
+  const p = provider();
+  h.pass.setProvider(p);
+  const g = large();
+  h.pass.set(spec({ g }), 0.3, "merc");
+  h.advance(5);
+  p.asks[0].answer(buildMark(g, "merc"));
+  await settle();
+  assert.deepEqual(h.filled, ["fr:dep:69"]);
+  h.frame();
+  const s = h.pass.state()!;
+  assert.deepEqual([s.fillVia, s.fillLateMs, s.fillPlain], ["worker", 5, false]);
+  assert.equal(h.count("bufferData"), 3); // the fill, the line, the corners: no stand-in
+});
+
+test("a large unit's data all in before its first frame: the stand-in still shows and fades, the gate counts it", () => {
+  const h = harness(); // no provider: the page's own task builds the rest
+  h.pass.set(spec({ g: large() }), 0, "merc");
+  h.pass.finish(FULL, "then");
+  assert.equal(h.pass.gateMs(), MARK_STEP_MS / 2 + MARK_UNFILL_MS);
+  h.advance(10);
+  h.frame();
+  assert.equal(h.count("drawArrays"), 1); // the violet, on the unit
+  assert.equal(h.pass.state()!.fillVia, "stand-in");
+  // The task after the frame: the line alone, nothing triangulated.
+  assert.equal(h.deferred.length, 1);
+  const fillBytes = h.pass.state()!.fillBytes;
+  h.deferred[0]();
+  h.frame();
+  assert.equal(h.pass.state()!.fillBytes, fillBytes);
+  assert.equal(h.pass.state()!.fillPlain, true);
+  assert.equal(h.count("drawArraysInstanced"), 1); // the line, on its way to whole
+  h.run(400);
+  assert.equal(h.pass.state()!.fillAlpha, 0);
+  assert.equal(h.pass.gateMs(), 0);
+  assert.equal(h.deferred.length, 1); // asked once for this mark, not by every frame
 });
 
 test("a wide unit on the globe: a plain fill and its line in the tap's frame; the bisected fill, asked behind the builds, takes its place", async () => {
@@ -837,12 +927,13 @@ test("a large unit's meshes are asked at the tap itself when the regime is known
   assert.equal(q.asks.length, 0);
 });
 
-test("a large unit with no provider, or one that gives nothing: built in a task after the frame", async () => {
+test("a large unit with no provider, or one that gives nothing: its real meshes built in a task after the frame", async () => {
   for (const withProvider of [false, true]) {
     const h = harness();
     const p = provider();
     if (withProvider) h.pass.setProvider(p);
-    h.pass.set(spec({ g: large() }));
+    const g = large();
+    h.pass.set(spec({ g }), 0.3);
     h.frame();
     if (withProvider) {
       assert.equal(h.deferred.length, 0);
@@ -850,11 +941,15 @@ test("a large unit with no provider, or one that gives nothing: built in a task 
       await settle();
     }
     assert.equal(h.deferred.length, 1);
-    assert.equal(h.count("bufferData"), 0); // not in the frame
+    assert.equal(h.count("bufferData"), 1); // the stand-in: nothing else in the frame
+    assert.equal(h.count("drawArraysInstanced"), 0);
     h.deferred[0]();
     h.frame();
-    assert.equal(h.count("drawArrays"), 1);
-    assert.equal(h.pass.state()!.fillVia, "deferred");
+    assert.equal(h.count("drawArrays"), 2);
+    assert.equal(h.count("drawArraysInstanced"), 1);
+    const s = h.pass.state()!;
+    assert.deepEqual([s.fillVia, s.fillPlain], ["stand-in", false]);
+    assert.equal(s.fillVerts, buildMark(g, "merc")!.fill.fillCount);
   }
   // The task comes after the mark can no longer show a fill: nothing is
   // triangulated — the line alone for a mark held with its data all in,
@@ -869,15 +964,17 @@ test("a large unit with no provider, or one that gives nothing: built in a task 
     h.frame();
     return h;
   };
+  const standIn = late(() => {}).pass.state()!.fillBytes;
   const finished = late((h) => h.pass.finish(SHORT, "then"));
-  assert.equal(finished.pass.state()!.fillBytes, 0);
+  assert.ok(finished.pass.state()!.fillBytes < standIn); // the stand-in, as it was
+  assert.equal(finished.pass.state()!.fillPlain, true);
   assert.ok(finished.pass.state()!.lineBytes > 0);
-  assert.equal(finished.count("drawArrays"), 0);
   assert.equal(finished.count("drawArraysInstanced"), 1); // the line, whole
   const drained = late((h) => h.pass.drain(FULL));
-  assert.equal(drained.pass.state()!.fillBytes + drained.pass.state()!.lineBytes, 0);
+  assert.equal(drained.pass.state()!.lineBytes, 0);
+  assert.equal(drained.pass.state()!.fillPlain, true);
   const cleared = late((h) => h.pass.clear());
-  assert.equal(cleared.count("bufferData"), 0);
+  assert.equal(cleared.count("bufferData"), 1); // the stand-in's upload, before the clear
   // …and a later mark of the same geometry (« Réessayer ») asks again.
   drained.run(300);
   drained.pass.set(spec({ g }), 0.3);
@@ -885,7 +982,8 @@ test("a large unit with no provider, or one that gives nothing: built in a task 
   assert.equal(drained.deferred.length, 2);
   drained.deferred[1]();
   drained.frame();
-  assert.equal(drained.count("drawArrays"), 1);
+  assert.equal(drained.pass.state()!.fillPlain, false);
+  assert.equal(drained.count("drawArraysInstanced"), 1);
   // A provider that is not live is not asked.
   const h = harness();
   const dead = provider(false);
@@ -896,7 +994,7 @@ test("a large unit with no provider, or one that gives nothing: built in a task 
   assert.equal(h.deferred.length, 1);
 });
 
-test("a fill that lands after the data was all in, the drain, a clear or a newer mark does not join", async () => {
+test("real meshes that land after the data was all in, the drain, a clear or a newer mark", async () => {
   const g = large();
   const arrive = async (act: (h: ReturnType<typeof harness>) => void) => {
     const h = harness();
@@ -910,22 +1008,28 @@ test("a fill that lands after the data was all in, the drain, a clear or a newer
     h.frame();
     return h;
   };
+  // The data all in: the fill on screen (the stand-in) is the one leaving,
+  // on the true boundary from now; the line is whole; the gate counts it.
   const finished = await arrive((h) => h.pass.finish(FULL, "then"));
-  assert.equal(finished.count("drawArrays"), 0); // no fill
-  assert.equal(finished.count("drawArraysInstanced"), 1); // the line, whole
-  assert.equal(finished.pass.gateMs(), 0);
+  assert.equal(finished.count("drawArrays"), 2);
+  assert.equal(finished.count("drawArraysInstanced"), 1);
+  assert.equal(finished.pass.gateMs(), MARK_STEP_MS / 2 + MARK_UNFILL_MS);
   assert.deepEqual(finished.filled, []);
-  assert.equal(finished.pass.ownsFill("merc"), false);
+  assert.equal(finished.pass.ownsFill("merc"), true);
+  finished.run(400);
+  assert.equal(finished.pass.state()!.fillAlpha, 0);
+  // Draining: drawn as it fades, and kept — a retry draws it in its first frame.
   const drained = await arrive((h) => h.pass.drain(FULL));
-  assert.equal(drained.count("drawArrays"), 0);
-  // …but it is kept: a retry draws it in its first frame.
   drained.run(300);
+  assert.equal(drained.pass.active, false);
+  const fills = drained.count("drawArrays");
   drained.pass.set(spec({ g }), 0.3);
   assert.equal(drained.pass.fillAtOnce("merc"), true);
   drained.frame();
-  assert.equal(drained.count("drawArrays"), 1);
+  assert.equal(drained.count("drawArrays"), fills + 1);
+  assert.equal(drained.pass.state()!.fillPlain, false);
   const cleared = await arrive((h) => h.pass.clear());
-  assert.equal(cleared.count("bufferData"), 0);
+  assert.equal(cleared.count("bufferData"), 1); // the stand-in's, before the clear
   const replaced = await arrive((h) => h.pass.set(spec({ id: "b", g: square(8) })));
   assert.equal(replaced.pass.state()!.fillVerts, 6); // b's own square, not the large unit
 });
@@ -943,11 +1047,9 @@ test("a full line whose plateau never rises is cleared by a timer, not by a fram
   assert.equal(h.timers.size, 0);
 });
 
-test("the creep: a tick asks for a frame unless one was drawn, never past its ceiling, and stops", () => {
+test("the creep: a small lead over the first seconds, a tick's frame unless one was drawn, then nothing", () => {
   const h = harness();
   h.pass.set(spec({ creep: true }));
-  h.frame();
-  h.pass.setProgress(0.25, FULL);
   h.frame();
   // A second of waiting on a still map: about ten frames asked, by the ticks.
   // (The map draws a frame only when one is asked.)
@@ -960,35 +1062,53 @@ test("the creep: a tick asks for a frame unless one was drawn, never past its ce
   const asked = h.repaints() - before;
   assert.ok(asked >= 9 && asked <= 11, `${asked} frames asked in a second`);
   const at1s = h.shown();
-  assert.ok(at1s > 0.25 && at1s < 0.625, `shown ${at1s}`);
+  assert.ok(at1s > 0 && at1s < MARK_CREEP_LEAD, `shown ${at1s}`); // with no data at all
+  assert.equal(h.pass.state()!.progress.target, 0);
+  // A real step moves the line by its own length, whatever the lead: the
+  // real value under it, the lead on top.
+  h.pass.setProgress(0.25, FULL);
+  h.advance(MARK_STEP_MS);
+  const stepped = h.shown();
+  assert.ok(stepped >= 0.25 + at1s, `shown ${stepped}`);
+  assert.ok(stepped <= 0.25 + MARK_CREEP_LEAD);
   // A map that draws frames of its own (a flight): the ticks ask for none.
+  h.frame();
   before = h.repaints();
   for (let i = 0; i < 50; i++) {
     h.advance(20);
     h.frame();
   }
   assert.equal(h.repaints(), before);
-  // Past the freeze: no tick left, no frame asked, the value at rest.
+  // Past the freeze: no tick left, no frame asked, the value at rest —
+  // never more than the lead past the real value.
   h.advance(MARK_CREEP_FREEZE_MS);
   h.frame();
   const rest = h.shown();
-  assert.ok(rest < 0.625);
+  assert.ok(rest > 0.25 && rest <= 0.25 + MARK_CREEP_LEAD, `shown ${rest}`);
   before = h.repaints();
   h.advance(5000);
   h.frame();
   assert.equal(h.repaints(), before);
   assert.equal(h.shown(), rest);
   assert.equal(h.timers.size, 0);
-  // A real step under what is shown does not pull the line back.
+  // A later real step: the line moves by the step, and no tick starts again.
   h.pass.setProgress(0.3, FULL);
-  assert.ok(h.shown() >= rest);
-  // The data all in: no creep any more, the line goes to the end.
+  assert.equal(h.shown(), rest); // no jump at the step
+  h.advance(MARK_STEP_MS);
+  assert.ok(Math.abs(h.shown() - (rest + 0.05)) < 1e-9, `shown ${h.shown()}`);
+  assert.equal(h.timers.size, 0);
+  // A real value near the end is shown as it is, never pushed further.
+  h.pass.setProgress(0.95, FULL);
+  h.advance(MARK_STEP_MS);
+  assert.equal(h.shown(), 0.95);
+  // The data all in: the line goes to the end, never back.
   h.pass.finish(FULL, "then");
+  assert.equal(h.shown(), 0.95);
   h.advance(MARK_STEP_MS);
   assert.equal(h.shown(), 1);
 });
 
-test("the creep under short motion: a tick four times a second at most, the line still short of its ceiling", () => {
+test("the creep under short motion: a tick four times a second at most; the lead is kept at the end", () => {
   const h = harness();
   h.pass.set(spec({ creep: true, creepTickMs: MARK_CREEP_TICK_SHORT_MS }));
   h.frame();
@@ -1006,10 +1126,10 @@ test("the creep under short motion: a tick four times a second at most, the line
   assert.ok(asked >= 7 && asked <= 8, `${asked} frames asked in two seconds`);
   assert.equal(frames, asked);
   const at2s = h.shown();
-  assert.ok(at2s > 0.2 && at2s < 0.5, `shown ${at2s}`); // from nothing, with no data: it grows
-  // The first real step, a jump under short motion: never back, never past the ceiling.
+  assert.ok(at2s > 0.03 && at2s < MARK_CREEP_LEAD, `shown ${at2s}`);
+  // The first real step, a jump under short motion: by its own length.
   h.pass.setProgress(0.25, SHORT);
-  assert.ok(h.shown() >= at2s);
+  assert.ok(Math.abs(h.shown() - (0.25 + at2s)) < 1e-9);
   h.pass.finish(SHORT, "then");
   assert.equal(h.shown(), 1);
   h.advance(10_000);

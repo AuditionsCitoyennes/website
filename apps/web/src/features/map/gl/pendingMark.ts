@@ -9,13 +9,21 @@
 // each vertex projected once (lib/mercator.ts projectInto), no object per
 // vertex.
 //
-// The line: one record per boundary segment — its two ends and, for each,
-// the share of the unit's WHOLE boundary reached there. The rings are run
-// one after the other, the longest first: one line grows around the
-// mainland, then around each island in turn, the islets last — never a dash
-// on every ring at once. The six corners of a segment's quad are the same
-// for every segment (gl/lineSegments.ts LINE_CORNERS), the segments drawn as
-// instances of it.
+// The line: one record per boundary segment — its two ends, for each the
+// share of the unit's WHOLE boundary reached there, and how wide a line its
+// ring can carry (below). The rings are run one after the other, the
+// longest first: one line grows around the mainland, then around each
+// island in turn, the islets last — never a dash on every ring at once. The
+// six corners of a segment's quad are the same for every segment
+// (gl/lineSegments.ts LINE_CORNERS), the segments drawn as instances of it.
+//
+// A ring's line is never wider than a share of the ring's own depth on
+// screen (its area over its perimeter: a disc's is a quarter of its
+// diameter, a ragged island's far less), so an islet, an enclave or a
+// shredded coast is drawn with a hairline instead of being smeared into a
+// blob. The record carries the ring's depth as a share of the whole
+// boundary's length; the shader turns it into pixels with the segment's own
+// pixels per length, so it follows the zoom with nothing rebuilt.
 //
 // The fill: flat triangles, in the hover fill's layout ([position,
 // distance], the distance always 0: no sweep), so the hover fill's programs
@@ -47,13 +55,16 @@ export const MARK_GROUND_FILL_M = 8;
 export const markLidFillM = (h: number) => h * 1.001;
 export const markLidLineM = (h: number) => h * 1.002;
 
-/** The loading line's width, CSS px (a boundary line is 0.9 to 1.7)… */
-export const MARK_LINE_WIDTH = 2.5;
+/** The loading line's width, CSS px, before the pixel of soft edge the
+ *  shader adds around it (a boundary line is 0.9 to 1.7)… */
+export const MARK_LINE_WIDTH = 2;
 /** …on a unit whose box is at least this wide on screen, CSS px; a smaller
- *  one's is thinner in proportion, down to this share of it (a 3 px line
- *  around an island twenty pixels across is a smear). */
-export const MARK_LINE_FULL_PX = 160;
-export const MARK_LINE_MIN_SHARE = 0.5;
+ *  one's is thinner in proportion, down to this share of it. */
+export const MARK_LINE_FULL_PX = 240;
+export const MARK_LINE_MIN_SHARE = 0.6;
+/** …and, around each ring, at most this share of the ring's depth on screen
+ *  (area / perimeter): the full width from a disc sixteen pixels across. */
+export const MARK_LINE_RING_SHARE = 0.5;
 
 /** The line's width, CSS px, around a unit whose box is `spanDeg` degrees
  *  wide, at the camera's `zoom` (512 px a world at zoom 0). */
@@ -70,6 +81,10 @@ export const MARK_FILL_SHARE = 1;
 export const MARK_STEP_MS = 100;
 /** The fill's fade once the data is all in, ms (the selection retract's time). */
 export const MARK_UNFILL_MS = 117;
+/** Reduced motion, where nothing fades: the end is two plain steps, each
+ *  held this long — the line whole over the fill, then the fill gone —
+ *  before the plateau rises, ms (three frames: seen, not animated). */
+export const MARK_REDUCED_HOLD_MS = 50;
 /** The line's fade once the plateau rises (or the wait turned late), ms. */
 export const MARK_FADE_MS = 117;
 /** A full line whose plateau never rose is cleared this long after its
@@ -94,16 +109,25 @@ export const MARK_PAGE_MAX_SPAN_DEG = 20;
 /** The globe fill's longest edge, degrees of arc. */
 export const MARK_FILL_MAX_EDGE_DEG = 2;
 
-/** `ac:tap-steps=creep`: between two real steps the line slides toward a
- *  ceiling short of the next step, with this time constant, and stops this
- *  long after the last real step; a repaint is asked at most this often —
- *  less often under short motion (a weak device's): four frames a second at
- *  most, and none while the map draws its own. */
-export const MARK_CREEP_TAU_MS = 2500;
+/** A large unit's first fill (built on the page, in the frame that answers
+ *  the tap, while its real meshes are built off that frame): its outline
+ *  thinned to about this many boundary vertices. */
+export const MARK_STANDIN_VERTICES = 1500;
+
+/** `ac:tap-steps=creep`: over the first seconds after the tap the line also
+ *  slides ahead of what has arrived — by MARK_CREEP_LEAD of the boundary at
+ *  most, with this time constant, frozen MARK_CREEP_FREEZE_MS after the tap.
+ *  The lead rides on top of the real value: a real step always moves the
+ *  line by its own length. A repaint is asked at most every
+ *  MARK_CREEP_TICK_MS while the lead grows — less often under short motion
+ *  (a weak device's), and none while the map draws frames of its own. */
+export const MARK_CREEP_LEAD = 0.06;
+export const MARK_CREEP_TAU_MS = 1500;
 export const MARK_CREEP_FREEZE_MS = 4000;
 export const MARK_CREEP_TICK_MS = 100;
 export const MARK_CREEP_TICK_SHORT_MS = 250;
-/** The creep never shows more than this before the data is all in. */
+/** The lead never takes the line past this before the data is all in (a
+ *  real value past it is shown as it is). */
 export const MARK_CREEP_MAX = 0.9;
 
 /** The line's value `t` (0..1) of the way through an ease from `from` to
@@ -114,23 +138,23 @@ export function easeStep(from: number, to: number, t: number): number {
   return from + (to - from) * (1 - Math.pow(1 - t, 3));
 }
 
-/** How far the creep may go from `base`: half of what is left, MARK_CREEP_MAX
- *  at most, never under `base` itself. */
-export function creepCeil(base: number): number {
-  return Math.max(base, Math.min(MARK_CREEP_MAX, base + 0.5 * (1 - base)));
+/** How far ahead of the real value the creeping line is, `ms` after the tap. */
+export function creepLead(ms: number): number {
+  const t = Math.min(Math.max(0, ms), MARK_CREEP_FREEZE_MS);
+  return MARK_CREEP_LEAD * (1 - Math.exp(-t / MARK_CREEP_TAU_MS));
 }
 
-/** The creeping line's value `ms` after the last real step left it at `base`. */
-export function creepShown(base: number, ms: number): number {
-  const t = Math.min(Math.max(0, ms), MARK_CREEP_FREEZE_MS);
-  return base + (creepCeil(base) - base) * (1 - Math.exp(-t / MARK_CREEP_TAU_MS));
+/** The creeping line's value `ms` after the tap, the real value being `real`. */
+export function creepShown(real: number, ms: number): number {
+  if (real >= MARK_CREEP_MAX) return real;
+  return Math.min(MARK_CREEP_MAX, real + creepLead(ms));
 }
 
 /** A linear fade's opacity `now`: 1 until `t0`, 0 from `t0 + ms` (`t0` 0:
- *  not started, 1). */
+ *  not started, 1; `ms` 0: a plain step at `t0`). */
 export function fadeAlpha(now: number, t0: number, ms: number): number {
   if (!t0) return 1;
-  if (ms <= 0) return 0;
+  if (ms <= 0) return now >= t0 ? 0 : 1;
   const t = (now - t0) / ms;
   return t >= 1 ? 0 : t <= 0 ? 1 : 1 - t;
 }
@@ -176,11 +200,12 @@ export function markBuildPlace(
 }
 
 /** Floats per segment of the line: mercator [A.x, A.y, A.zRef, B.x, B.y,
- *  B.zRef, lenA, lenB], relative to the origin; globe [A: merc3, lo3,
- *  hiRef3; B: the same; lenA, lenB], absolute. lenA, lenB: the share of the
- *  whole boundary's length reached at each end. */
-export const MARK_LINE_FLOATS = 8;
-export const G_MARK_LINE_FLOATS = 20;
+ *  B.zRef, lenA, lenB, depth], relative to the origin; globe [A: merc3, lo3,
+ *  hiRef3; B: the same; lenA, lenB, depth], absolute. lenA, lenB: the share
+ *  of the whole boundary's length reached at each end. depth: the segment's
+ *  ring's area over its perimeter, as a share of that same length. */
+export const MARK_LINE_FLOATS = 9;
+export const G_MARK_LINE_FLOATS = 21;
 /** Floats per vertex of the fill: [x, y, zRef, 0] and [merc3, lo3, hiRef3, 0]. */
 export const MARK_FILL_FLOATS = 4;
 export const G_MARK_FILL_FLOATS = 10;
@@ -212,7 +237,11 @@ interface Ring {
 }
 
 function projectRings(g: MarkGeometry): Ring[][] {
-  return polysOf(g).map((rings) =>
+  return projectPolys(polysOf(g));
+}
+
+function projectPolys(polys: number[][][][]): Ring[][] {
+  return polys.map((rings) =>
     rings.map((ring) => {
       const n = ring.length;
       const p = new Float64Array(n * P);
@@ -262,19 +291,39 @@ function lineOf(polys: Ring[][], regime: MarkRegime): MarkLine | null {
   const stride = merc ? MARK_LINE_FLOATS : G_MARK_LINE_FLOATS;
   const segs = new Float32Array(segCount * stride);
   // Each ring's length, vertex by vertex: chords on the ground (ECEF).
-  const all: { p: Float64Array; n: number; cum: Float64Array; at: number; from: number }[] = [];
+  const all: {
+    p: Float64Array;
+    n: number;
+    cum: Float64Array;
+    at: number;
+    from: number;
+    /** The ring's area over its perimeter squared (no unit: the same on
+     *  the map as on the ground, the projection being conformal). */
+    depth: number;
+  }[] = [];
   let at = 0;
   for (const rings of polys) {
     for (const { n, p } of rings) {
       if (n < 2) continue;
       const cum = new Float64Array(n);
+      let area2 = 0;
+      let around = 0;
       for (let i = 1; i < n; i++) {
         const a = (i - 1) * P;
         const b = i * P;
         cum[i] =
           cum[i - 1] + Math.hypot(p[b + 3] - p[a + 3], p[b + 4] - p[a + 4], p[b + 5] - p[a + 5]);
+        // Relative to the ring's first vertex: mercator's numbers are small
+        // differences of large ones.
+        const ax = p[a] - p[0];
+        const ay = p[a + 1] - p[1];
+        const bx = p[b] - p[0];
+        const by = p[b + 1] - p[1];
+        area2 += ax * by - bx * ay;
+        around += Math.hypot(bx - ax, by - ay);
       }
-      all.push({ p, n, cum, at, from: 0 });
+      const depth = around > 0 ? Math.abs(area2) / 2 / (around * around) : 0;
+      all.push({ p, n, cum, at, from: 0, depth });
       at += (n - 1) * stride;
     }
   }
@@ -290,8 +339,10 @@ function lineOf(polys: Ring[][], regime: MarkRegime): MarkLine | null {
   }
   // A boundary of no length (every vertex the same): reached from the start.
   const share = (len: number) => (total > 0 ? Math.min(1, len / total) : 0);
-  for (const { p, n, cum, at: start, from } of all) {
+  for (const { p, n, cum, at: start, from, depth } of all) {
     let o = start;
+    // The ring's depth as a share of the whole boundary's length.
+    const deep = total > 0 ? (cum[n - 1] / total) * depth : 0;
     for (let i = 0; i + 1 < n; i++) {
       const a = i * P;
       const b = (i + 1) * P;
@@ -304,11 +355,13 @@ function lineOf(polys: Ring[][], regime: MarkRegime): MarkLine | null {
         segs[o + 5] = MARK_REF_M * p[b + 2];
         segs[o + 6] = share(from + cum[i]);
         segs[o + 7] = share(from + cum[i + 1]);
+        segs[o + 8] = deep;
       } else {
         putGlobe(segs, o, p, i);
         putGlobe(segs, o + 9, p, i + 1);
         segs[o + 18] = share(from + cum[i]);
         segs[o + 19] = share(from + cum[i + 1]);
+        segs[o + 20] = deep;
       }
       o += stride;
     }
@@ -487,6 +540,45 @@ export function buildMarkLine(g: MarkGeometry, regime: MarkRegime): MarkLine | n
  *  bisected one takes its place). */
 export function buildMarkFill(g: MarkGeometry, regime: MarkRegime, bisect = true): MarkFill | null {
   return fillOf(projectRings(g), regime, bisect);
+}
+
+/**
+ * A large unit's first fill: the flat fill of its outline thinned to about
+ * MARK_STANDIN_VERTICES boundary vertices (`vertices`: how many it has) —
+ * every k-th vertex of each ring kept, a ring left with fewer than three
+ * dropped (a hole: left filled) — as earcut gives it, never bisected. Cheap
+ * enough for the frame that answers the tap, and off the true boundary by
+ * less than a few of its own segments: it stands until the real fill, built
+ * off that frame, takes its place. Null: nothing left to fill.
+ */
+export function buildMarkStandIn(
+  g: MarkGeometry,
+  regime: MarkRegime,
+  vertices = ringVertexCount(g),
+): MarkFill | null {
+  const k = Math.max(1, Math.ceil(vertices / MARK_STANDIN_VERTICES));
+  const thin = (ring: number[][]): number[][] | null => {
+    // Closed rings: the last vertex repeats the first.
+    const open = ring.length - 1;
+    if (open < 3 * k) return null;
+    const out: number[][] = [];
+    for (let i = 0; i < open; i += k) out.push(ring[i]);
+    out.push(ring[0]);
+    return out;
+  };
+  const polys: number[][][][] = [];
+  for (const rings of polysOf(g)) {
+    const outer = rings.length ? thin(rings[0]) : null;
+    if (!outer) continue;
+    const kept = [outer];
+    for (let r = 1; r < rings.length; r++) {
+      const hole = thin(rings[r]);
+      if (hole) kept.push(hole);
+    }
+    polys.push(kept);
+  }
+  const fill = fillOf(projectPolys(polys), regime, false);
+  return fill && fill.fillCount > 0 ? fill : null;
 }
 
 /** Both, from one projection of the outline; null: a geometry with no

@@ -8,15 +8,16 @@
 // `ac:outline-wait`, how long a plateau waits for its fine outline while a
 // coarser one of the same unit is in memory (a région's entry in France's
 // file, a country's world outline):
-// - "1200" (the default): up to 1.2 s, then it rises on the coarse shape, as
-//   before. A tapped unit's loading line then measures what its plateau
-//   rises on: the file leaves its count (plateau/tapProgress.ts).
-// - "file": a unit the visitor tapped waits for its file itself — its
-//   loading line follows the file as it arrives, and its plateau rises on
-//   the fine shape — TAP_OUTLINE_WAIT_MS at most, then as above. A
+// - "file" (the default): a unit the visitor tapped waits for its file
+//   itself — its loading line follows the file as it arrives, and its
+//   plateau rises on the fine shape — TAP_OUTLINE_WAIT_MS at most. A
 //   selection nobody tapped (a pan, a crumb, a link): up to 1.2 s.
+// - "1200": up to 1.2 s, tapped or not, as before the loading line.
 // - "400": up to 0.4 s.
 // - "0": no wait: it rises on the coarse shape in the tap's own pipeline run.
+// Past the wait the plateau rises on the coarse shape. A tapped unit's mark
+// then fades where it stands, its line short of the whole boundary: the
+// file it measured has not come (plateau/tapProgress.ts, `waived`).
 // The fine shape, when it lands after the rise, is stored once the map is
 // still and swapped in at the plateau's height, with no sink and no rise
 // (usePlateau's quiet reshape). A unit with no coarse shape in memory has
@@ -49,16 +50,17 @@ export type RegionSelfMode = "first" | "bundle";
 export type ColdStartMode = "hold" | "early";
 
 /** The modes of a build without the testing tools, and the switches' defaults. */
-export const DEFAULT_OUTLINE_WAIT: OutlineWait = "1200";
+export const DEFAULT_OUTLINE_WAIT: OutlineWait = "file";
 export const DEFAULT_REGION_SELF: RegionSelfMode = "first";
 export const DEFAULT_COLD_START: ColdStartMode = "hold";
 
-export const OUTLINE_WAITS: readonly OutlineWait[] = ["1200", "file", "400", "0"];
+export const OUTLINE_WAITS: readonly OutlineWait[] = ["file", "1200", "400", "0"];
 
 /** How long a tapped unit waits for its own outline file under "file", ms:
  *  it ends a second before the long wait's sentence (geo-nav's
  *  tapPendingCore SLOW_WAIT_MS), so a file that does not come ends in a
- *  plateau on the coarse shape, not in that sentence. */
+ *  plateau on the coarse shape, not in that sentence. A wait crossed by a
+ *  file of a unit since left goes on once, as long again (selfHold). */
 export const TAP_OUTLINE_WAIT_MS = 4000;
 export const REGION_SELF_MODES: readonly RegionSelfMode[] = ["first", "bundle"];
 export const COLD_START_MODES: readonly ColdStartMode[] = ["hold", "early"];

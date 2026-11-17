@@ -409,14 +409,16 @@ asks nothing ahead on a touch screen, as before 2026-11-14.
 
 How long a plateau waits for its own outline while a coarser outline of the
 same unit is in memory (a région's entry in `k/FR`, a country's `g/`) is
-`ac:outline-wait` (« Attente du contour »): `1200` (the default, as before),
-`400` or `0` ms — or `file`: a unit the visitor tapped waits for its file
-itself, 4 s at most (any other selection: 1.2 s). Past it the plateau rises
-on the coarse shape; the fine one, stored at a still moment, replaces it at
-the plateau's height, with no sink and no rise. A tapped unit's loading line
-measures what its plateau rises on: once the wait is given up, the file
-leaves its count, and what the line had not covered is shared among the
-run's own steps. With no coarse shape in memory the wait stays 1.2 s. While the
+`ac:outline-wait` (« Attente du contour »): `file` (the default) — a unit
+the visitor tapped waits for its file itself, 4 s at most, its loading line
+following the file as it arrives (any other selection: 1.2 s) — or `1200`
+(1.2 s tapped or not, as before the loading line), `400` or `0` ms. Past it
+the plateau rises on the coarse shape; the fine one, stored at a still
+moment, replaces it at the plateau's height, with no sink and no rise. A
+tapped unit's loading line measures its own file: once the wait is given up
+the line goes no further, the mark fades where it stands, and the plateau
+rises on the coarse shape once the violet is gone — the line is never run
+to the end for a file that has not come. With no coarse shape in memory the wait stays 1.2 s. While the
 map holds for an outline, `ac:cold-start=early` (« Avant le contour ») sinks
 the plateau standing and shoots the coming unit's lid over its box at once;
 `hold` (the default) leaves both for the outline's landing, as before.

@@ -53,20 +53,20 @@ test("the line's colours: three, none near white, each darker than the plain vio
 test("a build without the testing tools keeps the defaults and ignores the setters", () => {
   assert.equal(tap.DEFAULT_TAP_ANSWER, "line");
   assert.equal(tap.DEFAULT_TAP_LINE, "magenta");
-  assert.equal(tap.DEFAULT_TAP_STEPS, "creep");
+  assert.equal(tap.DEFAULT_TAP_STEPS, "steps");
   assert.equal(tap.DEFAULT_TAP_END, "then");
   assert.equal(tap.DEFAULT_TAP_FRAME, "same");
   tap.setTapAnswerMode("off");
   tap.setTapLineColor("indigo");
-  tap.setTapStepsMode("steps");
+  tap.setTapStepsMode("creep");
   tap.setTapEndMode("together");
   tap.setTapFrameMode("own");
   assert.equal(tap.tapAnswerMode.value, "line");
   assert.equal(tap.tapLineColor.value, "magenta");
-  assert.equal(tap.tapStepsMode.value, "creep");
+  assert.equal(tap.tapStepsMode.value, "steps");
   assert.equal(tap.tapEndMode.value, "then");
   assert.equal(tap.tapFrameMode.value, "same");
-  assert.deepEqual([...tap.TAP_STEPS_MODES], ["creep", "steps"]);
+  assert.deepEqual([...tap.TAP_STEPS_MODES], ["steps", "creep"]);
   assert.deepEqual([...tap.TAP_END_MODES], ["then", "together"]);
   assert.deepEqual([...tap.TAP_FRAME_MODES], ["same", "own"]);
 });

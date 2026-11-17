@@ -11,9 +11,10 @@
 // after that, it is for this visit only (`session` false): the slowness was
 // not its file's.
 //
-// A wait can be shorter than `waitMs` (ac:outline-wait, the map's
-// coldTapSwitch: a coarser outline of the unit is in memory to rise on). It
-// then goes on by its own length when crossed. A wait of 0 holds the unit
+// A wait can be another length than `waitMs` (ac:outline-wait, the map's
+// coldTapSwitch: a coarser outline of the unit is in memory to rise on —
+// shorter, or longer for a unit the visitor tapped). It then goes on by its
+// own length when crossed. A wait of 0 holds the unit
 // out at once, in the caller's own task, and for this visit only: nothing
 // was found slow. Pure: timers and reads injected (selfHold.test.ts).
 

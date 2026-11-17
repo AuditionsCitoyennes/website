@@ -25,12 +25,12 @@
 // site's deep violet: the fill's own family, darker) and "indigo" (a very
 // dark violet: the strongest contrast of lightness, the heaviest line).
 //
-// `ac:tap-steps`, how the line moves between two real steps: "creep" (the
-// default: it eases to its new length when a piece of data arrives and,
-// while it waits, slides slowly toward the next step — never reaching it
-// before the data, never the end before everything is in; a wait with
-// nothing arriving, a slow link's, still shows a line that grows) or
-// "steps" (it moves only when a piece of data arrives).
+// `ac:tap-steps`, how the line moves between two real steps: "steps" (the
+// default: it moves only when a piece of data arrives, easing to its new
+// length) or "creep" (it also slides a little while it waits — a few
+// hundredths of the boundary past what has arrived, over the first seconds
+// after the tap, never more, and never the whole boundary before
+// everything is in: gl/pendingMark.ts MARK_CREEP_LEAD).
 //
 // `ac:tap-end`, the end: "then" (the default: the line whole, the violet
 // fades out, the unit rises after) or "together" (the violet fades while it
@@ -56,13 +56,13 @@ export type TapFrameMode = "same" | "own";
 /** The modes of a build without the testing tools, and the switches' defaults. */
 export const DEFAULT_TAP_ANSWER: TapAnswerMode = "line";
 export const DEFAULT_TAP_LINE: TapLineColor = "magenta";
-export const DEFAULT_TAP_STEPS: TapStepsMode = "creep";
+export const DEFAULT_TAP_STEPS: TapStepsMode = "steps";
 export const DEFAULT_TAP_END: TapEndMode = "then";
 export const DEFAULT_TAP_FRAME: TapFrameMode = "same";
 
 export const TAP_ANSWER_MODES: readonly TapAnswerMode[] = ["line", "off"];
 export const TAP_LINE_COLORS: readonly TapLineColor[] = ["magenta", "violet", "indigo"];
-export const TAP_STEPS_MODES: readonly TapStepsMode[] = ["creep", "steps"];
+export const TAP_STEPS_MODES: readonly TapStepsMode[] = ["steps", "creep"];
 export const TAP_END_MODES: readonly TapEndMode[] = ["then", "together"];
 export const TAP_FRAME_MODES: readonly TapFrameMode[] = ["same", "own"];
 

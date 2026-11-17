@@ -53,8 +53,9 @@ export type PendingEnd = "risen" | "moved" | "none" | "replaced" | "timeout";
 /** The plateau pipeline's verdicts (the map's PlateauSettle). */
 export type SettleHow = "rise" | "same" | "quiet" | "cleared" | "failed";
 
-/** After this long with no verdict the mark goes, ms: past the outline's
- *  1.2 s wait and the slowest measured transition (about 3 s) with room. */
+/** After this long with no verdict the mark goes, ms: past a tapped unit's
+ *  wait for its outline file (4 s) and the slowest measured transition
+ *  (about 3 s) with room. */
 export const PENDING_CAP_MS = 8000;
 
 /** The long wait's sign: none, the moving sign, or the sentence and its
