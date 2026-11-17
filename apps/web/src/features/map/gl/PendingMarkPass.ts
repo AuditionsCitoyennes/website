@@ -54,7 +54,10 @@
 // their place when they land (one or two frames later on a desktop, up to
 // about 200 ms on a weak phone: the line of such a unit starts then). Only
 // the regime being drawn is built, and never a fill that can no longer
-// show. The meshes are kept for the geometry last marked, so « Réessayer »
+// show. A fill still fading on screen when the camera crosses zoom 6 (a mark
+// released under "together", or draining, during a flight) is built in the
+// regime it enters the same way — a large unit's as its stand-in — so the
+// violet fades on to its end there. The meshes are kept for the geometry last marked, so « Réessayer »
 // and a second tap rebuild nothing, and dropped with the pending state
 // (`forget`) or when another geometry is marked; the GPU's copies are
 // emptied by the next frame.
@@ -961,6 +964,14 @@ export class PendingMarkPass {
     );
   }
 
+  /** Whether a fill on screen is still fading with a mark on its way out
+   *  (released under "together", or draining): a regime first drawn then
+   *  (the flight crosses zoom 6 during the fade) gets a fill too, so the
+   *  violet fades on to its end rather than stopping at the crossing. */
+  private fillFading(): boolean {
+    return this.phase !== "held" && this.fillDrawn && this.fillAlphaAt(this.now()) > 0;
+  }
+
   /** A regime's meshes for this frame: built here for a small unit, asked
    *  off the frame for a large one (its stand-in fill built here), uploaded
    *  when new. */
@@ -970,8 +981,11 @@ export class PendingMarkPass {
     this.regime = regime;
     const place = markBuildPlace(this.vertices, s.spanDeg, regime);
     // A fill that can no longer show is not built: a regime first drawn
-    // then (a flight across zoom 6) needs the line alone.
-    const fillShows = this.fillCanShow();
+    // then (a flight across zoom 6) needs the line alone. One still fading
+    // on screen is: a small unit's here, a large unit's as its stand-in
+    // (its real fill, asked of the worker, takes its place if it lands
+    // before the fade ends; the page's own task builds none).
+    const fillShows = this.fillCanShow() || this.fillFading();
     if (place !== "off-frame") {
       // A wide unit on the globe: its fill plain in this frame.
       const bisect = place === "page";

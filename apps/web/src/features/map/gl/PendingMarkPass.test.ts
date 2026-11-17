@@ -7,7 +7,8 @@
 // the gate falls to 0 (reduced motion: two plain steps, each held); the
 // release rides the new lid; a large unit is filled with a stand-in in the
 // tap's frame, its real meshes come from off the frame and take its place,
-// and are never built for a mark that can no longer show them; the creep's
+// and are never built for a mark that can no longer show them; a fill still
+// fading when the other regime is first drawn fades on there; the creep's
 // lead is small, bounded, and rides on top of the real value; nothing is
 // rebuilt for the same geometry; dropped meshes leave the GPU. Run with
 // `node --import tsx --test` (root "test:scripts").
@@ -27,6 +28,7 @@ import {
   MARK_CREEP_TICK_MS,
   MARK_CREEP_TICK_SHORT_MS,
   MARK_FADE_MS,
+  MARK_FILL_SHARE,
   MARK_GROUND_LINE_M,
   MARK_LINE_FLOATS,
   MARK_LINE_HOLD_CAP_MS,
@@ -1180,6 +1182,222 @@ for (const age of [60_000, 3_600_000]) {
     assert.equal(h.pass.gateMs(), MARK_FADE_MS - 40);
     h.run(200);
     assert.equal(h.pass.gateMs(), 0);
+    assert.equal(h.pass.active, false);
+  });
+}
+
+// A flight across zoom 6 while a mark fades (the rise started, or the drain,
+// with the camera still on its way): the other regime's first frame. The
+// clock stands at a page a minute old.
+{
+  type H = ReturnType<typeof harness>;
+  /** One globe frame, as the layer draws it: both passes. */
+  const globeFrame = (h: H, rise = 1) => {
+    h.pass.prepare(h.gl, "globe");
+    for (const raised of [false, true]) {
+      h.pass.drawGlobe(h.gl, h.binders, raised, rise, "fill", fillProg);
+      h.pass.drawGlobe(h.gl, h.binders, raised, rise, "line", null);
+    }
+  };
+  const draw = (h: H, regime: MarkRegime, rise = 1) =>
+    regime === "merc" ? h.frame(rise) : globeFrame(h, rise);
+  const other = (regime: MarkRegime): MarkRegime => (regime === "merc" ? "globe" : "merc");
+  const near = (a: number | undefined, b: number, what: string) =>
+    assert.ok(a !== undefined && Math.abs(a - b) < 1e-9, `${what}: ${a}, expected ${b}`);
+
+  for (const from of ["globe", "merc"] as const) {
+    const to = other(from);
+    test(`« together », the rise started in the ${from} regime: the ${to} regime's first frame draws the fill at its fading alpha`, () => {
+      const h = harness(60_000);
+      h.pass.set(spec(), 0.4, from);
+      draw(h, from);
+      h.pass.finish(FULL, "together");
+      h.advance(150); // the line whole, the violet whole under it
+      draw(h, from);
+      h.pass.release(1500, FULL);
+      h.advance(16);
+      draw(h, from, 0.1);
+      h.advance(16);
+      draw(h, from, 0.2);
+      const fills = h.count("drawArrays");
+      const lines = h.count("drawArraysInstanced");
+      // The camera crosses zoom 6, 48 ms into the fade.
+      h.advance(16);
+      draw(h, to, 0.3);
+      const alpha = 1 - 48 / MARK_FADE_MS;
+      assert.equal(h.count("drawArrays"), fills + 1); // the violet, in the new regime
+      assert.equal(h.count("drawArraysInstanced"), lines + 1); // and the line
+      near(h.uniform("uFillT"), fillThreshold(MARK_FILL_SHARE * alpha), "the fill's threshold");
+      near(h.uniform("uAlpha"), alpha, "the line's alpha");
+      assert.equal(h.pass.ownsFill(to), true);
+      const s = h.pass.state()!;
+      near(s.fillAlpha, alpha, "the probe's fill alpha");
+      assert.ok(s.fillBytes > 0 && s.lineBytes > 0);
+      // It fades on to its end there, a frame at a time, and nothing is asked off the frame.
+      let last = h.uniform("uFillT")!;
+      for (let i = 0; i < 4; i++) {
+        h.advance(16);
+        draw(h, to, 0.4);
+        assert.equal(h.count("drawArrays"), fills + 2 + i);
+        assert.ok(h.uniform("uFillT")! < last, "the violet keeps fading");
+        last = h.uniform("uFillT")!;
+      }
+      for (let i = 0; i < 10; i++) {
+        h.advance(16);
+        draw(h, to, 0.6);
+      }
+      assert.equal(h.pass.active, false);
+      assert.equal(h.deferred.length, 0);
+    });
+
+    test(`a drain started in the ${from} regime: the ${to} regime's first frame draws the fill and the line as they fade`, () => {
+      const h = harness(60_000);
+      h.pass.set(spec(), 0, from);
+      draw(h, from);
+      h.pass.setProgress(0.3, SHORT);
+      draw(h, from);
+      h.pass.drain(FULL);
+      h.advance(16);
+      draw(h, from);
+      const fills = h.count("drawArrays");
+      const lines = h.count("drawArraysInstanced");
+      h.advance(24); // the camera crosses zoom 6, 40 ms into the fade
+      draw(h, to);
+      const alpha = 1 - 40 / MARK_FADE_MS;
+      assert.equal(h.count("drawArrays"), fills + 1);
+      assert.equal(h.count("drawArraysInstanced"), lines + 1);
+      near(h.uniform("uFillT"), fillThreshold(MARK_FILL_SHARE * alpha), "the fill's threshold");
+      near(h.uniform("uAlpha"), alpha, "the line's alpha");
+      assert.equal(h.uniform("uProgress"), 0.3); // the line short of the whole boundary, as it stood
+      assert.equal(h.pass.gateMs(), MARK_FADE_MS - 40); // the rise still waits for that fade
+    });
+  }
+
+  test("« then »: the fill gone before the rise, a regime first drawn while the line fades gets the line alone", () => {
+    const h = harness(60_000);
+    h.pass.set(spec(), 0.4, "globe");
+    globeFrame(h);
+    h.pass.finish(FULL, "then");
+    for (let i = 0; i < 14; i++) {
+      h.advance(16);
+      globeFrame(h);
+    }
+    assert.equal(h.pass.gateMs(), 0);
+    assert.equal(h.pass.state()!.fillAlpha, 0);
+    h.pass.release(1500, FULL);
+    h.advance(16);
+    globeFrame(h, 0.1);
+    const fills = h.count("drawArrays");
+    const lines = h.count("drawArraysInstanced");
+    const uploads = h.count("bufferData");
+    const fillBytes = h.pass.state()!.fillBytes;
+    h.advance(16);
+    h.frame(0.2); // the camera crosses zoom 6, 32 ms into the line's fade
+    assert.equal(h.count("drawArrays"), fills); // no violet
+    assert.equal(h.count("drawArraysInstanced"), lines + 1);
+    assert.equal(h.count("bufferData"), uploads + 1); // the line's segments: no fill
+    assert.equal(h.pass.state()!.fillBytes, fillBytes);
+    assert.equal(h.pass.ownsFill("merc"), false);
+    near(h.uniform("uAlpha"), 1 - 32 / MARK_FADE_MS, "the line's alpha");
+  });
+
+  test("a fading mark whose fill was never on screen gets none in a regime first drawn then", () => {
+    // Released under « together » before any frame drew it.
+    const h = harness(60_000);
+    h.pass.set(spec(), 0.4, "globe");
+    h.pass.finish(FULL, "together");
+    h.pass.release(1500, FULL);
+    h.advance(16);
+    h.frame(0.1);
+    assert.equal(h.count("drawArrays"), 0);
+    assert.equal(h.count("drawArraysInstanced"), 1); // the line alone
+    assert.equal(h.pass.state()!.fillBytes, 0);
+  });
+
+  test("« together », a large unit: the other regime's first frame fills it with a stand-in, nothing triangulated whole on the page; the worker's meshes take their place", async () => {
+    const g = large();
+    const whole = { globe: buildMark(g, "globe")!, merc: buildMark(g, "merc")! };
+    const h = harness(60_000);
+    const p = provider();
+    h.pass.setProvider(p);
+    h.pass.set(spec({ g }), 0.4, "globe");
+    globeFrame(h);
+    p.asks[0].answer(whole.globe);
+    await settle();
+    globeFrame(h);
+    h.pass.finish(FULL, "together");
+    h.advance(150);
+    globeFrame(h);
+    h.pass.release(1500, FULL);
+    h.advance(16);
+    globeFrame(h, 0.1);
+    const fills = h.count("drawArrays");
+    const lines = h.count("drawArraysInstanced");
+    const uploads = h.count("bufferData");
+    const globeBytes = h.pass.state()!.fillBytes;
+    // The camera crosses zoom 6, 40 ms into the fade.
+    h.advance(24);
+    h.frame(0.2);
+    const alpha = 1 - 40 / MARK_FADE_MS;
+    assert.equal(h.count("drawArrays"), fills + 1); // the violet, in that very frame
+    near(h.uniform("uFillT"), fillThreshold(MARK_FILL_SHARE * alpha), "the fill's threshold");
+    assert.equal(h.count("bufferData"), uploads + 1); // the stand-in alone
+    const standIn = h.pass.state()!.fillBytes - globeBytes;
+    assert.ok(standIn > 0 && standIn <= 3 * MARK_STANDIN_VERTICES * 4 * 4, `${standIn} bytes`);
+    assert.ok(standIn < whole.merc.fill.fill.byteLength / 2);
+    assert.equal(h.pass.ownsFill("merc"), true);
+    // The real meshes: asked of the worker, behind its builds — never the page's task.
+    assert.deepEqual(
+      p.asks.map((a) => [a.regime, a.front]),
+      [
+        ["globe", true],
+        ["merc", false],
+      ],
+    );
+    assert.equal(h.deferred.length, 0);
+    assert.equal(h.count("drawArraysInstanced"), lines); // its line: not before they land
+    h.advance(16);
+    p.asks[1].answer(whole.merc);
+    await settle();
+    h.frame(0.3);
+    assert.equal(h.count("drawArrays"), fills + 2);
+    assert.equal(h.count("drawArraysInstanced"), lines + 1);
+    assert.equal(h.pass.state()!.fillBytes, globeBytes + whole.merc.fill.fill.byteLength);
+    near(h.uniform("uAlpha"), 1 - 56 / MARK_FADE_MS, "the line's alpha");
+    assert.deepEqual(h.filled, []); // nothing joined late: no hand-over
+  });
+
+  test("« together », a large unit and no worker: the stand-in fades in the other regime, the page's task triangulates nothing", () => {
+    const g = large();
+    const h = harness(60_000);
+    h.pass.set(spec({ g }), 0.4, "globe");
+    globeFrame(h);
+    h.deferred[0](); // the tap's regime: its real fill and its line, after the tap's frame
+    globeFrame(h);
+    h.pass.finish(FULL, "together");
+    h.advance(150);
+    globeFrame(h);
+    h.pass.release(1500, FULL);
+    h.advance(16);
+    globeFrame(h, 0.1);
+    const fills = h.count("drawArrays");
+    const globeBytes = h.pass.state()!.fillBytes;
+    h.advance(24);
+    h.frame(0.2);
+    assert.equal(h.count("drawArrays"), fills + 1);
+    const standIn = h.pass.state()!.fillBytes - globeBytes;
+    assert.ok(standIn > 0 && standIn <= 3 * MARK_STANDIN_VERTICES * 4 * 4, `${standIn} bytes`);
+    assert.equal(h.deferred.length, 2);
+    h.deferred[1]();
+    h.advance(16);
+    h.frame(0.3);
+    assert.equal(h.count("drawArrays"), fills + 2); // the stand-in still, fading
+    assert.equal(h.pass.state()!.fillBytes, globeBytes + standIn);
+    assert.equal(h.pass.state()!.fillPlain, true);
+    for (let i = 0; i < 8; i++) {
+      h.advance(16);
+      h.frame(0.5);
+    }
     assert.equal(h.pass.active, false);
   });
 }
