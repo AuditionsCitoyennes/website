@@ -604,6 +604,11 @@ export function usePlateau({
     riseWaiting = false;
   }
 
+  /** Whether the rise of `scope`, about to be committed, will be held by its
+   *  gate (a tapped unit's violet still leaving it). Read before the
+   *  verdict: the verdict itself can only open a gate, never close one. */
+  const gateAhead = (scope: string) => (riseGate?.(scope) ?? 0) > 0;
+
   /** Whether the rise asked for now waits for the camera: the order (under
    *  "auto" the device's tier of the moment) says after, and a flight is in
    *  the air. Never a plateau already on its way up: its rise has started. */
@@ -1078,9 +1083,10 @@ export function usePlateau({
           plateauActive = true;
           applyMask();
           // Brought back up after an interrupted sink: with ac:rise-order=after,
-          // once the camera has landed, its pins lifted then.
+          // once the camera has landed, its pins lifted then — as after the
+          // gate of a tapped unit's violet (one pass of the pins, not three).
           const waits = terrainExag !== 1 && waitsForLanding(map);
-          riseWaiting = waits;
+          riseWaiting = waits || (terrainExag !== 1 && gateAhead(scopeId));
           onLift?.();
           settled(scopeId, refined ? "quiet" : "same");
           if (terrainExag !== 1) {
@@ -1113,14 +1119,17 @@ export function usePlateau({
         plateauActive = true;
         applyMask();
         // ac:rise-order=after (a weak device's by default): the rise once the
-        // camera's flight has landed, the pins lifted then and not before.
+        // camera's flight has landed, the pins lifted then and not before —
+        // nor before the gate of a tapped unit's violet has passed (the pins
+        // then move once, when the rise starts).
         const waits = waitsForLanding(map);
-        riseWaiting = waits;
+        riseWaiting = waits || gateAhead(scopeId);
         onLift?.();
         terrainExag = 0;
         plateauWall.setScale(0);
-        // The commit is whole: a pending mark on this unit goes now, in the
-        // commit's block, also when the rise waits for the camera.
+        // The commit is whole — the verdict: a pending unit's pill goes now,
+        // in the commit's block, also when the rise waits for the camera; its
+        // mark ends with the rise (riseCleared: the gate, then `onRise`).
         settled(scopeId, "rise");
         if (!(await riseCleared(map, scopeId, waits))) return;
         const endFlatRise = perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;

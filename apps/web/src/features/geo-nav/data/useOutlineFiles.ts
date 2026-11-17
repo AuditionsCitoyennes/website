@@ -133,9 +133,10 @@ export interface OutlineFiles {
    *  A wait the file of a unit just left crossed goes on once more, and then
    *  holds the unit out until `leaveSelf` only (data/selfHold.ts). `coarse`:
    *  a coarser outline of the unit is in memory — the wait is the one
-   *  ac:outline-wait says (the map's coldTapSwitch); at 0 the unit is held
-   *  out before this returns, until `leaveSelf`. */
-  holdSelf(id: string, coarse?: boolean): void;
+   *  ac:outline-wait says (the map's coldTapSwitch; `tapped`: the visitor
+   *  tapped the unit, whose wait is then the file's own); at 0 the unit is
+   *  held out before this returns, until `leaveSelf`. */
+  holdSelf(id: string, coarse?: boolean, tapped?: boolean): void;
   /** The unit is no longer the selection: a hold-out that was for its visit ends. */
   leaveSelf(id: string): void;
   /** Its self is asked ahead of its bundle (ac:region-self "first"): its row
@@ -166,7 +167,9 @@ export interface OutlineFiles {
   reconnect(): void;
   /** `due`: the selected unit's plateau waits for it (its fetch priority). */
   ensureBundle(id: string, due?: boolean): Promise<OutlineFilesStatus>;
-  ensureSelf(id: string): Promise<OutlineFilesStatus>;
+  /** `tapped`: the visitor tapped the unit — its file is given up on later
+   *  (ac:outline-wait "file", as `holdSelf`). */
+  ensureSelf(id: string, tapped?: boolean): Promise<OutlineFilesStatus>;
   /** Their g/, and the u/ of `selves` (micro-states), in one write
    *  (`decor`: a decorative batch, see outlinesDecorSwitch.ts). */
   ensureGlobe(ids: string[], selves?: string[], decor?: boolean): Promise<OutlineFilesStatus[]>;
@@ -361,9 +364,9 @@ function createOutlineFiles(): OutlineFiles {
     has: (id, tier) => read((s) => s.has(id, tier)),
     bundleLoaded: (id) => read((s) => s.bundleLoaded(id)),
     pin: (ids) => store.pin(ids),
-    holdSelf: (id, coarse = false) => {
+    holdSelf: (id, coarse = false, tapped = false) => {
       if (heldOut.value.has(id)) return;
-      selfHold.hold(id, outlineWaitFor(outlineWait.value, coarse, OUTLINE_WAIT_MS));
+      selfHold.hold(id, outlineWaitFor(outlineWait.value, coarse, OUTLINE_WAIT_MS, tapped));
     },
     leaveSelf: (id) => {
       if (!visitOnly.delete(id)) return;
@@ -387,7 +390,13 @@ function createOutlineFiles(): OutlineFiles {
     ensureRoot: () => loader.ensureRoot(),
     reconnect: () => loader.reconnect(),
     ensureBundle: (id, due = false) => loader.ensureBundle(id, due),
-    ensureSelf: (id) => loader.ensureSelf(id),
+    ensureSelf: (id, tapped = false) =>
+      loader.ensureSelf(
+        id,
+        // Never shorter than the loader's own wait: the page's hold
+        // (holdSelf) is what a shorter ac:outline-wait cuts.
+        Math.max(OUTLINE_WAIT_MS, outlineWaitFor(outlineWait.value, true, OUTLINE_WAIT_MS, tapped)),
+      ),
     ensureGlobe: (ids, selves = [], decor = false) =>
       loader.ensureGlobe(ids, selves, decor && decorLow),
     batchSelf: (ids, decor = false) => loader.batchSelf(ids, decor && decorLow),

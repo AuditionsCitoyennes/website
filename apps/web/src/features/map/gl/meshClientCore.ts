@@ -37,7 +37,8 @@
 //   here: it resolves null — superseded, a second miss, the worker lost,
 //   disposed — and the caller cuts the sheet itself if it still wants it.
 // - A tapped unit's pending mark (gl/pendingMark.ts). `buildMark()` asks the
-//   worker for a large unit's line and fill in one regime: its geometry
+//   worker for a large unit's line and fill in one regime (and for a wide
+//   unit's bisected globe fill, behind the builds): its geometry
 //   travels under the same tokens, pinned while it is in flight. One flight
 //   per geometry and regime. It never rejects and is never built here: it
 //   resolves null — nothing built, a second miss, no reply within

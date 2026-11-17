@@ -1,6 +1,7 @@
 // The pending mark's pure pieces (pendingMark.ts): its meshes for one unit in
 // each regime — the loading line, one record per segment with the share of
-// its ring's length reached at each end, and the flat fill in the hover
+// the whole boundary's length reached at each end (the rings one after the
+// other, the longest first), and the flat fill in the hover
 // fill's layout, bisected on the globe —, the height they are built at,
 // where a unit's are built, and the line's and the fill's small functions of
 // time. No __TEST_TOOLS__ stub on purpose: the builder's import closure must
@@ -17,6 +18,9 @@ import {
   MARK_FILL_FLOATS,
   MARK_FILL_MAX_EDGE_DEG,
   MARK_LINE_FLOATS,
+  MARK_LINE_FULL_PX,
+  MARK_LINE_MIN_SHARE,
+  MARK_LINE_WIDTH,
   MARK_PAGE_MAX_SPAN_DEG,
   MARK_PAGE_MAX_VERTICES,
   MARK_REF_M,
@@ -31,7 +35,9 @@ import {
   markBuildPlace,
   markLidFillM,
   markLidLineM,
+  markLineWidth,
   ringVertexCount,
+  unfillAlpha,
   type MarkGeometry,
 } from "./pendingMark";
 
@@ -70,7 +76,8 @@ test("a square's line in the flat view: a record per segment, relative to its fi
   assert.ok(s0[7] > 0 && s0[7] < 1);
 });
 
-test("the lengths run from 0 to 1 along each ring, each segment starting where the one before ended", () => {
+test("the lengths run from 0 to 1 along the whole boundary: one ring after the other, the longest first, each segment starting where the one before ended", () => {
+  // A 1° ring, a 0.2° one (a hole) and a 3° one: drawn 3°, then 1°, then 0.2°.
   const g: MarkGeometry = {
     type: "MultiPolygon",
     coordinates: [[ring(4, 45, 1), ring(4.4, 45.4, 0.2)], [ring(10, 40, 3)]],
@@ -80,8 +87,10 @@ test("the lengths run from 0 to 1 along each ring, each segment starting where t
     const stride = regime === "merc" ? MARK_LINE_FLOATS : G_MARK_LINE_FLOATS;
     assert.equal(line.segCount, 12);
     assert.equal(line.segs.length, 12 * stride);
-    for (let r = 0; r < 3; r++) {
-      let prev = 0;
+    // The records stay in the outline's order; only their lengths are ordered.
+    const ends = [0, 1, 2].map((r) => {
+      let prev = line.segs[r * 4 * stride + stride - 2];
+      const from = prev;
       for (let i = 0; i < 4; i++) {
         const o = (r * 4 + i) * stride;
         const lenA = line.segs[o + stride - 2];
@@ -90,9 +99,34 @@ test("the lengths run from 0 to 1 along each ring, each segment starting where t
         assert.ok(lenB > lenA, "monotone");
         prev = lenB;
       }
-      assert.ok(near(prev, 1), `${regime} ring ${r} ends at 1`);
-    }
+      return { from, to: prev };
+    });
+    const [one, small, three] = ends;
+    assert.equal(three.from, 0); // the longest ring first
+    assert.ok(near(one.from, three.to), `${regime}: the 1° ring starts where the 3° one ends`);
+    assert.ok(near(small.from, one.to), `${regime}: the smallest last`);
+    assert.ok(near(small.to, 1), `${regime}: the boundary ends at 1`);
+    // Each ring's share is its share of the length: the islet's is small.
+    assert.ok(three.to > 0.6 && small.to - small.from < 0.06);
   }
+});
+
+test("at a low progress only the longest ring is reached: no dash on every island", () => {
+  const g: MarkGeometry = {
+    type: "MultiPolygon",
+    coordinates: [[ring(0, 0, 0.1)], [ring(5, 5, 4)], [ring(1, 1, 0.1)], [ring(2, 2, 0.1)]],
+  };
+  const line = buildMarkLine(g, "merc")!;
+  const reached = (progress: number) => {
+    const rings = new Set<number>();
+    for (let i = 0; i < line.segCount; i++) {
+      if (line.segs[i * MARK_LINE_FLOATS + 6] < progress) rings.add(Math.floor(i / 4));
+    }
+    return [...rings];
+  };
+  assert.deepEqual(reached(0.1), [1]);
+  assert.deepEqual(reached(0.9), [1]);
+  assert.deepEqual(reached(1), [0, 1, 2, 3]); // ties: as the outline lists them
 });
 
 test("the globe's line: absolute, each end as mercator, ECEF on the ground and at the reference height", () => {
@@ -213,12 +247,36 @@ test("both meshes from one projection; a geometry with no segment gives nothing"
   assert.equal(buildMarkLine({ type: "Point", coordinates: [1, 2] }, "merc"), null);
 });
 
-test("where a unit's meshes are built: small on the page, large or wide on the globe off the frame", () => {
+test("where a unit's meshes are built: small on the page, wide on the globe there too with a plain fill, large off the frame", () => {
   assert.equal(markBuildPlace(MARK_PAGE_MAX_VERTICES, 5, "merc"), "page");
   assert.equal(markBuildPlace(MARK_PAGE_MAX_VERTICES + 1, 5, "merc"), "off-frame");
   assert.equal(markBuildPlace(300, MARK_PAGE_MAX_SPAN_DEG, "globe"), "page");
-  assert.equal(markBuildPlace(300, MARK_PAGE_MAX_SPAN_DEG + 1, "globe"), "off-frame");
+  assert.equal(markBuildPlace(300, MARK_PAGE_MAX_SPAN_DEG + 1, "globe"), "page-plain");
   assert.equal(markBuildPlace(300, 170, "merc"), "page"); // the flat view is never bisected
+  assert.equal(markBuildPlace(MARK_PAGE_MAX_VERTICES + 1, 170, "globe"), "off-frame");
+});
+
+test("a plain globe fill: earcut's own triangles, the same edge as the bisected one", () => {
+  const g = square(0, 0, 40);
+  const plain = buildMarkFill(g, "globe", false)!;
+  const fine = buildMarkFill(g, "globe")!;
+  assert.equal(plain.fillCount, 6); // two triangles
+  assert.ok(fine.fillCount > 600);
+  // The flat view is never bisected: the flag changes nothing there.
+  assert.equal(buildMarkFill(g, "merc", false)!.fillCount, buildMarkFill(g, "merc")!.fillCount);
+  assert.equal(buildMark(g, "globe", false)!.fill.fillCount, 6);
+});
+
+test("the line's width: thinner around a unit small on screen, never under half, never over the full width", () => {
+  assert.equal(markLineWidth(10, 6), MARK_LINE_WIDTH); // 910 px wide: the full width
+  const px = (span: number, zoom: number) => (span / 360) * 512 * 2 ** zoom;
+  assert.ok(near(px(1, 5), 45.5, 1e-2));
+  assert.equal(markLineWidth(1, 5), MARK_LINE_WIDTH * MARK_LINE_MIN_SHARE); // 45 px: the floor
+  const mid = markLineWidth(1, 6.5); // about 129 px
+  assert.ok(mid > MARK_LINE_WIDTH * MARK_LINE_MIN_SHARE && mid < MARK_LINE_WIDTH);
+  assert.ok(near(markLineWidth(1, 6.5) / MARK_LINE_WIDTH, px(1, 6.5) / MARK_LINE_FULL_PX));
+  assert.equal(markLineWidth(Number.NaN, 5), MARK_LINE_WIDTH);
+  assert.ok(MARK_LINE_WIDTH <= 2.5); // a boundary line is 0.9 to 1.7
 });
 
 test("the line's ease: from where it is to its step, ease-out, exact at both ends", () => {
@@ -256,6 +314,14 @@ test("a fade: 1 until it starts, linear, 0 from its end — and at once without 
   assert.equal(fadeAlpha(1117, 1000, 117), 0);
   assert.equal(fadeAlpha(1500, 1000, 117), 0);
   assert.equal(fadeAlpha(1000, 1000, 0), 0); // reduced motion: gone in one frame
+});
+
+test("the unfill: the fade squared — most of the violet gone early, the same ends", () => {
+  assert.equal(unfillAlpha(5000, 0, 117), 1); // not started
+  assert.equal(unfillAlpha(900, 1000, 117), 1); // starts later (the line first)
+  assert.ok(near(unfillAlpha(1058.5, 1000, 117), 0.25));
+  assert.equal(unfillAlpha(1117, 1000, 117), 0);
+  assert.equal(unfillAlpha(1000, 1000, 0), 0);
 });
 
 test("the fill's threshold draws the asked share of the hover fill's opacity", () => {

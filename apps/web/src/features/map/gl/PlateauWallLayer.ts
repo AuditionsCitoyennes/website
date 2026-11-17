@@ -745,13 +745,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   setPending(
     id: string,
     g: MarkGeometry,
-    look: Pick<PendingMarkSpec, "line" | "fill" | "spanDeg" | "rgb" | "creep">,
+    look: Pick<PendingMarkSpec, "line" | "fill" | "spanDeg" | "rgb" | "creep" | "creepTickMs">,
     progress = 0,
-    where?: { raised: boolean; lidM: number },
+    where?: { raised: boolean; lidM?: number },
   ): { raised: boolean; lidM: number; fillAtOnce: boolean } {
-    const at = where ?? {
-      raised: !!this.pendingFills.get(id)?.raised,
-      lidM: this.heightM * WALL_OVERSHOOT,
+    const at = {
+      raised: where ? where.raised : !!this.pendingFills.get(id)?.raised,
+      lidM: where?.lidM ?? this.heightM * WALL_OVERSHOOT,
     };
     const regime = this.regimeNow();
     this.pendingMark.set({ id, g, ...look, raised: at.raised, lidM: at.lidM }, progress, regime);
@@ -768,10 +768,17 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   finishPending(motion: MarkMotion, order: "then" | "together") {
     const id = this.pendingMark.id;
     this.pendingMark.finish(motion, order);
-    // A mouse's hover fill left on the unit because the mark's own never
-    // came (a large unit's, still being built): it drains now instead.
     if (id && order === "then" && this.hoveredFillId === id) {
-      if (!this.pendingMark.ownsFill(this.regimeNow())) this.retractHover(id);
+      const regime = this.regimeNow();
+      // The mark's own fill is the violet on the unit (drawn, or built by
+      // its first frame: the data was all in before any): it leaves in its
+      // own time, the hover fill goes without a sweep.
+      if (this.pendingMark.ownsFill(regime) || this.pendingMark.fillAtOnce(regime)) {
+        this.hoveredFillId = "";
+      }
+      // A mouse's hover fill left on the unit because the mark's own never
+      // came (a large unit's, still being built): it drains now instead.
+      else this.retractHover(id);
     }
   }
 
@@ -2072,7 +2079,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // GROUND (context) fills KEEP the depth test — that is what hides the parts
     // running behind the raised plateau (the terrain wrote nearer depth).
     // (Not the unit that wears the pending mark's fill: one violet at a time.)
-    this.pendingMark.prepare(gl, "merc");
+    this.pendingMark.prepare(gl, "merc", this.map?.getZoom());
     const hovRange =
       this.hoveredFillId && !this.markHasFill("merc")
         ? this.fillRanges.get(this.hoveredFillId)
@@ -2449,7 +2456,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // the plateau (walls + lid) paints OVER it — that is what keeps neighbour
     // boundaries from leaking onto the raised top. RAISED geometry follows the
     // lid. The draw closures are shared between the two passes.
-    this.pendingMark.prepare(gl, "globe");
+    this.pendingMark.prepare(gl, "globe", this.map?.getZoom());
     const hovRange =
       this.hoveredFillId && !this.markHasFill("globe")
         ? this.fillRanges.get(this.hoveredFillId)

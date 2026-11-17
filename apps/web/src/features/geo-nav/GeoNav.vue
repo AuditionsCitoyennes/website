@@ -326,6 +326,9 @@ const {
 } = panel;
 
 // ---- What the map is handed (model/useMapFeed): outline, pending hold, pins ----
+/** The unit a tap left pending, "" when none (model/useTapPending, made
+ *  further down: read when a scope is selected, never before). */
+let tappedUnit: () => string = () => "";
 const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
   nav,
   geo,
@@ -336,6 +339,8 @@ const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
   // The share of a selected unit's outline file that has arrived: a real
   // step of the tapped unit's loading line on the map.
   onOutlineProgress: (id, share) => mapCmp.value?.pendingStep(id, { t: "outline", frac: share }),
+  // A tapped unit waits for its own outline file (ac:outline-wait "file").
+  tapped: (id) => tappedUnit() === id,
 });
 
 /** The page the map fills (`.geo-page`), GeoNav's own element. */
@@ -449,6 +454,7 @@ const tap = useTapPending({
   },
 });
 const { pendingUnit, live: tapLive, waitStage } = tap;
+tappedUnit = () => pendingUnit.value?.id ?? "";
 /** GeoDrillMap's `viewChange`: the scope's read of it, then the landing a
  *  pending unit's long-wait sign waits for. */
 function onMapView(view: MapView) {

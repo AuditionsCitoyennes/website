@@ -362,14 +362,14 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Couleur de la ligne",
     choices: [
-      { id: "indigo", label: "Indigo" },
       { id: "magenta", label: "Magenta" },
-      { id: "orange", label: "Orange" },
+      { id: "violet", label: "Violet" },
+      { id: "indigo", label: "Indigo" },
     ],
     explain:
-      "La couleur de la ligne de chargement tracée le long de la frontière du territoire touché. « Indigo » (par défaut) est un violet très sombre, celui qui se détache le mieux du remplissage violet comme des frontières ; « Magenta » et « Orange » sont plus vifs, pour comparer. Sans effet si Réponse au toucher est « Aucune ».",
+      "La couleur de la ligne de chargement tracée le long de la frontière du territoire touché. « Magenta » (par défaut) se détache du remplissage violet comme des frontières par sa teinte ; « Violet » est le violet soutenu du site, de la même famille que le remplissage, en plus sombre ; « Indigo » est un violet très sombre, le plus contrasté et le plus lourd. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
-    defaultId: "indigo",
+    defaultId: "magenta",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
@@ -377,13 +377,13 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Avancée de la ligne",
     choices: [
-      { id: "steps", label: "Par étapes" },
       { id: "creep", label: "En continu" },
+      { id: "steps", label: "Par étapes" },
     ],
     explain:
-      "Comment la ligne de chargement avance entre deux arrivées de données. « Par étapes » (par défaut) : elle ne bouge que lorsqu'une donnée arrive ; « En continu » : elle glisse aussi, lentement, vers l'étape suivante pendant l'attente, sans jamais faire le tour complet avant que tout soit arrivé. Sans effet si Réponse au toucher est « Aucune ».",
+      "Comment la ligne de chargement avance entre deux arrivées de données. « En continu » (par défaut) : elle avance à chaque donnée qui arrive et, pendant l'attente, glisse aussi lentement vers l'étape suivante, sans jamais l'atteindre avant la donnée ni faire le tour complet avant que tout soit arrivé ; « Par étapes » : elle ne bouge que lorsqu'une donnée arrive. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
-    defaultId: "steps",
+    defaultId: "creep",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
@@ -395,7 +395,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "together", label: "Ensemble" },
     ],
     explain:
-      "Ce qui se passe quand toutes les données du territoire touché sont arrivées. « Puis montée » (par défaut) : le violet s'efface d'abord, et le territoire ne se soulève qu'ensuite ; « Ensemble » : le violet s'efface pendant que le territoire se soulève. Sans effet si Réponse au toucher est « Aucune ».",
+      "Ce qui se passe quand toutes les données du territoire touché sont arrivées. « Puis montée » (par défaut) : la ligne finit son tour, le violet s'efface, et le territoire ne se soulève qu'ensuite ; « Ensemble » : le violet s'efface pendant que le territoire se soulève. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
     defaultId: "then",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
@@ -433,11 +433,12 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     label: "Attente du contour",
     choices: [
       { id: "1200", label: "1,2 s" },
+      { id: "file", label: "Le fichier" },
       { id: "400", label: "0,4 s" },
       { id: "0", label: "Aucune" },
     ],
     explain:
-      "Le contour précis d'un territoire arrive par un fichier. S'il tarde, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile. « 1,2 s » (par défaut) attend le fichier jusqu'à 1,2 seconde, comme avant ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
+      "Le contour précis d'un territoire arrive par un fichier. S'il tarde, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile ; la ligne de chargement mesure alors ce sur quoi le territoire se soulève, et ne compte plus ce fichier. « 1,2 s » (par défaut) attend le fichier jusqu'à 1,2 seconde, comme avant ; « Le fichier » fait attendre un territoire touché ou cliqué jusqu'à l'arrivée de son fichier (4 secondes au plus), pour qu'il se soulève directement sur son contour précis, la ligne avançant avec le fichier ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
     reloads: false,
     defaultId: "1200",
   },

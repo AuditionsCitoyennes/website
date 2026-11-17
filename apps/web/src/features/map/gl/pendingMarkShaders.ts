@@ -4,10 +4,13 @@
 // attributes, each of the quad's six corners says which end it stands at and
 // its two signs, the quad extruded perpendicular in SCREEN space to a
 // constant pixel width) with what a loading line needs:
-// - a square cap half a width past each end, so two segments overlap at
-//   their joint instead of leaving a notch on the outside of a corner;
+// - a square cap past each end — half a width, or the segment's own length
+//   when it is shorter — so two segments overlap at their joint instead of
+//   leaving a notch on the outside of a corner, and a run of segments
+//   shorter than the line is wide (a river's meanders) does not pile its
+//   caps into a knot;
 // - a colour given by the frame;
-// - the share of the ring's length reached at each end (aLen), carried to
+// - the share of the boundary's length reached at each end (aLen), carried to
 //   the fragment with the pixels one unit of it spans on this segment, so
 //   the fragment shader draws the line up to uProgress, its head one pixel
 //   soft, with no derivative.
@@ -17,21 +20,22 @@ import { GLOBE_PROJECT_GLSL } from "./program";
 
 /** From `p` (the corner's end) and `q` (the other one), both projected: the
  *  corner's offset in the lines' own units (viewport × NDC, two per pixel) —
- *  across by its side, and back past its end by half the width — and the
- *  length reached there. The cap continues the segment's own slope of
- *  length per pixel, a few segments' worth at most (a segment seen end-on
- *  has no slope to continue). */
+ *  across by its side, and back past its end by the cap — and the length
+ *  reached there. The cap continues the segment's own slope of length per
+ *  pixel, one segment's worth at most (a segment seen end-on has neither
+ *  cap nor slope). */
 const MARK_EXTRUDE_GLSL = `
     vec2 d = (q.xy / q.w - p.xy / p.w) * uViewport;
     float len = length(d);
     vec2 along = len > 0.0 ? d / len : vec2(0.0, 0.0);
     vec2 n = vec2(-along.y, along.x);
     vSide = aCorner.z;
-    vec2 off = n * aCorner.y * (uWidth + 2.0) - along * uWidth;
+    float cap = min(uWidth, len);
+    vec2 off = n * aCorner.y * (uWidth + 2.0) - along * cap;
     gl_Position = p + vec4(off / uViewport * p.w, 0.0, 0.0);
     float lenSelf = atB ? aLen.y : aLen.x;
     float lenOther = atB ? aLen.x : aLen.y;
-    vLen = lenSelf + min(uWidth / max(len, 1e-6), 8.0) * (lenSelf - lenOther);
+    vLen = lenSelf + (cap / max(len, 1e-6)) * (lenSelf - lenOther);
     vPxPerLen = (len * 0.5) / max(abs(lenOther - lenSelf), 1e-9);`;
 
 export const MARK_LEAN_VS = `attribute vec3 aA;
@@ -76,8 +80,8 @@ export const G_MARK_LEAN_VS = `attribute vec3 aAMerc;
   }`;
 
 // uColor at uAlpha, premultiplied (custom layers blend premultiplied), with
-// the lines' 1 px alpha feather at the edges, up to uProgress of the ring's
-// length (its head one pixel soft).
+// the lines' 1 px alpha feather at the edges, up to uProgress of the
+// boundary's length (its head one pixel soft).
 export const MARK_FS = `precision highp float;
   varying float vSide;
   varying float vLen;

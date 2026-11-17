@@ -10,10 +10,12 @@
 // vertex.
 //
 // The line: one record per boundary segment — its two ends and, for each,
-// the share of its ring's length reached there (0 at the ring's first
-// vertex, 1 at its last: every ring fills at once and they finish together).
-// The six corners of a segment's quad are the same for every segment
-// (gl/lineSegments.ts LINE_CORNERS), the segments drawn as instances of it.
+// the share of the unit's WHOLE boundary reached there. The rings are run
+// one after the other, the longest first: one line grows around the
+// mainland, then around each island in turn, the islets last — never a dash
+// on every ring at once. The six corners of a segment's quad are the same
+// for every segment (gl/lineSegments.ts LINE_CORNERS), the segments drawn as
+// instances of it.
 //
 // The fill: flat triangles, in the hover fill's layout ([position,
 // distance], the distance always 0: no sweep), so the hover fill's programs
@@ -45,8 +47,21 @@ export const MARK_GROUND_FILL_M = 8;
 export const markLidFillM = (h: number) => h * 1.001;
 export const markLidLineM = (h: number) => h * 1.002;
 
-/** The loading line's width, CSS px (a boundary line is 0.9 to 1.7). */
-export const MARK_LINE_WIDTH = 3;
+/** The loading line's width, CSS px (a boundary line is 0.9 to 1.7)… */
+export const MARK_LINE_WIDTH = 2.5;
+/** …on a unit whose box is at least this wide on screen, CSS px; a smaller
+ *  one's is thinner in proportion, down to this share of it (a 3 px line
+ *  around an island twenty pixels across is a smear). */
+export const MARK_LINE_FULL_PX = 160;
+export const MARK_LINE_MIN_SHARE = 0.5;
+
+/** The line's width, CSS px, around a unit whose box is `spanDeg` degrees
+ *  wide, at the camera's `zoom` (512 px a world at zoom 0). */
+export function markLineWidth(spanDeg: number, zoom: number): number {
+  const px = (spanDeg / 360) * 512 * Math.pow(2, zoom);
+  const share = Number.isFinite(px) ? px / MARK_LINE_FULL_PX : 1;
+  return MARK_LINE_WIDTH * Math.min(1, Math.max(MARK_LINE_MIN_SHARE, share));
+}
 /** The fill's share of the hover fill's opacity (0.6 there): the same violet
  *  a hovered zone has, on every device. */
 export const MARK_FILL_SHARE = 1;
@@ -58,25 +73,36 @@ export const MARK_UNFILL_MS = 117;
 /** The line's fade once the plateau rises (or the wait turned late), ms. */
 export const MARK_FADE_MS = 117;
 /** A full line whose plateau never rose is cleared this long after its
- *  fill went, ms (a safety: nothing known leaves one). */
-export const MARK_LINE_HOLD_CAP_MS = 4000;
+ *  fill went, ms (a safety: nothing known leaves one). Past the longest a
+ *  committed plateau waits to rise: the old one's sink (150 ms), the commit,
+ *  the camera's landing (plateau/riseSwitch.ts LAND_WAIT_CAP_MS, 3.5 s). */
+export const MARK_LINE_HOLD_CAP_MS = 6000;
 
 /** A unit with at most this many boundary vertices is built on the page, in
  *  the frame that answers the tap (a région's coarse entry a few hundred, a
  *  département's about two thousand); a larger one off that frame. */
 export const MARK_PAGE_MAX_VERTICES = 4000;
-/** …and, on the globe, one whose box spans at most this many degrees (a
- *  wider one grows too much under the bisection). */
+/** …and, on the globe, the bisection of one whose box spans more than this
+ *  many degrees is left out of that frame: its cost grows with the surface.
+ *  Measured on every outline file of at most MARK_PAGE_MAX_VERTICES (node,
+ *  this build): the plain fill 0.1 to 0.6 ms, the bisected one of a country
+ *  as wide as China, Australia or Brazil 1.5 to 2.2 ms, of Antarctica 6.7 —
+ *  about 35 ms more in the tap's frame on a weak phone (CPU six times
+ *  slower). So a wide unit is filled plain in the tap's frame, and its
+ *  bisected fill takes the plain one's place when it lands. */
 export const MARK_PAGE_MAX_SPAN_DEG = 20;
 /** The globe fill's longest edge, degrees of arc. */
 export const MARK_FILL_MAX_EDGE_DEG = 2;
 
 /** `ac:tap-steps=creep`: between two real steps the line slides toward a
  *  ceiling short of the next step, with this time constant, and stops this
- *  long after the last real step; a repaint is asked at most this often. */
+ *  long after the last real step; a repaint is asked at most this often —
+ *  less often under short motion (a weak device's): four frames a second at
+ *  most, and none while the map draws its own. */
 export const MARK_CREEP_TAU_MS = 2500;
 export const MARK_CREEP_FREEZE_MS = 4000;
 export const MARK_CREEP_TICK_MS = 100;
+export const MARK_CREEP_TICK_SHORT_MS = 250;
 /** The creep never shows more than this before the data is all in. */
 export const MARK_CREEP_MAX = 0.9;
 
@@ -109,6 +135,13 @@ export function fadeAlpha(now: number, t0: number, ms: number): number {
   return t >= 1 ? 0 : t <= 0 ? 1 : 1 - t;
 }
 
+/** The unfill's opacity `now`: the fade above, squared — most of the violet
+ *  is gone in the first third, so the zone does not sit under a pale wash. */
+export function unfillAlpha(now: number, t0: number, ms: number): number {
+  const a = fadeAlpha(now, t0, ms);
+  return a * a;
+}
+
 /** The hover fill program's threshold (uFillT) that draws a vertex of
  *  distance 0 at `share` of the hover fill's opacity: its fragment shader
  *  keeps 1 − smoothstep(T − 0.12, T, 0), which this inverts. 1 → 0.12 (the
@@ -129,20 +162,23 @@ export function ringVertexCount(g: MarkGeometry): number {
 
 export type MarkRegime = "merc" | "globe";
 
-/** Where a unit's mark is built: on the page in the frame that draws it, or
- *  off that frame (the mesh worker, else a task of the page's own). */
+/** Where a unit's mark is built: on the page in the frame that draws it
+ *  ("page"); there too but its globe fill plain, the bisected one built off
+ *  the frame and swapped in ("page-plain": a wide unit on the globe); or off
+ *  that frame altogether (the mesh worker, else a task of the page's own). */
 export function markBuildPlace(
   vertices: number,
   spanDeg: number,
   regime: MarkRegime,
-): "page" | "off-frame" {
+): "page" | "page-plain" | "off-frame" {
   if (vertices > MARK_PAGE_MAX_VERTICES) return "off-frame";
-  return regime === "merc" || spanDeg <= MARK_PAGE_MAX_SPAN_DEG ? "page" : "off-frame";
+  return regime === "merc" || spanDeg <= MARK_PAGE_MAX_SPAN_DEG ? "page" : "page-plain";
 }
 
 /** Floats per segment of the line: mercator [A.x, A.y, A.zRef, B.x, B.y,
  *  B.zRef, lenA, lenB], relative to the origin; globe [A: merc3, lo3,
- *  hiRef3; B: the same; lenA, lenB], absolute. */
+ *  hiRef3; B: the same; lenA, lenB], absolute. lenA, lenB: the share of the
+ *  whole boundary's length reached at each end. */
 export const MARK_LINE_FLOATS = 8;
 export const G_MARK_LINE_FLOATS = 20;
 /** Floats per vertex of the fill: [x, y, zRef, 0] and [merc3, lo3, hiRef3, 0]. */
@@ -225,11 +261,12 @@ function lineOf(polys: Ring[][], regime: MarkRegime): MarkLine | null {
   for (const rings of polys) for (const ring of rings) segCount += Math.max(0, ring.n - 1);
   const stride = merc ? MARK_LINE_FLOATS : G_MARK_LINE_FLOATS;
   const segs = new Float32Array(segCount * stride);
-  let o = 0;
+  // Each ring's length, vertex by vertex: chords on the ground (ECEF).
+  const all: { p: Float64Array; n: number; cum: Float64Array; at: number; from: number }[] = [];
+  let at = 0;
   for (const rings of polys) {
     for (const { n, p } of rings) {
       if (n < 2) continue;
-      // The ring's length, vertex by vertex: chords on the ground (ECEF).
       const cum = new Float64Array(n);
       for (let i = 1; i < n; i++) {
         const a = (i - 1) * P;
@@ -237,29 +274,43 @@ function lineOf(polys: Ring[][], regime: MarkRegime): MarkLine | null {
         cum[i] =
           cum[i - 1] + Math.hypot(p[b + 3] - p[a + 3], p[b + 4] - p[a + 4], p[b + 5] - p[a + 5]);
       }
-      const total = cum[n - 1];
-      // A ring of no length (every vertex the same): reached from the start.
-      const share = (i: number) => (total > 0 ? cum[i] / total : 0);
-      for (let i = 0; i + 1 < n; i++) {
-        const a = i * P;
-        const b = (i + 1) * P;
-        if (merc) {
-          segs[o] = p[a] - ox;
-          segs[o + 1] = p[a + 1] - oy;
-          segs[o + 2] = MARK_REF_M * p[a + 2];
-          segs[o + 3] = p[b] - ox;
-          segs[o + 4] = p[b + 1] - oy;
-          segs[o + 5] = MARK_REF_M * p[b + 2];
-          segs[o + 6] = share(i);
-          segs[o + 7] = share(i + 1);
-        } else {
-          putGlobe(segs, o, p, i);
-          putGlobe(segs, o + 9, p, i + 1);
-          segs[o + 18] = share(i);
-          segs[o + 19] = share(i + 1);
-        }
-        o += stride;
+      all.push({ p, n, cum, at, from: 0 });
+      at += (n - 1) * stride;
+    }
+  }
+  // The rings one after the other along the whole boundary's length, the
+  // longest first (ties: as the outline lists them).
+  const order = all
+    .map((_, i) => i)
+    .sort((i, j) => all[j].cum[all[j].n - 1] - all[i].cum[all[i].n - 1] || i - j);
+  let total = 0;
+  for (const i of order) {
+    all[i].from = total;
+    total += all[i].cum[all[i].n - 1];
+  }
+  // A boundary of no length (every vertex the same): reached from the start.
+  const share = (len: number) => (total > 0 ? Math.min(1, len / total) : 0);
+  for (const { p, n, cum, at: start, from } of all) {
+    let o = start;
+    for (let i = 0; i + 1 < n; i++) {
+      const a = i * P;
+      const b = (i + 1) * P;
+      if (merc) {
+        segs[o] = p[a] - ox;
+        segs[o + 1] = p[a + 1] - oy;
+        segs[o + 2] = MARK_REF_M * p[a + 2];
+        segs[o + 3] = p[b] - ox;
+        segs[o + 4] = p[b + 1] - oy;
+        segs[o + 5] = MARK_REF_M * p[b + 2];
+        segs[o + 6] = share(from + cum[i]);
+        segs[o + 7] = share(from + cum[i + 1]);
+      } else {
+        putGlobe(segs, o, p, i);
+        putGlobe(segs, o + 9, p, i + 1);
+        segs[o + 18] = share(from + cum[i]);
+        segs[o + 19] = share(from + cum[i + 1]);
       }
+      o += stride;
     }
   }
   return { origin: [ox, oy], segs, segCount };
@@ -310,10 +361,12 @@ function put6(
   stack[o + 5] = y2;
 }
 
-function fillOf(polys: Ring[][], regime: MarkRegime): MarkFill | null {
+function fillOf(polys: Ring[][], regime: MarkRegime, bisect = true): MarkFill | null {
   const first = originOf(polys);
   if (!first) return null;
   const merc = regime === "merc";
+  // The longest edge kept: none longer than the cap, or any (a plain fill).
+  const maxEdge = bisect ? MARK_FILL_MAX_EDGE_DEG : Infinity;
   const [ox, oy] = merc ? first : [0, 0];
   let vertices = 0;
   for (const rings of polys) for (const ring of rings) vertices += ring.n;
@@ -383,7 +436,7 @@ function fillOf(polys: Ring[][], regime: MarkRegime): MarkFill | null {
         const bc = arcDeg(bx, by, cx, cy);
         const ca = arcDeg(cx, cy, ax, ay);
         const longest = Math.max(ab, bc, ca);
-        if (longest > MARK_FILL_MAX_EDGE_DEG) {
+        if (longest > maxEdge) {
           if (top + 12 > stack.length) {
             const next = new Float64Array(stack.length * 2);
             next.set(stack);
@@ -428,19 +481,23 @@ export function buildMarkLine(g: MarkGeometry, regime: MarkRegime): MarkLine | n
   return lineOf(projectRings(g), regime);
 }
 
-/** The flat fill of `g` for one regime; null: a geometry with no segment. */
-export function buildMarkFill(g: MarkGeometry, regime: MarkRegime): MarkFill | null {
-  return fillOf(projectRings(g), regime);
+/** The flat fill of `g` for one regime; null: a geometry with no segment.
+ *  `bisect` false: the globe's triangles as earcut gives them (a wide
+ *  unit's first fill: a faint seam may show along a long diagonal until the
+ *  bisected one takes its place). */
+export function buildMarkFill(g: MarkGeometry, regime: MarkRegime, bisect = true): MarkFill | null {
+  return fillOf(projectRings(g), regime, bisect);
 }
 
-/** Both, from one projection of the outline (a large unit's, built off the
- *  frame); null: a geometry with no segment. */
+/** Both, from one projection of the outline; null: a geometry with no
+ *  segment. */
 export function buildMark(
   g: MarkGeometry,
   regime: MarkRegime,
+  bisect = true,
 ): { line: MarkLine; fill: MarkFill } | null {
   const polys = projectRings(g);
   const line = lineOf(polys, regime);
-  const fill = fillOf(polys, regime);
+  const fill = fillOf(polys, regime, bisect);
   return line && fill ? { line, fill } : null;
 }

@@ -9,7 +9,12 @@
 // coarser one of the same unit is in memory (a région's entry in France's
 // file, a country's world outline):
 // - "1200" (the default): up to 1.2 s, then it rises on the coarse shape, as
-//   before.
+//   before. A tapped unit's loading line then measures what its plateau
+//   rises on: the file leaves its count (plateau/tapProgress.ts).
+// - "file": a unit the visitor tapped waits for its file itself — its
+//   loading line follows the file as it arrives, and its plateau rises on
+//   the fine shape — TAP_OUTLINE_WAIT_MS at most, then as above. A
+//   selection nobody tapped (a pan, a crumb, a link): up to 1.2 s.
 // - "400": up to 0.4 s.
 // - "0": no wait: it rises on the coarse shape in the tap's own pipeline run.
 // The fine shape, when it lands after the rise, is stored once the map is
@@ -39,7 +44,7 @@
 
 import { ref } from "vue";
 
-export type OutlineWait = "1200" | "400" | "0";
+export type OutlineWait = "1200" | "file" | "400" | "0";
 export type RegionSelfMode = "first" | "bundle";
 export type ColdStartMode = "hold" | "early";
 
@@ -48,7 +53,13 @@ export const DEFAULT_OUTLINE_WAIT: OutlineWait = "1200";
 export const DEFAULT_REGION_SELF: RegionSelfMode = "first";
 export const DEFAULT_COLD_START: ColdStartMode = "hold";
 
-export const OUTLINE_WAITS: readonly OutlineWait[] = ["1200", "400", "0"];
+export const OUTLINE_WAITS: readonly OutlineWait[] = ["1200", "file", "400", "0"];
+
+/** How long a tapped unit waits for its own outline file under "file", ms:
+ *  it ends a second before the long wait's sentence (geo-nav's
+ *  tapPendingCore SLOW_WAIT_MS), so a file that does not come ends in a
+ *  plateau on the coarse shape, not in that sentence. */
+export const TAP_OUTLINE_WAIT_MS = 4000;
 export const REGION_SELF_MODES: readonly RegionSelfMode[] = ["first", "bundle"];
 export const COLD_START_MODES: readonly ColdStartMode[] = ["hold", "early"];
 
@@ -115,9 +126,18 @@ export function setColdStartMode(mode: ColdStartMode) {
 /**
  * How long a plateau waits for its unit's fine outline, ms. `coarse`: a
  * coarser outline of the unit is in memory, so there is a shape to rise on
- * meanwhile — the switch's wait; none: `full` (OUTLINE_WAIT_MS), whatever
- * the switch, since rising sooner would raise nothing.
+ * meanwhile — the switch's wait (under "file": TAP_OUTLINE_WAIT_MS for a
+ * unit the visitor `tapped`, `full` for any other); none: `full`
+ * (OUTLINE_WAIT_MS), whatever the switch, since rising sooner would raise
+ * nothing.
  */
-export function outlineWaitFor(wait: OutlineWait, coarse: boolean, full: number): number {
-  return coarse ? Number(wait) : full;
+export function outlineWaitFor(
+  wait: OutlineWait,
+  coarse: boolean,
+  full: number,
+  tapped = false,
+): number {
+  if (!coarse) return full;
+  if (wait === "file") return tapped ? TAP_OUTLINE_WAIT_MS : full;
+  return Number(wait);
 }

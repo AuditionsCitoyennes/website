@@ -1,12 +1,14 @@
 // The pending mark's pass (PendingMarkPass.ts), on a recording stand-in for
 // the WebGL context, with a clock, timers and a deferred-task queue by hand:
 // a held mark asks for ONE frame however many are drawn (a still map with a
-// mark held stays idle); the line is neither built nor drawn at 0 and never
-// shows more than its target; a step eases over a bounded number of frames,
-// or jumps; the data all in, the fill fades and the gate falls to 0; the
-// release rides the new lid; a large unit's meshes come from off the frame
-// and join only while the mark still waits; nothing is rebuilt for the same
-// geometry. Run with `node --import tsx --test` (root "test:scripts").
+// mark held stays idle); the line is built with the fill, not drawn at 0 and
+// never shows more than its target; a step eases over a bounded number of
+// frames, or jumps; the data all in, the line first, then the fill fades and
+// the gate falls to 0; the release rides the new lid; a large unit's meshes
+// come from off the frame and join only while the mark still waits, and are
+// never built for a mark that can no longer show them; nothing is rebuilt
+// for the same geometry; dropped meshes leave the GPU. Run with
+// `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -19,9 +21,12 @@ import {
 import {
   MARK_CREEP_FREEZE_MS,
   MARK_CREEP_TICK_MS,
+  MARK_CREEP_TICK_SHORT_MS,
   MARK_FADE_MS,
   MARK_GROUND_LINE_M,
   MARK_LINE_HOLD_CAP_MS,
+  MARK_LINE_MIN_SHARE,
+  MARK_LINE_WIDTH,
   MARK_PAGE_MAX_VERTICES,
   MARK_REF_M,
   MARK_STEP_MS,
@@ -98,12 +103,18 @@ function fakeGl() {
             },
     },
   ) as unknown as WebGL2RenderingContext;
-  const count = (name: string) => calls.filter((c) => c.name === name).length;
+  const count = (name: string) =>
+    name === "bufferData"
+      ? // The uploads of a mesh: emptying a buffer (a size) is counted apart.
+        calls.filter((c) => c.name === name && typeof c.args[1] !== "number").length
+      : calls.filter((c) => c.name === name).length;
+  /** The buffers emptied (bufferData with a size of 0). */
+  const emptied = () => calls.filter((c) => c.name === "bufferData" && c.args[1] === 0).length;
   /** The value last given to uniform `name` (a float). */
   const uniform = (name: string) =>
     calls.filter((c) => c.name === "uniform1f" && c.args[0] === name).at(-1)?.args[1] as
       number | undefined;
-  return { gl, calls, count, uniform };
+  return { gl, calls, count, emptied, uniform };
 }
 
 /** The layer's hover-fill program, which draws the flat fill. */
@@ -143,8 +154,8 @@ function harness() {
   const g = fakeGl();
   pass.onAdd(g.gl);
   /** One mercator frame, as the layer draws it. */
-  const frame = (rise = 1) => {
-    pass.prepare(g.gl, "merc");
+  const frame = (rise = 1, zoom?: number) => {
+    pass.prepare(g.gl, "merc", zoom);
     pass.drawMercator(g.gl, MATRIX, rise, "fill", fillProg);
     pass.drawMercator(g.gl, MATRIX, rise, "line", null);
   };
@@ -210,23 +221,46 @@ test("a held mark asks for one frame, and none for as long as it is drawn", () =
   for (let i = 0; i < 200; i++) frame();
   assert.equal(repaints(), 1); // a still map with a mark held stays idle
   assert.equal(count("drawArrays"), 200); // the fill, each frame
-  assert.equal(count("bufferData"), 1); // the fill built and uploaded once
+  assert.equal(count("bufferData"), 2); // the fill and the line, built and uploaded once
 });
 
-test("at progress 0 the line is neither built nor drawn; its first step builds it", () => {
+test("the line is built with the fill, in the first frame, and not drawn at progress 0", () => {
   const { pass, frame, count, uniform } = harness();
   pass.set(spec());
   frame();
   assert.equal(count("drawArraysInstanced"), 0);
-  assert.equal(pass.state()!.lineBytes, 0);
+  assert.equal(pass.state()!.lineBytes, 4 * 8 * 4); // four segments, 32 bytes each
+  assert.equal(count("bufferData"), 2);
   pass.setProgress(0.25, SHORT);
   frame();
   assert.equal(count("drawArraysInstanced"), 1);
-  assert.equal(pass.state()!.lineBytes, 4 * 8 * 4); // four segments, 32 bytes each
   assert.equal(uniform("uProgress"), 0.25);
-  assert.equal(uniform("uWidth"), 3);
-  // The corners once, the line's buffer once: three uploads with the fill's.
+  assert.equal(uniform("uWidth"), MARK_LINE_WIDTH);
+  // The corners, at the line's first draw: three uploads in all, none later.
   assert.equal(count("bufferData"), 3);
+  for (let i = 0; i < 20; i++) frame();
+  assert.equal(count("bufferData"), 3);
+});
+
+test("a line alone (no fill asked) is built at its first progress", () => {
+  const { pass, frame, count } = harness();
+  pass.set(spec({ fill: false }));
+  frame();
+  assert.equal(pass.state()!.lineBytes, 0);
+  assert.equal(count("bufferData"), 0);
+  pass.setProgress(0.25, SHORT);
+  frame();
+  assert.equal(pass.state()!.lineBytes, 4 * 8 * 4);
+  assert.equal(count("drawArraysInstanced"), 1);
+});
+
+test("the line is thinner around a unit small on screen (the camera's zoom of the frame)", () => {
+  const { pass, frame, uniform } = harness();
+  pass.set(spec({ spanDeg: 1 }), 0.5);
+  frame(1, 5); // a 1° unit at zoom 5: 45 px wide
+  assert.equal(uniform("uWidth"), MARK_LINE_WIDTH * MARK_LINE_MIN_SHARE);
+  frame(1, 9); // 728 px wide
+  assert.equal(uniform("uWidth"), MARK_LINE_WIDTH);
 });
 
 test("a step eases over a bounded number of frames and never shows more than its target", () => {
@@ -286,7 +320,7 @@ test("short and reduced motion: the line jumps, one frame a step", () => {
   }
 });
 
-test("the data all in: the line is whole, the fill fades over a bounded time, the gate falls to 0", () => {
+test("the data all in: the line first, then the fill fades over a bounded time, the gate falls to 0", () => {
   const h = harness();
   h.pass.set(spec());
   h.frame();
@@ -294,14 +328,22 @@ test("the data all in: the line is whole, the fill fades over a bounded time, th
   h.run(200);
   assert.equal(h.pass.gateMs(), 0); // not finished: no gate
   h.pass.finish(FULL, "then");
-  assert.equal(h.pass.gateMs(), MARK_UNFILL_MS);
+  // The fill starts to leave half an ease after the data: the line's head
+  // has then run seven eighths of its last step.
+  const lead = MARK_STEP_MS / 2;
+  assert.equal(h.pass.gateMs(), lead + MARK_UNFILL_MS);
   assert.equal(h.pass.state()!.progress.target, 1);
+  h.advance(lead);
+  h.frame();
+  assert.equal(h.pass.state()!.fillAlpha, 1); // the violet whole…
+  assert.ok(h.shown() >= 0.25 + 0.75 * 0.875 - 1e-9, `the line at ${h.shown()}`); // …the line nearly so
   h.advance(40);
   h.frame();
   assert.equal(h.pass.gateMs(), MARK_UNFILL_MS - 40);
   const a = h.pass.state()!.fillAlpha;
-  assert.ok(a > 0.6 && a < 0.7, `fill at ${a}`);
+  assert.ok(a > 0.4 && a < 0.47, `fill at ${a}`); // the fade squared: (1 − 40/117)²
   assert.equal(h.uniform("uFillT"), fillThreshold(a));
+  assert.ok(h.shown() > 0.99); // the line whole while the violet thins
   const asked = h.run(400);
   assert.ok(asked >= 4 && asked <= Math.ceil(MARK_UNFILL_MS / 16), `${asked} frames asked`);
   assert.equal(h.pass.gateMs(), 0);
@@ -362,11 +404,45 @@ test("the data in before any frame: the fill still shows and fades, the gate cou
   const h = harness();
   h.pass.set(spec());
   h.pass.finish(SHORT, "then"); // no frame drawn since the tap
-  assert.equal(h.pass.gateMs(), 47);
+  assert.equal(h.pass.gateMs(), 47); // the line jumps: no lead
   h.advance(10);
   h.frame();
   assert.equal(h.count("drawArrays"), 1);
-  assert.ok(h.pass.state()!.fillAlpha > 0.7);
+  assert.ok(h.pass.state()!.fillAlpha > 0.6);
+});
+
+test("a draining mark holds the rise for what is left of its fade, while its fill is on screen", () => {
+  const h = harness();
+  h.pass.set(spec());
+  h.frame();
+  h.pass.drain(FULL);
+  assert.equal(h.pass.gateMs(), MARK_FADE_MS);
+  h.advance(100);
+  assert.equal(h.pass.gateMs(), MARK_FADE_MS - 100);
+  h.advance(100);
+  assert.equal(h.pass.gateMs(), 0);
+  // Never drawn (no frame since the tap): nothing to wait for.
+  const blind = harness();
+  blind.pass.set(spec());
+  blind.pass.drain(FULL);
+  assert.equal(blind.pass.gateMs(), 0);
+});
+
+test("a regime first drawn once the violet is gone: the line alone is built, never the fill", () => {
+  const h = harness();
+  h.pass.set(spec(), 0.5);
+  h.frame();
+  h.pass.finish(SHORT, "then");
+  h.run(200); // the fill has left; the line holds, full
+  const uploads = h.count("bufferData");
+  // The flight crosses zoom 6: the globe's first frame.
+  h.pass.prepare(h.gl, "globe");
+  h.pass.drawGlobe(h.gl, h.binders, false, 1, "fill", fillProg);
+  h.pass.drawGlobe(h.gl, h.binders, false, 1, "line", null);
+  assert.equal(h.count("bufferData"), uploads + 1); // the line's segments only
+  const s = h.pass.state()!;
+  assert.equal(s.fillBytes, 6 * 4 * 4); // the flat view's fill, no globe fill
+  assert.equal(s.lineBytes, 4 * 8 * 4 + 4 * 20 * 4);
 });
 
 test("after a blocked main thread: one frame shows the line at its target, the fill gone, in order", () => {
@@ -479,7 +555,8 @@ test("the last tap wins: a newer mark replaces the older in one repaint, with it
   assert.equal(h.pass.id, "b");
   assert.equal(h.repaints(), 2);
   h.frame();
-  assert.equal(h.count("bufferData"), 2); // b's fill built for its first frame
+  assert.equal(h.count("bufferData"), 4); // b's fill and line built for its first frame
+  assert.equal(h.emptied(), 0); // a's buffers were filled again: nothing to empty
 });
 
 test("the same geometry again: nothing is rebuilt, and a retry's line starts where its data had come", () => {
@@ -545,7 +622,32 @@ test("clear: no mark, one repaint, nothing kept; a second clear asks for nothing
   assert.equal(h.pass.state(), null);
   h.pass.set(spec({ g }));
   h.frame();
-  assert.equal(h.count("bufferData"), 2); // built again: nothing was kept
+  assert.equal(h.count("bufferData"), 4); // built again: nothing was kept
+});
+
+test("dropped meshes leave the GPU by the next frame, once", () => {
+  const h = harness();
+  h.pass.set(spec(), 0.5);
+  h.frame();
+  assert.equal(h.emptied(), 0);
+  h.pass.clear();
+  assert.equal(h.emptied(), 0); // not outside a frame
+  h.frame(); // any frame of the layer's, the mark gone
+  assert.equal(h.emptied(), 2); // the fill's buffer and the line's
+  for (let i = 0; i < 5; i++) h.frame();
+  assert.equal(h.emptied(), 2);
+  // Kept for a retry (a drain): nothing emptied until the pending state ends.
+  const kept = harness();
+  kept.pass.set(spec(), 0.5);
+  kept.frame();
+  kept.pass.drain(FULL);
+  kept.run(300);
+  assert.equal(kept.pass.active, false);
+  kept.frame();
+  assert.equal(kept.emptied(), 0);
+  kept.pass.forget();
+  kept.frame();
+  assert.equal(kept.emptied(), 2);
 });
 
 test("forget: the kept meshes go once the mark is over, not while it fades", () => {
@@ -565,7 +667,7 @@ test("forget: the kept meshes go once the mark is over, not while it fades", () 
   const uploads = h.count("bufferData");
   h.pass.set(spec({ g }));
   h.frame();
-  assert.equal(h.count("bufferData"), uploads + 1); // the fill, built again
+  assert.equal(h.count("bufferData"), uploads + 2); // the fill and the line, built again
 });
 
 test("nothing asked for: no mark at all", () => {
@@ -623,6 +725,100 @@ test("a large unit: nothing is built in the tap's frame; its meshes come from th
   );
 });
 
+test("a wide unit on the globe: a plain fill and its line in the tap's frame; the bisected fill, asked behind the builds, takes its place", async () => {
+  const h = harness();
+  const p = provider();
+  h.pass.setProvider(p);
+  const g: MarkGeometry = {
+    type: "Polygon",
+    coordinates: [
+      [
+        [-70, -30],
+        [-30, -30],
+        [-30, 5],
+        [-70, 5],
+        [-70, -30],
+      ],
+    ],
+  };
+  const draw = () => {
+    h.pass.prepare(h.gl, "globe");
+    h.pass.drawGlobe(h.gl, h.binders, false, 1, "fill", fillProg);
+    h.pass.drawGlobe(h.gl, h.binders, false, 1, "line", null);
+  };
+  h.pass.set(spec({ g, spanDeg: 40 }), 0.3, "globe");
+  assert.equal(p.asks.length, 0); // nothing asked at the tap: the frame builds it
+  assert.equal(h.pass.fillAtOnce("globe"), true);
+  draw();
+  assert.equal(h.count("drawArrays"), 1); // the fill, in the first frame
+  assert.equal(h.count("drawArraysInstanced"), 1);
+  let s = h.pass.state()!;
+  assert.deepEqual([s.fillVia, s.fillLateMs, s.fillPlain, s.fillVerts], ["page", null, true, 6]);
+  assert.deepEqual(
+    p.asks.map((a) => [a.regime, a.front]),
+    [["globe", false]], // never ahead of the plateau's own mesh
+  );
+  draw();
+  assert.equal(p.asks.length, 1); // asked once
+  const before = h.repaints();
+  p.asks[0].answer(buildMark(g, "globe"));
+  await settle();
+  assert.equal(h.repaints(), before + 1);
+  draw();
+  s = h.pass.state()!;
+  assert.equal(s.fillPlain, false);
+  assert.ok(s.fillVerts! > 600); // bisected
+  assert.equal(s.fillVia, "page"); // on time: nothing joined late
+  assert.deepEqual(h.filled, []);
+  assert.equal(h.pass.ownsFill("globe"), true);
+  // The flat view of the same unit is never plain.
+  h.pass.prepare(h.gl, "merc");
+  assert.equal(p.asks.length, 1);
+});
+
+test("a wide unit's bisected fill that never comes, or comes once the violet is leaving: the plain one stays", async () => {
+  const g: MarkGeometry = {
+    type: "Polygon",
+    coordinates: [
+      [
+        [-70, -30],
+        [-30, -30],
+        [-30, 5],
+        [-70, 5],
+        [-70, -30],
+      ],
+    ],
+  };
+  const draw = (h: ReturnType<typeof harness>) => {
+    h.pass.prepare(h.gl, "globe");
+    h.pass.drawGlobe(h.gl, h.binders, false, 1, "fill", fillProg);
+  };
+  // The worker gives nothing while the mark has finished: no page build.
+  const h = harness();
+  const p = provider();
+  h.pass.setProvider(p);
+  h.pass.set(spec({ g, spanDeg: 40 }), 0, "globe");
+  draw(h);
+  h.pass.finish(SHORT, "then");
+  p.asks[0].answer(null);
+  await settle();
+  assert.equal(h.deferred.length, 1);
+  h.deferred[0]();
+  draw(h);
+  assert.equal(h.pass.state()!.fillVerts, 6);
+  assert.equal(h.pass.gateMs() > 0, true); // the plain fill is the one leaving
+  // No worker: the bisected fill in a task of the page's own, after the frame.
+  const alone = harness();
+  alone.pass.set(spec({ g, spanDeg: 40 }), 0, "globe");
+  draw(alone);
+  assert.equal(alone.pass.state()!.fillVerts, 6);
+  assert.equal(alone.deferred.length, 1);
+  alone.deferred[0]();
+  draw(alone);
+  assert.ok(alone.pass.state()!.fillVerts! > 600);
+  assert.equal(alone.pass.state()!.fillPlain, false);
+});
+
 test("a large unit's meshes are asked at the tap itself when the regime is known, once", () => {
   const h = harness();
   const p = provider();
@@ -660,6 +856,36 @@ test("a large unit with no provider, or one that gives nothing: built in a task 
     assert.equal(h.count("drawArrays"), 1);
     assert.equal(h.pass.state()!.fillVia, "deferred");
   }
+  // The task comes after the mark can no longer show a fill: nothing is
+  // triangulated — the line alone for a mark held with its data all in,
+  // nothing at all once it drains, is cleared or is replaced.
+  const g = large();
+  const late = (act: (h: ReturnType<typeof harness>) => void) => {
+    const h = harness();
+    h.pass.set(spec({ g }), 0.3);
+    h.frame();
+    act(h);
+    h.deferred[0]();
+    h.frame();
+    return h;
+  };
+  const finished = late((h) => h.pass.finish(SHORT, "then"));
+  assert.equal(finished.pass.state()!.fillBytes, 0);
+  assert.ok(finished.pass.state()!.lineBytes > 0);
+  assert.equal(finished.count("drawArrays"), 0);
+  assert.equal(finished.count("drawArraysInstanced"), 1); // the line, whole
+  const drained = late((h) => h.pass.drain(FULL));
+  assert.equal(drained.pass.state()!.fillBytes + drained.pass.state()!.lineBytes, 0);
+  const cleared = late((h) => h.pass.clear());
+  assert.equal(cleared.count("bufferData"), 0);
+  // …and a later mark of the same geometry (« Réessayer ») asks again.
+  drained.run(300);
+  drained.pass.set(spec({ g }), 0.3);
+  drained.frame();
+  assert.equal(drained.deferred.length, 2);
+  drained.deferred[1]();
+  drained.frame();
+  assert.equal(drained.count("drawArrays"), 1);
   // A provider that is not live is not asked.
   const h = harness();
   const dead = provider(false);
@@ -762,6 +988,34 @@ test("the creep: a tick asks for a frame unless one was drawn, never past its ce
   assert.equal(h.shown(), 1);
 });
 
+test("the creep under short motion: a tick four times a second at most, the line still short of its ceiling", () => {
+  const h = harness();
+  h.pass.set(spec({ creep: true, creepTickMs: MARK_CREEP_TICK_SHORT_MS }));
+  h.frame();
+  const before = h.repaints();
+  let frames = 0;
+  for (let at = 0; at < 2000; at += 50) {
+    const was = h.repaints();
+    h.advance(50);
+    if (h.repaints() > was) {
+      h.frame();
+      frames++;
+    }
+  }
+  const asked = h.repaints() - before;
+  assert.ok(asked >= 7 && asked <= 8, `${asked} frames asked in two seconds`);
+  assert.equal(frames, asked);
+  const at2s = h.shown();
+  assert.ok(at2s > 0.2 && at2s < 0.5, `shown ${at2s}`); // from nothing, with no data: it grows
+  // The first real step, a jump under short motion: never back, never past the ceiling.
+  h.pass.setProgress(0.25, SHORT);
+  assert.ok(h.shown() >= at2s);
+  h.pass.finish(SHORT, "then");
+  assert.equal(h.shown(), 1);
+  h.advance(10_000);
+  assert.equal(h.timers.size, 0); // the cap's timer ran, no tick is left
+});
+
 test("the mark never writes depth, hands the frame back tested and written, and unbinds its vertex array", () => {
   const h = harness();
   h.pass.set(spec(), 0.5);
@@ -782,14 +1036,21 @@ test("the mark never writes depth, hands the frame back tested and written, and 
   for (const i of divisors) assert.ok(i > first && i < last);
 });
 
-test("a context given back: the meshes are uploaded again", () => {
+test("a context given back: the meshes are uploaded again, the mark's timers armed again", () => {
   const h = harness();
   h.pass.set(spec(), 0.5);
   h.frame();
   assert.equal(h.count("bufferData"), 3);
+  h.pass.finish(SHORT, "then");
+  assert.equal(h.timers.size, 1); // the cap
   h.pass.onRemove(h.gl);
+  assert.equal(h.timers.size, 0); // no timer once the layer is gone
   h.pass.onAdd(h.gl);
+  assert.equal(h.timers.size, 1);
   h.frame();
   assert.equal(h.count("bufferData"), 6);
+  assert.equal(h.emptied(), 0);
   assert.equal(h.pass.state(true)!.linked, true);
+  h.advance(MARK_LINE_HOLD_CAP_MS);
+  assert.equal(h.pass.active, false);
 });

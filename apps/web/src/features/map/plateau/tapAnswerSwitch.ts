@@ -19,18 +19,22 @@
 // `ac:tap-answer`, the mark: "line" (the default: the above) or "off" (no
 // mark, no pill, nothing said to a screen reader).
 //
-// `ac:tap-line`, the loading line's colour: "indigo" (the default: a very
-// dark violet, the only one of the three that stands out by its lightness
-// from the violet fill, from the map under it and from the boundary lines),
-// "magenta" and "orange" (livelier: they stand out by their hue).
+// `ac:tap-line`, the loading line's colour: "magenta" (the default: it
+// stands out from the violet fill and from the plain violet boundary lines
+// by its hue, and from the map under them by its depth), "violet" (the
+// site's deep violet: the fill's own family, darker) and "indigo" (a very
+// dark violet: the strongest contrast of lightness, the heaviest line).
 //
-// `ac:tap-steps`, how the line moves between two real steps: "steps" (the
-// default: it moves only when a piece of data arrives, easing to its new
-// length) or "creep" (it also slides slowly toward the next step while it
-// waits, never to the end before everything is in).
+// `ac:tap-steps`, how the line moves between two real steps: "creep" (the
+// default: it eases to its new length when a piece of data arrives and,
+// while it waits, slides slowly toward the next step — never reaching it
+// before the data, never the end before everything is in; a wait with
+// nothing arriving, a slow link's, still shows a line that grows) or
+// "steps" (it moves only when a piece of data arrives).
 //
-// `ac:tap-end`, the end: "then" (the default: the violet fades out first,
-// the unit rises after) or "together" (the violet fades while it rises).
+// `ac:tap-end`, the end: "then" (the default: the line whole, the violet
+// fades out, the unit rises after) or "together" (the violet fades while it
+// rises).
 //
 // `ac:tap-frame`, when the mark is first drawn:
 // - "same" (the default): the mark is set in the task that also writes the
@@ -44,29 +48,30 @@
 import { ref } from "vue";
 
 export type TapAnswerMode = "line" | "off";
-export type TapLineColor = "indigo" | "magenta" | "orange";
+export type TapLineColor = "magenta" | "violet" | "indigo";
 export type TapStepsMode = "steps" | "creep";
 export type TapEndMode = "then" | "together";
 export type TapFrameMode = "same" | "own";
 
 /** The modes of a build without the testing tools, and the switches' defaults. */
 export const DEFAULT_TAP_ANSWER: TapAnswerMode = "line";
-export const DEFAULT_TAP_LINE: TapLineColor = "indigo";
-export const DEFAULT_TAP_STEPS: TapStepsMode = "steps";
+export const DEFAULT_TAP_LINE: TapLineColor = "magenta";
+export const DEFAULT_TAP_STEPS: TapStepsMode = "creep";
 export const DEFAULT_TAP_END: TapEndMode = "then";
 export const DEFAULT_TAP_FRAME: TapFrameMode = "same";
 
 export const TAP_ANSWER_MODES: readonly TapAnswerMode[] = ["line", "off"];
-export const TAP_LINE_COLORS: readonly TapLineColor[] = ["indigo", "magenta", "orange"];
-export const TAP_STEPS_MODES: readonly TapStepsMode[] = ["steps", "creep"];
+export const TAP_LINE_COLORS: readonly TapLineColor[] = ["magenta", "violet", "indigo"];
+export const TAP_STEPS_MODES: readonly TapStepsMode[] = ["creep", "steps"];
 export const TAP_END_MODES: readonly TapEndMode[] = ["then", "together"];
 export const TAP_FRAME_MODES: readonly TapFrameMode[] = ["same", "own"];
 
-/** The loading line's colours, straight sRGB 0..1: #24126E, #B4005F, #C2410C. */
+/** The loading line's colours, straight sRGB 0..1: #BE1480, #702BB6 (the
+ *  slabs' accent violet), #24126E. */
 export const TAP_LINE_RGB: Readonly<Record<TapLineColor, readonly [number, number, number]>> = {
+  magenta: [0.745, 0.078, 0.502],
+  violet: [0.439, 0.169, 0.714],
   indigo: [0.141, 0.071, 0.431],
-  magenta: [0.706, 0.0, 0.373],
-  orange: [0.761, 0.255, 0.047],
 };
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {

@@ -35,6 +35,15 @@ test("the wait: the switch's with a coarse shape in memory, the full one without
   assert.equal(m.outlineWaitFor("400", true, 1200), 400);
   assert.equal(m.outlineWaitFor("0", true, 1200), 0);
   for (const wait of m.OUTLINE_WAITS) assert.equal(m.outlineWaitFor(wait, false, 1200), 1200);
+  // "file": a unit the visitor tapped waits for its file, any other the full wait.
+  assert.equal(m.outlineWaitFor("file", true, 1200), 1200);
+  assert.equal(m.outlineWaitFor("file", true, 1200, true), m.TAP_OUTLINE_WAIT_MS);
+  assert.equal(m.outlineWaitFor("file", false, 1200, true), 1200);
+  // The tap changes nothing under the other waits.
+  assert.equal(m.outlineWaitFor("1200", true, 1200, true), 1200);
+  assert.equal(m.outlineWaitFor("400", true, 1200, true), 400);
+  // Under the long wait's sentence (geo-nav's SLOW_WAIT_MS, 5 s), over the full wait.
+  assert.ok(m.TAP_OUTLINE_WAIT_MS > 1200 && m.TAP_OUTLINE_WAIT_MS < 5000);
 });
 
 test("without the testing tools: the defaults, storage unread, the setters ignored", async () => {
@@ -64,7 +73,7 @@ test("the defaults: today's wait, today's hold, the self first; each one of its 
   assert.equal(m.DEFAULT_OUTLINE_WAIT, "1200");
   assert.equal(m.DEFAULT_COLD_START, "hold");
   assert.equal(m.DEFAULT_REGION_SELF, "first");
-  assert.deepEqual([...m.OUTLINE_WAITS], ["1200", "400", "0"]);
+  assert.deepEqual([...m.OUTLINE_WAITS], ["1200", "file", "400", "0"]);
   assert.deepEqual([...m.REGION_SELF_MODES], ["first", "bundle"]);
   assert.deepEqual([...m.COLD_START_MODES], ["hold", "early"]);
   assert.ok(m.SELF_GRACE_MS > 0 && m.SELF_GRACE_MS <= 100);

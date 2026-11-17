@@ -1412,7 +1412,7 @@ test("onProgress: a response with no stream is read at once — answered, then l
     { onProgress: (key, phase, received, total) => void steps.push([key, phase, received, total]) },
   );
   await t.boot();
-  const r = t.loader.ensureBundle("fr:dep:69");
+  const r = t.loader.ensureBundle("fr:dep:69", true);
   await t.tick(0);
   assert.equal(await r, "loaded");
   assert.deepEqual(
@@ -1424,6 +1424,50 @@ test("onProgress: a response with no stream is read at once — answered, then l
       ["k/fr_dep_69", "landed", null],
     ],
   );
+});
+
+test("onProgress: only the files a plateau waits for or may come to — due, a prefetch, urgent when answered; a late file is read at once and tells nothing", async () => {
+  const steps: string[] = [];
+  const t = quiet(
+    { "k/fr_dep_69": ["stream"], "k/fr_reg_84": ["stream"], "u/fr_dep_03": ["stream"] },
+    { onProgress: (key, phase) => void steps.push(`${key} ${phase}`) },
+  );
+  await t.boot();
+  // Late (a standing scope's children): nothing told, the file kept as before.
+  void t.loader.ensureBundle("fr:dep:69");
+  await t.tick(0);
+  assert.deepEqual(steps, []);
+  // A prefetch (the hover before a click): told.
+  await Promise.all([t.loader.prefetch("u", "fr:dep:03"), t.tick(0)]);
+  assert.deepEqual([steps[0], steps.at(-1)], ["u/fr_dep_03 answered", "u/fr_dep_03 landed"]);
+  // Late by its ask, urgent when its response comes: told.
+  steps.length = 0;
+  t.urgent.add("k/fr_reg_84");
+  const r = t.loader.ensureBundle("fr:reg:84");
+  await t.tick(0);
+  assert.equal(await r, "loaded");
+  assert.deepEqual([steps[0], steps.at(-1)], ["k/fr_reg_84 answered", "k/fr_reg_84 landed"]);
+});
+
+test("ensureSelf with a longer wait: given up on that much later, also when a shorter ask armed the timer first", async () => {
+  const t = setup({ "u/fr_dep_69": ["hang"] });
+  await t.boot();
+  void t.loader.ensureSelf("fr:dep:69"); // the camera's ask: the options' wait
+  void t.loader.ensureSelf("fr:dep:69", 4_000); // the scope's chain, for a tapped unit
+  await t.tick(1_200);
+  assert.equal(t.loader.isGaveUp("u", "fr:dep:69"), false); // on to the longer wait
+  await t.tick(2_799);
+  assert.equal(t.loader.isGaveUp("u", "fr:dep:69"), false);
+  await t.tick(1);
+  assert.equal(t.loader.isGaveUp("u", "fr:dep:69"), true);
+
+  const alone = setup({ "u/fr_dep_69": ["hang"] });
+  await alone.boot();
+  void alone.loader.ensureSelf("fr:dep:69", 4_000);
+  await alone.tick(3_999);
+  assert.equal(alone.loader.isGaveUp("u", "fr:dep:69"), false);
+  await alone.tick(1);
+  assert.equal(alone.loader.isGaveUp("u", "fr:dep:69"), true);
 });
 
 test("onProgress: a body cut short takes the network path; a listener that throws changes nothing", async () => {

@@ -30,37 +30,43 @@ test("a mode kept by an earlier build is not a mode: it falls to the default", (
   assert.match(src, /stored\("ac:tap-answer", TAP_ANSWER_MODES, DEFAULT_TAP_ANSWER\)/);
 });
 
-test("the line's colours: three, none near white, the default the darkest", () => {
-  assert.deepEqual([...tap.TAP_LINE_COLORS], ["indigo", "magenta", "orange"]);
+test("the line's colours: three, none near white, each darker than the plain violet boundary line", () => {
+  assert.deepEqual([...tap.TAP_LINE_COLORS], ["magenta", "violet", "indigo"]);
   const luminance = ([r, g, b]: readonly number[]) => {
     const lin = (v: number) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
     return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
   };
   const lum = tap.TAP_LINE_COLORS.map((c) => luminance(tap.TAP_LINE_RGB[c]));
   for (const l of lum) assert.ok(l < 0.25, `luminance ${l}`);
-  assert.equal(Math.min(...lum), lum[0]);
-  // Against the plain violet boundary line (#7C5CFF): indigo reads by lightness (3:1).
+  // The plain violet boundary line (#7C5CFF): every candidate is darker than
+  // it; indigo, the darkest, reads against it by lightness alone (3:1).
   const violet = luminance([0.486, 0.361, 1.0]);
-  assert.ok((violet + 0.05) / (lum[0] + 0.05) >= 3);
+  for (const l of lum) assert.ok(l < violet, `luminance ${l}`);
+  assert.equal(Math.min(...lum), lum[2]);
+  assert.ok((violet + 0.05) / (lum[2] + 0.05) >= 3);
+  // The default stands out by its hue: more red than blue, where the fill
+  // and the boundary lines are blue first.
+  const [r, , b] = tap.TAP_LINE_RGB[tap.DEFAULT_TAP_LINE];
+  assert.ok(r > b);
 });
 
 test("a build without the testing tools keeps the defaults and ignores the setters", () => {
   assert.equal(tap.DEFAULT_TAP_ANSWER, "line");
-  assert.equal(tap.DEFAULT_TAP_LINE, "indigo");
-  assert.equal(tap.DEFAULT_TAP_STEPS, "steps");
+  assert.equal(tap.DEFAULT_TAP_LINE, "magenta");
+  assert.equal(tap.DEFAULT_TAP_STEPS, "creep");
   assert.equal(tap.DEFAULT_TAP_END, "then");
   assert.equal(tap.DEFAULT_TAP_FRAME, "same");
   tap.setTapAnswerMode("off");
-  tap.setTapLineColor("orange");
-  tap.setTapStepsMode("creep");
+  tap.setTapLineColor("indigo");
+  tap.setTapStepsMode("steps");
   tap.setTapEndMode("together");
   tap.setTapFrameMode("own");
   assert.equal(tap.tapAnswerMode.value, "line");
-  assert.equal(tap.tapLineColor.value, "indigo");
-  assert.equal(tap.tapStepsMode.value, "steps");
+  assert.equal(tap.tapLineColor.value, "magenta");
+  assert.equal(tap.tapStepsMode.value, "creep");
   assert.equal(tap.tapEndMode.value, "then");
   assert.equal(tap.tapFrameMode.value, "same");
-  assert.deepEqual([...tap.TAP_STEPS_MODES], ["steps", "creep"]);
+  assert.deepEqual([...tap.TAP_STEPS_MODES], ["creep", "steps"]);
   assert.deepEqual([...tap.TAP_END_MODES], ["then", "together"]);
   assert.deepEqual([...tap.TAP_FRAME_MODES], ["same", "own"]);
 });

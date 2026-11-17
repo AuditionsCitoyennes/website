@@ -26,7 +26,8 @@
 // geometry by token and a regime. The tap's own (`front`) is answered like a
 // tint, before the builds queued — the fill is the tap's first sign — and
 // supersedes the marks queued; one that is not (the other regime, asked
-// later) waits its turn behind everything queued. A mark never supersedes a
+// later; the bisected globe fill of a wide unit, whose plain fill the page
+// has drawn already) waits its turn behind everything queued. A mark never supersedes a
 // build and no build supersedes it. It never answers `error`: a throw
 // answers "nothing built" (`built: null`), and the page builds it.
 //
