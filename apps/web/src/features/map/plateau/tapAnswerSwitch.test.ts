@@ -1,53 +1,66 @@
 // The answer to a tap, its switches' pure part (tapAnswerSwitch.ts): what the
-// pending mark is made of under each mode and pointer, and which taps count
-// as a touch. Run with `node --import tsx --test` (root "test:scripts"). The
-// module is loaded as a build without the testing tools: storage unread.
+// pending mark is made of under each mode, the same for every pointer, the
+// line's colours, and the defaults of a build without the testing tools. Run
+// with `node --import tsx --test` (root "test:scripts"). The module is
+// loaded as a build without the testing tools: storage unread.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 (globalThis as unknown as { __TEST_TOOLS__: boolean }).__TEST_TOOLS__ = false;
 const tap = await import("./tapAnswerSwitch");
 
-test("auto: the stroke everywhere, the fill on a touch screen only", () => {
-  assert.deepEqual(tap.tapMarkFor("auto", false), { stroke: true, fill: false, pill: true });
-  assert.deepEqual(tap.tapMarkFor("auto", true), { stroke: true, fill: true, pill: true });
+test("line: the fill, the line and the pill, whatever made the tap", () => {
+  assert.deepEqual(tap.tapMarkFor("line"), { line: true, fill: true, pill: true });
+  assert.equal(tap.tapMarkFor.length, 1); // no pointer type: one behaviour
 });
 
-test("stroke and fill: the same on every device", () => {
-  for (const touch of [false, true]) {
-    assert.deepEqual(tap.tapMarkFor("stroke", touch), { stroke: true, fill: false, pill: true });
-    assert.deepEqual(tap.tapMarkFor("fill", touch), { stroke: false, fill: true, pill: true });
+test("off: no mark at all", () => {
+  assert.deepEqual(tap.tapMarkFor("off"), { line: false, fill: false, pill: false });
+});
+
+test("a mode kept by an earlier build is not a mode: it falls to the default", () => {
+  assert.deepEqual([...tap.TAP_ANSWER_MODES], ["line", "off"]);
+  for (const old of ["auto", "stroke", "fill"]) {
+    assert.equal((tap.TAP_ANSWER_MODES as readonly string[]).includes(old), false, old);
   }
+  // The read is `stored(key, the allowed list, the default)`: anything else is the default.
+  const src = readFileSync(new URL("./tapAnswerSwitch.ts", import.meta.url), "utf8");
+  assert.match(src, /stored\("ac:tap-answer", TAP_ANSWER_MODES, DEFAULT_TAP_ANSWER\)/);
 });
 
-test("off: no mark at all, as before", () => {
-  for (const touch of [false, true]) {
-    assert.deepEqual(tap.tapMarkFor("off", touch), { stroke: false, fill: false, pill: false });
-  }
-});
-
-test("a touch or a pen is a touch, a mouse is not, whatever the device", () => {
-  assert.equal(tap.tapIsTouch("touch", true), true);
-  assert.equal(tap.tapIsTouch("pen", true), true);
-  assert.equal(tap.tapIsTouch("mouse", false), false);
-});
-
-test("no pointer seen yet (a key): the device's main pointer decides", () => {
-  assert.equal(tap.tapIsTouch(undefined, true), false);
-  assert.equal(tap.tapIsTouch(undefined, false), true);
-  assert.equal(tap.tapIsTouch("", false), true);
+test("the line's colours: three, none near white, the default the darkest", () => {
+  assert.deepEqual([...tap.TAP_LINE_COLORS], ["indigo", "magenta", "orange"]);
+  const luminance = ([r, g, b]: readonly number[]) => {
+    const lin = (v: number) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  const lum = tap.TAP_LINE_COLORS.map((c) => luminance(tap.TAP_LINE_RGB[c]));
+  for (const l of lum) assert.ok(l < 0.25, `luminance ${l}`);
+  assert.equal(Math.min(...lum), lum[0]);
+  // Against the plain violet boundary line (#7C5CFF): indigo reads by lightness (3:1).
+  const violet = luminance([0.486, 0.361, 1.0]);
+  assert.ok((violet + 0.05) / (lum[0] + 0.05) >= 3);
 });
 
 test("a build without the testing tools keeps the defaults and ignores the setters", () => {
-  assert.equal(tap.DEFAULT_TAP_ANSWER, "auto");
+  assert.equal(tap.DEFAULT_TAP_ANSWER, "line");
+  assert.equal(tap.DEFAULT_TAP_LINE, "indigo");
+  assert.equal(tap.DEFAULT_TAP_STEPS, "steps");
+  assert.equal(tap.DEFAULT_TAP_END, "then");
   assert.equal(tap.DEFAULT_TAP_FRAME, "same");
-  assert.equal(tap.tapAnswerMode.value, "auto");
-  assert.equal(tap.tapFrameMode.value, "same");
   tap.setTapAnswerMode("off");
+  tap.setTapLineColor("orange");
+  tap.setTapStepsMode("creep");
+  tap.setTapEndMode("together");
   tap.setTapFrameMode("own");
-  assert.equal(tap.tapAnswerMode.value, "auto");
+  assert.equal(tap.tapAnswerMode.value, "line");
+  assert.equal(tap.tapLineColor.value, "indigo");
+  assert.equal(tap.tapStepsMode.value, "steps");
+  assert.equal(tap.tapEndMode.value, "then");
   assert.equal(tap.tapFrameMode.value, "same");
-  assert.deepEqual([...tap.TAP_ANSWER_MODES], ["auto", "stroke", "fill", "off"]);
+  assert.deepEqual([...tap.TAP_STEPS_MODES], ["steps", "creep"]);
+  assert.deepEqual([...tap.TAP_END_MODES], ["then", "together"]);
   assert.deepEqual([...tap.TAP_FRAME_MODES], ["same", "own"]);
 });

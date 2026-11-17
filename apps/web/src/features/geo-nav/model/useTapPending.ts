@@ -1,15 +1,15 @@
 // The pending state of a tapped territory, on the page (the rule is
 // tapPendingCore.ts): the map's mark through GeoDrillMap (`markPending`,
-// `endPending`), the unit pending as a ref (the panel list's aria-busy), the
-// polite sentence said once its plateau stands, the type of the pointer that
-// tapped (a touch gets the flat fill: tapAnswerSwitch), the frame the
-// mark may get to itself before the selection is written (`ac:tap-frame`),
-// and the sign of a long wait (`ac:slow-sign`, slowSignSwitch.ts): its stage
-// as a ref (the breadcrumb's dots, the panel's sentence and its
-// « Réessayer »), the dots on the unit's pill through GeoDrillMap
-// (`setPendingWait`), and the landing the sign waits for.
+// `endPending`, `pendingEnded`: a flat fill and a loading line, the same
+// whatever tapped), the unit pending as a ref (the panel list's aria-busy),
+// the polite sentence said once its plateau stands, the frame the mark may
+// get to itself before the selection is written (`ac:tap-frame`), and the
+// sign of a long wait (`ac:slow-sign`, slowSignSwitch.ts): its stage as a
+// ref (the breadcrumb's dots, the panel's sentence and its « Réessayer »),
+// the dots on the unit's pill through GeoDrillMap (`setPendingWait`), and
+// the landing the sign waits for.
 import { onScopeDispose, ref, watch, type Ref } from "vue";
-import { tapAnswerMode, tapFrameMode, tapIsTouch, tapMarkFor, type TapMark } from "@/features/map";
+import { tapAnswerMode, tapFrameMode, tapMarkFor, type TapMark } from "@/features/map";
 import type { GeoUnit } from "@/features/geo";
 import { perfNote, perfOn, perfProbe } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
@@ -48,8 +48,6 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
   const waitStage = ref<WaitStage>("none");
   /** The polite live region's sentence. */
   const live = ref("");
-  /** The type of the pointer last seen going down on the page. */
-  let lastPointer: string | undefined;
 
   // The testing tools: how each pending state ended, and how long it was held.
   const ends: Record<string, number> = {};
@@ -78,9 +76,9 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
 
   const core = createTapPending({
     mark: (unit, again) => {
-      const hover = window.matchMedia?.("(hover: hover)").matches ?? true;
-      const mark = tapMarkFor(tapAnswerMode.value, tapIsTouch(lastPointer, hover));
-      if (!mark.stroke && !mark.fill && !mark.pill) return false;
+      // The same mark whatever tapped: a mouse, a finger, a pen, a key.
+      const mark = tapMarkFor(tapAnswerMode.value);
+      if (!mark.line && !mark.fill && !mark.pill) return false;
       // Pending whether or not the map could draw it (a row of a unit with no
       // outline in memory): the list is busy and the sentence is said alike.
       // Not when no verdict would end it: the unit's plateau stands, or
@@ -178,10 +176,6 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
     },
     /** GeoDrillMap's `plateauSettled`. */
     settled: (scopeId: string, how: SettleHow) => core.settled(scopeId, how),
-    /** The page's pointerdown (capture): which pointer taps. */
-    onPointerDown: (e: PointerEvent) => {
-      lastPointer = e.pointerType;
-    },
   };
 }
 

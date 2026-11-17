@@ -621,6 +621,7 @@ export function useMapPins({
   function setHover(id: string) {
     if (id === hoveredUnitId) return;
     const map = getMap();
+    restoreDrapedHover();
     const prev = hoveredUnitId;
     hoveredUnitId = id;
     // The newly hovered pill is the only one that will be shown, and updateSticky
@@ -656,6 +657,29 @@ export function useMapPins({
         ["!=", ["get", "kind"], "scope"],
         ["==", ["get", "id"], drapedId],
       ]);
+    }
+  }
+
+  // The draped hover fill given up for the hovered unit: a pending mark's
+  // fill has taken its place (GeoDrillMap.markPending), so the violet on the
+  // unit neither doubles nor drops at the tap. A paint value, constant: the
+  // layer's source is not read again, where a filter change would lay the
+  // tiles out once more. Back at the next hover change, or when the mark
+  // ends without a plateau.
+  let drapedYielded = false;
+  function yieldDrapedHover(id: string) {
+    const map = getMap();
+    if (drapedYielded || !id || id !== hoveredUnitId) return;
+    if (!map?.getLayer("scope-hover-fill")) return;
+    map.setPaintProperty("scope-hover-fill", "fill-opacity", 0);
+    drapedYielded = true;
+  }
+  function restoreDrapedHover() {
+    if (!drapedYielded) return;
+    drapedYielded = false;
+    const map = getMap();
+    if (map?.getLayer("scope-hover-fill")) {
+      map.setPaintProperty("scope-hover-fill", "fill-opacity", 0.6);
     }
   }
 
@@ -773,6 +797,8 @@ export function useMapPins({
     scheduleSticky,
     /** The pill of the unit wearing the pending mark ("": none). */
     setPendingPin,
+    yieldDrapedHover,
+    restoreDrapedHover,
     /** The sign of a long wait on that pill, on or off. */
     setPendingWait,
     /** The pins drawn on a slab, hidden; those no longer there, shown again. */

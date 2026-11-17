@@ -41,6 +41,9 @@ export type DevKey =
   | "ac:relief-prefetch"
   | "ac:frame-fill"
   | "ac:tap-answer"
+  | "ac:tap-line"
+  | "ac:tap-steps"
+  | "ac:tap-end"
   | "ac:tap-frame"
   | "ac:late-files"
   | "ac:outline-wait"
@@ -346,15 +349,56 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Réponse au toucher",
     choices: [
-      { id: "auto", label: "Auto" },
-      { id: "stroke", label: "Contour" },
-      { id: "fill", label: "Violet" },
+      { id: "line", label: "Ligne" },
       { id: "off", label: "Aucune" },
     ],
     explain:
-      "Quand on touche ou clique un territoire, il est marqué tout de suite, en attendant qu'il se soulève. « Auto » (par défaut) trace un contour clair et épais autour de lui et, sur un écran tactile, le remplit aussi de violet ; « Contour » ne trace que le contour ; « Violet » ne fait que le remplir, sur tous les appareils ; « Aucune » ne marque rien, comme avant. Avec les trois premiers choix, l'étiquette du territoire s'affiche aussi, en violet.",
+      "Quand on touche ou clique un territoire, il se remplit de violet tout de suite, sur tous les appareils, sans se soulever, et son étiquette s'affiche en violet. « Ligne » (par défaut) : une ligne avance le long de sa frontière à mesure que ses données arrivent et en fait le tour complet quand tout est là ; le violet s'en va alors, puis le territoire se soulève. « Aucune » ne marque rien.",
     reloads: false,
-    defaultId: "auto",
+    defaultId: "line",
+  },
+  {
+    key: "ac:tap-line",
+    section: "carte",
+    label: "Couleur de la ligne",
+    choices: [
+      { id: "indigo", label: "Indigo" },
+      { id: "magenta", label: "Magenta" },
+      { id: "orange", label: "Orange" },
+    ],
+    explain:
+      "La couleur de la ligne de chargement tracée le long de la frontière du territoire touché. « Indigo » (par défaut) est un violet très sombre, celui qui se détache le mieux du remplissage violet comme des frontières ; « Magenta » et « Orange » sont plus vifs, pour comparer. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "indigo",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
+  },
+  {
+    key: "ac:tap-steps",
+    section: "carte",
+    label: "Avancée de la ligne",
+    choices: [
+      { id: "steps", label: "Par étapes" },
+      { id: "creep", label: "En continu" },
+    ],
+    explain:
+      "Comment la ligne de chargement avance entre deux arrivées de données. « Par étapes » (par défaut) : elle ne bouge que lorsqu'une donnée arrive ; « En continu » : elle glisse aussi, lentement, vers l'étape suivante pendant l'attente, sans jamais faire le tour complet avant que tout soit arrivé. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "steps",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
+  },
+  {
+    key: "ac:tap-end",
+    section: "carte",
+    label: "Fin du chargement",
+    choices: [
+      { id: "then", label: "Puis montée" },
+      { id: "together", label: "Ensemble" },
+    ],
+    explain:
+      "Ce qui se passe quand toutes les données du territoire touché sont arrivées. « Puis montée » (par défaut) : le violet s'efface d'abord, et le territoire ne se soulève qu'ensuite ; « Ensemble » : le violet s'efface pendant que le territoire se soulève. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "then",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
     key: "ac:tap-frame",

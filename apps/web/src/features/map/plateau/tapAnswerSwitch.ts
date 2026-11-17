@@ -1,19 +1,36 @@
-// How a tap on a territory is answered while its plateau is on its way: the
-// PENDING mark, shown on the tapped unit from the tap until its plateau
-// commits (gl/PendingMarkPass.ts draws it, geo-nav's model/tapPendingCore.ts
-// decides when it ends). Two switches, compared live in the builds with the
-// testing tools — the dev server and staging (__TEST_TOOLS__, vite.config),
-// kept in localStorage and drawn as the Témoignages page's DEV rows « Réponse
-// au toucher » and « Image du toucher ». Read at each tap: no reload.
+// How a tap on a territory is answered while the data of its plateau comes
+// in: the PENDING mark, shown on the tapped unit from the tap until its
+// plateau rises (gl/PendingMarkPass.ts draws it, geo-nav's
+// model/tapPendingCore.ts decides when the pending state ends). The same on
+// every device, for a mouse, a finger, a pen or a key:
+// - the unit is filled with flat violet at once, without rising, and its
+//   pill wears the pending look;
+// - a loading line runs along its boundary, covering the share of the
+//   boundary's length that the data has reached (plateau/tapProgress.ts): 0
+//   at the tap, the whole boundary when everything is in;
+// - then the violet fades out, and only then the unit rises.
 //
-// `ac:tap-answer`, what the mark is:
-// - "auto" (the default): a still, lighter, thicker stroke along the unit's
-//   boundary on every device, and on a touch screen, which has no hover, a
-//   flat violet fill as well; the unit's pill wears the pending look.
-// - "stroke": the stroke and the pill, never the fill.
-// - "fill": the flat violet fill and the pill on every device, no stroke.
-// - "off": no mark, no pill, nothing said to a screen reader: the map as it
-//   was before the mark existed.
+// Five switches, compared live in the builds with the testing tools — the dev
+// server and staging (__TEST_TOOLS__, vite.config), kept in localStorage and
+// drawn as the Témoignages page's DEV rows « Réponse au toucher », « Couleur
+// de la ligne », « Avancée de la ligne », « Fin du chargement » and « Image
+// du toucher ». Read at each tap: no reload.
+//
+// `ac:tap-answer`, the mark: "line" (the default: the above) or "off" (no
+// mark, no pill, nothing said to a screen reader).
+//
+// `ac:tap-line`, the loading line's colour: "indigo" (the default: a very
+// dark violet, the only one of the three that stands out by its lightness
+// from the violet fill, from the map under it and from the boundary lines),
+// "magenta" and "orange" (livelier: they stand out by their hue).
+//
+// `ac:tap-steps`, how the line moves between two real steps: "steps" (the
+// default: it moves only when a piece of data arrives, easing to its new
+// length) or "creep" (it also slides slowly toward the next step while it
+// waits, never to the end before everything is in).
+//
+// `ac:tap-end`, the end: "then" (the default: the violet fades out first,
+// the unit rises after) or "together" (the violet fades while it rises).
 //
 // `ac:tap-frame`, when the mark is first drawn:
 // - "same" (the default): the mark is set in the task that also writes the
@@ -22,19 +39,35 @@
 //   (the scope, the pins, the grey, the camera) is written right after that
 //   frame. One frame later for everything else.
 //
-// Production has neither key nor row: DEFAULT_TAP_ANSWER, DEFAULT_TAP_FRAME.
+// Production has neither key nor row: the DEFAULT_* below.
 
 import { ref } from "vue";
 
-export type TapAnswerMode = "auto" | "stroke" | "fill" | "off";
+export type TapAnswerMode = "line" | "off";
+export type TapLineColor = "indigo" | "magenta" | "orange";
+export type TapStepsMode = "steps" | "creep";
+export type TapEndMode = "then" | "together";
 export type TapFrameMode = "same" | "own";
 
 /** The modes of a build without the testing tools, and the switches' defaults. */
-export const DEFAULT_TAP_ANSWER: TapAnswerMode = "auto";
+export const DEFAULT_TAP_ANSWER: TapAnswerMode = "line";
+export const DEFAULT_TAP_LINE: TapLineColor = "indigo";
+export const DEFAULT_TAP_STEPS: TapStepsMode = "steps";
+export const DEFAULT_TAP_END: TapEndMode = "then";
 export const DEFAULT_TAP_FRAME: TapFrameMode = "same";
 
-export const TAP_ANSWER_MODES: readonly TapAnswerMode[] = ["auto", "stroke", "fill", "off"];
+export const TAP_ANSWER_MODES: readonly TapAnswerMode[] = ["line", "off"];
+export const TAP_LINE_COLORS: readonly TapLineColor[] = ["indigo", "magenta", "orange"];
+export const TAP_STEPS_MODES: readonly TapStepsMode[] = ["steps", "creep"];
+export const TAP_END_MODES: readonly TapEndMode[] = ["then", "together"];
 export const TAP_FRAME_MODES: readonly TapFrameMode[] = ["same", "own"];
+
+/** The loading line's colours, straight sRGB 0..1: #24126E, #B4005F, #C2410C. */
+export const TAP_LINE_RGB: Readonly<Record<TapLineColor, readonly [number, number, number]>> = {
+  indigo: [0.141, 0.071, 0.431],
+  magenta: [0.706, 0.0, 0.373],
+  orange: [0.761, 0.255, 0.047],
+};
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -54,11 +87,22 @@ function store(key: string, value: string) {
 }
 
 /** The modes now (refs: the DEV dialog redraws its rows from them). A build
- *  without the testing tools reads no key: the defaults. */
+ *  without the testing tools reads no key: the defaults. A value kept by an
+ *  earlier build that no longer exists ("auto", "stroke", "fill") is the
+ *  default. */
 export const tapAnswerMode = ref<TapAnswerMode>(
   __TEST_TOOLS__
     ? stored("ac:tap-answer", TAP_ANSWER_MODES, DEFAULT_TAP_ANSWER)
     : DEFAULT_TAP_ANSWER,
+);
+export const tapLineColor = ref<TapLineColor>(
+  __TEST_TOOLS__ ? stored("ac:tap-line", TAP_LINE_COLORS, DEFAULT_TAP_LINE) : DEFAULT_TAP_LINE,
+);
+export const tapStepsMode = ref<TapStepsMode>(
+  __TEST_TOOLS__ ? stored("ac:tap-steps", TAP_STEPS_MODES, DEFAULT_TAP_STEPS) : DEFAULT_TAP_STEPS,
+);
+export const tapEndMode = ref<TapEndMode>(
+  __TEST_TOOLS__ ? stored("ac:tap-end", TAP_END_MODES, DEFAULT_TAP_END) : DEFAULT_TAP_END,
 );
 export const tapFrameMode = ref<TapFrameMode>(
   __TEST_TOOLS__ ? stored("ac:tap-frame", TAP_FRAME_MODES, DEFAULT_TAP_FRAME) : DEFAULT_TAP_FRAME,
@@ -71,6 +115,27 @@ export function setTapAnswerMode(mode: TapAnswerMode) {
   store("ac:tap-answer", mode);
 }
 
+/** Another colour for the line: kept, and in force from the next tap. */
+export function setTapLineColor(color: TapLineColor) {
+  if (!__TEST_TOOLS__) return;
+  tapLineColor.value = color;
+  store("ac:tap-line", color);
+}
+
+/** Another way for the line to move: kept, and in force from the next tap. */
+export function setTapStepsMode(mode: TapStepsMode) {
+  if (!__TEST_TOOLS__) return;
+  tapStepsMode.value = mode;
+  store("ac:tap-steps", mode);
+}
+
+/** Another end: kept, and in force from the next tap. */
+export function setTapEndMode(mode: TapEndMode) {
+  if (!__TEST_TOOLS__) return;
+  tapEndMode.value = mode;
+  store("ac:tap-end", mode);
+}
+
 /** Another first frame: kept, and in force from the next tap. */
 export function setTapFrameMode(mode: TapFrameMode) {
   if (!__TEST_TOOLS__) return;
@@ -81,30 +146,14 @@ export function setTapFrameMode(mode: TapFrameMode) {
 /** What a tap's mark is made of. `pill`: the unit's pill wears the pending
  *  look. All false: no pending state at all. */
 export interface TapMark {
-  stroke: boolean;
+  line: boolean;
   fill: boolean;
   pill: boolean;
 }
 
-/** The mark of a tap made with a touch (or a pen: no hover either) or a
- *  mouse, under `mode`. */
-export function tapMarkFor(mode: TapAnswerMode, touch: boolean): TapMark {
-  switch (mode) {
-    case "off":
-      return { stroke: false, fill: false, pill: false };
-    case "stroke":
-      return { stroke: true, fill: false, pill: true };
-    case "fill":
-      return { stroke: false, fill: true, pill: true };
-    default:
-      return { stroke: true, fill: touch, pill: true };
-  }
-}
-
-/** Whether a tap was made by something that cannot hover: the type of the
- *  pointer last seen going down on the page, or, when none was (a key on a
- *  row before any pointer), a device whose main pointer does not hover. */
-export function tapIsTouch(lastPointerType: string | undefined, hoverCapable: boolean): boolean {
-  if (lastPointerType) return lastPointerType !== "mouse";
-  return !hoverCapable;
+/** The mark of a tap under `mode`, whatever made it. */
+export function tapMarkFor(mode: TapAnswerMode): TapMark {
+  return mode === "off"
+    ? { line: false, fill: false, pill: false }
+    : { line: true, fill: true, pill: true };
 }

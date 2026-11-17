@@ -42,8 +42,8 @@
 
 /* The pill of a territory just tapped, while its plateau is on its way
    (useMapPins.setPendingPin): pressed back onto its territory (no lift),
-   filled with the primary colour under a light edge — the same two tones as
-   the stroke drawn along the territory's boundary. Still: no animation. Out
+   filled with the primary colour under a light edge — the violet its
+   territory is filled with meanwhile. Still: no animation. Out
    of the pointer's way: the territory under it is what a second tap reaches
    (`!important`: mapbox writes pointer-events on the marker itself). */
 .geo-pin.geo-pin-pending {

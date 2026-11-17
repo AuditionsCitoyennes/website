@@ -939,7 +939,6 @@ function retryAll() {
     :class="{ preview }"
     :inert="preview || undefined"
     :style="{ '--sheet-peek': `${sheetPeekPx}px`, '--panel-cover': `${panelCover}px` }"
-    @pointerdown.capture.passive="tap.onPointerDown"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the
          keyboard goes from the header straight to the usable panel. -->
