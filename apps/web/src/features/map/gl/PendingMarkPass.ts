@@ -355,8 +355,10 @@ export class PendingMarkPass {
    * Mark a unit (replacing any other), held until `release`, `drain` or
    * `clear`, its line at `progress` (no ease: the value a retry kept). The
    * same geometry object as the mark before: its meshes are used again.
+   * `regime`: the one the map draws in now — a large unit's meshes are
+   * asked for it at once, without waiting for the next frame.
    */
-  set(spec: PendingMarkSpec, progress = 0) {
+  set(spec: PendingMarkSpec, progress = 0, regime?: MarkRegime) {
     this.stopTimers();
     if (!spec.line && !spec.fill) {
       this.clear();
@@ -393,7 +395,19 @@ export class PendingMarkPass {
     this.fillLateMs = null;
     this.regime = null;
     if (spec.creep) this.armCreep();
+    if (regime) this.askAhead(regime);
     this.repaint();
+  }
+
+  /** A large unit's meshes asked off the frame, if they are not there yet. */
+  private askAhead(regime: MarkRegime) {
+    const s = this.spec;
+    if (!s) return;
+    const r = regime === "merc" ? this.merc : this.globe;
+    if (r.fillState !== "none" || r.lineState !== "none") return;
+    if (markBuildPlace(this.vertices, s.spanDeg, regime) === "page") return;
+    r.fillState = r.lineState = "pending";
+    this.ask(s.g, regime);
   }
 
   /** A real step: the line goes to `target` (never back), easing over
@@ -759,10 +773,7 @@ export class PendingMarkPass {
         r.lineState = r.line ? "ready" : "failed";
         r.lineDirty = r.line !== null;
       }
-    } else if (r.fillState === "none" && r.lineState === "none") {
-      r.fillState = r.lineState = "pending";
-      this.ask(s.g, regime);
-    }
+    } else this.askAhead(regime);
     if (r.fillDirty && r.fill) {
       gl.bindBuffer(gl.ARRAY_BUFFER, r.fillBuf);
       gl.bufferData(gl.ARRAY_BUFFER, r.fill.fill, gl.DYNAMIC_DRAW);

@@ -623,6 +623,24 @@ test("a large unit: nothing is built in the tap's frame; its meshes come from th
   );
 });
 
+test("a large unit's meshes are asked at the tap itself when the regime is known, once", () => {
+  const h = harness();
+  const p = provider();
+  h.pass.setProvider(p);
+  h.pass.set(spec({ g: large() }), 0, "merc");
+  assert.equal(p.asks.length, 1); // before any frame
+  assert.equal(p.asks[0].front, true);
+  h.frame();
+  assert.equal(p.asks.length, 1);
+  // A small unit is the frame's: nothing asked.
+  const small = harness();
+  const q = provider();
+  small.pass.setProvider(q);
+  small.pass.set(spec(), 0, "merc");
+  small.frame();
+  assert.equal(q.asks.length, 0);
+});
+
 test("a large unit with no provider, or one that gives nothing: built in a task after the frame", async () => {
   for (const withProvider of [false, true]) {
     const h = harness();

@@ -21,12 +21,22 @@
 // what the visitor sees first. A newer tint supersedes the tints queued; a
 // build supersedes builds only.
 //
+// A tapped unit's pending mark is built here too when the unit is large
+// (gl/pendingMark.ts, gl/PendingMarkPass.ts): a `mark` request names one
+// geometry by token and a regime. The tap's own (`front`) is answered like a
+// tint, before the builds queued — the fill is the tap's first sign — and
+// supersedes the marks queued; one that is not (the other regime, asked
+// later) waits its turn behind everything queued. A mark never supersedes a
+// build and no build supersedes it. It never answers `error`: a throw
+// answers "nothing built" (`built: null`), and the page builds it.
+//
 // Synchronous and pure: the builder, the flat geometries, nothing that touches
 // `window` (no @/shared/perf) and no mapbox-gl (lib/corePurity.test.ts).
 
 import type { OutlineFC } from "../types";
 import { buildPlateauMesh, type MeshOut } from "./meshBuild";
 import { flatVertices, unflatten, type FlatGeom, type Geom } from "./meshFlat";
+import { buildMark, type MarkFill, type MarkLine, type MarkRegime } from "./pendingMark";
 import { cutTintSheet } from "./tintSheet";
 
 /** What the builder reads of a feature, by place in its list (a token is per
@@ -93,7 +103,21 @@ export interface TintRequest {
   fail?: "throw" | "hang";
 }
 
-export type MeshMessage = MeshRequest | MeshRelease | TintRequest;
+/** The pending mark of the one geometry of `scope`, for one regime. */
+export interface MarkRequest {
+  t: "mark";
+  id: number;
+  scope: MeshSet;
+  puts: MeshPut[];
+  regime: MarkRegime;
+  /** The tap's own request: answered before the builds queued. */
+  front: boolean;
+  /** Testing tools: as a build's. */
+  delayMs?: number;
+  fail?: "throw" | "hang";
+}
+
+export type MeshMessage = MeshRequest | MeshRelease | TintRequest | MarkRequest;
 
 export type MeshReply =
   /** Built; `ms` is the build's own time, measured in the worker. */
@@ -105,6 +129,14 @@ export type MeshReply =
       positions: Float32Array<ArrayBuffer>;
       origin: [number, number];
       ms: number;
+    }
+  /** A pending mark's line and fill (`built` null: nothing built — a
+   *  geometry with no segment, a throw, a mark superseded while queued);
+   *  `ms` is the build's own time. */
+  | {
+      t: "mark";
+      id: number;
+      built: { regime: MarkRegime; line: MarkLine; fill: MarkFill; ms: number } | null;
     }
   /** Tokens the store does not hold: nothing built. */
   | { t: "missing"; id: number; tokens: number[] }
@@ -125,7 +157,7 @@ export interface MeshCoreDeps {
 export function createMeshCore(deps: MeshCoreDeps) {
   const store = new Map<number, { geom: Geom; vertices: number }>();
   let vertices = 0;
-  const queue: { req: MeshRequest | TintRequest; superseded: boolean }[] = [];
+  const queue: { req: MeshRequest | TintRequest | MarkRequest; superseded: boolean }[] = [];
   let armed = false;
 
   function put(token: number, flat: FlatGeom) {
@@ -199,6 +231,21 @@ export function createMeshCore(deps: MeshCoreDeps) {
     return { t: "tint", id: req.id, positions, origin, ms: performance.now() - t0 };
   }
 
+  /** A mark request's meshes from the store as it stands, or `missing`. */
+  function makeMark(req: MarkRequest): Extract<MeshReply, { t: "mark" | "missing" }> {
+    const missing: number[] = [];
+    const scope = featuresOf(req.scope, missing);
+    if (missing.length) return { t: "missing", id: req.id, tokens: [...new Set(missing)] };
+    const g = scope.find((f) => f.geometry)?.geometry as Geom | undefined;
+    const t0 = performance.now();
+    const built = g ? buildMark(g, req.regime) : null;
+    return {
+      t: "mark",
+      id: req.id,
+      built: built ? { regime: req.regime, ...built, ms: performance.now() - t0 } : null,
+    };
+  }
+
   function arm() {
     if (armed || !queue.length) return;
     armed = true;
@@ -206,23 +253,34 @@ export function createMeshCore(deps: MeshCoreDeps) {
   }
 
   /** The queue's head: the superseded ones answered, then one request — a
-   *  tint before the builds queued ahead of it. */
+   *  tint, or the tap's own mark, before the builds queued ahead of it. */
   function pump() {
     armed = false;
-    while (queue[0]?.superseded) deps.post({ t: "skipped", id: queue.shift()!.req.id });
-    const tint = queue.findIndex((q) => q.req.t === "tint" && !q.superseded);
-    const next = tint > 0 ? queue.splice(tint, 1)[0] : queue.shift();
+    while (queue[0]?.superseded) {
+      const { req } = queue.shift()!;
+      deps.post(
+        req.t === "mark" ? { t: "mark", id: req.id, built: null } : { t: "skipped", id: req.id },
+      );
+    }
+    const ahead = queue.findIndex(
+      (q) => !q.superseded && (q.req.t === "tint" || (q.req.t === "mark" && q.req.front)),
+    );
+    const next = ahead > 0 ? queue.splice(ahead, 1)[0] : queue.shift();
     if (next) run(next.req);
     arm();
   }
 
-  function run(req: MeshRequest | TintRequest) {
+  function run(req: MeshRequest | TintRequest | MarkRequest) {
     let reply: MeshReply;
     try {
       if (req.fail === "throw") throw new Error("__acMeshFail");
-      reply = req.t === "tint" ? makeTint(req) : make(req);
+      reply = req.t === "tint" ? makeTint(req) : req.t === "mark" ? makeMark(req) : make(req);
     } catch (err) {
-      reply = { t: "error", id: req.id, message: String((err as Error)?.message ?? err) };
+      // A mark that throws is only not built: the worker goes on.
+      reply =
+        req.t === "mark"
+          ? { t: "mark", id: req.id, built: null }
+          : { t: "error", id: req.id, message: String((err as Error)?.message ?? err) };
     }
     if (req.fail === "hang") return;
     if (req.delayMs && req.delayMs > 0) deps.schedule(() => deps.post(reply), req.delayMs);
@@ -238,8 +296,9 @@ export function createMeshCore(deps: MeshCoreDeps) {
     // Stored at once, a request skipped later included: the page counts them sent.
     for (const p of msg.puts) put(p.token, p.flat);
     // A newer tint has no use for the tints queued, a superseding build for
-    // the builds queued; neither touches the other kind.
-    if (msg.t === "tint" || msg.supersede) {
+    // the builds queued, a newer tap's mark for the marks queued; none
+    // touches another kind.
+    if (msg.t === "tint" || (msg.t === "mark" ? msg.front : msg.supersede)) {
       for (const q of queue) if (q.req.t === msg.t) q.superseded = true;
     }
     queue.push({ req: msg, superseded: false });

@@ -753,8 +753,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       raised: !!this.pendingFills.get(id)?.raised,
       lidM: this.heightM * WALL_OVERSHOOT,
     };
-    this.pendingMark.set({ id, g, ...look, raised: at.raised, lidM: at.lidM }, progress);
-    return { ...at, fillAtOnce: this.pendingMark.fillAtOnce(this.regimeNow()) };
+    const regime = this.regimeNow();
+    this.pendingMark.set({ id, g, ...look, raised: at.raised, lidM: at.lidM }, progress, regime);
+    return { ...at, fillAtOnce: this.pendingMark.fillAtOnce(regime) };
   }
 
   /** A real step of the marked unit's data: its line goes to `value`. */

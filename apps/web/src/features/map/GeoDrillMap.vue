@@ -566,10 +566,11 @@ function startWorkers() {
   // the worker, a page on another mode never loads them.
   if (meshMode === "worker") {
     void import("./gl/meshClient").then(
-      ({ warmMeshWorker, globeProviderOf, tintCutterOf }) => {
+      ({ warmMeshWorker, globeProviderOf, tintCutterOf, markProviderOf }) => {
         if (!map) return; // unmounted meanwhile (or the map was declared unavailable)
         meshClient = warmMeshWorker();
         plateauWall.setGlobeProvider(globeProviderOf(meshClient));
+        plateauWall.setMarkProvider(markProviderOf(meshClient)); // a large tapped unit's mark
         mask.setTintCutter(tintCutterOf(meshClient)); // ac:tint-cut
       },
       () => {},
@@ -928,6 +929,7 @@ onBeforeUnmount(() => {
   meshClient?.dispose();
   meshClient = null;
   plateauWall.setGlobeProvider(null);
+  plateauWall.setMarkProvider(null);
   mask.setTintCutter(null);
   lid.destroy();
   styleRecovery?.stop();
