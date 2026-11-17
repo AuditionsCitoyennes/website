@@ -145,6 +145,7 @@ const KEYS: readonly DevKey[] = [
   "ac:late-files",
   "ac:outline-wait",
   "ac:region-self",
+  "ac:tap-lines",
   "ac:cold-start",
   "ac:scope-drag",
   "ac:outlines-ahead",
@@ -177,7 +178,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 56);
+  assert.equal(DEV_OPTIONS.length, 57);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -276,6 +277,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:late-files": ["late", "setLateFilesMode"],
   "ac:outline-wait": ["cold", "setOutlineWait"],
   "ac:region-self": ["cold", "setRegionSelfMode"],
+  "ac:tap-lines": ["cold", "setTapLinesMode"],
   "ac:cold-start": ["cold", "setColdStartMode"],
   "ac:scope-drag": ["hold", "setScopeDragMode"],
   "ac:outlines-ahead": ["ahead", "setPrefetchMode"],
@@ -398,6 +400,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:late-files"), [...late.LATE_FILES_MODES]);
   assert.deepEqual(ids("ac:outline-wait"), [...cold.OUTLINE_WAITS]);
   assert.deepEqual(ids("ac:region-self"), [...cold.REGION_SELF_MODES]);
+  assert.deepEqual(ids("ac:tap-lines"), [...cold.TAP_LINES_MODES]);
   assert.deepEqual(ids("ac:cold-start"), [...cold.COLD_START_MODES]);
   assert.deepEqual(ids("ac:scope-drag"), [...hold.SCOPE_DRAG_MODES]);
   assert.deepEqual(ids("ac:outlines-ahead"), [...ahead.PREFETCH_MODES]);
@@ -474,6 +477,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:late-files": late.DEFAULT_LATE_FILES,
     "ac:outline-wait": cold.DEFAULT_OUTLINE_WAIT,
     "ac:region-self": cold.DEFAULT_REGION_SELF,
+    "ac:tap-lines": cold.DEFAULT_TAP_LINES,
     "ac:cold-start": cold.DEFAULT_COLD_START,
     "ac:scope-drag": hold.DEFAULT_SCOPE_DRAG,
     "ac:outlines-ahead": ahead.DEFAULT_PREFETCH,

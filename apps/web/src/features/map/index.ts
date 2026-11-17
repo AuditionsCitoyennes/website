@@ -67,9 +67,13 @@ export {
   setColdStartMode,
   setOutlineWait,
   setRegionSelfMode,
+  setTapLinesMode,
+  tapLinesMode,
+  tapLinesWaitFor,
   type ColdStartMode,
   type OutlineWait,
   type RegionSelfMode,
+  type TapLinesMode,
 } from "./plateau/coldTapSwitch";
 // What the plateau stands on, raised ground or flat: its DEV switch (the Témoignages page draws it).
 export { reliefGround, setReliefGround, type ReliefGround } from "./relief/groundSwitch";

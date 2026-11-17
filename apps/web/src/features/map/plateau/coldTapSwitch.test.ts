@@ -134,3 +134,48 @@ test("with the testing tools: an unknown value or a storage that throws gives th
     delete g.localStorage;
   }
 });
+
+test("ac:tap-lines: the default waits; a kept key keeps its mode, garbage gives the default; a build without the testing tools reads nothing", async () => {
+  let m = await load(false);
+  assert.equal(m.DEFAULT_TAP_LINES, "wait");
+  assert.deepEqual([...m.TAP_LINES_MODES], ["wait", "upper", "late"]);
+  const values: Record<string, string> = { "ac:tap-lines": "late" };
+  g.localStorage = keeping(values);
+  try {
+    reads = 0;
+    m = await load(false);
+    assert.equal(reads, 0);
+    assert.equal(m.tapLinesMode.value, "wait");
+    m.setTapLinesMode("upper");
+    assert.equal(m.tapLinesMode.value, "wait");
+    m = await load(true);
+    assert.equal(m.tapLinesMode.value, "late");
+    m.setTapLinesMode("upper");
+    assert.equal(m.tapLinesMode.value, "upper");
+    assert.equal(values["ac:tap-lines"], "upper");
+    values["ac:tap-lines"] = "always";
+    m = await load(true);
+    assert.equal(m.tapLinesMode.value, "wait");
+  } finally {
+    delete g.localStorage;
+  }
+});
+
+test("which tapped units wait for their children's boundaries", async () => {
+  const m = await load(false);
+  for (const level of ["country", "region", "dep", "city"]) {
+    assert.equal(m.tapLinesWaitFor("wait", "file", level), true, level);
+    assert.equal(m.tapLinesWaitFor("late", "file", level), false, level);
+    // The plateau waits for nothing (ac:outline-wait "0"): nor for them.
+    assert.equal(m.tapLinesWaitFor("wait", "0", level), false, level);
+  }
+  assert.equal(m.tapLinesWaitFor("upper", "file", "country"), true);
+  assert.equal(m.tapLinesWaitFor("upper", "file", "region"), true);
+  assert.equal(m.tapLinesWaitFor("upper", "file", "dep"), false);
+  assert.equal(m.tapLinesWaitFor("upper", "file", "city"), false);
+  for (const mode of m.TAP_LINES_MODES) {
+    assert.equal(m.tapLinesWaitFor(mode, "file", "world"), false);
+    assert.equal(m.tapLinesWaitFor(mode, "file", "place"), false);
+  }
+  assert.equal(m.tapLinesWaitFor("wait", "400", "region"), true);
+});

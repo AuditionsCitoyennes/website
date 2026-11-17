@@ -55,6 +55,7 @@ export function useMapFeed(inputs: MapFeedInputs) {
     geometryKnownAbsent,
     raisedGeometryFor,
     raisedOutlineDue,
+    childLinesDue,
     allPlaceUnits,
     filesActive,
     outlineView,
@@ -109,12 +110,16 @@ export function useMapFeed(inputs: MapFeedInputs) {
     const end = perfOn ? perfSpan("vue.outline") : null;
     // The scope rises with its own outline (raisedGeometryFor) — none while that
     // is still due: the map holds the plateau standing (scopePending) rather than
-    // raise one shape and reshape it a moment later.
+    // raise one shape and reshape it a moment later. Nor while a tapped
+    // scope's children's boundaries are due (outlineRules, rule 2b): it rises
+    // with them on its lid.
     const scope = currentScope.value;
     const fc: OutlineFC = {
       type: "FeatureCollection",
       features: [
-        ...(raisedOutlineDue(scope) ? [] : outlineForUnits([scope], "scope", raisedGeometryFor)),
+        ...(raisedOutlineDue(scope) || childLinesDue(scope)
+          ? []
+          : outlineForUnits([scope], "scope", raisedGeometryFor)),
         ...outlineForUnits(panelUnits.value, "focus"),
         ...outlineForUnits(scopeSiblings.value, "context", raisedGeometryFor),
       ],
@@ -135,7 +140,9 @@ export function useMapFeed(inputs: MapFeedInputs) {
     if (inMicroZone.value) return false;
     const s = currentScope.value;
     if (s.levelKey === "world") return false; // only the world level has no plateau
-    return raisedOutlineDue(s) || (!raisedGeometryFor(s) && !geometryKnownAbsent(s));
+    return (
+      raisedOutlineDue(s) || childLinesDue(s) || (!raisedGeometryFor(s) && !geometryKnownAbsent(s))
+    );
   });
 
   /** The unit that hold is for, and its box (its row's: the box of the
@@ -361,11 +368,14 @@ export function useMapFeed(inputs: MapFeedInputs) {
     // file that rule calls urgent (its headers, its body's pieces, the body
     // whole), until the outline is stored.
     const due = createUrgentProgress();
-    /** The unit whose outline is waited for ("": none), as a ref. */
+    /** The unit whose outline is waited for ("": none), as a ref, and
+     *  whether its own outline was (else only its children's boundaries). */
     const dueId = shallowRef("");
-    const dueFor = (id: string, count = 1) => {
+    let dueSelf = false;
+    const dueFor = (id: string, count = 1, self = true) => {
       if (id) due.begin(id, count);
       else due.end();
+      dueSelf = self;
       dueId.value = id;
     };
     const tellProgress = inputs.onOutlineProgress;
@@ -377,11 +387,17 @@ export function useMapFeed(inputs: MapFeedInputs) {
       });
       onScopeDispose(() => files.setProgress(null));
       // Stored: the unit's own outline is in memory (told at the write
-      // itself, before the outline it changes is read again).
+      // itself, before the outline it changes is read again) and its
+      // children's boundaries are no longer waited for — in, failed, or given
+      // up at the cap: the plateau then rises without them, and the line
+      // completes on the run's own steps.
       watch(
         () => {
           const id = dueId.value;
-          return !!id && filesActive() && !!files.selfOf(id) ? id : "";
+          if (!id || !filesActive()) return "";
+          if (dueSelf && !files.selfOf(id)) return "";
+          const scope = currentScope.value;
+          return scope.id === id && childLinesDue(scope) ? "" : id;
         },
         (id) => {
           if (!id) return;
@@ -410,26 +426,43 @@ export function useMapFeed(inputs: MapFeedInputs) {
         // The visitor tapped it: its file is waited for longer (ac:outline-wait).
         const tapped = !!inputs.tapped?.(id);
         if (selfDue) files.holdSelf(id, !!raisedGeometryFor(scope), tapped);
+        // Its children's boundaries too (ac:tap-lines): its plateau rises
+        // with them, under the same cap.
+        if (tapped && files.linesWait(scope.levelKey)) files.holdLines(id);
+        const linesDue = childLinesDue(scope);
         // The loading line: what the scope's plateau waits for, from nothing.
         // Its self asked alone (a u/), else the bundles of its chain not in.
         // Not a self the hold has just given up on (ac:outline-wait "0"):
         // nothing is waited for, the plateau rises on what is in memory.
         if (tellProgress) {
           dueFor("");
-          if (selfDue && raisedOutlineDue(scope)) {
+          const selfWaited = selfDue && raisedOutlineDue(scope);
+          if (selfWaited || linesDue) {
             const alone =
-              (!files.selfOf(id) && files.selfAhead(id)) ||
-              (scope.levelKey === "country" && selfFileOf(files.rowOf(id)) === "u");
+              selfWaited &&
+              ((!files.selfOf(id) && files.selfAhead(id)) ||
+                (scope.levelKey === "country" && selfFileOf(files.rowOf(id)) === "u"));
             const bundles = bundlesFor(view, chainOf(scope)).filter(
               (b) => view.bundleState(b) !== "loaded",
             ).length;
-            dueFor(id, alone ? 1 : bundles);
+            // Every file the rise waits for: the self asked alone, and the
+            // unit's bundle when its lines are waited for.
+            dueFor(id, alone ? 1 + (linesDue ? 1 : 0) : bundles, selfWaited);
             tellProgress(id, 0);
           }
         }
         // A file of this scope's chain kept as text (it landed while the
-        // scope was elsewhere) and now waited for: stored at once.
-        files.flushDue();
+        // scope was elsewhere) and now waited for: stored at once — or, when
+        // only its lines are waited for, in a task after the next frame: the
+        // tap's own frame parses nothing.
+        if (selfDue || !linesDue) files.flushDue();
+        else {
+          requestAnimationFrame(() =>
+            setTimeout(() => {
+              if (currentScope.value.id === id) files.flushDue();
+            }, 0),
+          );
+        }
         // A country with no bundle: its u/ first (once its row is known).
         if (scope.levelKey === "country")
           void files.ensureRoot().then(() => {
@@ -443,8 +476,9 @@ export function useMapFeed(inputs: MapFeedInputs) {
         const ahead = !files.selfOf(id) && files.selfAhead(id);
         if (ahead) void files.ensureSelf(id, tapped);
         for (const b of bundlesFor(view, chainOf(scope))) {
-          // Due while the scope's plateau waits (its fetch priority).
-          await files.ensureBundle(b, !ahead && scopePending.value);
+          // Due while the scope's plateau waits for it (its fetch priority):
+          // its self, unless that is asked alone; its lines.
+          await files.ensureBundle(b, (!ahead || linesDue) && scopePending.value);
           if (currentScope.value.id !== id) return;
         }
       },

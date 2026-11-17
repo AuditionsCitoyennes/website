@@ -133,3 +133,28 @@ test("no wait, its self already stored: nothing held out", () => {
   t.hold.hold("fr:reg:84", 0);
   assert.deepEqual(t.out, []);
 });
+
+// The same hold serves a tapped unit's wait for its bundle (its children's
+// boundaries: useOutlineFiles' holdLines): "stored" is then the bundle in or
+// failed, the wait the tapped unit's own, and it is armed whatever is known
+// of the unit's row.
+test("a wait for a bundle: armed before the row is known, over once the bundle is in, given up at the cap", () => {
+  const t = setup();
+  t.hold.hold("fr:reg:84", 4000); // nothing known of the unit yet
+  assert.equal(t.hold.holding("fr:reg:84"), true);
+  t.tick(3999);
+  assert.deepEqual(t.out, []);
+  t.tick(1);
+  assert.deepEqual(t.out, [["fr:reg:84", true]]); // the cap: given up
+  assert.equal(t.hold.holding("fr:reg:84"), false);
+  // In before the cap: nothing given up.
+  t.hold.hold("fr:reg:76", 4000);
+  t.tick(600);
+  t.state.stored.add("fr:reg:76");
+  t.tick(4000);
+  assert.deepEqual(t.out, [["fr:reg:84", true]]);
+  // Armed once per wait: a second call changes nothing.
+  t.hold.hold("fr:reg:93", 4000);
+  t.hold.hold("fr:reg:93", 4000);
+  assert.equal(t.timers.length, 1);
+});

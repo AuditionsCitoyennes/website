@@ -284,6 +284,9 @@ const moreTestimoniesEl = computed(() => auditionsCmp.value?.moreTestimoniesEl ?
 
 // ---- The camera (model/useCamera): what GeoDrillMap is told to frame ----
 const mapCmp = ref<InstanceType<typeof GeoDrillMap> | null>(null);
+/** The unit a tap left pending, "" when none (model/useTapPending, made
+ *  further down: read when a unit is selected, never before). */
+let tappedUnit: () => string = () => "";
 const cam = useCamera({
   nav,
   index,
@@ -292,6 +295,8 @@ const cam = useCamera({
   outlines,
   mapCmp,
   listMode,
+  // A tapped unit's plateau waits for its children's boundaries (ac:tap-lines).
+  tapped: (id) => tappedUnit() === id,
 });
 const { camera, framedFit, flyToUnit, spotlightPlace, scheduleFilterFrame, handMoved } = cam;
 
@@ -326,9 +331,6 @@ const {
 } = panel;
 
 // ---- What the map is handed (model/useMapFeed): outline, pending hold, pins ----
-/** The unit a tap left pending, "" when none (model/useTapPending, made
- *  further down: read when a scope is selected, never before). */
-let tappedUnit: () => string = () => "";
 const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
   nav,
   geo,

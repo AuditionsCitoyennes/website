@@ -1,7 +1,9 @@
 // How far the data a tapped unit's plateau waits for has come, as one number
 // from 0 to 1: what the pending mark's loading line shows along the unit's
 // boundary (gl/PendingMarkPass.ts). Fed by real events only — the page's
-// outline file (`outline`: headers, bytes, stored), and the plateau
+// outline files (`outline`: headers, bytes, stored — the unit's own and,
+// for a unit whose plateau waits for its children's boundaries, its bundle:
+// every file the rise waits for), and the plateau
 // pipeline's run for the unit (`run`: it has started, and what it needs;
 // `key`: the relief version key is in; `mesh`: the wall and lid mesh is
 // built; `settled`: the run's verdict). No clock, no import: loadable under
@@ -36,8 +38,9 @@
 
 /** A real step toward a tapped unit's plateau. */
 export type TapStep =
-  /** The share of the unit's outline file that has arrived, 0 to 1 (1: it
-   *  is stored). The first one says the outline was not in memory. */
+  /** The share of the outline files the rise waits for that has arrived, 0
+   *  to 1 (1: they are stored, or no longer waited for). The first one says
+   *  something of them was not in memory. */
   | { t: "outline"; frac: number }
   /** A pipeline run for the unit: whether it waits for a relief key and for
    *  a mesh from the worker. */

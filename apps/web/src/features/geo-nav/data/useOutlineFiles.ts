@@ -39,6 +39,16 @@
 // "late". The loader stores a bundle that lands within SELF_GRACE_MS of the
 // self with it. "bundle": the bundle alone, as before.
 //
+// A tapped unit's inner boundaries (ac:tap-lines, the map's coldTapSwitch;
+// "wait", the default): the plateau of a unit the visitor tapped also waits
+// for the unit's bundle — its children's boundaries — so that it rises with
+// them on its lid. `holdLines` arms that wait at the selection, for the
+// visit, under the cap the unit's own outline has (ac:outline-wait);
+// `linesHeld` says it is armed and not given up, and the rules
+// (model/outlineRules childLinesDue) then keep the plateau waiting while the
+// bundle is declared and neither in nor failed. Past the cap the unit rises
+// without them and the bundle is a late file like any other.
+//
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's
 // only trace of it.
@@ -64,6 +74,8 @@ import {
   outlineWaitFor,
   regionSelfMode,
   SELF_GRACE_MS,
+  tapLinesMode,
+  tapLinesWaitFor,
 } from "@/features/map";
 import { whenMapStill } from "@/features/map/lib";
 import { absoluteBase } from "@/shared/absoluteUrl";
@@ -137,8 +149,19 @@ export interface OutlineFiles {
    *  tapped the unit, whose wait is then the file's own); at 0 the unit is
    *  held out before this returns, until `leaveSelf`. */
   holdSelf(id: string, coarse?: boolean, tapped?: boolean): void;
-  /** The unit is no longer the selection: a hold-out that was for its visit ends. */
+  /** The unit is no longer the selection: a hold-out that was for its visit
+   *  ends, and so does its wait for its children's boundaries. */
   leaveSelf(id: string): void;
+  /** Whether a tapped unit of level `levelKey` waits for its bundle (its
+   *  children's boundaries: ac:tap-lines, ac:outline-wait). */
+  linesWait(levelKey: string): boolean;
+  /** The plateau of unit `id`, which the visitor tapped, waits for the
+   *  unit's bundle from now, for this visit: past the cap (ac:outline-wait,
+   *  a tapped unit's) it stops waiting. Once per visit; whatever the state
+   *  of the unit's row. */
+  holdLines(id: string): void;
+  /** That wait is armed for unit `id` and not given up. */
+  linesHeld(id: string): boolean;
   /** Its self is asked ahead of its bundle (ac:region-self "first"): its row
    *  declares a u/ beside its bundle. The caller asks `ensureSelf` for it,
    *  and its bundle not "due". */
@@ -205,6 +228,10 @@ function createOutlineFiles(): OutlineFiles {
   const held = shallowRef<ReadonlySet<string>>(new Set());
   /** The units of `heldOut` held out for their visit only (leaveSelf). */
   const visitOnly = new Set<string>();
+  /** The units whose plateau waits for their bundle (holdLines), and those
+   *  of them whose wait ran out. */
+  const linesArmed = shallowRef<ReadonlySet<string>>(new Set());
+  const linesOut = shallowRef<ReadonlySet<string>>(new Set());
   const quiet = lateFilesMode === "quiet";
   let urgent: ((key: string) => boolean) | null = null;
   let progress: OutlineLoaderOptions["onProgress"] | null = null;
@@ -315,6 +342,23 @@ function createOutlineFiles(): OutlineFiles {
     },
   });
 
+  // The wait for a tapped unit's bundle: the same hold, "stored" being the
+  // bundle in or failed; given up for the visit only.
+  const linesHold = createSelfHold({
+    waitMs: OUTLINE_WAIT_MS,
+    extraMs: OUTLINE_WAIT_MS,
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    stored: (id) => {
+      const fid = store.filesIdOf(id);
+      return store.bundleLoaded(fid) || loader.isFailed("k", id);
+    },
+    abandoned: () => loader.abandoned(),
+    abandonedDone: () => loader.abandonedDone,
+    onHeldOut(id) {
+      if (linesArmed.value.has(id)) linesOut.value = new Set(linesOut.value).add(id);
+    },
+  });
+
   // For the page's life: the loader is the page's, not a mount's.
   if (recover === "auto") onReconnect(() => loader.reconnect());
 
@@ -369,11 +413,24 @@ function createOutlineFiles(): OutlineFiles {
       selfHold.hold(id, outlineWaitFor(outlineWait.value, coarse, OUTLINE_WAIT_MS, tapped));
     },
     leaveSelf: (id) => {
+      for (const set of [linesArmed, linesOut]) {
+        if (!set.value.has(id)) continue;
+        const next = new Set(set.value);
+        next.delete(id);
+        set.value = next;
+      }
       if (!visitOnly.delete(id)) return;
       const next = new Set(heldOut.value);
       next.delete(id);
       heldOut.value = next;
     },
+    linesWait: (levelKey) => tapLinesWaitFor(tapLinesMode.value, outlineWait.value, levelKey),
+    holdLines: (id) => {
+      if (linesArmed.value.has(id)) return;
+      linesArmed.value = new Set(linesArmed.value).add(id);
+      linesHold.hold(id, outlineWaitFor(outlineWait.value, true, OUTLINE_WAIT_MS, true));
+    },
+    linesHeld: (id) => linesArmed.value.has(id) && !linesOut.value.has(id),
     selfAhead: (id) =>
       regionSelfMode.value === "first" &&
       read((s) => selfAheadOf(s.rowOf(s.filesIdOf(id)))) !== null,

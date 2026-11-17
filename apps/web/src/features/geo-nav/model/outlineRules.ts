@@ -11,6 +11,12 @@
 //    Below the région the entry IS the self (one object, `id@e50`). Any
 //    other country is drawn with its g/ and raised with its u/ (geo's
 //    outlineRoles: which object, which file, which rows are known absent).
+// 2b. The plateau of a unit the visitor tapped also waits for the unit's
+//    bundle — its children's boundaries, the lid's lines of rule 3 — while
+//    that wait is armed and not given up (useOutlineFiles' holdLines: the
+//    cap of ac:outline-wait), its row declares a bundle, and the bundle is
+//    neither in nor failed (`childLinesDue`): it rises with them on its lid,
+//    from the one mesh of its commit. Never a selection nobody tapped.
 // 2. A plateau waits for its self while its row declares one (its bundle, or
 //    a country's u/ — but a c3000 row is served by its g/ and not held), it
 //    is not stored, its file did not fail and the wait was not given up
@@ -60,6 +66,9 @@ export interface OutlineView {
   failed(id: string): boolean;
   /** Its plateau stopped waiting for its self. */
   gaveUp(id: string): boolean;
+  /** Its plateau waits for its bundle (a unit the visitor tapped), the wait
+   *  not given up. Absent: never. */
+  linesHeld?(id: string): boolean;
 }
 
 /** At most this many selves per refinement batch, by the scope's level.
@@ -96,6 +105,14 @@ const declaresSelf = (v: OutlineView, id: string) => {
 
 export const raisedOutlineDue = (v: OutlineView, u: RuleUnit): boolean =>
   declaresSelf(v, u.id) && !v.selfOf(u.id) && !v.failed(u.id) && !v.gaveUp(u.id);
+
+/** Its plateau waits for its children's boundaries (rule 2b). */
+export const childLinesDue = (v: OutlineView, u: RuleUnit): boolean =>
+  u.levelKey !== "world" &&
+  u.levelKey !== "place" &&
+  !!v.linesHeld?.(u.id) &&
+  !!v.rowOf(u.id)?.k &&
+  v.bundleState(u.id) === "loading";
 
 /** Levels whose rows come with their parent's bundle (root.json stops at the
  *  départements): each such ancestor's bundle is on the chain. */
@@ -224,6 +241,7 @@ export interface OutlineAnswers<U> {
   geometryFor(u: U): unknown;
   raisedGeometryFor(u: U): unknown;
   raisedOutlineDue(u: U): boolean;
+  childLinesDue(u: U): boolean;
   geometryKnownAbsent(u: U): boolean;
 }
 
@@ -234,6 +252,7 @@ export const NO_FILES: OutlineAnswers<RuleUnit> = {
   geometryFor: () => undefined,
   raisedGeometryFor: () => undefined,
   raisedOutlineDue: () => false,
+  childLinesDue: () => false,
   geometryKnownAbsent: () => true,
 };
 
@@ -248,6 +267,7 @@ export function outlineRules<U extends RuleUnit>(
     geometryFor: (u) => (on() ? geometryFor(v, u) : NO_FILES.geometryFor(u)),
     raisedGeometryFor: (u) => (on() ? raisedGeometryFor(v, u) : NO_FILES.raisedGeometryFor(u)),
     raisedOutlineDue: (u) => (on() ? raisedOutlineDue(v, u) : NO_FILES.raisedOutlineDue(u)),
+    childLinesDue: (u) => (on() ? childLinesDue(v, u) : NO_FILES.childLinesDue(u)),
     geometryKnownAbsent: (u) =>
       on() ? geometryKnownAbsent(v, chainOf(u)) : NO_FILES.geometryKnownAbsent(u),
   };

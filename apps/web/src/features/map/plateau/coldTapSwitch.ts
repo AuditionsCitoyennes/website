@@ -1,9 +1,10 @@
 // The cold tap: a territory is chosen while its own outline (its "self", the
-// fine one its plateau rises on) is not in memory yet. Three switches,
-// compared live in the builds with the testing tools — the dev server and
-// staging (__TEST_TOOLS__, vite.config), kept in localStorage and drawn as
-// the Témoignages page's DEV rows « Attente du contour », « Contour seul » and
-// « Avant le contour ». Read at each selection: no reload.
+// fine one its plateau rises on) is not in memory yet — or the boundaries of
+// its children are not. Four switches, compared live in the builds with the
+// testing tools — the dev server and staging (__TEST_TOOLS__, vite.config),
+// kept in localStorage and drawn as the Témoignages page's DEV rows « Attente
+// du contour », « Contour seul », « Lignes intérieures » and « Avant le
+// contour ». Read at each selection: no reload.
 //
 // `ac:outline-wait`, how long a plateau waits for its fine outline while a
 // coarser one of the same unit is in memory (a région's entry in France's
@@ -34,6 +35,21 @@
 //   with its children's lines, as before.
 // - "bundle": the bundle alone, as before.
 //
+// `ac:tap-lines`, the boundaries inside a unit the visitor tapped (the
+// départements of a région, the communes of a département: they come with
+// the unit's bundle, its k/ file):
+// - "wait" (the default): the plateau waits for that bundle as it waits for
+//   the unit's own outline — under the same cap (ac:outline-wait; nothing at
+//   "0") — so it rises with its children's boundaries on its lid, built by
+//   the one mesh of its commit; the loading line counts the bundle. Past the
+//   cap it rises without them and they join later, as under "late".
+// - "upper": only a country and a région wait; a département rises without
+//   waiting for its communes.
+// - "late": nothing waits: the bundle is a late file, its lines are drawn on
+//   the standing plateau once the map is still, as before.
+// A selection nobody tapped (a crumb, a link, a search, a pan, the boot)
+// never waits for them.
+//
 // `ac:cold-start`, what the map does while it holds for an outline on its way:
 // - "hold" (the default): the plateau standing stays up until the outline
 //   lands, as before.
@@ -47,11 +63,13 @@ import { ref } from "vue";
 
 export type OutlineWait = "1200" | "file" | "400" | "0";
 export type RegionSelfMode = "first" | "bundle";
+export type TapLinesMode = "wait" | "upper" | "late";
 export type ColdStartMode = "hold" | "early";
 
 /** The modes of a build without the testing tools, and the switches' defaults. */
 export const DEFAULT_OUTLINE_WAIT: OutlineWait = "file";
 export const DEFAULT_REGION_SELF: RegionSelfMode = "first";
+export const DEFAULT_TAP_LINES: TapLinesMode = "wait";
 export const DEFAULT_COLD_START: ColdStartMode = "hold";
 
 export const OUTLINE_WAITS: readonly OutlineWait[] = ["file", "1200", "400", "0"];
@@ -63,6 +81,7 @@ export const OUTLINE_WAITS: readonly OutlineWait[] = ["file", "1200", "400", "0"
  *  file of a unit since left goes on once, as long again (selfHold). */
 export const TAP_OUTLINE_WAIT_MS = 4000;
 export const REGION_SELF_MODES: readonly RegionSelfMode[] = ["first", "bundle"];
+export const TAP_LINES_MODES: readonly TapLinesMode[] = ["wait", "upper", "late"];
 export const COLD_START_MODES: readonly ColdStartMode[] = ["hold", "early"];
 
 /** How long a self asked ahead of its bundle (ac:region-self "first") waits,
@@ -98,6 +117,9 @@ export const regionSelfMode = ref<RegionSelfMode>(
     ? stored("ac:region-self", REGION_SELF_MODES, DEFAULT_REGION_SELF)
     : DEFAULT_REGION_SELF,
 );
+export const tapLinesMode = ref<TapLinesMode>(
+  __TEST_TOOLS__ ? stored("ac:tap-lines", TAP_LINES_MODES, DEFAULT_TAP_LINES) : DEFAULT_TAP_LINES,
+);
 export const coldStartMode = ref<ColdStartMode>(
   __TEST_TOOLS__
     ? stored("ac:cold-start", COLD_START_MODES, DEFAULT_COLD_START)
@@ -116,6 +138,23 @@ export function setRegionSelfMode(mode: RegionSelfMode) {
   if (!__TEST_TOOLS__) return;
   regionSelfMode.value = mode;
   store("ac:region-self", mode);
+}
+
+/** Another wait for the inner boundaries: kept, and in force from the next tap. */
+export function setTapLinesMode(mode: TapLinesMode) {
+  if (!__TEST_TOOLS__) return;
+  tapLinesMode.value = mode;
+  store("ac:tap-lines", mode);
+}
+
+/** Whether a tapped unit of level `levelKey` waits for its bundle (its
+ *  children's boundaries) under `mode`: every unit that can have one under
+ *  "wait", a country and a région under "upper", none under "late" — and
+ *  none when the plateau waits for nothing (`wait` "0"). */
+export function tapLinesWaitFor(mode: TapLinesMode, wait: OutlineWait, levelKey: string): boolean {
+  if (mode === "late" || wait === "0") return false;
+  if (levelKey === "world" || levelKey === "place") return false;
+  return mode === "wait" || levelKey === "country" || levelKey === "region";
 }
 
 /** Another start: kept, and in force from the next selection. */

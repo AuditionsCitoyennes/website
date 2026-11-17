@@ -395,6 +395,19 @@ its children's lines as before. A row hovered in the list prefetches the same
 two files in the same order. `ac:region-self=bundle` (the DEV dialog's
 « Contour seul ») asks the bundle alone, as before 2026-11-14.
 
+A unit the visitor tapped is the exception: its plateau waits for its bundle
+too, so that it rises with its children's boundaries on its lid (the
+départements of a région, the communes of a département), built by the one
+mesh of its commit instead of a reshape after the rise. The bundle is then
+asked at high priority beside the `u/`, stored as it lands, and counted in
+the tap's loading line. The wait has the cap of the unit's own outline
+(`ac:outline-wait`: four seconds for a tapped unit); past it the plateau
+rises without the lines and the bundle is a late file again. A selection
+nobody tapped (a crumb, a link, a search, a pan, the boot) never waits for
+them. `ac:tap-lines` (the DEV dialog's « Lignes intérieures »): `wait` (the
+default), `upper` (only a country and a région wait), `late` (nothing waits,
+as before 2026-11-17).
+
 A touch screen has no pointer to hover a row with. There, once the first
 plateau stands (France, on the Témoignages page), its lid has landed and the
 map is at rest (no flight, no rise, no finger down, its tiles in), the one or

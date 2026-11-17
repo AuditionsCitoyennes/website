@@ -199,3 +199,33 @@ test("a share that is no number counts for nothing", () => {
   near(note({ t: "outline", frac: 7 })?.value, 6 / 11);
   assert.equal(p.state()?.stored, true);
 });
+
+test("the unit's outline in memory, its children's boundaries waited for: a cold tap — the bundle's share, then the run", () => {
+  const { p, note } = tracker();
+  // The first step says a file the rise waits for is not in memory.
+  assert.equal(note({ t: "outline", frac: 0 }), null);
+  assert.equal(p.state()!.cold, true);
+  const half = note({ t: "outline", frac: 0.5 })!;
+  near(half.value, (6 * 0.5) / 11);
+  assert.equal(half.done, false);
+  // The bundle stored: the run starts with everything it waits for in memory.
+  near(note({ t: "outline", frac: 1 })?.value, 6 / 11);
+  near(note({ t: "run", key: true, mesh: true })?.value, 7 / 11);
+  assert.equal(p.waived(), false);
+  near(note({ t: "key" })?.value, 8 / 11);
+  assert.deepEqual(note({ t: "mesh" }), { value: 1, done: true });
+});
+
+test("the boundaries given up at the cap with the unit's outline in: not waived — the line completes on the run's steps", () => {
+  const { p, note } = tracker();
+  note({ t: "outline", frac: 0 });
+  near(note({ t: "outline", frac: 0.3 })?.value, (6 * 0.3) / 11);
+  // The page stops waiting for the lines: told as stored (nothing is waited
+  // for any more), then the run.
+  near(note({ t: "outline", frac: 1 })?.value, 6 / 11);
+  near(note({ t: "run", key: true, mesh: true })?.value, 7 / 11);
+  assert.equal(p.waived(), false);
+  near(note({ t: "key" })?.value, 8 / 11);
+  assert.deepEqual(note({ t: "mesh" }), { value: 1, done: true });
+  assert.equal(note({ t: "settled" }), null);
+});

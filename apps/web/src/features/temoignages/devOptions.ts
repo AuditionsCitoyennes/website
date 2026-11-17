@@ -49,6 +49,7 @@ export type DevKey =
   | "ac:late-files"
   | "ac:outline-wait"
   | "ac:region-self"
+  | "ac:tap-lines"
   | "ac:cold-start"
   | "ac:scope-drag"
   | "ac:outlines-ahead"
@@ -469,6 +470,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Le contour d'une région existe en deux fichiers : un petit, la région seule, et un gros, la région avec tous ses départements. « D'abord » (par défaut) demande le petit en premier : la région se soulève dès qu'il est là, et les lignes de ses départements sont tracées dessus quand le gros arrive, une fois la carte immobile. « Ensemble » attend le gros fichier, comme avant : la région se soulève plus tard, ses départements déjà tracés. De même pour un département et ses communes.",
     reloads: false,
     defaultId: "first",
+  },
+  {
+    key: "ac:tap-lines",
+    section: "carte",
+    label: "Lignes intérieures",
+    choices: [
+      { id: "wait", label: "Avec le plateau" },
+      { id: "upper", label: "Pays et régions seulement" },
+      { id: "late", label: "Après" },
+    ],
+    explain:
+      "Les frontières à l'intérieur du territoire touché (départements d'une région, communes d'un département). « Avec le plateau » (par défaut) : le territoire attend ces frontières avant de se soulever, et la ligne de chargement en tient compte ; au bout de l'attente maximale il se soulève sans elles et elles arrivent ensuite. « Pays et régions seulement » : un département se soulève sans attendre ses communes. « Après » : comme avant, les frontières arrivent après la montée.",
+    reloads: false,
+    defaultId: "wait",
   },
   {
     key: "ac:cold-start",
