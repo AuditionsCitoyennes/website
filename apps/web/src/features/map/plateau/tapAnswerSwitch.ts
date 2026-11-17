@@ -19,11 +19,13 @@
 // `ac:tap-answer`, the mark: "line" (the default: the above) or "off" (no
 // mark, no pill, nothing said to a screen reader).
 //
-// `ac:tap-line`, the loading line's colour: "magenta" (the default: it
-// stands out from the violet fill and from the plain violet boundary lines
-// by its hue, and from the map under them by its depth), "violet" (the
-// site's deep violet: the fill's own family, darker) and "indigo" (a very
-// dark violet: the strongest contrast of lightness, the heaviest line).
+// `ac:tap-line`, the loading line's colour, always one of the map's own
+// violets, darker than the fill it runs over: "deep" (the default: the
+// boundary lines' violet #7C5CFF, same hue, darker — it reads over the fill
+// by its depth and stays blue-violet), "indigo" (a very dark violet: the
+// strongest contrast of lightness, the heaviest line) and "site" (the hue
+// of the site's buttons, --primary, darker). A value kept by an earlier
+// build that is no longer one of these reads as the default.
 //
 // `ac:tap-steps`, how the line moves between two real steps: "steps" (the
 // default: it moves only when a piece of data arrives, easing to its new
@@ -48,30 +50,30 @@
 import { ref } from "vue";
 
 export type TapAnswerMode = "line" | "off";
-export type TapLineColor = "magenta" | "violet" | "indigo";
+export type TapLineColor = "deep" | "indigo" | "site";
 export type TapStepsMode = "steps" | "creep";
 export type TapEndMode = "then" | "together";
 export type TapFrameMode = "same" | "own";
 
 /** The modes of a build without the testing tools, and the switches' defaults. */
 export const DEFAULT_TAP_ANSWER: TapAnswerMode = "line";
-export const DEFAULT_TAP_LINE: TapLineColor = "magenta";
+export const DEFAULT_TAP_LINE: TapLineColor = "deep";
 export const DEFAULT_TAP_STEPS: TapStepsMode = "steps";
 export const DEFAULT_TAP_END: TapEndMode = "then";
 export const DEFAULT_TAP_FRAME: TapFrameMode = "same";
 
 export const TAP_ANSWER_MODES: readonly TapAnswerMode[] = ["line", "off"];
-export const TAP_LINE_COLORS: readonly TapLineColor[] = ["magenta", "violet", "indigo"];
+export const TAP_LINE_COLORS: readonly TapLineColor[] = ["deep", "indigo", "site"];
 export const TAP_STEPS_MODES: readonly TapStepsMode[] = ["steps", "creep"];
 export const TAP_END_MODES: readonly TapEndMode[] = ["then", "together"];
 export const TAP_FRAME_MODES: readonly TapFrameMode[] = ["same", "own"];
 
-/** The loading line's colours, straight sRGB 0..1: #BE1480, #702BB6 (the
- *  slabs' accent violet), #24126E. */
+/** The loading line's colours, straight sRGB 0..1: #3514B8 (the map's
+ *  violet, darker), #24126E, #4D1F7A (the site's --primary hue, darker). */
 export const TAP_LINE_RGB: Readonly<Record<TapLineColor, readonly [number, number, number]>> = {
-  magenta: [0.745, 0.078, 0.502],
-  violet: [0.439, 0.169, 0.714],
+  deep: [0.208, 0.078, 0.722],
   indigo: [0.141, 0.071, 0.431],
+  site: [0.302, 0.122, 0.478],
 };
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
@@ -93,8 +95,8 @@ function store(key: string, value: string) {
 
 /** The modes now (refs: the DEV dialog redraws its rows from them). A build
  *  without the testing tools reads no key: the defaults. A value kept by an
- *  earlier build that no longer exists ("auto", "stroke", "fill") is the
- *  default. */
+ *  earlier build that no longer exists ("auto", "stroke", "fill", a line
+ *  colour no longer offered) is the default. */
 export const tapAnswerMode = ref<TapAnswerMode>(
   __TEST_TOOLS__
     ? stored("ac:tap-answer", TAP_ANSWER_MODES, DEFAULT_TAP_ANSWER)

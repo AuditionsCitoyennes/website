@@ -362,14 +362,14 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Couleur de la ligne",
     choices: [
-      { id: "magenta", label: "Magenta" },
-      { id: "violet", label: "Violet" },
+      { id: "deep", label: "Violet profond" },
       { id: "indigo", label: "Indigo" },
+      { id: "site", label: "Violet du site" },
     ],
     explain:
-      "La couleur de la ligne de chargement tracée le long de la frontière du territoire touché. « Magenta » (par défaut) se détache du remplissage violet comme des frontières par sa teinte ; « Violet » est le violet soutenu du site, de la même famille que le remplissage, en plus sombre ; « Indigo » est un violet très sombre, le plus contrasté et le plus lourd. Sans effet si Réponse au toucher est « Aucune ».",
+      "La couleur de la ligne de chargement tracée le long de la frontière du territoire touché. « Violet profond » (par défaut) est le violet de la carte, en plus sombre ; « Indigo » est le plus contrasté et le plus lourd ; « Violet du site » reprend la teinte des boutons du site, en plus sombre. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
-    defaultId: "magenta",
+    defaultId: "deep",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
