@@ -468,8 +468,10 @@ test("the unfill: linear, down to its floor until the rise is cleared, then on t
 });
 
 test("the line's run: a constant speed, the whole boundary in MARK_LINE_FULL_MS, a step never under MARK_STEP_MS", () => {
-  assert.ok(near(lineEaseMs(0, 0.27), 100));
-  assert.ok(near(lineEaseMs(0, 0.5), 140));
+  assert.ok(near(lineEaseMs(0, 0.27), MARK_STEP_MS)); // a small step is not rushed
+  assert.ok(near(lineEaseMs(0, 0.5), MARK_LINE_FULL_MS / 2));
+  assert.ok(near(lineEaseMs(0, 0.5, 280, 100), 140));
+  assert.ok(MARK_LINE_FULL_MS >= 250 && MARK_LINE_FULL_MS <= 300);
   assert.equal(lineEaseMs(0, 1), MARK_LINE_FULL_MS);
   assert.equal(lineEaseMs(0.95, 1), MARK_STEP_MS);
   assert.equal(lineEaseMs(0.4, 0.4), MARK_STEP_MS);

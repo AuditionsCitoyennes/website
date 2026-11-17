@@ -1276,7 +1276,7 @@ export class PendingMarkPass {
     const s = this.spec;
     if (!s || s.g !== g) return;
     if (!first && r.fillState === "ready") {
-      if (this.fillCanShow()) {
+      if (this.fillCanJoin()) {
         if (this.fillVia === null) {
           this.fillVia = via;
           this.fillLateMs = this.now() - this.setAt;
@@ -1287,9 +1287,20 @@ export class PendingMarkPass {
     this.repaint();
   }
 
-  /** Whether a fill that comes now can still show: the mark is held, and
-   *  its violet has not begun to leave it (the data all in, under "then"). */
+  /** Whether the mark's fill still shows: the mark is held, and its violet
+   *  has not left it (the data all in, under "then"). A regime first drawn
+   *  meanwhile (the flight crosses zoom 6 during the fade, or with the fill
+   *  at its floor) gets its fill. */
   private fillCanShow(): boolean {
+    return (
+      this.phase === "held" &&
+      !(this.told && this.order === "then" && this.fillAlphaAt(this.now()) <= 0)
+    );
+  }
+
+  /** Whether a fill built off the frame that lands now, with none drawn
+   *  before it, joins the mark: not once its violet has begun to leave. */
+  private fillCanJoin(): boolean {
     return this.phase === "held" && !(this.told && this.order === "then" && this.unfillT0 > 0);
   }
 

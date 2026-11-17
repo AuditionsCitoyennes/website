@@ -371,7 +371,7 @@ test("the data all in: the line first, then the fill fades over a bounded time, 
   h.frame();
   assert.equal(h.pass.gateMs(), MARK_UNFILL_MS - 40);
   const a = h.pass.state()!.fillAlpha;
-  assert.ok(Math.abs(a - 0.6) < 1e-9, `fill at ${a}`); // linear
+  assert.ok(Math.abs(a - (1 - 40 / MARK_UNFILL_MS)) < 1e-9, `fill at ${a}`); // linear
   assert.equal(h.uniform("uFillT"), fillThreshold(a));
   assert.equal(h.shown(), 1); // the line whole while the violet thins
   const asked = h.run(400);
@@ -1659,7 +1659,7 @@ for (const dt of FRAME_CLOCKS) {
     frames(h, 200, dt);
     assert.ok(Math.abs(h.shown() - 0.5) < 1e-9);
     h.pass.finish(HIDE, "then");
-    const end = h.now() + 140; // 0.5 of the boundary at full speed
+    const end = h.now() + 0.5 * MARK_LINE_FULL_MS; // half the boundary at full speed
     let whole = 0;
     frames(h, 400, dt, () => {
       const s = h.pass.state()!;
@@ -1734,11 +1734,12 @@ test("the fade against the rise: whole until just before it, at the floor when i
   // Cleared: the last quarter leaves, the gate is its 25 ms.
   assert.equal(h.pass.gateMs(true), MARK_UNFILL_FLOOR * MARK_UNFILL_MS);
   assert.equal(h.repaints(), before + 1);
-  h.advance(10);
+  const last = MARK_UNFILL_FLOOR * MARK_UNFILL_MS;
+  h.advance(last / 2);
   h.frame();
-  assert.ok(Math.abs(h.pass.state()!.fillAlpha - 0.15) < 1e-9);
-  assert.equal(h.pass.gateMs(true), 15);
-  h.advance(15);
+  assert.ok(Math.abs(h.pass.state()!.fillAlpha - MARK_UNFILL_FLOOR / 2) < 1e-9);
+  assert.ok(Math.abs(h.pass.gateMs(true) - last / 2) < 1e-9);
+  h.advance(last / 2);
   h.frame();
   assert.equal(h.pass.state()!.fillAlpha, 0);
   assert.equal(h.pass.gateMs(true), 0);
@@ -1762,10 +1763,13 @@ test("the fade against the rise: a rise whose start is not known keeps the fill 
   assert.equal(h.pass.state()!.unfillT0, 0);
   assert.equal(h.pass.gateMs(true), MARK_UNFILL_MS); // the whole fade, from now
   assert.equal(h.pass.state()!.unfillT0, h.now());
-  h.advance(50);
+  h.advance(MARK_UNFILL_MS / 2);
   h.frame();
-  assert.ok(Math.abs(h.pass.state()!.fillAlpha - 0.5) < 1e-9); // through the floor: cleared
-  h.advance(50);
+  assert.ok(Math.abs(h.pass.state()!.fillAlpha - 0.5) < 1e-9);
+  h.advance(MARK_UNFILL_MS * 0.4);
+  h.frame();
+  assert.ok(Math.abs(h.pass.state()!.fillAlpha - 0.1) < 1e-9); // through the floor: cleared
+  h.advance(MARK_UNFILL_MS * 0.1);
   assert.equal(h.pass.gateMs(true), 0);
 });
 
@@ -1885,7 +1889,8 @@ test("« together » under hide: no fade before the rise, which waits for a line
   frames(h, 200, 16);
   h.pass.finish(HIDE, "together");
   const gate = h.pass.gateMs(true);
-  assert.ok(gate > 140 && gate < 140 + 30, `gate ${gate}`);
+  const half = 0.5 * MARK_LINE_FULL_MS;
+  assert.ok(gate > half && gate < half + 30, `gate ${gate}`);
   frames(h, 200, 16);
   assert.equal(h.pass.gateMs(true), 0);
   assert.equal(h.pass.state()!.fillAlpha, 1);
@@ -1986,4 +1991,35 @@ test("the rise cleared while the line still runs: the fill is whole in the frame
   assert.equal(h.pass.state()!.unfillT0, whole);
   assert.equal(h.pass.state()!.fillAlpha, 0); // gone 100 ms after that frame
   assert.equal(h.pass.gateMs(true), 0);
+});
+
+test("the flight crosses zoom 6 while the fill fades or stands at its floor: the regime it enters draws the fill on", () => {
+  const rise = { eta: { at: AGE + 165, landing: false } as MarkRiseEta | null };
+  const h = harness(AGE, rise);
+  const globe = () => {
+    h.pass.prepare(h.gl, "globe");
+    h.pass.drawGlobe(h.gl, h.binders, false, 1, "fill", fillProg);
+    h.pass.drawGlobe(h.gl, h.binders, false, 1, "line", null);
+  };
+  h.pass.set(hidden(), 0, "globe", HIDE);
+  globe(); // the tap's frames are drawn on the globe
+  h.advance(60);
+  h.pass.finish(HIDE, "then");
+  h.advance(70); // the fade under way (it began just before the sink's end)
+  globe();
+  const mid = h.pass.state()!.fillAlpha;
+  assert.ok(mid > MARK_UNFILL_FLOOR && mid < 1, `fill at ${mid}`);
+  // The camera crosses zoom 6: the flat view's first frame builds its fill.
+  let fills = h.count("drawArrays");
+  h.advance(16);
+  h.frame();
+  assert.equal(h.count("drawArrays"), fills + 1);
+  assert.equal(h.pass.ownsFill("merc"), true);
+  // At the floor, the rise late: still drawn, in a regime first drawn then too.
+  h.advance(200);
+  fills = h.count("drawArrays");
+  h.frame();
+  assert.equal(h.pass.state()!.fillAlpha, MARK_UNFILL_FLOOR);
+  assert.equal(h.count("drawArrays"), fills + 1);
+  assert.equal(h.uniform("uFillT"), fillThreshold(MARK_UNFILL_FLOOR));
 });
