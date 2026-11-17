@@ -139,6 +139,7 @@ const KEYS: readonly DevKey[] = [
   "ac:tap-answer",
   "ac:tap-line",
   "ac:tap-steps",
+  "ac:tap-fast",
   "ac:tap-end",
   "ac:tap-frame",
   "ac:late-files",
@@ -176,7 +177,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 55);
+  assert.equal(DEV_OPTIONS.length, 56);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -269,6 +270,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:tap-answer": ["tap", "setTapAnswerMode"],
   "ac:tap-line": ["tap", "setTapLineColor"],
   "ac:tap-steps": ["tap", "setTapStepsMode"],
+  "ac:tap-fast": ["tap", "setTapFastMode"],
   "ac:tap-end": ["tap", "setTapEndMode"],
   "ac:tap-frame": ["tap", "setTapFrameMode"],
   "ac:late-files": ["late", "setLateFilesMode"],
@@ -390,6 +392,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:tap-answer"), [...tap.TAP_ANSWER_MODES]);
   assert.deepEqual(ids("ac:tap-line"), [...tap.TAP_LINE_COLORS]);
   assert.deepEqual(ids("ac:tap-steps"), [...tap.TAP_STEPS_MODES]);
+  assert.deepEqual(ids("ac:tap-fast"), [...tap.TAP_FAST_MODES]);
   assert.deepEqual(ids("ac:tap-end"), [...tap.TAP_END_MODES]);
   assert.deepEqual(ids("ac:tap-frame"), [...tap.TAP_FRAME_MODES]);
   assert.deepEqual(ids("ac:late-files"), [...late.LATE_FILES_MODES]);
@@ -424,12 +427,12 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:frame-fill"), scale);
   assert.deepEqual(row("ac:lid-check").inactiveWhen, { key: "ac:lid", id: "aucun" });
   assert.deepEqual(row("ac:tap-frame").inactiveWhen, { key: "ac:tap-answer", id: "off" });
-  for (const key of ["ac:tap-line", "ac:tap-steps", "ac:tap-end"] as const) {
+  for (const key of ["ac:tap-line", "ac:tap-steps", "ac:tap-fast", "ac:tap-end"] as const) {
     assert.deepEqual(row(key).inactiveWhen, { key: "ac:tap-answer", id: "off" }, key);
   }
   assert.deepEqual(row("ac:slow-sign").inactiveWhen, { key: "ac:tap-answer", id: "off" });
   assert.deepEqual(row("ac:lid-map").inactiveWhen, { key: "ac:lid", id: "aucun" });
-  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 7);
+  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 8);
 });
 
 test("the default marked in each sentence is the module's", () => {
@@ -465,6 +468,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:tap-answer": tap.DEFAULT_TAP_ANSWER,
     "ac:tap-line": tap.DEFAULT_TAP_LINE,
     "ac:tap-steps": tap.DEFAULT_TAP_STEPS,
+    "ac:tap-fast": tap.DEFAULT_TAP_FAST,
     "ac:tap-end": tap.DEFAULT_TAP_END,
     "ac:tap-frame": tap.DEFAULT_TAP_FRAME,
     "ac:late-files": late.DEFAULT_LATE_FILES,

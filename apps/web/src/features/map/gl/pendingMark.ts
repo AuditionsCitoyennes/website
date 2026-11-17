@@ -77,14 +77,36 @@ export function markLineWidth(spanDeg: number, zoom: number): number {
  *  a hovered zone has, on every device. */
 export const MARK_FILL_SHARE = 1;
 
-/** The line's ease from one real step to the next, ms. */
+/** The line's shortest run from one real step to the next, ms (and, under
+ *  `ac:tap-fast=show`, the length of its ease). */
 export const MARK_STEP_MS = 100;
-/** The fill's fade once the data is all in, ms (the selection retract's time). */
-export const MARK_UNFILL_MS = 117;
-/** Reduced motion, where nothing fades: the end is two plain steps, each
- *  held this long — the line whole over the fill, then the fill gone —
- *  before the plateau rises, ms (three frames: seen, not animated). */
+/** `ac:tap-fast=hide`: the line is not drawn until this long after the
+ *  first frame that drew the mark, ms — and never when the data is all in
+ *  before that: a wait too short to be read shows no line at all. */
+export const MARK_LINE_SHOW_MS = 200;
+/** …and once drawn it runs at a constant speed, the whole boundary in this
+ *  long at the fastest, ms: no frame adds more than its own time's share of
+ *  the boundary (6 % at 60 Hz, 18 % in a 50 ms frame). */
+export const MARK_LINE_FULL_MS = 280;
+/** Under short motion (a weak device's) a run of the line asks for a frame
+ *  this often, ms, while the map draws none of its own. */
+export const MARK_SHORT_FRAME_MS = 50;
+/** The fill's fade once the data is all in, ms: linear, down to
+ *  MARK_UNFILL_FLOOR of itself ahead of the rise, the rest once the rise is
+ *  cleared to start. */
+export const MARK_UNFILL_MS = 100;
+/** The share of the fill kept until the plateau says its rise is cleared:
+ *  the unit is never bare and flat while something still holds the rise. */
+export const MARK_UNFILL_FLOOR = 0.25;
+/** A whole line no frame has shown counts as seen this long after its run
+ *  ended, ms (a hidden tab draws no frame: the rise must still come). */
+export const MARK_WHOLE_UNSEEN_MS = 100;
+/** Reduced motion, where nothing fades: the end is two plain steps — the
+ *  line whole over the fill, held this long, ms (three frames: seen, not
+ *  animated), then the fill gone, MARK_REDUCED_GAP_MS (two frames) before
+ *  the plateau rises. */
 export const MARK_REDUCED_HOLD_MS = 50;
+export const MARK_REDUCED_GAP_MS = 34;
 /** The line's fade once the plateau rises (or the wait turned late), ms. */
 export const MARK_FADE_MS = 117;
 /** A full line whose plateau never rose is cleared this long after its
@@ -159,11 +181,52 @@ export function fadeAlpha(now: number, t0: number, ms: number): number {
   return t >= 1 ? 0 : t <= 0 ? 1 : 1 - t;
 }
 
-/** The unfill's opacity `now`: the fade above, squared — most of the violet
- *  is gone in the first third, so the zone does not sit under a pale wash. */
-export function unfillAlpha(now: number, t0: number, ms: number): number {
-  const a = fadeAlpha(now, t0, ms);
-  return a * a;
+/** How long the line takes from `from` to `to` at its constant speed, ms:
+ *  `fullMs` for the whole boundary, never less than `minMs` (a small step
+ *  is still seen moving). */
+export function lineEaseMs(
+  from: number,
+  to: number,
+  fullMs = MARK_LINE_FULL_MS,
+  minMs = MARK_STEP_MS,
+): number {
+  const ms = fullMs * Math.max(0, to - from);
+  return Math.min(Math.max(ms, Math.min(minMs, fullMs)), fullMs);
+}
+
+/** The line's value `t` (0..1) of the way through a run from `from` to `to`
+ *  at a constant speed. */
+export function lineRun(from: number, to: number, t: number): number {
+  if (t >= 1) return to;
+  if (t <= 0) return from;
+  return from + (to - from) * t;
+}
+
+/**
+ * The unfill's opacity `now`: a linear fade over `ms` from `t0` (0: not
+ * begun, 1) that stops at `floor` until the rise is cleared (`goAt`, 0: not
+ * yet; before `t0`: the fade runs through), then runs on to 0 at the same
+ * speed from where it stood. `ms` 0: a plain step at `t0`, no floor.
+ */
+export function unfillAlpha(now: number, t0: number, ms: number, floor = 0, goAt = 0): number {
+  if (!t0) return 1;
+  if (ms <= 0) return now >= t0 ? 0 : 1;
+  const line = (at: number) => Math.min(1, Math.max(0, 1 - (at - t0) / ms));
+  if (!goAt) return Math.max(floor, line(now));
+  // Cleared before the fade began: it runs through from its own start.
+  const go = Math.max(goAt, t0);
+  if (now <= go) return Math.max(floor, line(now));
+  const atGo = Math.max(floor, line(go));
+  return Math.max(0, atGo - (now - go) / ms);
+}
+
+/** When the unfill above is over, its `goAt` given: the clock time its
+ *  opacity reaches 0 (a plain step: its own time). */
+export function unfillEnd(t0: number, ms: number, floor: number, goAt: number): number {
+  if (ms <= 0) return t0;
+  const go = Math.max(goAt, t0);
+  const atGo = Math.min(1, Math.max(floor, 1 - (go - t0) / ms));
+  return go + atGo * ms;
 }
 
 /** The hover fill program's threshold (uFillT) that draws a vertex of

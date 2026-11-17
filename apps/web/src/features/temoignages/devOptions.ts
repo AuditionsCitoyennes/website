@@ -43,6 +43,7 @@ export type DevKey =
   | "ac:tap-answer"
   | "ac:tap-line"
   | "ac:tap-steps"
+  | "ac:tap-fast"
   | "ac:tap-end"
   | "ac:tap-frame"
   | "ac:late-files"
@@ -384,6 +385,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Comment la ligne de chargement avance entre deux arrivées de données. « Par étapes » (par défaut) : elle ne bouge que lorsqu'une donnée arrive ; « En continu » : elle glisse aussi un peu pendant l'attente, de quelques centièmes de la frontière au plus au-delà de ce qui est arrivé, sans jamais faire le tour complet avant que tout soit arrivé. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
     defaultId: "steps",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
+  },
+  {
+    key: "ac:tap-fast",
+    section: "carte",
+    label: "Toucher rapide",
+    choices: [
+      { id: "hide", label: "Sans ligne" },
+      { id: "show", label: "Ligne toujours" },
+    ],
+    explain:
+      "Quand les données d'un territoire arrivent en moins d'un cinquième de seconde, « Sans ligne » (par défaut) ne trace pas la ligne de chargement : le violet, puis la montée. Si l'attente dure, la ligne apparaît et avance à vitesse régulière, un tour complet prenant au moins un quart de seconde. « Ligne toujours » la trace dès le toucher, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "hide",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {

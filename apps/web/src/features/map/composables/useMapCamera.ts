@@ -13,6 +13,7 @@ import { perfOn, perfSpan } from "@/shared/perf/perf";
 import { motionNow } from "@/shared/device/motion";
 import { FIT_PITCH_DEG, fitSilhouette, type FitShape, type SlabCam } from "../lib";
 import { plateauHeightM, pointInPolygon, polysOf, toLngLat, toLngLatBounds } from "../lib/polygon";
+import { createFlightEnd } from "../lib/flightEnd";
 import { fitHullOf } from "../lib/projection";
 import { WALL_OVERSHOOT } from "../gl/mesh";
 import type { CameraCmd } from "../types";
@@ -83,6 +84,8 @@ export function useMapCamera({
   let programmaticCam = false;
   /** Id of the latest programmatic flight: a superseded one must not lower the flag. */
   let flightSeq = 0;
+  /** When the flight in the air ends, as issued (lib/flightEnd.ts). */
+  const flightEnd = createFlightEnd();
   /** Id of `lastCmd`'s own flight while it is in the air, else 0 (padding watcher). */
   let cmdFlight = 0;
   /** Inside a camera call — the `moveend` mapbox fires there ends the OLD flight. */
@@ -127,7 +130,7 @@ export function useMapCamera({
    *
    * `isCommand` marks the flight as `lastCmd`'s own (see `cmdFlight`).
    */
-  function flyCamera(move: (m: mapboxgl.Map) => void, isCommand = false) {
+  function flyCamera(move: (m: mapboxgl.Map) => void, isCommand = false, ms?: number) {
     const m = getMap();
     if (!m) return;
     let issued = false;
@@ -155,14 +158,19 @@ export function useMapCamera({
       // at all: the camera is already at rest, its own `moveend` swallowed above.
       programmaticCam = false;
       cmdFlight = 0;
+      flightEnd.none();
       onSettled();
       return;
     }
     programmaticCam = true;
     cmdFlight = isCommand ? id : 0;
+    // The flight's known end (`ms`: the duration it was issued with), for a
+    // plateau whose rise waits for the landing (plateau/riseEta.ts).
+    flightEnd.begin(id, ms);
     m.once("moveend", () => {
       if (id === flightSeq) programmaticCam = false;
       if (id === cmdFlight) cmdFlight = 0;
+      flightEnd.ended(id);
     });
   }
 
@@ -376,6 +384,7 @@ export function useMapCamera({
               minZoom: Math.min(hopZoom, SPOTLIGHT_ZOOM - ARC_MIN_DIP),
             }),
           true,
+          arcMs,
         );
         return;
       }
@@ -390,6 +399,7 @@ export function useMapCamera({
             duration,
           }),
         true,
+        duration,
       );
       return;
     }
@@ -413,55 +423,59 @@ export function useMapCamera({
       // keeps its padding (see aimOffset): its silhouette centred there and as
       // large as fits (fitCamera) — inside the move, so a throw there takes
       // the failed-move path like any other.
-      flyCamera((m) => {
-        const end = perfOn ? perfSpan("camera.fit") : null;
-        const cam = fitCamera(m, cmd, padding, pitch, maxZoom);
-        // The hull's size is read once the span has ended, and only from a
-        // fit that got as far as computing it (a camera came out): a cache
-        // hit then, where a cold read would not be the fit's cost. An empty
-        // hull or no shape is framed by the box, reported as 4.
-        if (end) {
-          const g = cmd.shape?.geometry as { type?: string } | undefined;
-          end({ shape: !!cmd.shape, hull: cam && g?.type ? fitHullOf(g).length / 2 || 4 : 4 });
-        }
-        if (cam) {
-          // The camera this fit lands on: the analyses' slabs of the unit it
-          // frames are sized for it, whenever they are built (mid-flight).
-          fitCam = { key: cmd.key, seq: ++fitCamSeq, ...cam };
-          m.flyTo({
-            center: [cam.lng, cam.lat],
-            zoom: cam.zoom,
-            bearing: 0,
-            pitch,
-            padding,
-            ...aimed(padding),
-            duration,
-          });
-        } else {
-          fitCam = null;
-          // mapbox's fit frames the box edge to edge in the padded rectangle:
-          // that rectangle brought in by (1 − fill), about its centre, frames
-          // it at `fill` like the silhouette's. Only the camera is asked for in
-          // it: the flight keeps the real padding (fitBounds would hand the
-          // enlarged one on to the map, owed back by an ease after landing).
-          const p =
-            typeof padding === "number"
-              ? { top: padding, bottom: padding, left: padding, right: padding }
-              : padding;
-          const k = (1 - (cmd.fill ?? 1)) / 2;
-          const dx = k * Math.max(0, m.getContainer().clientWidth - p.left - p.right);
-          const dy = k * Math.max(0, m.getContainer().clientHeight - p.top - p.bottom);
-          const inset = {
-            top: p.top + dy,
-            bottom: p.bottom + dy,
-            left: p.left + dx,
-            right: p.right + dx,
-          };
-          const c = m.cameraForBounds(bounds, { padding: inset, maxZoom, pitch });
-          if (c) m.flyTo({ ...c, pitch, padding, duration });
-          else m.fitBounds(bounds, { padding, maxZoom, pitch, duration });
-        }
-      }, true);
+      flyCamera(
+        (m) => {
+          const end = perfOn ? perfSpan("camera.fit") : null;
+          const cam = fitCamera(m, cmd, padding, pitch, maxZoom);
+          // The hull's size is read once the span has ended, and only from a
+          // fit that got as far as computing it (a camera came out): a cache
+          // hit then, where a cold read would not be the fit's cost. An empty
+          // hull or no shape is framed by the box, reported as 4.
+          if (end) {
+            const g = cmd.shape?.geometry as { type?: string } | undefined;
+            end({ shape: !!cmd.shape, hull: cam && g?.type ? fitHullOf(g).length / 2 || 4 : 4 });
+          }
+          if (cam) {
+            // The camera this fit lands on: the analyses' slabs of the unit it
+            // frames are sized for it, whenever they are built (mid-flight).
+            fitCam = { key: cmd.key, seq: ++fitCamSeq, ...cam };
+            m.flyTo({
+              center: [cam.lng, cam.lat],
+              zoom: cam.zoom,
+              bearing: 0,
+              pitch,
+              padding,
+              ...aimed(padding),
+              duration,
+            });
+          } else {
+            fitCam = null;
+            // mapbox's fit frames the box edge to edge in the padded rectangle:
+            // that rectangle brought in by (1 − fill), about its centre, frames
+            // it at `fill` like the silhouette's. Only the camera is asked for in
+            // it: the flight keeps the real padding (fitBounds would hand the
+            // enlarged one on to the map, owed back by an ease after landing).
+            const p =
+              typeof padding === "number"
+                ? { top: padding, bottom: padding, left: padding, right: padding }
+                : padding;
+            const k = (1 - (cmd.fill ?? 1)) / 2;
+            const dx = k * Math.max(0, m.getContainer().clientWidth - p.left - p.right);
+            const dy = k * Math.max(0, m.getContainer().clientHeight - p.top - p.bottom);
+            const inset = {
+              top: p.top + dy,
+              bottom: p.bottom + dy,
+              left: p.left + dx,
+              right: p.right + dx,
+            };
+            const c = m.cameraForBounds(bounds, { padding: inset, maxZoom, pitch });
+            if (c) m.flyTo({ ...c, pitch, padding, duration });
+            else m.fitBounds(bounds, { padding, maxZoom, pitch, duration });
+          }
+        },
+        true,
+        duration,
+      );
       // The same fit run again (a resize, a new padding: same key) lands on
       // another camera, and no new spec comes to say so: its unit's slabs are
       // sized for it now, not at some later re-sync under a still camera. (A
@@ -481,6 +495,7 @@ export function useMapCamera({
           duration,
         }),
       true,
+      duration,
     );
   }
 
@@ -546,25 +561,29 @@ export function useMapCamera({
       const cmd = lastCmd;
       const key = cmd?.key ?? -1;
       fitCam = { key, seq: ++fitCamSeq, ...liveSlabCam(), pitch: ELEV_PITCH };
-      flyCamera((mm) => {
-        const padding = padding_() ?? 50;
-        const cam =
-          cmd?.type === "fit" ? fitCamera(mm, cmd, padding, ELEV_PITCH, cmd.maxZoom ?? 14) : null;
-        if (!cam) {
-          mm.easeTo({ pitch: ELEV_PITCH, duration: INTRO_TILT_MS, essential: !short });
-          return;
-        }
-        fitCam = { key, seq: ++fitCamSeq, ...cam };
-        mm.easeTo({
-          center: [cam.lng, cam.lat],
-          zoom: cam.zoom,
-          pitch: ELEV_PITCH,
-          padding,
-          ...aimed(padding),
-          duration: INTRO_TILT_MS,
-          essential: !short,
-        });
-      });
+      flyCamera(
+        (mm) => {
+          const padding = padding_() ?? 50;
+          const cam =
+            cmd?.type === "fit" ? fitCamera(mm, cmd, padding, ELEV_PITCH, cmd.maxZoom ?? 14) : null;
+          if (!cam) {
+            mm.easeTo({ pitch: ELEV_PITCH, duration: INTRO_TILT_MS, essential: !short });
+            return;
+          }
+          fitCam = { key, seq: ++fitCamSeq, ...cam };
+          mm.easeTo({
+            center: [cam.lng, cam.lat],
+            zoom: cam.zoom,
+            pitch: ELEV_PITCH,
+            padding,
+            ...aimed(padding),
+            duration: INTRO_TILT_MS,
+            essential: !short,
+          });
+        },
+        false,
+        INTRO_TILT_MS,
+      );
     }
     onIntroReleased(); // rise plays during the tilt
   }
@@ -590,7 +609,7 @@ export function useMapCamera({
       return;
     }
     padOwed = false;
-    flyCamera((m) => m.easeTo({ padding: pad, duration: 550 }));
+    flyCamera((m) => m.easeTo({ padding: pad, duration: 550 }), false, 550);
   }
 
   /** The camera's padding is the one asked for (it is not, mid-ease). */
@@ -733,6 +752,9 @@ export function useMapCamera({
     dispose,
     /** A programmatic flight is in the air (no scope derivation meanwhile). */
     programmatic: () => programmaticCam,
+    /** When the programmatic flight in the air ends, a clock time (0: none,
+     *  or not known). */
+    flightEndAt: () => flightEnd.at(),
     /** The user is moving the camera (a gesture's `movestart` to its `moveend`). */
     userHolding: () => userHolding,
     /** The cold-load intro has not played yet: the plateau holds, instant fits stay flat. */

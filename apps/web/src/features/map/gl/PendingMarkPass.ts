@@ -6,31 +6,50 @@
 // plateau's mesh does to itself (a rebuild at the commit, the hover fill's
 // single buffer, the rise's scale gates) can take the mark away.
 //
-// The sequence (the caller drives it; every time is the arrival of its
-// event, never the first frame drawn after it):
-// - `set`: the fill at once, the line at the progress given (at 0 nothing
-//   of it shows; its segments are built with the fill, from one projection
-//   of the outline);
-// - `setProgress`: a real step — the line eases to its new length
-//   (`stepMs`; 0: it jumps), a step that comes during an ease retargets it;
-// - `finish`: the data is all in — the line goes to the whole boundary and,
-//   under "then", the fill fades out (`unfillMs`), starting half-way through
-//   the line's last ease: the head has run seven eighths of that step by
-//   then, and the line is whole 50 ms later, the violet down to a third.
-//   `gateMs()` is what is left until the fill is gone, which the plateau's
-//   rise waits for. Reduced motion, where nothing eases or fades: two plain
-//   steps instead, each held MARK_REDUCED_HOLD_MS — the line whole over the
-//   fill, then the fill gone — and the gate covers both;
-// - `release`: the plateau starts to rise — the line (and a fill still
-//   showing: "together") rides the new lid and fades (`outMs`);
+// The sequence (the caller drives it):
+// - `set`: the fill at once. The line, under `ac:tap-fast=hide` (the
+//   default: `showAfterMs`), is not drawn yet: it becomes due that long
+//   after the first frame that drew the mark, and turns on, from nothing,
+//   in the first frame that can draw it — unless the data was all in before
+//   that: then this mark has no line at all (a wait too short to be read is
+//   not drawn as a flash). Under "show" the line is on from `set`, at the
+//   progress given;
+// - `setProgress`: a real step — the line runs to its new length at a
+//   constant speed (`lineFullMs` for the whole boundary, never less than
+//   `stepMs` a step; under "show": an ease over `stepMs`, 0: it jumps); a
+//   step that comes during a run retargets it from the value shown. Never
+//   ahead of the data;
+// - `finish`: the data is all in — the line, if it is on, runs to the whole
+//   boundary. Under "then" the fill leaves against the REAL start of the
+//   rise (`riseEta`, the plateau's: the old plateau's sink, the camera's
+//   landing where the rise waits for it): never before a frame has shown the
+//   whole line, it fades (`unfillMs`, linear) so as to reach
+//   MARK_UNFILL_FLOOR of itself when the rise can start, stays there until
+//   the plateau says the rise is cleared (`gateMs(true)`), and the rest
+//   leaves then. `gateMs()` is what is left until the fill is gone, which
+//   the plateau's rise waits for: no violet rides a rising lid, and the unit
+//   is never bare and flat for more than a frame or two. A rise whose start
+//   is not known keeps the fill whole until it is cleared. Reduced motion,
+//   where nothing eases or fades: two plain steps instead — the line whole
+//   over the fill (held MARK_REDUCED_HOLD_MS), then the fill gone
+//   (MARK_REDUCED_GAP_MS before the rise);
+// - `release`: the plateau starts to rise — the line rides the new lid and
+//   fades (`outMs`); under "together" the fill too; under "then" what is
+//   left of the fill goes at once;
+// - `dropLine`: the file the line measured will not come, the plateau rises
+//   without it — the line fades where it stands, the fill stays and leaves
+//   by the rule above;
 // - `drain`: no plateau came with the data the line measured (a long wait
-//   turned late, the unit's file given up on) — both fade where they stand,
-//   the line short of the whole boundary; `clear`: at once.
+//   turned late) — both fade where they stand, the line short of the whole
+//   boundary; `clear`: at once.
 //
 // Never a frame of its own accord while nothing moves: a repaint is asked
-// once per change and for the frames of an ease or a fade — bounded loops,
+// once per change and for the frames of a run or a fade — bounded loops,
 // as the hover sweep's and the retract's are (PlateauWallLayer.fillSweepT).
-// A still map with a mark held, its line full or waiting, draws no frame.
+// A still map with a mark held, its line full or waiting, or its fill at
+// the floor, draws no frame: what is owed later (the line due, the fade's
+// start) is a timer. Under short motion a run asks a frame every
+// `frameGapMs` only, while the map draws none of its own.
 // (`ac:tap-steps=creep` alone adds a tick's frames, a few a second, for the
 // first MARK_CREEP_FREEZE_MS after the tap, and none after.) Progress is a
 // uniform: nothing is rebuilt while the line moves, nor when the mark goes
@@ -87,7 +106,10 @@ import {
   MARK_CREEP_TICK_MS,
   MARK_LINE_FLOATS,
   MARK_LINE_HOLD_CAP_MS,
+  MARK_REDUCED_GAP_MS,
   MARK_REDUCED_HOLD_MS,
+  MARK_UNFILL_FLOOR,
+  MARK_WHOLE_UNSEEN_MS,
   MARK_REF_M,
   buildMark,
   buildMarkFill,
@@ -97,12 +119,15 @@ import {
   easeStep,
   fadeAlpha,
   fillThreshold,
+  lineEaseMs,
+  lineRun,
   markBuildPlace,
   markLidFillM,
   markLidLineM,
   markLineWidth,
   ringVertexCount,
   unfillAlpha,
+  unfillEnd,
   type MarkFill,
   type MarkGeometry,
   type MarkLine,
@@ -131,16 +156,33 @@ export interface PendingMarkSpec {
    *  `creepTickMs` at most (MARK_CREEP_TICK_MS by default). */
   creep: boolean;
   creepTickMs?: number;
+  /** `ac:tap-fast=hide`: the line is not drawn until this long after the
+   *  first frame that drew the mark, ms, and never if the data is all in
+   *  before it is on. Absent or 0: the line is on from `set`. */
+  showAfterMs?: number;
 }
 
 /** How the mark moves now (the page's motion setting). `animate` false
- *  (reduced motion): no ease and no fade — plain steps. `stepMs` 0: the
- *  line jumps. */
+ *  (reduced motion): no run and no fade — plain steps. `lineFullMs` > 0:
+ *  the line runs at a constant speed, the whole boundary in that long, a
+ *  step never in less than `stepMs`; absent or 0: an ease over `stepMs`
+ *  (0: the line jumps). `frameGapMs` > 0: a run asks a frame that often
+ *  only (short motion), not every frame. */
 export interface MarkMotion {
   animate: boolean;
   stepMs: number;
   unfillMs: number;
   outMs: number;
+  lineFullMs?: number;
+  frameGapMs?: number;
+}
+
+/** When the rise of a unit's plateau can start, as far as the plateau knows
+ *  (plateau/riseEta.ts): `at`, a clock time; `landing`: it is the end of the
+ *  camera's flight, told a frame after it. */
+export interface MarkRiseEta {
+  at: number;
+  landing: boolean;
 }
 
 /** Which of the layer's two moments a draw is for: the fill goes where the
@@ -173,6 +215,10 @@ export interface MarkPassDeps {
   /** A fill built off the frame has joined the mark of unit `id` (the page
    *  hands the unit's draped hover fill over to it). */
   onFill?(id: string): void;
+  /** When the rise of unit `id` can start (null: not known — the fill then
+   *  stays whole until the rise is cleared). Absent: the fill leaves as soon
+   *  as the data is all in and the whole line was shown, with no floor. */
+  riseEta?(id: string): MarkRiseEta | null;
   now?(): number;
   setTimer?(fn: () => void, ms: number): unknown;
   clearTimer?(id: unknown): void;
@@ -256,13 +302,42 @@ export class PendingMarkPass {
   private goal = 0;
   private easeT0 = 0;
   private easeMs = 0;
+  /** The run under way is at a constant speed (else an ease-out). */
+  private linear = false;
+  /** How the mark moves: the motion given last (`set`, a step, `finish`). */
+  private motion: MarkMotion | null = null;
+  // ---- when the line shows (ac:tap-fast) ----
+  /** The first frame that drew this mark (0: none yet). */
+  private markSeenAt = 0;
+  /** The line is to be drawn from the next frame that can draw it. */
+  private lineDue = false;
+  /** The line is on screen (turned on in a frame, or at `set`). */
+  private lineOn = false;
+  /** This mark has no line, or no longer: the data was all in before it was
+   *  on, or it was dropped. */
+  private lineSkipped = false;
+  private lineOutT0 = 0;
+  private lineOutMs = 0;
   // ---- the end ----
   private finished = false;
+  /** `finish` was told (a `release` with no verdict told also ends the line). */
+  private told = false;
+  private finishedAt = 0;
   private order: "then" | "together" = "then";
+  /** When the line's last run ends, and the first frame that showed it whole. */
+  private wholeAt = 0;
+  private wholeSeenAt = 0;
+  /** The unfill: begun at `unfillT0` (0: not yet), down to `floor` until
+   *  the rise is cleared (`goAt`, 0: not yet). */
   private unfillT0 = 0;
   private unfillMs = 0;
-  /** What the rise still waits for once the fill is gone (reduced motion:
-   *  the unfilled unit is seen before it rises). */
+  private floor = 0;
+  private goAt = 0;
+  /** Reduced motion: how long the whole line is held over the fill before
+   *  the fill goes… */
+  private holdMs = 0;
+  /** …and what the rise still waits for once the fill is gone (the
+   *  unfilled unit is seen before it rises). */
   private gateTailMs = 0;
   private outT0 = 0;
   private outMs = 0;
@@ -279,7 +354,15 @@ export class PendingMarkPass {
   private regime: MarkRegime | null = null;
   private capTimer: unknown = null;
   private creepTimer: unknown = null;
-  private dropTimer: unknown = null;
+  /** The line due; a run's next frame under short motion; the fade's start;
+   *  a whole line no frame has shown. */
+  private showTimer: unknown = null;
+  private frameTimer: unknown = null;
+  private fadeTimer: unknown = null;
+  private wholeTimer: unknown = null;
+  /** The last frame's time and the frames' mean interval, ms. */
+  private frameAt = 0;
+  private frameMs = 16.7;
   /** Frames made ready (`prepare`), their count at the creep's last tick,
    *  and whether that tick asked for one. */
   private frames = 0;
@@ -305,6 +388,7 @@ export class PendingMarkPass {
 
   private readonly repaint: () => void;
   private readonly onFill: (id: string) => void;
+  private readonly riseEta: ((id: string) => MarkRiseEta | null) | null;
   private readonly now: () => number;
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (id: unknown) => void;
@@ -316,6 +400,7 @@ export class PendingMarkPass {
     const d: MarkPassDeps = typeof deps === "function" ? { repaint: deps } : deps;
     this.repaint = d.repaint;
     this.onFill = d.onFill ?? (() => {});
+    this.riseEta = d.riseEta ?? null;
     this.now = d.now ?? (() => performance.now());
     this.setTimer = d.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
     this.clearTimer = d.clearTimer ?? ((id) => clearTimeout(id as ReturnType<typeof setTimeout>));
@@ -413,6 +498,12 @@ export class PendingMarkPass {
       fading: this.phase !== "held",
       finished: this.finished,
       progress: { target: this.target, shown: this.shownAt(now) },
+      lineOn: this.lineOn,
+      lineSkipped: this.lineSkipped,
+      seenAt: this.markSeenAt,
+      wholeSeenAt: this.wholeSeenAt,
+      unfillT0: this.unfillT0,
+      goAt: this.goAt,
       fillAlpha: this.fillDrawn ? this.fillAlphaAt(now) : 0,
       lineAlpha: this.lineAlphaAt(now),
       gateMs: this.gateMs(),
@@ -434,7 +525,22 @@ export class PendingMarkPass {
    * `regime`: the one the map draws in now — a large unit's meshes are
    * asked for it at once, without waiting for the next frame.
    */
-  set(spec: PendingMarkSpec, progress = 0, regime?: MarkRegime) {
+  set(spec: PendingMarkSpec, progress = 0, regime?: MarkRegime, motion?: MarkMotion) {
+    const held = this.spec;
+    if (
+      held &&
+      this.phase === "held" &&
+      held.id === spec.id &&
+      this.keptG === spec.g &&
+      held.line === spec.line &&
+      held.fill === spec.fill &&
+      held.raised === spec.raised
+    ) {
+      // The same unit marked again while its mark is held (tapped once
+      // more): the line, the end and the fade under way are left as they are.
+      this.keep = true;
+      return;
+    }
     this.stopTimers();
     if (!spec.line && !spec.fill) {
       this.clear();
@@ -456,17 +562,34 @@ export class PendingMarkPass {
     this.spec = spec;
     this.phase = "held";
     const now = this.now();
-    this.target = this.from = this.goal = clamp01(progress);
+    this.motion = motion ?? null;
+    this.target = clamp01(progress);
+    // On from the start ("show"), or due later (`showAfterMs`): from nothing.
+    this.lineDue = this.lineOn = !((spec.showAfterMs ?? 0) > 0);
+    this.lineSkipped = false;
+    this.lineOutT0 = 0;
+    this.lineOutMs = 0;
+    this.markSeenAt = 0;
+    this.from = this.goal = this.lineOn ? this.target : 0;
     this.easeT0 = 0;
     this.easeMs = 0;
+    this.linear = false;
     this.finished = false;
+    this.told = false;
+    this.finishedAt = 0;
     this.order = "then";
+    this.wholeAt = 0;
+    this.wholeSeenAt = 0;
     this.unfillT0 = 0;
     this.unfillMs = 0;
+    this.floor = 0;
+    this.goAt = 0;
+    this.holdMs = 0;
     this.gateTailMs = 0;
     this.outT0 = 0;
     this.outMs = 0;
     this.setAt = now;
+    this.frameAt = 0;
     this.fillDrawn = false;
     this.fillVia = null;
     this.fillLateMs = null;
@@ -499,8 +622,8 @@ export class PendingMarkPass {
     this.ask(s.g, regime, front);
   }
 
-  /** A real step: the line goes to `target` (never back), easing over
-   *  `motion.stepMs` from where its real value stands now. */
+  /** A real step: the line goes to `target` (never back), running from
+   *  where its real value stands now. A line not on yet keeps the target. */
   setProgress(target: number, motion: MarkMotion) {
     if (!this.spec || this.phase !== "held" || this.finished) return;
     const t = clamp01(target);
@@ -509,16 +632,27 @@ export class PendingMarkPass {
     this.repaint();
   }
 
-  /** The ease to `target`, from `from` (what the line shows of real data
+  /** The run to `target`, from `from` (what the line shows of real data
    *  now — at the end, what it shows in all, so a creep's lead is never
-   *  given back). */
+   *  given back). A line that is not on only keeps the target. */
   private step(target: number, motion: MarkMotion, from: number) {
     this.target = target;
-    this.goal = Math.max(target, from);
-    if (motion.animate && motion.stepMs > 0 && this.goal > from) {
+    this.motion = motion;
+    if (!this.lineOn || this.lineSkipped) return;
+    this.run(from, target);
+  }
+
+  /** The line's run from `from` to `to`: at a constant speed
+   *  (`lineFullMs`), an ease (`stepMs`), or a jump. */
+  private run(from: number, to: number) {
+    const m = this.motion;
+    this.goal = Math.max(to, from);
+    const full = m?.lineFullMs ?? 0;
+    if (m && m.animate && this.goal > from && (full > 0 || m.stepMs > 0)) {
       this.from = from;
       this.easeT0 = this.now();
-      this.easeMs = motion.stepMs;
+      this.linear = full > 0;
+      this.easeMs = full > 0 ? lineEaseMs(from, this.goal, full, m.stepMs) : m.stepMs;
     } else {
       this.from = this.goal;
       this.easeT0 = 0;
@@ -526,46 +660,145 @@ export class PendingMarkPass {
     }
   }
 
+  /** A frame is being drawn: the first one of this mark starts the line's
+   *  clock; the frames' interval is kept (what "a frame later" is worth). */
+  private sawFrame(now: number) {
+    const d = now - this.frameAt;
+    if (this.frameAt && d >= 4 && d < 200) {
+      this.frameMs = Math.min(100, Math.max(8, 0.7 * this.frameMs + 0.3 * d));
+    }
+    if (!this.frameAt || d >= 4) this.frameAt = now;
+    if (!this.markSeenAt) {
+      this.markSeenAt = now;
+      this.armShow();
+    }
+  }
+
+  /** The line becomes due `showAfterMs` after the mark's first frame (one
+   *  timer, one repaint) — unless it is on, or will never be. */
+  private armShow() {
+    const s = this.spec;
+    this.clearTimer(this.showTimer);
+    this.showTimer = null;
+    if (!s || !s.line || this.lineDue || this.lineSkipped || this.finished) return;
+    if (this.phase !== "held" || !this.markSeenAt) return;
+    const left = Math.max(0, this.markSeenAt + (s.showAfterMs ?? 0) - this.now());
+    this.showTimer = this.setTimer(() => {
+      this.showTimer = null;
+      if (!this.spec || this.lineSkipped || this.finished || this.phase !== "held") return;
+      this.lineDue = true;
+      this.repaint();
+    }, left);
+  }
+
+  /** A due line turns on in a frame whose regime has its segments: that
+   *  frame draws nothing of it and starts its run to the real value. */
+  private turnOn(r: RegimeSets) {
+    const s = this.spec;
+    if (!s || !s.line || this.lineOn || !this.lineDue || this.lineSkipped) return;
+    if (this.phase !== "held" || this.finished) return;
+    if (r.lineState !== "ready" || !r.line?.segCount) return;
+    this.lineOn = true;
+    this.from = this.goal = 0;
+    if (this.motion?.animate) this.run(0, this.target);
+    else this.from = this.goal = this.target;
+  }
+
   /**
-   * The data is all in: the line goes to the whole boundary and, under
-   * "then", the fill leaves — a fade that starts half-way through the
-   * line's last ease or, under reduced motion, a plain step once the whole
-   * line has been seen over it. Once per mark.
+   * The data is all in. A line on screen runs to the whole boundary; one
+   * that is not on yet never comes for this mark. Under "then" the fill then
+   * leaves against the rise's real start (`scheduleFade`). Once per mark.
    */
   finish(motion: MarkMotion, order: "then" | "together") {
     if (!this.spec || this.phase !== "held" || this.finished) return;
     const now = this.now();
-    this.step(1, motion, this.shownAt(now));
+    this.motion = motion;
+    if (this.lineOn && !this.lineSkipped) {
+      this.step(1, motion, this.shownAt(now));
+      this.wholeAt = this.easeMs > 0 ? this.easeT0 + this.easeMs : now;
+      this.armWhole();
+    } else {
+      this.target = 1;
+      this.lineSkipped = true;
+      this.clearTimer(this.showTimer);
+      this.showTimer = null;
+      this.wholeAt = now;
+    }
     this.finished = true;
+    this.told = true;
+    this.finishedAt = now;
     this.order = order;
     this.stopCreep();
-    // What is left until the fill is gone, which the cap counts from
-    // ("together": the fill stays, the cap counts from now).
-    let leaveMs = 0;
-    if (order === "then") {
-      if (motion.animate) {
-        // The line first: the fill starts to leave once the head has run
-        // most of its last step (ease-out: seven eighths of it by half its
-        // time).
-        this.unfillT0 = now + this.easeMs / 2;
-        this.unfillMs = Math.max(0, motion.unfillMs);
-        this.gateTailMs = 0;
-      } else {
-        // Nothing fades: the line whole over the fill, then the fill gone,
-        // each one seen before the rise. One frame is asked at the drop.
-        this.unfillT0 = now + MARK_REDUCED_HOLD_MS;
-        this.unfillMs = 0;
-        this.gateTailMs = MARK_REDUCED_HOLD_MS;
-        this.clearTimer(this.dropTimer);
-        this.dropTimer = this.setTimer(() => {
-          this.dropTimer = null;
-          if (this.spec) this.repaint();
-        }, MARK_REDUCED_HOLD_MS);
-      }
-      leaveMs = this.unfillT0 - now + this.unfillMs + this.gateTailMs;
-    }
-    this.armCap(leaveMs + MARK_LINE_HOLD_CAP_MS);
+    this.unfillMs = motion.animate ? Math.max(0, motion.unfillMs) : 0;
+    // The floor is held for a rise the plateau tells of; reduced motion's
+    // plain steps have none.
+    this.floor = order === "then" && this.riseEta && this.unfillMs > 0 ? MARK_UNFILL_FLOOR : 0;
+    this.holdMs = motion.animate ? 0 : MARK_REDUCED_HOLD_MS;
+    this.gateTailMs = motion.animate ? 0 : MARK_REDUCED_GAP_MS;
+    this.armCap(MARK_LINE_HOLD_CAP_MS);
+    this.scheduleFade();
     this.repaint();
+  }
+
+  /** No frame may ever show the whole line (a hidden tab): it counts as
+   *  seen MARK_WHOLE_UNSEEN_MS after its run's end all the same. */
+  private armWhole() {
+    this.clearTimer(this.wholeTimer);
+    this.wholeTimer = this.setTimer(
+      () => {
+        this.wholeTimer = null;
+        if (!this.spec || this.wholeSeenAt) return;
+        this.wholeSeenAt = this.now();
+        this.scheduleFade();
+      },
+      Math.max(0, this.wholeAt - this.now()) + MARK_WHOLE_UNSEEN_MS,
+    );
+  }
+
+  /** The mark has a line on screen that is to be seen whole before the end. */
+  private lined(): boolean {
+    return this.lineOn && !this.lineSkipped;
+  }
+
+  /**
+   * When the fill starts to leave ("then"): never before a frame has shown
+   * the whole line (reduced motion: held `holdMs` over the fill), and so
+   * that it is at the floor when the rise can start (`riseEta`, read again
+   * when the timer fires: a rise put off puts the fade off). A rise whose
+   * start is not known: the fade waits for it to be cleared (`gateMs(true)`).
+   * One timer, no frame until the fade begins.
+   */
+  private scheduleFade(fromTimer = false) {
+    const s = this.spec;
+    if (!s || this.phase !== "held" || !this.told || this.order !== "then" || this.unfillT0) return;
+    const lined = this.lined();
+    if (lined && !this.wholeSeenAt) return;
+    const now = this.now();
+    this.clearTimer(this.fadeTimer);
+    this.fadeTimer = null;
+    const min = lined ? this.wholeSeenAt + this.holdMs : this.finishedAt;
+    let at = Math.max(now, min);
+    // A timer that fires within a frame of the rise's (new) start begins.
+    let slack = 0.5;
+    if (!this.goAt && this.riseEta) {
+      const eta = this.riseEta(s.id);
+      if (!eta) return;
+      const lead = this.unfillMs > 0 ? (1 - this.floor) * this.unfillMs : this.gateTailMs;
+      const byEta = eta.at + (eta.landing ? this.frameMs : 0) - lead;
+      if (byEta > at) {
+        at = byEta;
+        if (fromTimer) slack = this.frameMs;
+      }
+    }
+    if (at - now <= slack) {
+      this.unfillT0 = now;
+      this.repaint();
+      return;
+    }
+    this.fadeTimer = this.setTimer(() => {
+      this.fadeTimer = null;
+      this.scheduleFade(true);
+    }, at - now);
   }
 
   /** A safety: a full line whose plateau never rises does not stay. */
@@ -577,18 +810,37 @@ export class PendingMarkPass {
     }, ms);
   }
 
-  /** How long the plateau's rise still waits for the fill to be gone, ms: 0
-   *  unless the mark is finished under "then" with a fill on screen (or
-   *  about to be: built by its first frame) — or draining with its fill
-   *  still on screen (what is left of that fade). */
-  gateMs(): number {
+  /**
+   * How long the plateau's rise still waits for the mark, ms: for a line on
+   * screen to have been shown whole and, under "then", for the fill to be
+   * gone (0 with no fill on screen and none about to be) — or, draining,
+   * what is left of that fade. `cleared`: the plateau says everything else
+   * the rise waits for is satisfied — the go: the fill's fade begins now or
+   * runs on past its floor, and the answer is what is left of it. Without
+   * `cleared` it is a plain query, nothing changes.
+   */
+  gateMs(cleared = false): number {
     const s = this.spec;
+    const now = this.now();
     if (s && this.phase === "draining") {
-      return this.fillDrawn && s.fill ? Math.max(0, this.outT0 + this.outMs - this.now()) : 0;
+      return this.fillDrawn && s.fill ? Math.max(0, this.outT0 + this.outMs - now) : 0;
     }
-    if (!s || this.phase !== "held" || !this.finished || this.order !== "then") return 0;
-    if (!this.fillDrawn && !this.fillComes()) return 0;
-    return Math.max(0, this.unfillT0 + this.unfillMs + this.gateTailMs - this.now());
+    if (!s || this.phase !== "held" || !this.told) return 0;
+    const lined = this.lined();
+    // A frame is still to show the whole line.
+    const whole = lined && !this.wholeSeenAt ? Math.max(0, this.wholeAt - now) + this.frameMs : 0;
+    if (this.order !== "then") return whole;
+    if (!this.fillDrawn && !this.fillComes()) return whole;
+    if (cleared && !this.goAt) {
+      this.goAt = now;
+      this.scheduleFade();
+      this.repaint();
+    }
+    if (!this.unfillT0) {
+      return whole + (lined ? this.holdMs : 0) + this.unfillMs + this.gateTailMs;
+    }
+    const end = unfillEnd(this.unfillT0, this.unfillMs, this.floor, this.goAt || now);
+    return Math.max(0, end + this.gateTailMs - now);
   }
 
   /** A fill not drawn yet that the next frame draws: ready, or built by that
@@ -604,8 +856,10 @@ export class PendingMarkPass {
 
   /**
    * The marked unit's plateau starts to rise, its lid `lidM` metres up: the
-   * line (and a fill still showing) moves onto that lid and fades as it
-   * rises — or the mark goes at once (`motion.animate` false).
+   * line moves onto that lid and fades as it rises — with the fill under
+   * "together", or when no verdict was told; under "then" what is left of
+   * the fill goes at once (the gate has passed: no violet rides the lid) —
+   * or the mark goes at once (`motion.animate` false).
    */
   release(lidM: number, motion: MarkMotion) {
     if (!this.spec) return;
@@ -616,7 +870,7 @@ export class PendingMarkPass {
     if (this.phase === "draining") return; // fading already, where it stands
     this.outLidM = lidM;
     if (this.phase === "released") return;
-    // No verdict told: the line is full all the same.
+    // No verdict told: a line on screen is full all the same.
     if (!this.finished) this.step(1, motion, this.shownAt(this.now()));
     this.finished = true;
     this.phase = "released";
@@ -640,6 +894,30 @@ export class PendingMarkPass {
     this.outT0 = this.now();
     this.outMs = Math.max(0, motion.outMs);
     this.stopTimers();
+    this.repaint();
+  }
+
+  /** The file the line measured will not come and the plateau rises
+   *  without it: the line fades where it stands (`outMs`; at once under
+   *  reduced motion) and never comes back for this mark; the fill stays,
+   *  and leaves by `finish`'s rule. */
+  dropLine(motion: MarkMotion) {
+    if (!this.spec || this.phase !== "held" || this.lineSkipped) return;
+    const now = this.now();
+    const shown = this.shownAt(now);
+    this.lineSkipped = true;
+    this.clearTimer(this.showTimer);
+    this.showTimer = null;
+    this.clearTimer(this.frameTimer);
+    this.frameTimer = null;
+    this.stopCreep();
+    if (this.lineOn && motion.animate && shown > 0) {
+      // Frozen where it stands, and fading.
+      this.from = this.goal = shown;
+      this.easeMs = 0;
+      this.lineOutT0 = now;
+      this.lineOutMs = Math.max(0, motion.outMs);
+    } else this.lineOn = false;
     this.repaint();
   }
 
@@ -701,8 +979,14 @@ export class PendingMarkPass {
   private stopTimers() {
     this.clearTimer(this.capTimer);
     this.capTimer = null;
-    this.clearTimer(this.dropTimer);
-    this.dropTimer = null;
+    this.clearTimer(this.showTimer);
+    this.showTimer = null;
+    this.clearTimer(this.frameTimer);
+    this.frameTimer = null;
+    this.clearTimer(this.fadeTimer);
+    this.fadeTimer = null;
+    this.clearTimer(this.wholeTimer);
+    this.wholeTimer = null;
     this.stopCreep();
   }
 
@@ -740,49 +1024,90 @@ export class PendingMarkPass {
   }
 
   /** The share of the boundary the real data has the line at `now` (its
-   *  ease from one real step to the next). */
+   *  run from one real step to the next). */
   private realAt(now: number): number {
-    return this.easeMs > 0
-      ? easeStep(this.from, this.goal, (now - this.easeT0) / this.easeMs)
-      : this.goal;
+    if (this.easeMs <= 0) return this.goal;
+    const t = (now - this.easeT0) / this.easeMs;
+    return this.linear ? lineRun(this.from, this.goal, t) : easeStep(this.from, this.goal, t);
   }
 
-  /** The share of the boundary the line covers `now`: the real value and,
-   *  under the creep, its small lead until the data is all in. */
+  /** The share of the boundary the line covers `now`: nothing until it is
+   *  on; then the real value and, under the creep, its small lead until the
+   *  data is all in. */
   private shownAt(now: number): number {
+    if (!this.lineOn) return 0;
     const real = this.realAt(now);
-    if (!this.spec?.creep || this.finished) return real;
+    if (!this.spec?.creep || this.finished || this.lineSkipped) return real;
     return creepShown(real, now - this.setAt);
   }
 
   private fillAlphaAt(now: number): number {
     const s = this.spec;
     if (!s || !s.fill) return 0;
+    // Its plateau rises after the verdict under "then": nothing rides the lid.
+    if (this.phase === "released" && this.told && this.order === "then") return 0;
     const out = this.phase === "held" ? 1 : fadeAlpha(now, this.outT0, this.outMs);
-    return unfillAlpha(now, this.unfillT0, this.unfillMs) * out;
+    return unfillAlpha(now, this.unfillT0, this.unfillMs, this.floor, this.goAt) * out;
   }
 
   private lineAlphaAt(now: number): number {
     const s = this.spec;
     if (!s || !s.line) return 0;
-    return this.phase === "held" ? 1 : fadeAlpha(now, this.outT0, this.outMs);
+    const drop = this.lineOutT0 ? fadeAlpha(now, this.lineOutT0, this.lineOutMs) : 1;
+    return drop * (this.phase === "held" ? 1 : fadeAlpha(now, this.outT0, this.outMs));
   }
 
-  /** This frame's values, the next frame asked for while something moves
-   *  (an ease, a fade: bounded); null: the mark is over. */
-  private tick(now: number) {
+  /** A run under way asks for its next frame: every frame, or — under short
+   *  motion — one every `frameGapMs` and one at its end, by a timer (frames
+   *  the map draws of its own meanwhile show the line where it is). */
+  private askRunFrame(now: number) {
+    const gap = this.motion?.frameGapMs ?? 0;
+    if (gap <= 0) {
+      this.repaint();
+      return;
+    }
+    if (this.frameTimer !== null) return;
+    const left = this.easeT0 + this.easeMs - now;
+    this.frameTimer = this.setTimer(
+      () => {
+        this.frameTimer = null;
+        if (this.spec) this.repaint();
+      },
+      Math.max(1, Math.min(gap, left)),
+    );
+  }
+
+  /** This frame's values, in regime `r`; the next frame asked for while
+   *  something moves (a run, a fade: bounded); null: the mark is over. */
+  private tick(now: number, r: RegimeSets) {
     const s = this.spec;
     if (!s) return null;
     if (this.phase !== "held" && fadeAlpha(now, this.outT0, this.outMs) <= 0) {
       this.end(false);
       return null;
     }
+    this.sawFrame(now);
+    this.turnOn(r);
+    const shown = this.shownAt(now);
+    // The first frame that shows the whole line: the fill may leave after it.
+    if (this.told && !this.wholeSeenAt && this.lined() && shown >= 1) {
+      this.wholeSeenAt = now;
+      this.clearTimer(this.wholeTimer);
+      this.wholeTimer = null;
+      this.scheduleFade();
+    }
     const fillA = this.fillAlphaAt(now);
-    const easing = this.easeMs > 0 && now < this.easeT0 + this.easeMs;
-    // (Reduced motion's plain step has a timer of its own: no frame loop.)
-    const unfilling = this.unfillMs > 0 && this.unfillT0 > 0 && now < this.unfillT0 + this.unfillMs;
-    if (this.phase !== "held" || easing || unfilling) this.repaint();
-    return { fillA, lineA: this.lineAlphaAt(now), shown: this.shownAt(now) };
+    const running = this.lineOn && this.easeMs > 0 && now < this.easeT0 + this.easeMs;
+    // The fill's fade moves: down to its floor, or — cleared — to nothing.
+    const unfilling =
+      this.phase === "held" &&
+      this.unfillT0 > 0 &&
+      this.unfillMs > 0 &&
+      fillA > (this.goAt ? 0 : this.floor);
+    const dropping = this.lineOutT0 > 0 && now < this.lineOutT0 + this.lineOutMs;
+    if (this.phase !== "held" || unfilling || dropping) this.repaint();
+    else if (running) this.askRunFrame(now);
+    return { fillA, lineA: this.lineAlphaAt(now), shown };
   }
 
   onAdd(gl: WebGL2RenderingContext) {
@@ -826,8 +1151,15 @@ export class PendingMarkPass {
     // A mark held across a context given back: its timers again (onRemove
     // stopped them).
     if (this.spec && this.phase === "held") {
-      if (this.finished) this.armCap(MARK_LINE_HOLD_CAP_MS);
-      else if (this.spec.creep && this.now() - this.setAt < MARK_CREEP_FREEZE_MS) this.armCreep();
+      if (this.finished) {
+        this.armCap(MARK_LINE_HOLD_CAP_MS);
+        // The fade still owed, and the whole line's own wait.
+        if (this.told && this.lined() && !this.wholeSeenAt) this.armWhole();
+        this.scheduleFade();
+      } else {
+        if (this.spec.creep && this.now() - this.setAt < MARK_CREEP_FREEZE_MS) this.armCreep();
+        if (this.markSeenAt) this.armShow();
+      }
     }
   }
 
@@ -871,7 +1203,7 @@ export class PendingMarkPass {
           if (r.fillState === "pending") r.fillState = "none";
           if (r.lineState === "ready") return;
           let line: MarkLine | null = null;
-          if (held && s.line) {
+          if (held && s.line && !this.lineSkipped) {
             try {
               line = buildMarkLine(g, regime);
             } catch {
@@ -956,12 +1288,9 @@ export class PendingMarkPass {
   }
 
   /** Whether a fill that comes now can still show: the mark is held, and
-   *  its violet has not left it (the data all in, under "then"). */
+   *  its violet has not begun to leave it (the data all in, under "then"). */
   private fillCanShow(): boolean {
-    return (
-      this.phase === "held" &&
-      !(this.finished && this.order === "then" && this.fillAlphaAt(this.now()) <= 0)
-    );
+    return this.phase === "held" && !(this.told && this.order === "then" && this.unfillT0 > 0);
   }
 
   /** Whether a fill on screen is still fading with a mark on its way out
@@ -991,8 +1320,13 @@ export class PendingMarkPass {
       const bisect = place === "page";
       const wantFill = s.fill && r.fillState === "none" && fillShows;
       // The line with the fill, from one projection of the outline — so its
-      // build is never a later frame's — or alone at its first progress.
-      const wantLine = s.line && r.lineState === "none" && (wantFill || shown > 0);
+      // build is never a later frame's — or alone once it is due or at its
+      // first progress. Never for a mark whose line will not show.
+      const wantLine =
+        s.line &&
+        !this.lineSkipped &&
+        r.lineState === "none" &&
+        (wantFill || shown > 0 || (this.lineDue && !this.lineOn));
       if (wantFill && wantLine) {
         let both: MarkBuffers | null = null;
         try {
@@ -1160,10 +1494,10 @@ export class PendingMarkPass {
     phase: MarkPhase,
     fillProg: GlProg | null,
   ) {
-    const f = this.tick(this.now());
+    const r = this.merc;
+    const f = this.tick(this.now(), r);
     const s = this.spec;
     if (!f || !s) return;
-    const r = this.merc;
     this.ensure(gl, r, "merc", f.shown);
     const fill = phase === "fill";
     if (fill) {
@@ -1232,10 +1566,10 @@ export class PendingMarkPass {
     fillProg: GlProg | null,
   ) {
     if (!this.spec || this.lifted() !== raised) return;
-    const f = this.tick(this.now());
+    const r = this.globe;
+    const f = this.tick(this.now(), r);
     const s = this.spec;
     if (!f || !s) return;
-    const r = this.globe;
     this.ensure(gl, r, "globe", f.shown);
     const scale = this.heightScale(phase, rise);
     const { setCommon, bindTriple } = binders;

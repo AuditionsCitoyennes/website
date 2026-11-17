@@ -16,6 +16,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  type MarkRiseEta,
   PendingMarkPass,
   type MarkBuffers,
   type MarkMotion,
@@ -35,8 +36,14 @@ import {
   MARK_LINE_MIN_SHARE,
   MARK_LINE_WIDTH,
   MARK_PAGE_MAX_VERTICES,
+  MARK_LINE_FULL_MS,
+  MARK_LINE_SHOW_MS,
+  MARK_REDUCED_GAP_MS,
   MARK_REDUCED_HOLD_MS,
   MARK_REF_M,
+  MARK_SHORT_FRAME_MS,
+  MARK_UNFILL_FLOOR,
+  MARK_WHOLE_UNSEEN_MS,
   MARK_STANDIN_VERTICES,
   MARK_STEP_MS,
   MARK_UNFILL_MS,
@@ -134,8 +141,9 @@ const fillProg = {
 } as unknown as GlProg;
 const MATRIX = new Float64Array(16);
 
-/** `startMs`: the clock's value at the start (the page's age). */
-function harness(startMs = 1000) {
+/** `startMs`: the clock's value at the start (the page's age). `rise`: the
+ *  pass is told when the rise can start (`rise.eta`, changed at will). */
+function harness(startMs = 1000, rise?: { eta: MarkRiseEta | null }) {
   let t = startMs;
   let repaints = 0;
   let nextTimer = 1;
@@ -145,6 +153,7 @@ function harness(startMs = 1000) {
   const pass = new PendingMarkPass({
     repaint: () => repaints++,
     onFill: (id) => filled.push(id),
+    ...(rise ? { riseEta: () => rise.eta } : {}),
     now: () => t,
     setTimer: (fn, ms) => {
       timers.set(nextTimer, { at: t + ms, fn });
@@ -207,6 +216,7 @@ function harness(startMs = 1000) {
     /** The delays, from now, of the timers armed. */
     timersIn: () => [...timers.values()].map((e) => e.at - t).sort((x, y) => x - y),
     repaints: () => repaints,
+    now: () => t,
     shown: () => pass.state()!.progress.shown,
   };
 }
@@ -340,24 +350,32 @@ test("the data all in: the line first, then the fill fades over a bounded time, 
   h.run(200);
   assert.equal(h.pass.gateMs(), 0); // not finished: no gate
   h.pass.finish(FULL, "then");
-  // The fill starts to leave half an ease after the data: the line's head
-  // has then run seven eighths of its last step.
-  const lead = MARK_STEP_MS / 2;
-  assert.equal(h.pass.gateMs(), lead + MARK_UNFILL_MS);
+  // The line's last ease, a frame to show it whole, then the fade.
+  const gate = h.pass.gateMs();
+  assert.ok(gate > MARK_STEP_MS + MARK_UNFILL_MS + 8, `gate ${gate}`);
+  assert.ok(gate < MARK_STEP_MS + MARK_UNFILL_MS + 30, `gate ${gate}`);
   assert.equal(h.pass.state()!.progress.target, 1);
-  h.advance(lead);
-  h.frame();
-  assert.equal(h.pass.state()!.fillAlpha, 1); // the violet whole…
-  assert.ok(h.shown() >= 0.25 + 0.75 * 0.875 - 1e-9, `the line at ${h.shown()}`); // …the line nearly so
+  // The violet is whole while the line eases, and in the frame that first
+  // shows the whole line.
+  let wholeFrame = -1;
+  for (let i = 0; i < 12 && wholeFrame < 0; i++) {
+    h.advance(16);
+    h.frame();
+    const s = h.pass.state()!;
+    assert.equal(s.fillAlpha, 1);
+    if (s.progress.shown >= 1) wholeFrame = i;
+  }
+  assert.ok(wholeFrame >= 5, `whole at frame ${wholeFrame}`);
+  assert.equal(h.pass.gateMs(), MARK_UNFILL_MS); // the fade starts after that frame
   h.advance(40);
   h.frame();
   assert.equal(h.pass.gateMs(), MARK_UNFILL_MS - 40);
   const a = h.pass.state()!.fillAlpha;
-  assert.ok(a > 0.4 && a < 0.47, `fill at ${a}`); // the fade squared: (1 − 40/117)²
+  assert.ok(Math.abs(a - 0.6) < 1e-9, `fill at ${a}`); // linear
   assert.equal(h.uniform("uFillT"), fillThreshold(a));
-  assert.ok(h.shown() > 0.99); // the line whole while the violet thins
+  assert.equal(h.shown(), 1); // the line whole while the violet thins
   const asked = h.run(400);
-  assert.ok(asked >= 4 && asked <= Math.ceil(MARK_UNFILL_MS / 16), `${asked} frames asked`);
+  assert.ok(asked >= 2 && asked <= Math.ceil(MARK_UNFILL_MS / 16), `${asked} frames asked`);
   assert.equal(h.pass.gateMs(), 0);
   assert.equal(h.pass.state()!.fillAlpha, 0);
   assert.equal(h.uniform("uProgress"), MARK_PROGRESS_FULL); // the whole boundary
@@ -372,28 +390,41 @@ test("the data all in: the line first, then the fill fades over a bounded time, 
   assert.equal(h.pass.gateMs(), 0);
 });
 
-test("the gate is 0 for anything that is not a fill on screen under « then »", async () => {
+test("the gate is 0 for anything that is not a line to show whole or a fill on screen under « then »", async () => {
   // No mark.
   assert.equal(harness().pass.gateMs(), 0);
-  // No fill asked.
+  // No fill asked: the whole line is shown, and nothing more is waited for.
   const noFill = harness();
   noFill.pass.set(spec({ fill: false }));
   noFill.frame();
   noFill.pass.finish(FULL, "then");
+  assert.ok(noFill.pass.gateMs() > MARK_STEP_MS);
+  assert.ok(noFill.pass.gateMs() < MARK_STEP_MS + 30);
+  noFill.run(200);
   assert.equal(noFill.pass.gateMs(), 0);
   // A geometry no builder reads.
   const bad = harness();
   bad.pass.set(spec({ g: { type: "Polygon", coordinates: [] } }));
   bad.frame();
   bad.pass.finish(FULL, "then");
+  bad.run(200);
   assert.equal(bad.pass.gateMs(), 0);
-  // « together ».
+  // « together »: the whole line shown, the fill left for the rise.
   const together = harness();
   together.pass.set(spec());
   together.frame();
   together.pass.finish(FULL, "together");
+  assert.ok(together.pass.gateMs() > MARK_STEP_MS);
+  together.run(200);
   assert.equal(together.pass.gateMs(), 0);
   assert.equal(together.pass.state()!.fillAlpha, 1); // the fill waits for the rise
+  // A whole line no frame ever shows (a hidden tab) is waited for a bounded time.
+  const blind = harness();
+  blind.pass.set(spec());
+  blind.frame();
+  blind.pass.finish(FULL, "together");
+  blind.advance(MARK_STEP_MS + MARK_WHOLE_UNSEEN_MS);
+  assert.equal(blind.pass.gateMs(), 0);
 });
 
 test("reduced motion: the end is two plain steps — the line whole over the fill, then the fill gone — and the gate covers both", () => {
@@ -405,9 +436,9 @@ test("reduced motion: the end is two plain steps — the line whole over the fil
   let before = h.repaints();
   h.pass.finish(STILL, "then");
   assert.equal(h.repaints(), before + 1);
-  assert.equal(h.pass.gateMs(), 2 * MARK_REDUCED_HOLD_MS);
   // The first step: the line whole, at once, the violet still there.
   h.frame();
+  assert.equal(h.pass.gateMs(), MARK_REDUCED_HOLD_MS + MARK_REDUCED_GAP_MS);
   assert.equal(h.shown(), 1);
   assert.equal(h.uniform("uProgress"), MARK_PROGRESS_FULL);
   assert.equal(h.pass.state()!.fillAlpha, 1);
@@ -425,9 +456,9 @@ test("reduced motion: the end is two plain steps — the line whole over the fil
   h.frame();
   assert.equal(h.count("drawArrays"), fills);
   assert.equal(h.pass.state()!.fillAlpha, 0);
-  assert.equal(h.pass.gateMs(), MARK_REDUCED_HOLD_MS); // seen unfilled before it rises
+  assert.equal(h.pass.gateMs(), MARK_REDUCED_GAP_MS); // seen unfilled before it rises
   assert.equal(h.pass.active, true);
-  h.advance(MARK_REDUCED_HOLD_MS);
+  h.advance(MARK_REDUCED_GAP_MS);
   assert.equal(h.pass.gateMs(), 0);
   // The rise: the mark goes at once.
   before = h.repaints();
@@ -435,11 +466,12 @@ test("reduced motion: the end is two plain steps — the line whole over the fil
   assert.equal(h.pass.active, false);
   h.advance(10_000);
   assert.equal(h.timers.size, 0);
-  // « together »: no step of its own, no gate.
+  // « together »: no step of its own; the whole line shown, then no gate.
   const together = harness();
   together.pass.set(spec());
   together.frame();
   together.pass.finish(STILL, "together");
+  together.frame();
   assert.equal(together.pass.gateMs(), 0);
   assert.equal(together.pass.state()!.fillAlpha, 1);
 });
@@ -448,11 +480,13 @@ test("the data in before any frame: the fill still shows and fades, the gate cou
   const h = harness();
   h.pass.set(spec());
   h.pass.finish(SHORT, "then"); // no frame drawn since the tap
-  assert.equal(h.pass.gateMs(), 47); // the line jumps: no lead
+  // The line jumps: a frame to show it whole, then the fade.
+  assert.ok(Math.abs(h.pass.gateMs() - (16.7 + 47)) < 1e-9);
   h.advance(10);
   h.frame();
   assert.equal(h.count("drawArrays"), 1);
-  assert.ok(h.pass.state()!.fillAlpha > 0.6);
+  assert.equal(h.pass.state()!.fillAlpha, 1);
+  assert.equal(h.pass.gateMs(), 47);
 });
 
 test("a draining mark holds the rise for what is left of its fade, while its fill is on screen", () => {
@@ -801,7 +835,7 @@ test("a large unit's data all in before its first frame: the stand-in still show
   const h = harness(); // no provider: the page's own task builds the rest
   h.pass.set(spec({ g: large() }), 0, "merc");
   h.pass.finish(FULL, "then");
-  assert.equal(h.pass.gateMs(), MARK_STEP_MS / 2 + MARK_UNFILL_MS);
+  assert.ok(Math.abs(h.pass.gateMs() - (MARK_STEP_MS + 16.7 + MARK_UNFILL_MS)) < 1e-9);
   h.advance(10);
   h.frame();
   assert.equal(h.count("drawArrays"), 1); // the violet, on the unit
@@ -1018,7 +1052,7 @@ test("real meshes that land after the data was all in, the drain, a clear or a n
   const finished = await arrive((h) => h.pass.finish(FULL, "then"));
   assert.equal(finished.count("drawArrays"), 2);
   assert.equal(finished.count("drawArraysInstanced"), 1);
-  assert.equal(finished.pass.gateMs(), MARK_STEP_MS / 2 + MARK_UNFILL_MS);
+  assert.ok(finished.pass.gateMs() > MARK_STEP_MS + MARK_UNFILL_MS);
   assert.deepEqual(finished.filled, []);
   assert.equal(finished.pass.ownsFill("merc"), true);
   finished.run(400);
@@ -1045,9 +1079,9 @@ test("a full line whose plateau never rises is cleared by a timer, not by a fram
   h.frame();
   h.pass.finish(FULL, "then");
   h.run(200);
-  h.advance(MARK_LINE_HOLD_CAP_MS - 100);
+  h.advance(MARK_LINE_HOLD_CAP_MS - 300);
   assert.equal(h.pass.active, true);
-  h.advance(MARK_UNFILL_MS);
+  h.advance(200);
   assert.equal(h.pass.active, false);
   assert.equal(h.timers.size, 0);
 });
@@ -1062,8 +1096,9 @@ for (const age of [60_000, 3_600_000]) {
     h.pass.setProgress(0.25, FULL);
     h.run(200);
     h.pass.finish(FULL, "together");
-    assert.deepEqual(h.timersIn(), [MARK_LINE_HOLD_CAP_MS]); // the cap, counted from now
-    assert.equal(h.pass.gateMs(), 0); // the rise is not held
+    // The whole line's own wait, and the cap, counted from now.
+    assert.deepEqual(h.timersIn(), [MARK_STEP_MS + MARK_WHOLE_UNSEEN_MS, MARK_LINE_HOLD_CAP_MS]);
+    assert.ok(h.pass.gateMs() < MARK_STEP_MS + 30); // the rise waits for the whole line only
     // A slow link: the rise comes half a second later.
     h.run(500);
     let s = h.pass.state()!;
@@ -1096,25 +1131,23 @@ for (const age of [60_000, 3_600_000]) {
   });
 
   test(`« then », page ${age / 1000} s old: the gate and the cap count from the data's arrival`, () => {
-    // Full motion, the line easing its last step: the fill leaves half an
-    // ease in, the cap counts from the fill gone.
+    // Full motion, the line easing its last step: the fill leaves once a
+    // frame has shown it whole; the cap counts from the data.
     let h = harness(age);
     h.pass.set(spec());
     h.frame();
     h.pass.finish(FULL, "then");
-    const lead = MARK_STEP_MS / 2;
-    assert.equal(h.pass.gateMs(), lead + MARK_UNFILL_MS);
-    assert.deepEqual(h.timersIn(), [lead + MARK_UNFILL_MS + MARK_LINE_HOLD_CAP_MS]);
-    h.advance(lead);
-    h.frame();
+    assert.ok(Math.abs(h.pass.gateMs() - (MARK_STEP_MS + 16.7 + MARK_UNFILL_MS)) < 1e-9);
+    assert.deepEqual(h.timersIn(), [MARK_STEP_MS + MARK_WHOLE_UNSEEN_MS, MARK_LINE_HOLD_CAP_MS]);
+    h.run(96);
     assert.equal(h.pass.state()!.fillAlpha, 1);
-    h.run(200);
+    h.run(300);
     assert.equal(h.pass.state()!.fillAlpha, 0);
     assert.equal(h.pass.gateMs(), 0);
     assert.equal(h.pass.active, true); // the line holds until the rise
     const [capIn] = h.timersIn();
     assert.ok(
-      capIn > MARK_LINE_HOLD_CAP_MS - 200 && capIn < MARK_LINE_HOLD_CAP_MS,
+      capIn > MARK_LINE_HOLD_CAP_MS - 500 && capIn < MARK_LINE_HOLD_CAP_MS,
       `cap in ${capIn}`,
     );
     h.advance(capIn - 1);
@@ -1122,37 +1155,36 @@ for (const age of [60_000, 3_600_000]) {
     h.advance(1);
     assert.equal(h.pass.active, false);
 
-    // The line whole already (nothing to ease): the fill leaves at once.
+    // The line whole already (nothing to ease): the fill leaves after the
+    // frame that shows it.
     h = harness(age);
     h.pass.set(spec(), 1);
     h.frame();
     h.pass.finish(FULL, "then");
+    h.frame();
     assert.equal(h.pass.gateMs(), MARK_UNFILL_MS);
-    assert.deepEqual(h.timersIn(), [MARK_UNFILL_MS + MARK_LINE_HOLD_CAP_MS]);
 
     // Short motion: the line jumps, the shorter fade.
     h = harness(age);
     h.pass.set(spec());
     h.frame();
     h.pass.finish(SHORT, "then");
+    h.frame();
     assert.equal(h.pass.gateMs(), SHORT.unfillMs);
-    assert.deepEqual(h.timersIn(), [SHORT.unfillMs + MARK_LINE_HOLD_CAP_MS]);
 
     // Reduced motion: two plain steps, the drop's own timer, then the cap.
     h = harness(age);
     h.pass.set(spec());
     h.frame();
     h.pass.finish(STILL, "then");
-    assert.equal(h.pass.gateMs(), 2 * MARK_REDUCED_HOLD_MS);
-    assert.deepEqual(h.timersIn(), [
-      MARK_REDUCED_HOLD_MS,
-      2 * MARK_REDUCED_HOLD_MS + MARK_LINE_HOLD_CAP_MS,
-    ]);
+    h.frame();
+    assert.equal(h.pass.gateMs(), MARK_REDUCED_HOLD_MS + MARK_REDUCED_GAP_MS);
+    assert.deepEqual(h.timersIn(), [MARK_REDUCED_HOLD_MS, MARK_LINE_HOLD_CAP_MS]);
     h.advance(MARK_REDUCED_HOLD_MS);
     h.frame();
     assert.equal(h.pass.state()!.fillAlpha, 0);
-    assert.equal(h.pass.gateMs(), MARK_REDUCED_HOLD_MS);
-    h.advance(MARK_REDUCED_HOLD_MS);
+    assert.equal(h.pass.gateMs(), MARK_REDUCED_GAP_MS);
+    h.advance(MARK_REDUCED_GAP_MS);
     assert.equal(h.pass.gateMs(), 0);
     assert.equal(h.pass.active, true);
   });
@@ -1517,15 +1549,441 @@ test("a context given back: the meshes are uploaded again, the mark's timers arm
   h.frame();
   assert.equal(h.count("bufferData"), 3);
   h.pass.finish(SHORT, "then");
-  assert.equal(h.timers.size, 1); // the cap
+  assert.equal(h.timers.size, 2); // the cap, and the whole line's own wait
   h.pass.onRemove(h.gl);
   assert.equal(h.timers.size, 0); // no timer once the layer is gone
   h.pass.onAdd(h.gl);
-  assert.equal(h.timers.size, 1);
+  assert.equal(h.timers.size, 2);
   h.frame();
   assert.equal(h.count("bufferData"), 6);
   assert.equal(h.emptied(), 0);
   assert.equal(h.pass.state(true)!.linked, true);
   h.advance(MARK_LINE_HOLD_CAP_MS);
   assert.equal(h.pass.active, false);
+});
+
+// ---- ac:tap-fast "hide" (the default): no line for a wait too short to be
+// read, a line that shows runs at a constant speed; and the fill leaves
+// against the rise's real start (the plateau's `riseEta`). Clocks start at
+// a realistic page age. ----
+const AGE = 60_000;
+const HIDE: MarkMotion = {
+  animate: true,
+  stepMs: MARK_STEP_MS,
+  unfillMs: MARK_UNFILL_MS,
+  outMs: MARK_FADE_MS,
+  lineFullMs: MARK_LINE_FULL_MS,
+  frameGapMs: 0,
+};
+/** Short motion: the same run, a frame asked every MARK_SHORT_FRAME_MS. */
+const HIDE_SHORT: MarkMotion = { ...HIDE, unfillMs: 40, frameGapMs: MARK_SHORT_FRAME_MS };
+const HIDE_STILL: MarkMotion = { animate: false, stepMs: 0, unfillMs: 0, outMs: MARK_FADE_MS };
+const hidden = (over: Partial<PendingMarkSpec> = {}) =>
+  spec({ showAfterMs: MARK_LINE_SHOW_MS, ...over });
+/** Frames every `dt` ms for `ms`, `each` called after each one. */
+function frames(h: ReturnType<typeof harness>, ms: number, dt: number, each?: () => void) {
+  for (let at = 0; at < ms - 1e-9; at += dt) {
+    h.advance(dt);
+    h.frame();
+    each?.();
+  }
+}
+const FRAME_CLOCKS = [16.7, 50];
+
+for (const dt of FRAME_CLOCKS) {
+  test(`hide, ${dt} ms frames: the data in 150 ms after the first frame — no line in any frame, to the release`, () => {
+    const h = harness(AGE, { eta: null });
+    h.pass.set(hidden(), 0, "merc", HIDE);
+    h.frame();
+    const noLine = () => {
+      assert.equal(h.shown(), 0);
+      assert.equal(h.count("drawArraysInstanced"), 0);
+    };
+    frames(h, 50, dt, noLine);
+    h.pass.setProgress(0.6, HIDE);
+    frames(h, 100, dt, noLine);
+    h.pass.finish(HIDE, "then");
+    assert.equal(h.pass.state()!.lineSkipped, true);
+    frames(h, 400, dt, noLine); // past the moment the line would have been due
+    assert.equal(h.pass.gateMs(true), MARK_UNFILL_MS);
+    frames(h, 150, dt, noLine);
+    assert.equal(h.pass.gateMs(true), 0);
+    h.pass.release(1500, HIDE);
+    frames(h, 300, dt, () => assert.equal(h.count("drawArraysInstanced"), 0));
+    assert.equal(h.pass.active, false);
+    assert.equal(h.timers.size, 0);
+  });
+
+  test(`hide, ${dt} ms frames: a line that shows starts from nothing in a frame and runs at a constant speed, never ahead of the data`, () => {
+    const h = harness(AGE, { eta: null });
+    h.pass.set(hidden(), 0, "merc", HIDE);
+    h.pass.setProgress(0.5, HIDE); // told before the line is on: kept
+    // The first frame comes 180 ms after the tap: the clock starts there.
+    h.advance(180);
+    h.frame();
+    const seen = h.now();
+    frames(h, MARK_LINE_SHOW_MS - dt, dt, () => {
+      if (h.now() < seen + MARK_LINE_SHOW_MS) assert.equal(h.shown(), 0, `at ${h.now() - seen}`);
+    });
+    assert.equal(h.count("drawArraysInstanced"), 0);
+    // Due: the next frame turns it on, at nothing.
+    h.advance(dt);
+    h.frame();
+    assert.ok(h.now() >= seen + MARK_LINE_SHOW_MS);
+    assert.equal(h.pass.state()!.lineOn, true);
+    assert.equal(h.shown(), 0);
+    let last = 0;
+    let at10 = 0;
+    let at90 = 0;
+    h.pass.setProgress(1 - 1e-9, HIDE); // a whole run, the data short of all in
+    const t0 = h.now();
+    frames(h, 400, dt, () => {
+      const v = h.shown();
+      assert.ok(v - last <= dt / MARK_LINE_FULL_MS + 1e-6, `a frame added ${v - last}`);
+      assert.ok(v <= 1 - 1e-9 + 1e-12);
+      if (!at10 && v >= 0.1) at10 = h.now();
+      if (!at90 && v >= 0.9) at90 = h.now();
+      last = v;
+    });
+    assert.ok(at90 - at10 >= 200, `10 % to 90 % in ${at90 - at10} ms`);
+    assert.ok(at90 - t0 <= MARK_LINE_FULL_MS + dt, `90 % after ${at90 - t0} ms`);
+    assert.ok(h.count("drawArraysInstanced") > 0);
+  });
+
+  test(`hide, ${dt} ms frames: the frame that first shows the whole line has the whole fill; the fade starts after it`, () => {
+    const h = harness(AGE, { eta: { at: AGE, landing: false } }); // the rise could start at once
+    h.pass.set(hidden(), 0, "merc", HIDE);
+    h.frame();
+    frames(h, 250, dt);
+    h.pass.setProgress(0.5, HIDE);
+    frames(h, 200, dt);
+    assert.ok(Math.abs(h.shown() - 0.5) < 1e-9);
+    h.pass.finish(HIDE, "then");
+    const end = h.now() + 140; // 0.5 of the boundary at full speed
+    let whole = 0;
+    frames(h, 400, dt, () => {
+      const s = h.pass.state()!;
+      if (!whole) {
+        assert.equal(s.fillAlpha, 1, `fill at ${s.fillAlpha}, line at ${s.progress.shown}`);
+        if (s.progress.shown >= 1) whole = h.now();
+      }
+    });
+    assert.ok(whole >= end && whole <= end + dt, `whole ${whole - end} ms after its run's end`);
+    assert.equal(h.pass.state()!.unfillT0, whole);
+    assert.equal(h.pass.state()!.fillAlpha, MARK_UNFILL_FLOOR); // at the floor: not cleared
+    assert.equal(h.pass.gateMs(), MARK_UNFILL_FLOOR * MARK_UNFILL_MS);
+  });
+}
+
+test("hide: a large unit's line turns on at nothing in the frame its mesh is ready", async () => {
+  const h = harness(AGE, { eta: null });
+  const p = provider();
+  h.pass.setProvider(p);
+  const g = large();
+  h.pass.set(hidden({ g }), 0.4, "merc", HIDE);
+  h.frame();
+  frames(h, 300, 16.7); // due, and no segments yet
+  assert.equal(h.pass.state()!.lineOn, false);
+  assert.equal(h.count("drawArraysInstanced"), 0);
+  p.asks[0].answer(buildMark(g, "merc"));
+  await settle();
+  h.frame();
+  assert.equal(h.pass.state()!.lineOn, true);
+  assert.equal(h.shown(), 0);
+  h.advance(16.7);
+  h.frame();
+  assert.ok(h.shown() > 0 && h.shown() <= 16.7 / MARK_LINE_FULL_MS + 1e-9);
+  frames(h, 300, 16.7);
+  assert.ok(Math.abs(h.shown() - 0.4) < 1e-9);
+});
+
+test("the fade against the rise: whole until just before it, at the floor when it can start, gone 25 ms after it is cleared", () => {
+  const rise = { eta: { at: AGE + 165, landing: false } as MarkRiseEta | null }; // the old plateau's sink
+  const h = harness(AGE, rise);
+  h.pass.set(hidden(), 0, "merc", HIDE);
+  h.frame();
+  h.advance(50);
+  let before = h.repaints();
+  h.pass.finish(HIDE, "then"); // the data in at 50 ms: no line
+  assert.equal(h.repaints(), before + 1);
+  const lead = (1 - MARK_UNFILL_FLOOR) * MARK_UNFILL_MS;
+  assert.deepEqual(h.timersIn(), [165 - lead - 50, MARK_LINE_HOLD_CAP_MS]);
+  // No frame is asked while the violet waits, whole.
+  before = h.repaints();
+  frames(h, 32, 16, () => assert.equal(h.pass.state()!.fillAlpha, 1));
+  assert.equal(h.repaints(), before);
+  assert.equal(h.pass.gateMs(), MARK_UNFILL_MS); // a query: the whole fade is still to come
+  h.advance(165 - lead - 82); // the fade's start, by its timer
+  assert.equal(h.repaints(), before + 1);
+  assert.equal(h.pass.state()!.unfillT0, AGE + 165 - lead);
+  h.advance(lead / 2);
+  h.frame();
+  assert.ok(Math.abs(h.pass.state()!.fillAlpha - (1 - (1 - MARK_UNFILL_FLOOR) / 2)) < 1e-9);
+  h.advance(lead / 2);
+  h.frame();
+  assert.equal(h.now(), AGE + 165);
+  assert.equal(h.pass.state()!.fillAlpha, MARK_UNFILL_FLOOR); // at the floor as the rise can start
+  // The rise is late (the commit, a landing): the floor holds, no frame asked.
+  before = h.repaints();
+  frames(h, 320, 16, () => assert.equal(h.pass.state()!.fillAlpha, MARK_UNFILL_FLOOR));
+  assert.equal(h.repaints(), before);
+  // A query changes nothing.
+  assert.equal(h.pass.gateMs(), MARK_UNFILL_FLOOR * MARK_UNFILL_MS);
+  assert.equal(h.pass.state()!.goAt, 0);
+  assert.equal(h.repaints(), before);
+  // Cleared: the last quarter leaves, the gate is its 25 ms.
+  assert.equal(h.pass.gateMs(true), MARK_UNFILL_FLOOR * MARK_UNFILL_MS);
+  assert.equal(h.repaints(), before + 1);
+  h.advance(10);
+  h.frame();
+  assert.ok(Math.abs(h.pass.state()!.fillAlpha - 0.15) < 1e-9);
+  assert.equal(h.pass.gateMs(true), 15);
+  h.advance(15);
+  h.frame();
+  assert.equal(h.pass.state()!.fillAlpha, 0);
+  assert.equal(h.pass.gateMs(true), 0);
+  // The rise: nothing rides the lid.
+  h.pass.release(1500, HIDE);
+  h.frame(0.2);
+  assert.equal(h.pass.state()?.fillAlpha ?? 0, 0);
+});
+
+test("the fade against the rise: a rise whose start is not known keeps the fill whole until it is cleared", () => {
+  const h = harness(AGE, { eta: null });
+  h.pass.set(hidden(), 0, "merc", HIDE);
+  h.frame();
+  h.advance(80);
+  h.pass.finish(HIDE, "then");
+  assert.deepEqual(h.timersIn(), [MARK_LINE_HOLD_CAP_MS]); // no fade scheduled
+  const before = h.repaints();
+  frames(h, 500, 16, () => assert.equal(h.pass.state()!.fillAlpha, 1));
+  assert.equal(h.repaints(), before);
+  assert.equal(h.pass.gateMs(), MARK_UNFILL_MS);
+  assert.equal(h.pass.state()!.unfillT0, 0);
+  assert.equal(h.pass.gateMs(true), MARK_UNFILL_MS); // the whole fade, from now
+  assert.equal(h.pass.state()!.unfillT0, h.now());
+  h.advance(50);
+  h.frame();
+  assert.ok(Math.abs(h.pass.state()!.fillAlpha - 0.5) < 1e-9); // through the floor: cleared
+  h.advance(50);
+  assert.equal(h.pass.gateMs(true), 0);
+});
+
+test("the fade against the rise: a start put off before the fade began re-arms its timer; put off after, the floor holds", () => {
+  const rise = { eta: { at: AGE + 400, landing: true } as MarkRiseEta | null }; // a landing
+  const h = harness(AGE, rise);
+  h.pass.set(hidden(), 0, "merc", HIDE_SHORT);
+  h.frame();
+  h.advance(100);
+  h.pass.finish(HIDE_SHORT, "then");
+  const lead = (1 - MARK_UNFILL_FLOOR) * 40;
+  // A landing is told a frame after the flight's end: the fade aims there.
+  const [fadeIn] = h.timersIn();
+  assert.ok(Math.abs(fadeIn - (300 + 16.7 - lead)) < 1e-9, `fade in ${fadeIn}`);
+  // The flight is replaced by a longer one meanwhile.
+  rise.eta = { at: AGE + 700, landing: true };
+  h.advance(fadeIn);
+  assert.equal(h.pass.state()!.unfillT0, 0); // not begun: armed again
+  const [again] = h.timersIn();
+  assert.ok(Math.abs(again - 300) < 1e-9, `again in ${again}`);
+  h.advance(again);
+  assert.ok(h.pass.state()!.unfillT0 > 0);
+  // Put off once more, after the fade began: the floor holds until cleared.
+  rise.eta = { at: AGE + 1500, landing: true };
+  frames(h, 600, 16);
+  assert.equal(h.pass.state()!.fillAlpha, MARK_UNFILL_FLOOR);
+  assert.equal(h.pass.gateMs(true), MARK_UNFILL_FLOOR * 40);
+  h.advance(10);
+  assert.equal(h.pass.gateMs(true), 0);
+});
+
+test("the same unit marked again while held changes nothing; another unit's mark starts over", () => {
+  const rise = { eta: { at: AGE + 300, landing: false } as MarkRiseEta | null };
+  const h = harness(AGE, rise);
+  const s0 = hidden();
+  h.pass.set(s0, 0, "merc", HIDE);
+  h.frame();
+  frames(h, 250, 16);
+  h.pass.setProgress(0.5, HIDE);
+  frames(h, 200, 16);
+  h.pass.finish(HIDE, "then");
+  frames(h, 180, 16); // the line whole, the fade under way
+  const before = h.pass.state()!;
+  assert.ok(before.unfillT0 > 0 && before.progress.shown === 1);
+  const timers = h.timersIn();
+  const repaints = h.repaints();
+  h.pass.set({ ...s0 }, 0.2, "merc", HIDE); // tapped once more
+  assert.deepEqual(h.pass.state(), before);
+  assert.deepEqual(h.timersIn(), timers);
+  assert.equal(h.repaints(), repaints);
+  // Another unit: everything starts over.
+  h.pass.set(hidden({ id: "fr:dep:38", g: square(8) }), 0, "merc", HIDE);
+  const s = h.pass.state()!;
+  assert.deepEqual(
+    [s.id, s.finished, s.lineOn, s.lineSkipped, s.seenAt, s.wholeSeenAt, s.unfillT0, s.goAt],
+    ["fr:dep:38", false, false, false, 0, 0, 0, 0],
+  );
+  assert.deepEqual(h.timersIn(), []);
+});
+
+test("hide under short motion: a run asks a frame every MARK_SHORT_FRAME_MS and one at its end, no more", () => {
+  const h = harness(AGE, { eta: null });
+  h.pass.set(hidden(), 0, "merc", HIDE_SHORT);
+  h.frame();
+  h.advance(MARK_LINE_SHOW_MS); // due: one repaint
+  h.frame(); // on, at nothing
+  h.pass.setProgress(0.5, HIDE_SHORT);
+  h.frame();
+  // Only the pass's own timer asks for frames from here: each one is drawn.
+  const at: number[] = [];
+  let before = h.repaints();
+  for (let i = 0; i < 400; i++) {
+    h.advance(1);
+    if (h.repaints() > before) {
+      at.push(h.now());
+      before = h.repaints();
+      h.frame();
+      before = h.repaints();
+    }
+  }
+  assert.ok(at.length >= 2 && at.length <= 4, `${at.length} frames asked`);
+  for (let i = 1; i < at.length - 1; i++) {
+    assert.ok(at[i] - at[i - 1] >= MARK_SHORT_FRAME_MS - 1e-9, `gap ${at[i] - at[i - 1]}`);
+  }
+  assert.ok(Math.abs(h.shown() - 0.5) < 1e-9); // the last one at the run's end
+  assert.equal(h.timers.size, 0);
+});
+
+test("hide under reduced motion: the line appears when due at the real value, and steps", () => {
+  const h = harness(AGE, { eta: { at: AGE, landing: false } });
+  h.pass.set(hidden(), 0, "merc", HIDE_STILL);
+  h.frame();
+  h.pass.setProgress(0.3, HIDE_STILL);
+  frames(h, 180, 16, () => assert.equal(h.shown(), 0));
+  h.advance(40);
+  h.frame();
+  assert.equal(h.shown(), 0.3);
+  h.pass.setProgress(0.7, HIDE_STILL);
+  assert.equal(h.shown(), 0.7);
+  h.pass.finish(HIDE_STILL, "then");
+  h.frame();
+  assert.equal(h.shown(), 1);
+  assert.equal(h.pass.state()!.fillAlpha, 1);
+  assert.equal(h.pass.gateMs(), MARK_REDUCED_HOLD_MS + MARK_REDUCED_GAP_MS);
+  h.advance(MARK_REDUCED_HOLD_MS);
+  h.frame();
+  assert.equal(h.pass.state()!.fillAlpha, 0); // a plain drop, two frames before the rise
+  assert.equal(h.pass.gateMs(true), MARK_REDUCED_GAP_MS);
+});
+
+test("« together » under hide: no fade before the rise, which waits for a line on screen to be shown whole", () => {
+  const h = harness(AGE, { eta: { at: AGE, landing: false } });
+  h.pass.set(hidden(), 0, "merc", HIDE);
+  h.frame();
+  frames(h, 250, 16);
+  h.pass.setProgress(0.5, HIDE);
+  frames(h, 200, 16);
+  h.pass.finish(HIDE, "together");
+  const gate = h.pass.gateMs(true);
+  assert.ok(gate > 140 && gate < 140 + 30, `gate ${gate}`);
+  frames(h, 200, 16);
+  assert.equal(h.pass.gateMs(true), 0);
+  assert.equal(h.pass.state()!.fillAlpha, 1);
+  h.pass.release(1500, HIDE);
+  h.advance(58);
+  h.frame(0.3);
+  const s = h.pass.state()!;
+  assert.ok(s.fillAlpha > 0.4 && s.fillAlpha < 0.6); // fill and line fade on the rising lid
+  assert.ok(Math.abs(s.fillAlpha - s.lineAlpha) < 1e-9);
+});
+
+test("a line that will not show is never built; a dropped line fades alone and the fill leaves by the rule", () => {
+  // The data all in before the first frame: the fill alone is built.
+  const fast = harness(AGE, { eta: null });
+  fast.pass.set(hidden(), 0, "merc", HIDE);
+  fast.pass.finish(HIDE, "then");
+  fast.frame();
+  assert.equal(fast.pass.state()!.lineBytes, 0);
+  assert.ok(fast.pass.state()!.fillBytes > 0);
+  // A large unit, no worker, its data in before its meshes: no line is built after.
+  const big = harness(AGE, { eta: null });
+  big.pass.set(hidden({ g: large() }), 0, "merc", HIDE);
+  big.frame();
+  big.pass.finish(HIDE, "then");
+  big.deferred[0]();
+  big.frame();
+  assert.equal(big.pass.state()!.lineBytes, 0);
+  // The file the line measured is given up on: the line fades where it
+  // stands, the fill stays whole, then leaves once the rise is cleared.
+  const h = harness(AGE, { eta: null });
+  h.pass.set(hidden(), 0, "merc", HIDE);
+  h.frame();
+  frames(h, 250, 16);
+  h.pass.setProgress(0.4, HIDE);
+  frames(h, 200, 16);
+  h.pass.dropLine(HIDE);
+  h.advance(58);
+  h.frame();
+  let s = h.pass.state()!;
+  assert.ok(s.lineAlpha > 0.4 && s.lineAlpha < 0.6);
+  assert.ok(Math.abs(s.progress.shown - 0.4) < 1e-9);
+  assert.equal(s.fillAlpha, 1);
+  frames(h, 100, 16);
+  assert.equal(h.pass.state()!.lineAlpha, 0);
+  h.pass.finish(HIDE, "then");
+  assert.equal(h.pass.gateMs(), MARK_UNFILL_MS); // no line to wait for
+  assert.equal(h.pass.gateMs(true), MARK_UNFILL_MS);
+  frames(h, 120, 16);
+  s = h.pass.state()!;
+  assert.deepEqual([s.fillAlpha, s.lineAlpha], [0, 0]);
+});
+
+test("hide: the timers a mark owes are stopped with the layer and armed again with it", () => {
+  // The line not due yet.
+  let h = harness(AGE, { eta: null });
+  h.pass.set(hidden(), 0, "merc", HIDE);
+  h.frame();
+  h.advance(50);
+  assert.deepEqual(h.timersIn(), [MARK_LINE_SHOW_MS - 50]);
+  h.pass.onRemove(h.gl);
+  assert.equal(h.timers.size, 0);
+  h.pass.onAdd(h.gl);
+  assert.deepEqual(h.timersIn(), [MARK_LINE_SHOW_MS - 50]);
+  // The fade's start.
+  h = harness(AGE, { eta: { at: AGE + 500, landing: false } });
+  h.pass.set(hidden(), 0, "merc", HIDE);
+  h.frame();
+  h.advance(50);
+  h.pass.finish(HIDE, "then");
+  const owed = h.timersIn();
+  assert.equal(owed.length, 2); // the fade, the cap
+  h.pass.onRemove(h.gl);
+  assert.equal(h.timers.size, 0);
+  h.pass.onAdd(h.gl);
+  assert.deepEqual(h.timersIn(), owed);
+});
+
+test("the rise cleared while the line still runs: the fill is whole in the frame that shows the whole line, then fades through", () => {
+  const h = harness(AGE, { eta: { at: AGE, landing: false } });
+  h.pass.set(hidden(), 0, "merc", HIDE);
+  h.frame();
+  frames(h, 250, 16);
+  h.pass.setProgress(0.2, HIDE);
+  frames(h, 120, 16);
+  h.pass.finish(HIDE, "then");
+  h.advance(30);
+  // The commit: everything else is in, the line has most of its run left.
+  const gate = h.pass.gateMs(true);
+  assert.ok(gate > 0.8 * MARK_LINE_FULL_MS - 30 + MARK_UNFILL_MS, `gate ${gate}`);
+  let whole = 0;
+  frames(h, 400, 16, () => {
+    const s = h.pass.state()!;
+    if (whole) return;
+    assert.equal(s.fillAlpha, 1);
+    if (s.progress.shown >= 1) whole = h.now();
+  });
+  assert.ok(whole > 0);
+  assert.equal(h.pass.state()!.unfillT0, whole);
+  assert.equal(h.pass.state()!.fillAlpha, 0); // gone 100 ms after that frame
+  assert.equal(h.pass.gateMs(true), 0);
 });

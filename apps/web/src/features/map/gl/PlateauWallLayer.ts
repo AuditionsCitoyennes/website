@@ -61,6 +61,7 @@ import {
   PendingMarkPass,
   type MarkMotion,
   type MarkProvider,
+  type MarkRiseEta,
   type PendingMarkSpec,
 } from "./PendingMarkPass";
 import type { MarkGeometry, MarkRegime } from "./pendingMark";
@@ -705,7 +706,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private readonly pendingMark = new PendingMarkPass({
     repaint: () => this.map?.triggerRepaint(),
     onFill: (id) => this.onPendingFill?.(id),
+    riseEta: (id) => this.pendingRiseEta?.(id) ?? null,
   });
+  /** When the rise of unit `id` can start, as far as the plateau knows
+   *  (plateau/riseEta.ts; null: not known): the mark's fill leaves against
+   *  it. Set by the page once the plateau exists. */
+  pendingRiseEta: ((id: string) => MarkRiseEta | null) | null = null;
   /** A mark's fill built off the frame has joined the mark of unit `id` (the
    *  page hands the unit's draped hover fill over to it). */
   onPendingFill: ((id: string) => void) | null = null;
@@ -745,16 +751,25 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   setPending(
     id: string,
     g: MarkGeometry,
-    look: Pick<PendingMarkSpec, "line" | "fill" | "spanDeg" | "rgb" | "creep" | "creepTickMs">,
+    look: Pick<
+      PendingMarkSpec,
+      "line" | "fill" | "spanDeg" | "rgb" | "creep" | "creepTickMs" | "showAfterMs"
+    >,
     progress = 0,
     where?: { raised: boolean; lidM?: number },
+    motion?: MarkMotion,
   ): { raised: boolean; lidM: number; fillAtOnce: boolean } {
     const at = {
       raised: where ? where.raised : !!this.pendingFills.get(id)?.raised,
       lidM: where?.lidM ?? this.heightM * WALL_OVERSHOOT,
     };
     const regime = this.regimeNow();
-    this.pendingMark.set({ id, g, ...look, raised: at.raised, lidM: at.lidM }, progress, regime);
+    this.pendingMark.set(
+      { id, g, ...look, raised: at.raised, lidM: at.lidM },
+      progress,
+      regime,
+      motion,
+    );
     return { ...at, fillAtOnce: this.pendingMark.fillAtOnce(regime) };
   }
 
@@ -763,8 +778,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.pendingMark.setProgress(value, motion);
   }
 
-  /** The marked unit's data is all in: its line is whole and, under "then",
-   *  its fill fades out — the rise waits for that (pendingGateMs). */
+  /** The marked unit's data is all in: its line, if shown, runs to the
+   *  whole boundary and, under "then", its fill leaves against the rise's
+   *  start — the rise waits for that (pendingGateMs). */
   finishPending(motion: MarkMotion, order: "then" | "together") {
     const id = this.pendingMark.id;
     this.pendingMark.finish(motion, order);
@@ -782,9 +798,17 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     }
   }
 
-  /** How long the rise of unit `id` waits for its mark's fill to be gone, ms. */
-  pendingGateMs(id: string): number {
-    return this.pendingMark.id === id ? this.pendingMark.gateMs() : 0;
+  /** How long the rise of unit `id` waits for its mark (its whole line
+   *  shown, its fill gone), ms. `cleared`: everything else the rise waits
+   *  for is satisfied — the fill's last share leaves now. */
+  pendingGateMs(id: string, cleared = false): number {
+    return this.pendingMark.id === id ? this.pendingMark.gateMs(cleared) : 0;
+  }
+
+  /** The marked unit's plateau will rise without the file its line
+   *  measured: the line fades where it stands, the fill stays. */
+  dropPendingLine(motion: MarkMotion) {
+    this.pendingMark.dropLine(motion);
   }
 
   /** The plateau of unit `id` starts to rise (its mesh is applied): its

@@ -57,6 +57,9 @@ import {
   MARK_CREEP_TICK_MS,
   MARK_CREEP_TICK_SHORT_MS,
   MARK_FADE_MS,
+  MARK_LINE_FULL_MS,
+  MARK_LINE_SHOW_MS,
+  MARK_SHORT_FRAME_MS,
   MARK_STEP_MS,
   MARK_UNFILL_MS,
   type MarkGeometry,
@@ -66,6 +69,7 @@ import type { ComingUnit } from "./lib/coldStart";
 import {
   TAP_LINE_RGB,
   tapEndMode,
+  tapFastMode,
   tapLineColor,
   tapStepsMode,
   type TapMark,
@@ -313,8 +317,10 @@ const plateau = usePlateau({
   },
   onLift: pins.syncLift,
   onProgress: (scopeId, step) => pendingStep(scopeId, step),
-  // The tapped unit's violet leaves it before it rises (ac:tap-end "then").
-  riseGate: (scopeId) => plateauWall.pendingGateMs(scopeId),
+  // The tapped unit's violet leaves it before it rises (ac:tap-end "then"):
+  // its last share once the rise is cleared.
+  riseGate: (scopeId, cleared) => plateauWall.pendingGateMs(scopeId, cleared),
+  flightEndAt: camera.flightEndAt,
   onRise: (scopeId, how) => {
     if (plateauWall.pendingId !== scopeId) return;
     // Its plateau starts to rise (or stands already): the line rides the lid
@@ -323,6 +329,9 @@ const plateau = usePlateau({
     else plateauWall.releasePending(scopeId, markMotion());
   },
 });
+// The mark's fill leaves against the rise's real start, which the plateau
+// knows (the layer exists before the plateau does).
+plateauWall.pendingRiseEta = (id) => plateau.riseEta(id);
 const slabs = usePlateauSlabs({
   getMap,
   wall: plateauWall,
@@ -352,18 +361,28 @@ let lastMark: {
   lidM: number;
 } | null = null;
 
-/** How the mark moves now (shared/device/motion): the line eases between
- *  steps under full motion and jumps otherwise; the fill's fade is shorter
- *  under short motion; reduced motion eases and fades nothing — the end is
+/** How the mark moves now (shared/device/motion). ac:tap-fast "hide": the
+ *  line runs at a constant speed between steps, under short motion too (a
+ *  frame asked every MARK_SHORT_FRAME_MS only); "show": it eases between
+ *  steps under full motion and jumps otherwise. The fill's fade is shorter
+ *  under short motion; reduced motion runs and fades nothing — the end is
  *  two plain steps (the pass holds each one a few frames). */
 function markMotion(): MarkMotion {
   const reduced = prefersReducedMotion();
   const motion = motionNow();
-  return {
+  const base = {
     animate: !reduced,
-    stepMs: !reduced && motion === "full" ? MARK_STEP_MS : 0,
     unfillMs: reduced ? 0 : motionMs(MARK_UNFILL_MS, motion),
     outMs: MARK_FADE_MS,
+  };
+  if (tapFastMode.value === "show") {
+    return { ...base, stepMs: !reduced && motion === "full" ? MARK_STEP_MS : 0 };
+  }
+  return {
+    ...base,
+    stepMs: reduced ? 0 : MARK_STEP_MS,
+    lineFullMs: reduced ? 0 : MARK_LINE_FULL_MS,
+    frameGapMs: !reduced && motion !== "full" ? MARK_SHORT_FRAME_MS : 0,
   };
 }
 
@@ -447,10 +466,13 @@ function showMark(
       // The small lead of ac:tap-steps "creep": not under reduced motion;
       // under short motion (a weak device's) drawn a few times a second only.
       creep: tapStepsMode.value === "creep" && motion.animate,
-      creepTickMs: motion.stepMs > 0 ? MARK_CREEP_TICK_MS : MARK_CREEP_TICK_SHORT_MS,
+      creepTickMs: motionNow() === "full" ? MARK_CREEP_TICK_MS : MARK_CREEP_TICK_SHORT_MS,
+      // ac:tap-fast "hide": no line for a wait too short to be read.
+      showAfterMs: tapFastMode.value === "hide" ? MARK_LINE_SHOW_MS : 0,
     },
     tapProgress.value(),
     where,
+    motion,
   );
   lastMark = { id, g, spanDeg, raised: at.raised, lidM: at.lidM };
   // A mouse's draped hover fill on the unit gives way to the mark's.
@@ -469,14 +491,22 @@ function pendingStep(id: string, step: TapStep) {
     if (tapProgress.waived()) {
       // The run starts on a coarser outline, the unit's file given up on
       // (ac:outline-wait): the line has measured a file that has not come,
-      // so it is not run to the end — the mark fades where it stands, and
-      // the plateau's rise waits for that fade (the pass's gate). A unit
-      // with no mark yet gets none.
+      // so it is not run to the end — it fades where it stands. The fill
+      // stays, and leaves as for any tap once the run comes to its verdict
+      // (below). A unit with no mark yet gets none.
       unmarked = null;
-      if (plateauWall.pendingId === id) plateauWall.drainPending(markMotion());
+      if (plateauWall.pendingId === id) plateauWall.dropPendingLine(markMotion());
       return;
     }
     markLate(id);
+  }
+  // A waived tap's verdict: nothing counts any more (`note` answers null),
+  // the fill leaves all the same, against the rise.
+  if (step.t === "settled" && plateauWall.pendingId === id && tapProgress.id() === id) {
+    if (tapProgress.waived()) {
+      plateauWall.finishPending(markMotion(), tapEndMode.value);
+      return;
+    }
   }
   if (!r || plateauWall.pendingId !== id) return;
   if (r.done) {

@@ -10,11 +10,11 @@
 //   at the tap, the whole boundary when everything is in;
 // - then the violet fades out, and only then the unit rises.
 //
-// Five switches, compared live in the builds with the testing tools — the dev
+// Six switches, compared live in the builds with the testing tools — the dev
 // server and staging (__TEST_TOOLS__, vite.config), kept in localStorage and
 // drawn as the Témoignages page's DEV rows « Réponse au toucher », « Couleur
-// de la ligne », « Avancée de la ligne », « Fin du chargement » and « Image
-// du toucher ». Read at each tap: no reload.
+// de la ligne », « Avancée de la ligne », « Toucher rapide », « Fin du
+// chargement » and « Image du toucher ». Read at each tap: no reload.
 //
 // `ac:tap-answer`, the mark: "line" (the default: the above) or "off" (no
 // mark, no pill, nothing said to a screen reader).
@@ -34,6 +34,14 @@
 // after the tap, never more, and never the whole boundary before
 // everything is in: gl/pendingMark.ts MARK_CREEP_LEAD).
 //
+// `ac:tap-fast`, a tap whose data is in almost at once: "hide" (the
+// default: the line is not drawn until a fifth of a second after the mark's
+// first frame, and never when the data is all in before that — the violet,
+// then the rise, no line; a line that does show starts from nothing and
+// runs at a constant speed, the whole boundary in a quarter of a second at
+// the fastest: gl/pendingMark.ts MARK_LINE_SHOW_MS, MARK_LINE_FULL_MS) or
+// "show" (the line from the tap, each step an ease).
+//
 // `ac:tap-end`, the end: "then" (the default: the line whole, the violet
 // fades out, the unit rises after) or "together" (the violet fades while it
 // rises).
@@ -52,6 +60,7 @@ import { ref } from "vue";
 export type TapAnswerMode = "line" | "off";
 export type TapLineColor = "deep" | "indigo" | "site";
 export type TapStepsMode = "steps" | "creep";
+export type TapFastMode = "hide" | "show";
 export type TapEndMode = "then" | "together";
 export type TapFrameMode = "same" | "own";
 
@@ -59,12 +68,14 @@ export type TapFrameMode = "same" | "own";
 export const DEFAULT_TAP_ANSWER: TapAnswerMode = "line";
 export const DEFAULT_TAP_LINE: TapLineColor = "deep";
 export const DEFAULT_TAP_STEPS: TapStepsMode = "steps";
+export const DEFAULT_TAP_FAST: TapFastMode = "hide";
 export const DEFAULT_TAP_END: TapEndMode = "then";
 export const DEFAULT_TAP_FRAME: TapFrameMode = "same";
 
 export const TAP_ANSWER_MODES: readonly TapAnswerMode[] = ["line", "off"];
 export const TAP_LINE_COLORS: readonly TapLineColor[] = ["deep", "indigo", "site"];
 export const TAP_STEPS_MODES: readonly TapStepsMode[] = ["steps", "creep"];
+export const TAP_FAST_MODES: readonly TapFastMode[] = ["hide", "show"];
 export const TAP_END_MODES: readonly TapEndMode[] = ["then", "together"];
 export const TAP_FRAME_MODES: readonly TapFrameMode[] = ["same", "own"];
 
@@ -108,6 +119,9 @@ export const tapLineColor = ref<TapLineColor>(
 export const tapStepsMode = ref<TapStepsMode>(
   __TEST_TOOLS__ ? stored("ac:tap-steps", TAP_STEPS_MODES, DEFAULT_TAP_STEPS) : DEFAULT_TAP_STEPS,
 );
+export const tapFastMode = ref<TapFastMode>(
+  __TEST_TOOLS__ ? stored("ac:tap-fast", TAP_FAST_MODES, DEFAULT_TAP_FAST) : DEFAULT_TAP_FAST,
+);
 export const tapEndMode = ref<TapEndMode>(
   __TEST_TOOLS__ ? stored("ac:tap-end", TAP_END_MODES, DEFAULT_TAP_END) : DEFAULT_TAP_END,
 );
@@ -134,6 +148,13 @@ export function setTapStepsMode(mode: TapStepsMode) {
   if (!__TEST_TOOLS__) return;
   tapStepsMode.value = mode;
   store("ac:tap-steps", mode);
+}
+
+/** Another answer to a fast tap: kept, and in force from the next tap. */
+export function setTapFastMode(mode: TapFastMode) {
+  if (!__TEST_TOOLS__) return;
+  tapFastMode.value = mode;
+  store("ac:tap-fast", mode);
 }
 
 /** Another end: kept, and in force from the next tap. */

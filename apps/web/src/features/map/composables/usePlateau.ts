@@ -52,6 +52,7 @@ import {
 import { boxCovers, boxFeature, coldStartPlan, type ComingUnit } from "../lib/coldStart";
 import { isFlying, whenLanded, type Landing } from "../lib/landing";
 import { createRiseHold } from "../lib/riseHold";
+import { riseSequence } from "../lib/riseSequence";
 import { riseProgress } from "../lib/rise";
 import { stillMap } from "../lib/stillMap";
 import { markPlateauStood } from "../lib/plateauStood";
@@ -76,6 +77,7 @@ import type { OutlineFC } from "../types";
 import { coldStartMode } from "../plateau/coldTapSwitch";
 import { LATE_CAP_MS, lateFilesMode } from "../plateau/lateFilesSwitch";
 import { meshMode } from "../plateau/meshSwitch";
+import { riseEta as riseEtaOf } from "../plateau/riseEta";
 import { LAND_WAIT_CAP_MS, riseMode, riseOrder, riseStartFor } from "../plateau/riseSwitch";
 import { linesMesh } from "../threadSwitch";
 import type { usePlateauLid } from "./usePlateauLid";
@@ -125,10 +127,15 @@ export interface PlateauInputs {
    *  run waits for, then each piece as it comes in (plateau/tapProgress.ts:
    *  a tapped unit's loading line). Only the current run reports. */
   onProgress?: (scopeId: string, step: PlateauStep) => void;
-  /** How long the rise of unit `scopeId`, just committed, is held, ms (the
-   *  pending mark's violet leaves the unit first: gl/PendingMarkPass). Read
-   *  right after `onSettled`; absent or 0: no hold. */
-  riseGate?: (scopeId: string) => number;
+  /** How long the rise of unit `scopeId` is still held, ms (the pending
+   *  mark's violet leaves the unit first: gl/PendingMarkPass). `cleared`:
+   *  everything else the rise waits for is satisfied (the commit, the
+   *  camera's landing) — the mark's last share of fill leaves now; false: a
+   *  plain query. Absent or 0: no hold. */
+  riseGate?: (scopeId: string, cleared: boolean) => number;
+  /** When the camera flight in the air ends, a clock time (0: none, or not
+   *  known): useMapCamera's. */
+  flightEndAt?: () => number;
   /** What became of the rise a verdict "rise", "same" or "quiet" announced
    *  for unit `scopeId`: it starts now ("start"), the plateau is up already
    *  and nothing rises ("none"), or it will not come ("dropped": the plateau
@@ -175,6 +182,7 @@ export function usePlateau({
   onLift,
   onProgress,
   riseGate,
+  flightEndAt,
   onRise,
 }: PlateauInputs) {
   // Whether a plateau is currently standing — the draped hover-fill fallback only
@@ -352,6 +360,8 @@ export function usePlateau({
     timer: number;
     resolve: () => void;
     target: number;
+    /** When the move ends, a clock time (a sink's: what the rise waits for). */
+    endAt: number;
     done: Promise<void>;
     /** ac:rise=transition only: the transition issued again for what is left
      *  of its time, after a setTerrain that cut it short. */
@@ -454,6 +464,7 @@ export function usePlateau({
         timer: window.setTimeout(finish, ms + 300),
         resolve,
         target: to,
+        endAt: t0 + ms,
         // Patched to the real promise right below (it doesn't exist yet in here).
         done: Promise.resolve(),
       };
@@ -543,6 +554,7 @@ export function usePlateau({
         timer: window.setTimeout(finish, ms + 300),
         resolve,
         target: to,
+        endAt,
         // Patched to the real promise by animateTerrain.
         done: Promise.resolve(),
         rearm: (src) => {
@@ -607,7 +619,27 @@ export function usePlateau({
   /** Whether the rise of `scope`, about to be committed, will be held by its
    *  gate (a tapped unit's violet still leaving it). Read before the
    *  verdict: the verdict itself can only open a gate, never close one. */
-  const gateAhead = (scope: string) => (riseGate?.(scope) ?? 0) > 0;
+  const gateAhead = (scope: string) => (riseGate?.(scope, false) ?? 0) > 0;
+
+  /** When the rise of unit `scope` can start, as far as is known now
+   *  (plateau/riseEta.ts): what its pending mark times its fill's fade
+   *  against. Null: nothing will rise for it that is known of, or the rise
+   *  waits for a landing whose time is not known. */
+  function riseEta(scope: string): { at: number; landing: boolean } | null {
+    const map = getMap();
+    if (!map) return null;
+    const committed =
+      plateauActive && plateauScopeId === scope && terrainExag !== 1 && exagAnim?.target !== 1;
+    return riseEtaOf({
+      now: performance.now(),
+      running: runFor?.scopeId === scope || committed,
+      sinkEndAt: exagAnim?.target === 0 ? exagAnim.endAt : 0,
+      holdEndAt: 0,
+      order: riseStartFor(riseOrder.value, deviceTier()),
+      flying: isFlying(map),
+      flightEndAt: flightEndAt?.() ?? 0,
+    });
+  }
 
   /** Whether the rise asked for now waits for the camera: the order (under
    *  "auto" the device's tier of the moment) says after, and a flight is in
@@ -619,8 +651,10 @@ export function usePlateau({
 
   /**
    * The rise of the plateau of `scope`, cleared to start: at once (the same
-   * task) when nothing holds it, else once the gate has passed and, with
-   * `waits`, the camera has landed (LAND_WAIT_CAP_MS at most). Meanwhile the
+   * task) when nothing holds it, else once, with `waits`, the camera has
+   * landed (LAND_WAIT_CAP_MS at most) and then the gate has passed — read
+   * "cleared", so the mark's last share of fill leaves only now, and read
+   * again after each wait (lib/riseSequence.ts). Meanwhile the
    * map is not "still" (lib/stillMap.ts: no late file is stored between the
    * commit and the rise) and, over flat ground, the pins stay down; they are
    * lifted at its end. False: no rise — that plateau is no longer the one
@@ -629,7 +663,10 @@ export function usePlateau({
    * run tells).
    */
   async function riseCleared(map: mapboxgl.Map, scope: string, waits: boolean): Promise<boolean> {
-    const gateMs = Math.max(0, riseGate?.(scope) ?? 0);
+    const gate = () => Math.max(0, riseGate?.(scope, true) ?? 0);
+    // Read here, in the commit's task, when no landing is waited for.
+    let first: number | null = waits ? null : gate();
+    const gateMs = first ?? 0;
     if (!waits && gateMs <= 0) {
       // A wait an earlier run left for this plateau: this run rises it now.
       riseHold.take();
@@ -642,23 +679,48 @@ export function usePlateau({
     }
     const t0 = performance.now();
     const release = stillMap.hold();
-    const land = waits ? whenLanded(map, LAND_WAIT_CAP_MS) : undefined;
     let landed: Landing | null = null;
-    void land?.done.then((how) => (landed = how));
+    let landedAt = 0;
+    let gated = gateMs;
     if (!riseWaiting) {
       riseWaiting = true;
       onLift?.();
     }
-    const how = await riseHold.wait(scope, gateMs, land);
+    const { how } = await riseSequence({
+      waits,
+      gate: () => {
+        const ms = first ?? gate();
+        first = null;
+        if (!gated) gated = ms;
+        return ms;
+      },
+      wait: (ms, landing) => {
+        const land = landing ? whenLanded(map, LAND_WAIT_CAP_MS) : undefined;
+        void land?.done.then((h) => {
+          landed = h;
+          landedAt = performance.now();
+        });
+        return riseHold.wait(scope, ms, land);
+      },
+    });
     release();
     if (how === "taken") return false;
     if (perfOn) {
       if (waits) {
         if (landed === "landed") riseRuns.landed++;
         else if (landed === "cap") riseRuns.capped++;
-        perfNote("plateau.riseWait", performance.now() - t0, { scope, how: landed ?? how });
+        perfNote("plateau.riseWait", (landedAt || performance.now()) - t0, {
+          scope,
+          how: landed ?? how,
+        });
       }
-      if (gateMs > 0) perfNote("plateau.riseGate", performance.now() - t0, { scope, gateMs, how });
+      if (gated > 0) {
+        perfNote("plateau.riseGate", performance.now() - (landedAt || t0), {
+          scope,
+          gateMs: gated,
+          how,
+        });
+      }
     }
     const current = how === "start" && !!getMap() && plateauActive && plateauScopeId === scope;
     if (how === "start") riseWaiting = false;
@@ -1660,6 +1722,9 @@ export function usePlateau({
     abort,
     /** Whether a plateau is standing. */
     active: () => plateauActive,
+    /** When the rise of a unit can start, as far as is known (null: not
+     *  known): a tapped unit's pending mark reads it. */
+    riseEta,
     /** The run counter (a capture started by a superseded run is dropped). */
     seq: () => plateauSeq,
     /** The standing plateau's unit and box, as last given to setGeometry. */

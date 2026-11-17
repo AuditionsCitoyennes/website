@@ -20,6 +20,7 @@ import {
   MARK_FILL_FLOATS,
   MARK_FILL_MAX_EDGE_DEG,
   MARK_LINE_FLOATS,
+  MARK_LINE_FULL_MS,
   MARK_LINE_FULL_PX,
   MARK_LINE_MIN_SHARE,
   MARK_LINE_RING_SHARE,
@@ -28,6 +29,7 @@ import {
   MARK_PAGE_MAX_VERTICES,
   MARK_REF_M,
   MARK_STANDIN_VERTICES,
+  MARK_STEP_MS,
   buildMark,
   buildMarkFill,
   buildMarkLine,
@@ -35,6 +37,9 @@ import {
   creepLead,
   creepShown,
   easeStep,
+  lineEaseMs,
+  lineRun,
+  unfillEnd,
   fadeAlpha,
   fillThreshold,
   markBuildPlace,
@@ -435,13 +440,54 @@ test("a fade: 1 until it starts, linear, 0 from its end — and at once without 
   assert.equal(fadeAlpha(999, 1000, 0), 1);
 });
 
-test("the unfill: the fade squared — most of the violet gone early, the same ends", () => {
-  assert.equal(unfillAlpha(5000, 0, 117), 1); // not started
-  assert.equal(unfillAlpha(900, 1000, 117), 1); // starts later (the line first)
-  assert.ok(near(unfillAlpha(1058.5, 1000, 117), 0.25));
-  assert.equal(unfillAlpha(1117, 1000, 117), 0);
-  assert.equal(unfillAlpha(1000, 1000, 0), 0);
-  assert.equal(unfillAlpha(990, 1000, 0), 1); // reduced motion: whole until its step
+test("the unfill: linear, down to its floor until the rise is cleared, then on to nothing", () => {
+  assert.equal(unfillAlpha(65_000, 0, 100), 1); // not begun
+  assert.equal(unfillAlpha(59_900, 60_000, 100), 1); // begins later (the line first)
+  assert.ok(near(unfillAlpha(60_040, 60_000, 100), 0.6)); // linear
+  assert.equal(unfillAlpha(60_100, 60_000, 100), 0);
+  // A floor: held until the go, then the same speed from where it stood.
+  assert.ok(near(unfillAlpha(60_050, 60_000, 100, 0.25), 0.5));
+  assert.equal(unfillAlpha(60_075, 60_000, 100, 0.25), 0.25);
+  assert.equal(unfillAlpha(64_000, 60_000, 100, 0.25), 0.25);
+  assert.equal(unfillAlpha(60_300, 60_000, 100, 0.25, 60_300), 0.25);
+  assert.ok(near(unfillAlpha(60_310, 60_000, 100, 0.25, 60_300), 0.15));
+  assert.equal(unfillAlpha(60_325, 60_000, 100, 0.25, 60_300), 0);
+  assert.equal(unfillEnd(60_000, 100, 0.25, 60_300), 60_325);
+  // The go before the floor: the fade runs through, as with no floor.
+  assert.ok(near(unfillAlpha(60_090, 60_000, 100, 0.25, 60_020), 0.1));
+  assert.equal(unfillEnd(60_000, 100, 0.25, 60_020), 60_100);
+  // The go before the fade began (the commit came while the line still ran):
+  // the fade is whole at its start and runs through.
+  assert.equal(unfillAlpha(60_556, 60_556, 100, 0.25, 60_466), 1);
+  assert.ok(near(unfillAlpha(60_606, 60_556, 100, 0.25, 60_466), 0.5));
+  assert.equal(unfillEnd(60_556, 100, 0.25, 60_466), 60_656);
+  // A plain step (reduced motion): whole until its time, no floor.
+  assert.equal(unfillAlpha(60_000, 60_000, 0, 0.25), 0);
+  assert.equal(unfillAlpha(59_990, 60_000, 0, 0.25), 1);
+  assert.equal(unfillEnd(60_000, 0, 0.25, 60_500), 60_000);
+});
+
+test("the line's run: a constant speed, the whole boundary in MARK_LINE_FULL_MS, a step never under MARK_STEP_MS", () => {
+  assert.ok(near(lineEaseMs(0, 0.27), 100));
+  assert.ok(near(lineEaseMs(0, 0.5), 140));
+  assert.equal(lineEaseMs(0, 1), MARK_LINE_FULL_MS);
+  assert.equal(lineEaseMs(0.95, 1), MARK_STEP_MS);
+  assert.equal(lineEaseMs(0.4, 0.4), MARK_STEP_MS);
+  assert.equal(lineRun(0.2, 0.6, 0), 0.2);
+  assert.ok(near(lineRun(0.2, 0.6, 0.25), 0.3));
+  assert.ok(near(lineRun(0.2, 0.6, 0.5), 0.4));
+  assert.equal(lineRun(0.2, 0.6, 1), 0.6);
+  assert.equal(lineRun(0.2, 0.6, 7), 0.6);
+  assert.equal(lineRun(0.2, 0.6, -1), 0.2);
+  // No frame adds more than its own time's share of the boundary.
+  for (const [from, to] of [
+    [0, 1],
+    [0.3, 0.9],
+    [0.9, 1],
+  ]) {
+    const ms = lineEaseMs(from, to);
+    assert.ok((to - from) / ms <= 1 / MARK_LINE_FULL_MS + 1e-12);
+  }
 });
 
 test("the fill's threshold draws the asked share of the hover fill's opacity", () => {
