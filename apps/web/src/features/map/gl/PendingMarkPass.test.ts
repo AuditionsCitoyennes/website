@@ -132,8 +132,9 @@ const fillProg = {
 } as unknown as GlProg;
 const MATRIX = new Float64Array(16);
 
-function harness() {
-  let t = 1000;
+/** `startMs`: the clock's value at the start (the page's age). */
+function harness(startMs = 1000) {
+  let t = startMs;
   let repaints = 0;
   let nextTimer = 1;
   const timers = new Map<number, { at: number; fn: () => void }>();
@@ -201,6 +202,8 @@ function harness() {
     deferred,
     filled,
     timers,
+    /** The delays, from now, of the timers armed. */
+    timersIn: () => [...timers.values()].map((e) => e.at - t).sort((x, y) => x - y),
     repaints: () => repaints,
     shown: () => pass.state()!.progress.shown,
   };
@@ -1046,6 +1049,140 @@ test("a full line whose plateau never rises is cleared by a timer, not by a fram
   assert.equal(h.pass.active, false);
   assert.equal(h.timers.size, 0);
 });
+
+// The page's age is no part of any delay: the same waits on a page a minute
+// (or an hour) old as on one just loaded.
+for (const age of [60_000, 3_600_000]) {
+  test(`« together », page ${age / 1000} s old: the mark is held whole until the rise, then fades on the lid`, () => {
+    const h = harness(age);
+    h.pass.set(spec());
+    h.frame();
+    h.pass.setProgress(0.25, FULL);
+    h.run(200);
+    h.pass.finish(FULL, "together");
+    assert.deepEqual(h.timersIn(), [MARK_LINE_HOLD_CAP_MS]); // the cap, counted from now
+    assert.equal(h.pass.gateMs(), 0); // the rise is not held
+    // A slow link: the rise comes half a second later.
+    h.run(500);
+    let s = h.pass.state()!;
+    assert.equal(h.pass.active, true);
+    assert.equal(s.phase, "held");
+    assert.equal(s.fillAlpha, 1); // the violet whole…
+    assert.equal(s.lineAlpha, 1);
+    assert.equal(s.progress.shown, 1); // …under the whole line
+    h.pass.release(1500, FULL);
+    h.advance(58);
+    h.frame(0.3);
+    s = h.pass.state()!;
+    assert.ok(s.fillAlpha > 0.4 && s.fillAlpha < 0.6, `fill at ${s.fillAlpha}`); // fading as it rises
+    assert.ok(Math.abs(s.fillAlpha - s.lineAlpha) < 1e-9);
+    h.run(300);
+    assert.equal(h.pass.active, false);
+    assert.equal(h.timers.size, 0);
+  });
+
+  test(`« together », page ${age / 1000} s old: a plateau that never rises ends the mark at the cap, not before`, () => {
+    const h = harness(age);
+    h.pass.set(spec());
+    h.frame();
+    h.pass.finish(FULL, "together");
+    h.advance(MARK_LINE_HOLD_CAP_MS - 1);
+    assert.equal(h.pass.active, true);
+    h.advance(1);
+    assert.equal(h.pass.active, false);
+    assert.equal(h.timers.size, 0);
+  });
+
+  test(`« then », page ${age / 1000} s old: the gate and the cap count from the data's arrival`, () => {
+    // Full motion, the line easing its last step: the fill leaves half an
+    // ease in, the cap counts from the fill gone.
+    let h = harness(age);
+    h.pass.set(spec());
+    h.frame();
+    h.pass.finish(FULL, "then");
+    const lead = MARK_STEP_MS / 2;
+    assert.equal(h.pass.gateMs(), lead + MARK_UNFILL_MS);
+    assert.deepEqual(h.timersIn(), [lead + MARK_UNFILL_MS + MARK_LINE_HOLD_CAP_MS]);
+    h.advance(lead);
+    h.frame();
+    assert.equal(h.pass.state()!.fillAlpha, 1);
+    h.run(200);
+    assert.equal(h.pass.state()!.fillAlpha, 0);
+    assert.equal(h.pass.gateMs(), 0);
+    assert.equal(h.pass.active, true); // the line holds until the rise
+    const [capIn] = h.timersIn();
+    assert.ok(
+      capIn > MARK_LINE_HOLD_CAP_MS - 200 && capIn < MARK_LINE_HOLD_CAP_MS,
+      `cap in ${capIn}`,
+    );
+    h.advance(capIn - 1);
+    assert.equal(h.pass.active, true);
+    h.advance(1);
+    assert.equal(h.pass.active, false);
+
+    // The line whole already (nothing to ease): the fill leaves at once.
+    h = harness(age);
+    h.pass.set(spec(), 1);
+    h.frame();
+    h.pass.finish(FULL, "then");
+    assert.equal(h.pass.gateMs(), MARK_UNFILL_MS);
+    assert.deepEqual(h.timersIn(), [MARK_UNFILL_MS + MARK_LINE_HOLD_CAP_MS]);
+
+    // Short motion: the line jumps, the shorter fade.
+    h = harness(age);
+    h.pass.set(spec());
+    h.frame();
+    h.pass.finish(SHORT, "then");
+    assert.equal(h.pass.gateMs(), SHORT.unfillMs);
+    assert.deepEqual(h.timersIn(), [SHORT.unfillMs + MARK_LINE_HOLD_CAP_MS]);
+
+    // Reduced motion: two plain steps, the drop's own timer, then the cap.
+    h = harness(age);
+    h.pass.set(spec());
+    h.frame();
+    h.pass.finish(STILL, "then");
+    assert.equal(h.pass.gateMs(), 2 * MARK_REDUCED_HOLD_MS);
+    assert.deepEqual(h.timersIn(), [
+      MARK_REDUCED_HOLD_MS,
+      2 * MARK_REDUCED_HOLD_MS + MARK_LINE_HOLD_CAP_MS,
+    ]);
+    h.advance(MARK_REDUCED_HOLD_MS);
+    h.frame();
+    assert.equal(h.pass.state()!.fillAlpha, 0);
+    assert.equal(h.pass.gateMs(), MARK_REDUCED_HOLD_MS);
+    h.advance(MARK_REDUCED_HOLD_MS);
+    assert.equal(h.pass.gateMs(), 0);
+    assert.equal(h.pass.active, true);
+  });
+
+  test(`page ${age / 1000} s old: a context given back arms the cap again, counted from then`, () => {
+    for (const order of ["then", "together"] as const) {
+      const h = harness(age);
+      h.pass.set(spec(), 0.5);
+      h.frame();
+      h.pass.finish(SHORT, order);
+      h.run(200);
+      assert.equal(h.pass.active, true, order);
+      h.pass.onRemove(h.gl);
+      assert.equal(h.timers.size, 0);
+      h.pass.onAdd(h.gl);
+      assert.deepEqual(h.timersIn(), [MARK_LINE_HOLD_CAP_MS], order);
+    }
+  });
+
+  test(`page ${age / 1000} s old: a drain holds the rise for its fade and no longer`, () => {
+    const h = harness(age);
+    h.pass.set(spec());
+    h.frame();
+    h.pass.drain(FULL);
+    assert.equal(h.pass.gateMs(), MARK_FADE_MS);
+    h.advance(40);
+    assert.equal(h.pass.gateMs(), MARK_FADE_MS - 40);
+    h.run(200);
+    assert.equal(h.pass.gateMs(), 0);
+    assert.equal(h.pass.active, false);
+  });
+}
 
 test("the creep: a small lead over the first seconds, a tick's frame unless one was drawn, then nothing", () => {
   const h = harness();

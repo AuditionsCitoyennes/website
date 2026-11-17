@@ -536,6 +536,9 @@ export class PendingMarkPass {
     this.finished = true;
     this.order = order;
     this.stopCreep();
+    // What is left until the fill is gone, which the cap counts from
+    // ("together": the fill stays, the cap counts from now).
+    let leaveMs = 0;
     if (order === "then") {
       if (motion.animate) {
         // The line first: the fill starts to leave once the head has run
@@ -556,8 +559,9 @@ export class PendingMarkPass {
           if (this.spec) this.repaint();
         }, MARK_REDUCED_HOLD_MS);
       }
+      leaveMs = this.unfillT0 - now + this.unfillMs + this.gateTailMs;
     }
-    this.armCap(this.unfillT0 - now + this.unfillMs + this.gateTailMs + MARK_LINE_HOLD_CAP_MS);
+    this.armCap(leaveMs + MARK_LINE_HOLD_CAP_MS);
     this.repaint();
   }
 
