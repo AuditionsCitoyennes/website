@@ -22,6 +22,7 @@ import type { OutlineFiles } from "../data/useOutlineFiles";
 import { DECOR_CAP_MS, decorOpen, outlinesDecor } from "../data/outlinesDecorSwitch";
 import type { GeoHierarchy } from "./useGeoHierarchy";
 import { bundlesFor, outlineReadyFiles, refinementBatch } from "./outlineRules";
+import { createUrgentProgress } from "./urgentProgress";
 
 export interface MapFeedInputs {
   nav: NavState;
@@ -32,6 +33,12 @@ export interface MapFeedInputs {
   outlines: OutlineFiles | null;
   /** The page's boot overlay is up (GeoNav): the countries' files wait. */
   booting?: Ref<boolean>;
+  /** How much of the outline the plateau of unit `scopeId` waits for has
+   *  arrived, 0 to 1 (1: it is stored) — told as its file's response is
+   *  answered, as its body comes, and once it is stored (the map's loading
+   *  line along a tapped unit's boundary). Only for a scope whose outline
+   *  was not in memory when it was selected. */
+  onOutlineProgress?: (scopeId: string, share: number) => void;
 }
 
 export function useMapFeed(inputs: MapFeedInputs) {
@@ -344,6 +351,42 @@ export function useMapFeed(inputs: MapFeedInputs) {
     };
     files.setUrgent(urgent);
     onScopeDispose(() => files.setUrgent(null));
+    // How much of the file(s) the scope's plateau waits for has arrived
+    // (urgentProgress.ts), told to the page for the map's loading line: from
+    // the moment a scope is selected with its outline due, at each step of a
+    // file that rule calls urgent (its headers, its body's pieces, the body
+    // whole), until the outline is stored.
+    const due = createUrgentProgress();
+    /** The unit whose outline is waited for ("": none), as a ref. */
+    const dueId = shallowRef("");
+    const dueFor = (id: string, count = 1) => {
+      if (id) due.begin(id, count);
+      else due.end();
+      dueId.value = id;
+    };
+    const tellProgress = inputs.onOutlineProgress;
+    if (tellProgress) {
+      files.setProgress((key, phase, received, total) => {
+        if (!due.scope() || !urgent(key)) return;
+        const share = due.note(key, phase, received, total);
+        if (share !== null) tellProgress(due.scope(), share);
+      });
+      onScopeDispose(() => files.setProgress(null));
+      // Stored: the unit's own outline is in memory (told at the write
+      // itself, before the outline it changes is read again).
+      watch(
+        () => {
+          const id = dueId.value;
+          return !!id && filesActive() && !!files.selfOf(id) ? id : "";
+        },
+        (id) => {
+          if (!id) return;
+          dueFor("");
+          if (currentScope.value.id === id) tellProgress(id, 1);
+        },
+        { flush: "sync" },
+      );
+    }
     // The scope's chain (rule 6): its bundles root first, each awaited — a
     // commune's row comes with its département's bundle, an arrondissement's
     // with its ville's. A newer scope runs its own chain: this one stops at
@@ -358,7 +401,23 @@ export function useMapFeed(inputs: MapFeedInputs) {
         if (left) files.leaveSelf(left);
         if (!filesActive()) return;
         const scope = currentScope.value;
-        if (raisedOutlineDue(scope)) files.holdSelf(id, !!raisedGeometryFor(scope));
+        const selfDue = raisedOutlineDue(scope);
+        if (selfDue) files.holdSelf(id, !!raisedGeometryFor(scope));
+        // The loading line: what the scope's plateau waits for, from nothing.
+        // Its self asked alone (a u/), else the bundles of its chain not in.
+        if (tellProgress) {
+          dueFor("");
+          if (selfDue) {
+            const alone =
+              (!files.selfOf(id) && files.selfAhead(id)) ||
+              (scope.levelKey === "country" && selfFileOf(files.rowOf(id)) === "u");
+            const bundles = bundlesFor(view, chainOf(scope)).filter(
+              (b) => view.bundleState(b) !== "loaded",
+            ).length;
+            dueFor(id, alone ? 1 : bundles);
+            tellProgress(id, 0);
+          }
+        }
         // A file of this scope's chain kept as text (it landed while the
         // scope was elsewhere) and now waited for: stored at once.
         files.flushDue();

@@ -333,6 +333,9 @@ const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
   selectedPlace,
   outlines,
   booting,
+  // The share of a selected unit's outline file that has arrived: a real
+  // step of the tapped unit's loading line on the map.
+  onOutlineProgress: (id, share) => mapCmp.value?.pendingStep(id, { t: "outline", frac: share }),
 });
 
 /** The page the map fills (`.geo-page`), GeoNav's own element. */

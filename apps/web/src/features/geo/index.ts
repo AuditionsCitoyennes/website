@@ -69,6 +69,8 @@ export {
 export {
   OUTLINE_WAIT_MS,
   OutlineLoader,
+  type OutlineLoaderOptions,
+  type OutlinePhase,
   type OutlineReady,
   type OutlineStatus,
 } from "./outlineLoader";

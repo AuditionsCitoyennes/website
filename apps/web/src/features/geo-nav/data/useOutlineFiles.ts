@@ -52,6 +52,7 @@ import {
   selfAheadOf,
   type OutlineGeometry,
   type OutlineKind,
+  type OutlineLoaderOptions,
   type OutlineReady,
   type OutlineRow,
   type OutlineStatus,
@@ -148,6 +149,10 @@ export interface OutlineFiles {
   /** The rule saying whether the selected unit's plateau waits for a file
    *  (by its key), now; null: none does. Asked as each file lands. */
   setUrgent(rule: ((key: string) => boolean) | null): void;
+  /** Who is told of each file's arrival, step by step (the loader's
+   *  `onProgress`: its response answered, its body's pieces, the body
+   *  whole); null: nobody. */
+  setProgress(listener: OutlineLoaderOptions["onProgress"] | null): void;
   /** The kept files that rule now calls urgent are stored at once. */
   flushDue(): void;
   /** The files that rule calls urgent and that are still on the network are
@@ -199,6 +204,7 @@ function createOutlineFiles(): OutlineFiles {
   const visitOnly = new Set<string>();
   const quiet = lateFilesMode === "quiet";
   let urgent: ((key: string) => boolean) | null = null;
+  let progress: OutlineLoaderOptions["onProgress"] | null = null;
   // The probe's rawCheck reads them; testing tools only (dev and staging).
   // Weak, so an evicted geometry is still collected and the LRU stays real.
   const seen: WeakRef<object>[] = [];
@@ -252,6 +258,7 @@ function createOutlineFiles(): OutlineFiles {
       if (perfOn) perfNote("outline.fallback", 0, { reason: why?.reason, key: why?.key });
     },
     span: perfOn ? perfSpan : undefined,
+    onProgress: (key, phase, received, total) => progress?.(key, phase, received, total),
     bootMs: BOOT_MS,
     bootCap: __TEST_TOOLS__ ? storedBootCap() : "late",
     bootRetryMs: recover === "auto" ? RECOVER_DELAYS_MS : undefined,
@@ -371,6 +378,9 @@ function createOutlineFiles(): OutlineFiles {
     keyOf: (kind, id) => fileKey(kind, store.filesIdOf(id)),
     setUrgent: (rule) => {
       urgent = rule;
+    },
+    setProgress: (listener) => {
+      progress = listener;
     },
     flushDue: () => loader.flushDue(),
     reaskWaited: () => loader.reask((key) => !!urgent?.(key)),

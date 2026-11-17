@@ -79,7 +79,17 @@ const BUNDLES: Record<string, OutlineFileV1> = {
   "k/fr_dep_973": file("k", "fr:dep:973", "e50", [entry("fr:com:97302", "city", 0)]),
 };
 
-type Reply = number | "html" | "hang" | "late" | "defer" | "reject" | "json" | { body: unknown };
+type Reply =
+  | number
+  | "html"
+  | "hang"
+  | "late"
+  | "defer"
+  | "reject"
+  | "json"
+  | "stream" // the file, its body readable in three pieces
+  | "cut" // the file's first piece, then a read that fails when aborted
+  | { body: unknown };
 
 /** A scripted host (each URL's replies in turn, the last one repeats) and a fake clock. */
 function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoaderOptions> = {}) {
@@ -112,7 +122,8 @@ function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoader
       await new Promise<void>((done) => deferred.push(done));
       r = list[at + 1] ?? "json";
     }
-    if (r === "json" || r === "late")
+    const streamed = r === "stream" || r === "cut" ? r : null;
+    if (r === "json" || r === "late" || streamed)
       r = {
         body: BUNDLES[path] ?? file(path[0] as OutlineKind, path.slice(2).replaceAll("_", ":")),
       };
@@ -124,11 +135,38 @@ function setup(script: Record<string, Reply[]> = {}, more: Partial<OutlineLoader
     const ok = typeof r !== "number";
     const text = typeof r === "object" ? JSON.stringify(r.body) : "<!doctype html>";
     const type = typeof r === "object" ? "application/json" : "text/html";
+    const bytes = new TextEncoder().encode(text);
+    const third = Math.ceil(bytes.length / 3);
+    let at3 = 0;
+    const reader = {
+      read(): Promise<{ done: boolean; value?: Uint8Array }> {
+        if (streamed === "cut" && at3 === 1)
+          return new Promise((_, fail) =>
+            init.signal.addEventListener("abort", () => fail(new DOMException("aborted"))),
+          );
+        if (at3 >= 3) return Promise.resolve({ done: true });
+        const value = bytes.slice(at3 * third, (at3 + 1) * third);
+        at3++;
+        return Promise.resolve({ done: false, value });
+      },
+    };
     return {
       ok,
       status: typeof r === "number" ? r : 200,
-      headers: { get: () => type },
+      // A streamed file says its size and no encoding; the others' header is
+      // their type whatever is asked, as before.
+      headers: {
+        get: (name: string) =>
+          streamed
+            ? name === "content-type"
+              ? type
+              : name === "content-length"
+                ? String(bytes.length)
+                : null
+            : type,
+      },
       text: () => Promise.resolve(text),
+      ...(streamed ? { body: { getReader: () => reader } } : {}),
     };
   };
   const store = new OutlineStore();
@@ -1341,4 +1379,68 @@ test("(R5) a session that fell back asks nothing again", async () => {
     [],
   );
   assert.equal(t.requests.filter((q) => q.url.includes("k/fr_reg_84")).length, 1);
+});
+
+test("onProgress: a file's response answered, each piece of its body, the body whole — and the same file stored", async () => {
+  const steps: [string, string, number, number | null][] = [];
+  const t = setup(
+    { "k/fr_dep_69": ["stream"] },
+    { onProgress: (key, phase, received, total) => void steps.push([key, phase, received, total]) },
+  );
+  await t.boot();
+  assert.deepEqual(steps, []); // the boot's files are read as before
+  const r = t.loader.ensureBundle("fr:dep:69", true);
+  await t.tick(0);
+  assert.equal(await r, "loaded");
+  const size = new TextEncoder().encode(JSON.stringify(BUNDLES["k/fr_dep_69"])).length;
+  const third = Math.ceil(size / 3);
+  assert.deepEqual(steps, [
+    ["k/fr_dep_69", "answered", 0, size],
+    ["k/fr_dep_69", "bytes", third, size],
+    ["k/fr_dep_69", "bytes", 2 * third, size],
+    ["k/fr_dep_69", "bytes", size, size],
+    ["k/fr_dep_69", "landed", size, size],
+  ]);
+  assert.equal(t.store.bundleLoaded("fr:dep:69"), true);
+  assert.ok(t.store.unitsOf("fr:dep:69")?.has("fr:com:69001"));
+});
+
+test("onProgress: a response with no stream is read at once — answered, then landed; a size is told only when it is sure", async () => {
+  const steps: [string, string, number, number | null][] = [];
+  const t = setup(
+    {},
+    { onProgress: (key, phase, received, total) => void steps.push([key, phase, received, total]) },
+  );
+  await t.boot();
+  const r = t.loader.ensureBundle("fr:dep:69");
+  await t.tick(0);
+  assert.equal(await r, "loaded");
+  assert.deepEqual(
+    steps.map((s) => [s[0], s[1], s[3]]),
+    [
+      // The rig's plain replies answer every header with their type: an
+      // encoding is named, so no size is trusted.
+      ["k/fr_dep_69", "answered", null],
+      ["k/fr_dep_69", "landed", null],
+    ],
+  );
+});
+
+test("onProgress: a body cut short takes the network path; a listener that throws changes nothing", async () => {
+  let told = 0;
+  const t = setup(
+    { "k/fr_dep_69": ["cut", "stream"] },
+    {
+      onProgress: () => {
+        told++;
+        throw new Error("the page's listener");
+      },
+    },
+  );
+  await t.boot();
+  const r = t.loader.ensureBundle("fr:dep:69", true);
+  await t.tick(20_000); // the timeout aborts the read; the one retry gets the whole file
+  assert.equal(await r, "loaded");
+  assert.equal(t.requests.filter((q) => q.url === url("k/fr_dep_69")).length, 2);
+  assert.ok(told >= 2 + 5); // the first attempt's steps, then the second's
 });
