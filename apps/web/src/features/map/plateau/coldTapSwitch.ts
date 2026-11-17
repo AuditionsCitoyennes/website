@@ -16,9 +16,10 @@
 // - "1200": up to 1.2 s, tapped or not, as before the loading line.
 // - "400": up to 0.4 s.
 // - "0": no wait: it rises on the coarse shape in the tap's own pipeline run.
-// Past the wait the plateau rises on the coarse shape. A tapped unit's mark
-// then fades where it stands, its line short of the whole boundary: the
-// file it measured has not come (plateau/tapProgress.ts, `waived`).
+// Past the wait the plateau rises on the coarse shape. A tapped unit's
+// loading line then fades where it stands, short of the whole boundary — the
+// file it measured has not come (plateau/tapProgress.ts, `waived`) — and its
+// violet leaves as for any tap, as that plateau is about to rise.
 // The fine shape, when it lands after the rise, is stored once the map is
 // still and swapped in at the plateau's height, with no sink and no rise
 // (usePlateau's quiet reshape). A unit with no coarse shape in memory has

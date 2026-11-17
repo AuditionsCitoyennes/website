@@ -179,7 +179,7 @@ export interface MarkMotion {
 
 /** When the rise of a unit's plateau can start, as far as the plateau knows
  *  (plateau/riseEta.ts): `at`, a clock time; `landing`: it is the end of the
- *  camera's flight, told a frame after it. */
+ *  camera's flight, told in the frame after it. */
 export interface MarkRiseEta {
   at: number;
   landing: boolean;
@@ -784,7 +784,10 @@ export class PendingMarkPass {
       const eta = this.riseEta(s.id);
       if (!eta) return;
       const lead = this.unfillMs > 0 ? (1 - this.floor) * this.unfillMs : this.gateTailMs;
-      const byEta = eta.at + (eta.landing ? this.frameMs : 0) - lead;
+      // A landing is told in the frame that follows the flight's end, and a
+      // task later: half a frame on average (a weak device's flight draws a
+      // frame every 50 ms or so).
+      const byEta = eta.at + (eta.landing ? this.frameMs / 2 : 0) - lead;
       if (byEta > at) {
         at = byEta;
         if (fromTimer) slack = this.frameMs;

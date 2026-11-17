@@ -1781,9 +1781,10 @@ test("the fade against the rise: a start put off before the fade began re-arms i
   h.advance(100);
   h.pass.finish(HIDE_SHORT, "then");
   const lead = (1 - MARK_UNFILL_FLOOR) * 40;
-  // A landing is told a frame after the flight's end: the fade aims there.
+  // A landing is told in the frame after the flight's end, half a frame
+  // later on average: the fade aims there.
   const [fadeIn] = h.timersIn();
-  assert.ok(Math.abs(fadeIn - (300 + 16.7 - lead)) < 1e-9, `fade in ${fadeIn}`);
+  assert.ok(Math.abs(fadeIn - (300 + 16.7 / 2 - lead)) < 1e-9, `fade in ${fadeIn}`);
   // The flight is replaced by a longer one meanwhile.
   rise.eta = { at: AGE + 700, landing: true };
   h.advance(fadeIn);

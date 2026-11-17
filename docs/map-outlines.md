@@ -429,9 +429,9 @@ following the file as it arrives (any other selection: 1.2 s) — or `1200`
 the plateau rises on the coarse shape; the fine one, stored at a still
 moment, replaces it at the plateau's height, with no sink and no rise. A
 tapped unit's loading line measures its own file: once the wait is given up
-the line goes no further, the mark fades where it stands, and the plateau
-rises on the coarse shape once the violet is gone — the line is never run
-to the end for a file that has not come. With no coarse shape in memory the wait stays 1.2 s. While the
+the line goes no further and fades where it stands, the violet stays on the
+unit until the plateau is about to rise on the coarse shape, as for any
+tap — the line is never run to the end for a file that has not come. With no coarse shape in memory the wait stays 1.2 s. While the
 map holds for an outline, `ac:cold-start=early` (« Avant le contour ») sinks
 the plateau standing and shoots the coming unit's lid over its box at once;
 `hold` (the default) leaves both for the outline's landing, as before.

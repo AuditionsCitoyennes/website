@@ -27,8 +27,9 @@
 // stopped waiting for the file: geo-nav's selfHold, ac:outline-wait). The
 // file the line measured has not come, and no timer may move the line: from
 // then on the tap is `waived` — the value keeps what it showed, never 1,
-// `note` answers null, and the page lets the mark fade where it stands
-// before that plateau rises (GeoDrillMap.pendingStep). Only a later run that
+// `note` answers null, and the page lets the line fade where it stands; the
+// fill leaves as that plateau is about to rise (GeoDrillMap.pendingStep).
+// Only a later run that
 // finds the file stored (« Réessayer ») counts again.
 //
 // 1 means "the data of the run that was current is all in". A later run for
