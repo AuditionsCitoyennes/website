@@ -5,10 +5,15 @@
 // every device, for a mouse, a finger, a pen or a key:
 // - the unit is filled with flat violet at once, without rising, and its
 //   pill wears the pending look;
-// - a loading line runs along its boundary, covering the share of the
-//   boundary's length that the data has reached (plateau/tapProgress.ts): 0
-//   at the tap, the whole boundary when everything is in;
-// - then the violet fades out, and only then the unit rises.
+// - when the wait lasts (the data not all in a fifth of a second after the
+//   mark's first frame: `ac:tap-fast`), a loading line runs along its
+//   boundary, covering the share of the boundary's length that the data has
+//   reached (plateau/tapProgress.ts): from nothing to the whole boundary
+//   when everything is in. A shorter wait draws no line at all;
+// - then, as the rise is about to start, the violet fades to a fifth of
+//   itself (the line with it), and that last share goes with the rise's own
+//   first frame: the unit is never bare and flat, and no violet rides a
+//   rising lid.
 //
 // Six switches, compared live in the builds with the testing tools — the dev
 // server and staging (__TEST_TOOLS__, vite.config), kept in localStorage and
@@ -38,8 +43,8 @@
 // default: the line is not drawn until a fifth of a second after the mark's
 // first frame, and never when the data is all in before that — the violet,
 // then the rise, no line; a line that does show starts from nothing and
-// runs at a constant speed, the whole boundary in a quarter of a second at
-// the fastest: gl/pendingMark.ts MARK_LINE_SHOW_MS, MARK_LINE_FULL_MS) or
+// runs at a constant speed, the whole boundary in three tenths of a second
+// at the fastest: gl/pendingMark.ts MARK_LINE_SHOW_MS, MARK_LINE_FULL_MS) or
 // "show" (the line from the tap, each step an ease).
 //
 // `ac:tap-end`, the end: "then" (the default: the line whole, the violet

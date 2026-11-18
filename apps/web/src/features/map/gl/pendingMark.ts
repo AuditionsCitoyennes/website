@@ -86,20 +86,21 @@ export const MARK_STEP_MS = 100;
 export const MARK_LINE_SHOW_MS = 200;
 /** …and once drawn it runs at a constant speed, the whole boundary in this
  *  long at the fastest, ms: no frame adds more than its own time's share of
- *  the boundary (7 % at 60 Hz, 20 % in a 50 ms frame). */
-export const MARK_LINE_FULL_MS = 250;
+ *  the boundary (6 % at 60 Hz, 17 % in a 50 ms frame). */
+export const MARK_LINE_FULL_MS = 300;
 /** …and no drawn frame adds more than this share of the boundary: what a
- *  50 ms frame adds at that speed. After a longer frame (a weak device's)
+ *  60 ms frame adds at that speed. After a longer frame (a weak device's)
  *  the run goes on from there and ends later by what was cut — five frames
- *  at least for a whole boundary, so 385 ms instead of 250 at 13 frames a
+ *  at least for a whole boundary, so 385 ms instead of 300 at 13 frames a
  *  second. */
 export const MARK_LINE_FRAME_MAX = 0.2;
 /** Under short motion (a weak device's) a run of the line asks for a frame
  *  this often, ms, while the map draws none of its own. */
 export const MARK_SHORT_FRAME_MS = 50;
 /** The fill's fade once the data is all in, ms: linear, down to
- *  MARK_UNFILL_FLOOR of itself ahead of the rise; the rest goes with the
- *  rise's first frame (or fades on if no rise takes it). */
+ *  MARK_UNFILL_FLOOR of itself ahead of the rise; that share is held until
+ *  the rise takes it, in its first frame (or until MARK_LINE_HOLD_CAP_MS
+ *  ends a mark no rise came for). */
 export const MARK_UNFILL_MS = 80;
 /** The share of the fill kept until the plateau says its rise is cleared:
  *  the unit is never bare and flat while something still holds the rise. */

@@ -355,7 +355,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "off", label: "Aucune" },
     ],
     explain:
-      "Quand on touche ou clique un territoire, il se remplit de violet tout de suite, sur tous les appareils, sans se soulever, et son étiquette s'affiche en violet. « Ligne » (par défaut) : une ligne avance le long de sa frontière à mesure que ses données arrivent et en fait le tour complet quand tout est là ; le violet s'en va alors, puis le territoire se soulève. « Aucune » ne marque rien.",
+      "Quand on touche ou clique un territoire, il se remplit de violet tout de suite, sur tous les appareils, sans se soulever, et son étiquette s'affiche en violet. « Ligne » (par défaut) : une ligne avance le long de sa frontière à mesure que ses données arrivent et en fait le tour complet quand tout est là ; le violet s'en va alors, puis le territoire se soulève. Si ses données arrivent en moins d'un cinquième de seconde, aucune ligne n'est tracée (voir Toucher rapide). « Aucune » ne marque rien, et le territoire se soulève alors sans attendre ses frontières intérieures : elles arrivent après la montée, comme avant.",
     reloads: false,
     defaultId: "line",
   },
@@ -397,7 +397,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "show", label: "Ligne toujours" },
     ],
     explain:
-      "Quand les données d'un territoire arrivent en moins d'un cinquième de seconde, « Sans ligne » (par défaut) ne trace pas la ligne de chargement : le violet, puis la montée. Si l'attente dure, la ligne apparaît et avance à vitesse régulière, un tour complet prenant au moins un quart de seconde. « Ligne toujours » la trace dès le toucher, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
+      "Quand les données d'un territoire arrivent en moins d'un cinquième de seconde, « Sans ligne » (par défaut) ne trace pas la ligne de chargement : le violet, puis la montée. Si l'attente dure, la ligne apparaît et avance à vitesse régulière, un tour complet prenant au moins trois dixièmes de seconde. « Ligne toujours » la trace dès le toucher, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
     defaultId: "hide",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
@@ -481,9 +481,10 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "late", label: "Après" },
     ],
     explain:
-      "Les frontières à l'intérieur du territoire touché (départements d'une région, communes d'un département). « Avec le plateau » (par défaut) : le territoire attend ces frontières avant de se soulever, et la ligne de chargement en tient compte ; au bout de l'attente du contour (4 secondes au plus, jamais prolongée) il se soulève sans elles et elles arrivent ensuite. « Pays et régions seulement » : un département se soulève sans attendre ses communes. « Après » : comme avant, les frontières arrivent après la montée.",
+      "Les frontières à l'intérieur du territoire touché (départements d'une région, communes d'un département). « Avec le plateau » (par défaut) : le territoire attend ces frontières avant de se soulever, et la ligne de chargement en tient compte ; au bout de l'attente du contour (4 secondes au plus, jamais prolongée) il se soulève sans elles et elles arrivent ensuite. « Pays et régions seulement » : un département se soulève sans attendre ses communes. « Après » : comme avant, les frontières arrivent après la montée. Sans effet si Réponse au toucher est « Aucune » : rien n'attend alors ces frontières.",
     reloads: false,
     defaultId: "wait",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
     key: "ac:cold-start",

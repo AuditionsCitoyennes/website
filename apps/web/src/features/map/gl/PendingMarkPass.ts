@@ -79,10 +79,10 @@
 // show. A fill still fading on screen when the camera crosses zoom 6 (a mark
 // released under "together", or draining, during a flight) is built in the
 // regime it enters the same way — a large unit's as its stand-in — so the
-// violet fades on to its end there. The meshes are kept for the geometry last marked, so « Réessayer »
-// and a second tap rebuild nothing, and dropped with the pending state
-// (`forget`) or when another geometry is marked; the GPU's copies are
-// emptied by the next frame.
+// violet fades on to its end there. The meshes are kept for the geometry
+// last marked, so « Réessayer » and a second tap rebuild nothing, and
+// dropped with the pending state (`forget`) or when another geometry is
+// marked; the GPU's copies are emptied by the next frame.
 //
 // Where it stands:
 // - on the ground (a neighbour, or no plateau standing): the line with the
@@ -718,7 +718,7 @@ export class PendingMarkPass {
    * the boundary in one drawn frame: after a long frame (a weak device's, a
    * busy page's) it goes on from the most this frame may show, at the same
    * speed, and its end slips by what was cut — still never ahead of the
-   * data. A frame every 50 ms or sooner cuts nothing.
+   * data. A frame every 60 ms or sooner cuts nothing.
    */
   private capRun(now: number) {
     if (!this.lineOn || this.lineSkipped) return;

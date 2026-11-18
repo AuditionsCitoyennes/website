@@ -434,8 +434,10 @@ test("the choices are the modules' own, in today's order", () => {
     assert.deepEqual(row(key).inactiveWhen, { key: "ac:tap-answer", id: "off" }, key);
   }
   assert.deepEqual(row("ac:slow-sign").inactiveWhen, { key: "ac:tap-answer", id: "off" });
+  // No pending state, so no tapped unit waits for its inner boundaries.
+  assert.deepEqual(row("ac:tap-lines").inactiveWhen, { key: "ac:tap-answer", id: "off" });
   assert.deepEqual(row("ac:lid-map").inactiveWhen, { key: "ac:lid", id: "aucun" });
-  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 8);
+  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 9);
 });
 
 test("the default marked in each sentence is the module's", () => {

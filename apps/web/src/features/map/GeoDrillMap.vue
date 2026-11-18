@@ -30,6 +30,7 @@ import type { MeshClient } from "./gl/meshClientCore";
 import { lateFilesMode } from "./plateau/lateFilesSwitch";
 import { tilesMoved, type ViewInSight } from "./plateau/lidMapSwitch";
 import { meshMode } from "./plateau/meshSwitch";
+import { riseOrder, riseStartFor } from "./plateau/riseSwitch";
 import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
 import { labelGlyphOptions, labelTileGate } from "./labelFont";
 import { useMapView, type MapView } from "./composables/useMapView";
@@ -45,7 +46,7 @@ import { useFlightMeasure } from "./composables/useFlightMeasure";
 import { useContextRestore } from "./composables/useContextRestore";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
-import { noteRenderer } from "@/shared/device/deviceTier";
+import { deviceTier, noteRenderer } from "@/shared/device/deviceTier";
 import { motionMs, motionNow, prefersReducedMotion } from "@/shared/device/motion";
 import { onReconnect } from "@/shared/net/reconnect";
 import { recover } from "@/shared/net/recoverSwitch";
@@ -366,14 +367,20 @@ let lastMark: {
  *  line runs at a constant speed between steps, under short motion too (a
  *  frame asked every MARK_SHORT_FRAME_MS only); "show": it eases between
  *  steps under full motion and jumps otherwise. The fill's fade is shorter
- *  under short motion; reduced motion runs and fades nothing — the end is
+ *  under short motion — except where the rise waits for the camera's
+ *  landing (plateau/riseSwitch.ts riseStartFor, "after": the weaker tiers):
+ *  there the fade runs ahead of the flight's known end and delays nothing
+ *  (with no flight in the air it delays the rise by what it delays it on a
+ *  full device), so it keeps its whole length and a slow frame rate still
+ *  shows it as a fade. Reduced motion runs and fades nothing — the end is
  *  two plain steps (the pass holds each one a few frames). */
 function markMotion(): MarkMotion {
   const reduced = prefersReducedMotion();
   const motion = motionNow();
+  const afterLanding = riseStartFor(riseOrder.value, deviceTier()) === "after";
   const base = {
     animate: !reduced,
-    unfillMs: reduced ? 0 : motionMs(MARK_UNFILL_MS, motion),
+    unfillMs: reduced ? 0 : afterLanding ? MARK_UNFILL_MS : motionMs(MARK_UNFILL_MS, motion),
     outMs: MARK_FADE_MS,
   };
   if (tapFastMode.value === "show") {
@@ -587,11 +594,11 @@ function markPending(
  * The pending state's verdict for the mark. "rise": the unit's plateau has
  * committed (call it from `plateauSettled`): the pill goes; the mark's own
  * end is the pipeline's — its fill and its line leave against the rise's
- * start, and what is left of them goes when it starts (`onRise`). "off": at once (the
- * selection went elsewhere, or no plateau will come). "drain": no plateau
- * has come for a long while (the parent's long wait turned late): the mark
- * fades where it stands — or goes at once under reduced motion; what it
- * kept stays for a retry. The pill goes at once.
+ * start, and what is left of them goes when it starts (`onRise`). "off": at
+ * once (the selection went elsewhere, or no plateau will come). "drain": no
+ * plateau has come for a long while (the parent's long wait turned late):
+ * the mark fades where it stands — or goes at once under reduced motion;
+ * what it kept stays for a retry. The pill goes at once.
  */
 function endPending(how: "rise" | "off" | "drain") {
   pins.setPendingPin("");

@@ -11,17 +11,18 @@
 //    Below the région the entry IS the self (one object, `id@e50`). Any
 //    other country is drawn with its g/ and raised with its u/ (geo's
 //    outlineRoles: which object, which file, which rows are known absent).
-// 2b. The plateau of a unit the visitor tapped also waits for the unit's
-//    bundle — its children's boundaries, the lid's lines of rule 3 — while
-//    that wait is armed and not given up (useOutlineFiles' holdLines: the
-//    cap of ac:outline-wait), its row declares a bundle, and the bundle is
-//    neither in nor failed (`childLinesDue`): it rises with them on its lid,
-//    from the one mesh of its commit. Never a selection nobody tapped.
 // 2. A plateau waits for its self while its row declares one (its bundle, or
 //    a country's u/ — but a c3000 row is served by its g/ and not held), it
 //    is not stored, its file did not fail and the wait was not given up
 //    (OUTLINE_WAIT_MS). Pending: waiting, or no geometry while some may still
 //    come — never once the scope's chain is settled: the hold is bounded.
+// 2b. The plateau of a unit the visitor tapped also waits for the unit's
+//    bundle — its children's boundaries, the lid's lines of rule 3 — while
+//    that wait is armed and its time has not passed (useOutlineFiles'
+//    holdLines: the cap of ac:outline-wait, once per visit), its row
+//    declares a bundle, and the bundle is neither in nor failed
+//    (`childLinesDue`): it rises with them on its lid, from the one mesh of
+//    its commit. Never a selection nobody tapped.
 // 3. The lid's lines (focus) are the entries of the scope's own bundle, cut
 //    by the same run as its self: a line the lid lifts lies on its edge.
 // 4. Refinement: the neighbours drawn at a coarser tier than their self, and
@@ -66,8 +67,8 @@ export interface OutlineView {
   failed(id: string): boolean;
   /** Its plateau stopped waiting for its self. */
   gaveUp(id: string): boolean;
-  /** Its plateau waits for its bundle (a unit the visitor tapped), the wait
-   *  not given up. Absent: never. */
+  /** Its plateau waits for its bundle (a unit the visitor tapped), the
+   *  wait's time not passed. Absent: never. */
   linesHeld?(id: string): boolean;
 }
 

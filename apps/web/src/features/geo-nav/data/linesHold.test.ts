@@ -94,7 +94,47 @@ test("no wait: given up at once, with no timer — unless the bundle is in", () 
   t.hold.hold("fr:reg:84", 0);
   assert.deepEqual(t.out, [{ id: "fr:reg:84", at: 0 }]);
   assert.equal(t.timers.size, 0);
+  assert.equal(t.hold.over("fr:reg:84"), true);
   t.settled.add("fr:reg:76");
   t.hold.hold("fr:reg:76", 0);
   assert.equal(t.out.length, 1);
+  assert.equal(t.hold.over("fr:reg:76"), true);
+});
+
+test("a bundle that had failed when the wait ended, asked again later: the wait stays over", () => {
+  // Failed is settled: nothing is given up at the cap. The loader asks a
+  // failed file again some seconds later (its state is "loading" once more):
+  // the visit's wait is not reopened, and no second timer is set.
+  const t = setup();
+  t.hold.hold("fr:reg:84", WAIT);
+  assert.equal(t.hold.over("fr:reg:84"), false);
+  t.tick(1000);
+  t.settled.add("fr:reg:84"); // the file failed
+  t.tick(3000);
+  assert.deepEqual(t.out, []);
+  assert.equal(t.hold.over("fr:reg:84"), true);
+  t.settled.delete("fr:reg:84"); // asked again: loading
+  t.tick(6000);
+  t.hold.hold("fr:reg:84", WAIT); // the same visit: nothing starts
+  assert.equal(t.timers.size, 0);
+  assert.equal(t.hold.over("fr:reg:84"), true);
+  assert.deepEqual(t.out, []);
+  // Left and tapped again: a whole wait.
+  t.hold.leave("fr:reg:84");
+  assert.equal(t.hold.over("fr:reg:84"), false);
+  t.hold.hold("fr:reg:84", WAIT);
+  assert.equal(t.timers.size, 1);
+  t.tick(WAIT);
+  assert.deepEqual(t.out, [{ id: "fr:reg:84", at: 14_000 }]);
+});
+
+test("a wait that ran its time with the bundle in is over too", () => {
+  const t = setup();
+  t.hold.hold("fr:reg:84", WAIT);
+  t.settled.add("fr:reg:84");
+  t.tick(WAIT - 1);
+  assert.equal(t.hold.over("fr:reg:84"), false);
+  t.tick(1);
+  assert.equal(t.hold.over("fr:reg:84"), true);
+  assert.deepEqual(t.out, []);
 });

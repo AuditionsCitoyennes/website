@@ -45,11 +45,11 @@
 // them on its lid. `holdLines` arms that wait at the selection, for the
 // visit, under the cap the unit's own outline has (ac:outline-wait) — a
 // timer of its own, never extended, ended when the unit is left
-// (linesHold.ts);
-// `linesHeld` says it is armed and not given up, and the rules
-// (model/outlineRules childLinesDue) then keep the plateau waiting while the
-// bundle is declared and neither in nor failed. Past the cap the unit rises
-// without them and the bundle is a late file like any other.
+// (linesHold.ts); `linesHeld` says it is armed and its time has not passed,
+// and the rules (model/outlineRules childLinesDue) then keep the plateau
+// waiting while the bundle is declared and neither in nor failed. Past the
+// cap the unit rises without them and the bundle is a late file like any
+// other — one that had failed and is asked again included.
 //
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's
@@ -163,7 +163,7 @@ export interface OutlineFiles {
    *  a tapped unit's) it stops waiting. Once per visit; whatever the state
    *  of the unit's row. */
   holdLines(id: string): void;
-  /** That wait is armed for unit `id` and not given up. */
+  /** That wait is armed for unit `id` and its time has not passed. */
   linesHeld(id: string): boolean;
   /** Its self is asked ahead of its bundle (ac:region-self "first"): its row
    *  declares a u/ beside its bundle. The caller asks `ensureSelf` for it,
@@ -346,8 +346,8 @@ function createOutlineFiles(): OutlineFiles {
   });
 
   // The wait for a tapped unit's bundle (linesHold.ts): a timer of its own
-  // per visit, never extended, ended when the unit is left; "settled" is the
-  // bundle in or failed.
+  // per visit, never extended, ended when the unit is left and over for the
+  // visit once its time has passed; "settled" is the bundle in or failed.
   const linesHold = createLinesHold({
     setTimer: (fn, ms) => window.setTimeout(fn, ms),
     clearTimer: (timer) => window.clearTimeout(timer as number),
@@ -432,7 +432,10 @@ function createOutlineFiles(): OutlineFiles {
       linesArmed.value = new Set(linesArmed.value).add(id);
       linesHold.hold(id, outlineWaitFor(outlineWait.value, true, OUTLINE_WAIT_MS, true));
     },
-    linesHeld: (id) => linesArmed.value.has(id) && !linesOut.value.has(id),
+    // `over` is not reactive, and need not be: when a wait runs its time
+    // with the bundle in or failed nothing is waiting, and it only keeps a
+    // later re-ask of a failed bundle from reopening the wait.
+    linesHeld: (id) => linesArmed.value.has(id) && !linesOut.value.has(id) && !linesHold.over(id),
     selfAhead: (id) =>
       regionSelfMode.value === "first" &&
       read((s) => selfAheadOf(s.rowOf(s.filesIdOf(id)))) !== null,

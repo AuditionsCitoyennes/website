@@ -3,11 +3,10 @@
 // boundary (gl/PendingMarkPass.ts). Fed by real events only — the page's
 // outline files (`outline`: headers, bytes, stored — the unit's own and,
 // for a unit whose plateau waits for its children's boundaries, its bundle:
-// every file the rise waits for), and the plateau
-// pipeline's run for the unit (`run`: it has started, and what it needs;
-// `key`: the relief version key is in; `mesh`: the wall and lid mesh is
-// built; `settled`: the run's verdict). No clock, no import: loadable under
-// node (tapProgress.test.ts).
+// every file the rise waits for), and the plateau pipeline's run for the
+// unit (`run`: it has started, and what it needs; `key`: the relief version
+// key is in; `mesh`: the wall and lid mesh is built; `settled`: the run's
+// verdict). No clock, no import: loadable under node (tapProgress.test.ts).
 //
 // The requirements and their weights: the unit's own outline when it was not
 // in memory at the tap (6), the pipeline's run for the unit started (1: it
@@ -29,8 +28,7 @@
 // then on the tap is `waived` — the value keeps what it showed, never 1,
 // `note` answers null, and the page lets the line fade where it stands; the
 // fill leaves as that plateau is about to rise (GeoDrillMap.pendingStep).
-// Only a later run that
-// finds the file stored (« Réessayer ») counts again.
+// Only a later run that finds the file stored (« Réessayer ») counts again.
 //
 // 1 means "the data of the run that was current is all in". A later run for
 // the same unit (a finer outline landing during the sink, the relief lost
