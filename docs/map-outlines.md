@@ -443,9 +443,9 @@ default) leaves both for the outline's landing, as before.
 A unit with no coarse shape in memory (a commune whose département's bundle
 is still on its way) holds for as long as that file takes: up to two 15 s
 attempts. The visitor is told meanwhile. Once the camera has landed, 0.8 s
-at least after the tap, three small dots move beside the tapped unit's pill
-and after its name in the panel's trail (CSS only, 3.9 s of motion at most,
-still under reduced motion). Five seconds after the tap with no plateau, the
+at least after the tap, three small dots move after the tapped unit's name
+in the panel's trail (CSS only, 3.9 s of motion at most, still under reduced
+motion); the map shows no name tag on the tapped unit while it waits. Five seconds after the tap with no plateau, the
 tap's mark drains and the panel says « La carte met plus de temps que
 prévu. » with a « Réessayer » button (over the map's top on a phone whose
 sheet is lowered). The button asks again for the missing piece only: while
