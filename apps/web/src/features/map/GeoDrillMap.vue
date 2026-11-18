@@ -348,7 +348,7 @@ const slabs = usePlateauSlabs({
 // ---- A tapped unit's PENDING mark (the parent decides when the pending
 // state begins and ends: GeoNav's model/tapPendingCore) — a flat fill and a
 // loading line drawn by the plateau's layer in buffers of its own
-// (gl/PendingMarkPass), and the unit's pill ----
+// (gl/PendingMarkPass) ----
 // How far the data of the tapped unit's plateau has come (plateau/
 // tapProgress.ts): fed by the pipeline's run for it and by the parent (its
 // outline's file); the mark's line shows it.
@@ -543,17 +543,18 @@ function pendingEnded(id: string) {
 /**
  * Mark unit `id` as tapped, the data of its plateau on its way: `mark.fill`
  * and `mark.line` on its territory, from its outline as it is in `units` NOW
- * (so before the selection replaces them), `mark.pill` on its pill. One
- * repaint; then the line moves with `pendingStep`, and nothing else moves
- * until the data is in. A newer mark replaces this one. `again`: the unit
- * was pending already (« Réessayer », the same unit tapped once more) — its
+ * (so before the selection replaces them). One repaint; then the line
+ * moves with `pendingStep`, and nothing else moves until the data is in.
+ * No name on the map: the unit's own pin goes with the selection, as any
+ * scope's does. A newer mark replaces this one. `again`: the unit was
+ * pending already (« Réessayer », the same unit tapped once more) — its
  * line starts where its data had come, and a unit that is the scope by now
  * is marked from what the mark before kept. A unit with no outline in
  * memory is marked when the pipeline starts its run (`markLate`). Answers
- * "shown", "none" (nothing could be shown yet: no outline in memory and no
- * pill), or that no verdict will follow (`plateauSettled`): "standing" (the
- * unit's plateau stands already) and "unavailable" (no map, or its style
- * not loaded yet).
+ * "shown", "none" (nothing could be shown yet: no outline in memory), or
+ * that no verdict will follow (`plateauSettled`): "standing" (the unit's
+ * plateau stands already) and "unavailable" (no map, or its style not
+ * loaded yet).
  */
 function markPending(
   id: string,
@@ -568,7 +569,6 @@ function markPending(
   // The unit's progress starts over, unless it was pending already.
   tapProgress.begin(id, { key: !plateau.flatWanted(), mesh: !!meshClient }, again);
   const unit = props.units.find((u) => u.id === id);
-  const pill = mark.pill && !!unit && !unit.isLeaf;
   let g = unit && !unit.isLeaf ? (unit.geometry as MarkGeometry | undefined) : undefined;
   const b = unit?.bounds;
   let spanDeg = b ? Math.max(b.maxLng - b.minLng, b.maxLat - b.minLat) : 360;
@@ -587,21 +587,19 @@ function markPending(
     // No outline of the unit in memory: marked when its own comes.
     if (mark.line || mark.fill) unmarked = { id, mark };
   }
-  pins.setPendingPin(pill ? id : "");
-  return drawn || pill ? "shown" : "none";
+  return drawn ? "shown" : "none";
 }
 /**
  * The pending state's verdict for the mark. "rise": the unit's plateau has
- * committed (call it from `plateauSettled`): the pill goes; the mark's own
- * end is the pipeline's — its fill and its line leave against the rise's
- * start, and what is left of them goes when it starts (`onRise`). "off": at
+ * committed (call it from `plateauSettled`): the mark's own end is the
+ * pipeline's — its fill and its line leave against the rise's start, and
+ * what is left of them goes when it starts (`onRise`). "off": at
  * once (the selection went elsewhere, or no plateau will come). "drain": no
  * plateau has come for a long while (the parent's long wait turned late):
  * the mark fades where it stands — or goes at once under reduced motion;
- * what it kept stays for a retry. The pill goes at once.
+ * what it kept stays for a retry.
  */
 function endPending(how: "rise" | "off" | "drain") {
-  pins.setPendingPin("");
   if (how === "rise") return;
   unmarked = null;
   pins.restoreDrapedHover();
@@ -612,11 +610,6 @@ function endPending(how: "rise" | "off" | "drain") {
   } else plateauWall.drainPending(markMotion());
 }
 
-/** The sign of a long wait on the pending unit's pill, on or off (the parent
- *  decides when: model/tapPendingCore). A DOM write: no frame is drawn. */
-function setPendingWait(on: boolean) {
-  pins.setPendingWait(on);
-}
 /** The plateau of unit `id` asked once more, from the outline in memory (the
  *  panel's « Réessayer »): see usePlateau's `retry`. */
 function retryPlateau(id: string) {
@@ -1149,8 +1142,7 @@ defineExpose({
   /** A real step of the tapped unit's data, and the end of its pending state. */
   pendingStep,
   pendingEnded,
-  /** The long wait's sign on the pending pill; the plateau asked once more. */
-  setPendingWait,
+  /** The plateau asked once more. */
   retryPlateau,
   /** Work that waits for a map at rest (see the function). */
   whenAtRest,

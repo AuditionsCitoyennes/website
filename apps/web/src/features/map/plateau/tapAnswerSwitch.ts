@@ -3,8 +3,8 @@
 // plateau rises (gl/PendingMarkPass.ts draws it, geo-nav's
 // model/tapPendingCore.ts decides when the pending state ends). The same on
 // every device, for a mouse, a finger, a pen or a key:
-// - the unit is filled with flat violet at once, without rising, and its
-//   pill wears the pending look;
+// - the unit is filled with flat violet at once, without rising; no name tag
+//   on the map — the unit's own pin goes with the tap, as any scope's does;
 // - when the wait lasts (the data not all in a fifth of a second after the
 //   mark's first frame: `ac:tap-fast`), a loading line runs along its
 //   boundary, covering the share of the boundary's length that the data has
@@ -22,7 +22,7 @@
 // chargement » and « Image du toucher ». Read at each tap: no reload.
 //
 // `ac:tap-answer`, the mark: "line" (the default: the above) or "off" (no
-// mark, no pill, nothing said to a screen reader).
+// mark, nothing said to a screen reader).
 //
 // `ac:tap-line`, the loading line's colour, always one of the map's own
 // violets, darker than the fill it runs over: "deep" (the default: the
@@ -176,17 +176,13 @@ export function setTapFrameMode(mode: TapFrameMode) {
   store("ac:tap-frame", mode);
 }
 
-/** What a tap's mark is made of. `pill`: the unit's pill wears the pending
- *  look. All false: no pending state at all. */
+/** What a tap's mark is made of. Both false: no pending state at all. */
 export interface TapMark {
   line: boolean;
   fill: boolean;
-  pill: boolean;
 }
 
 /** The mark of a tap under `mode`, whatever made it. */
 export function tapMarkFor(mode: TapAnswerMode): TapMark {
-  return mode === "off"
-    ? { line: false, fill: false, pill: false }
-    : { line: true, fill: true, pill: true };
+  return mode === "off" ? { line: false, fill: false } : { line: true, fill: true };
 }

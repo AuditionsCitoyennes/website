@@ -1192,9 +1192,9 @@ export function usePlateau({
         onLift?.();
         terrainExag = 0;
         plateauWall.setScale(0);
-        // The commit is whole — the verdict: a pending unit's pill goes now,
-        // in the commit's block, also when the rise waits for the camera; its
-        // mark ends with the rise (riseCleared: the gate, then `onRise`).
+        // The commit is whole — the verdict, now, in the commit's block, also
+        // when the rise waits for the camera; a pending unit's mark ends with
+        // the rise (riseCleared: the gate, then `onRise`).
         settled(scopeId, "rise");
         if (!(await riseCleared(map, scopeId, waits))) return;
         const endFlatRise = perfOn ? perfSpan("plateau.rise", { scope: scopeId }) : null;

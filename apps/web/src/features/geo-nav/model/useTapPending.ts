@@ -6,8 +6,7 @@
 // get to itself before the selection is written (`ac:tap-frame`), and the
 // sign of a long wait (`ac:slow-sign`, slowSignSwitch.ts): its stage as a
 // ref (the breadcrumb's dots, the panel's sentence and its « Réessayer »),
-// the dots on the unit's pill through GeoDrillMap (`setPendingWait`), and
-// the landing the sign waits for.
+// and the landing the sign waits for.
 import { onScopeDispose, ref, watch, type Ref } from "vue";
 import { tapAnswerMode, tapFrameMode, tapMarkFor, type TapMark } from "@/features/map";
 import type { GeoUnit } from "@/features/geo";
@@ -34,7 +33,6 @@ export interface TapPendingInputs {
     ) => "shown" | "none" | "standing" | "unavailable";
     endPending: (how: "rise" | "off" | "drain") => void;
     pendingEnded: (id: string) => void;
-    setPendingWait: (on: boolean) => void;
   } | null>;
   /** « Réessayer »: ask again the one piece `unit`'s plateau still misses
    *  (GeoNav: its outline's file, else the plateau's own run). */
@@ -78,7 +76,7 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
     mark: (unit, again) => {
       // The same mark whatever tapped: a mouse, a finger, a pen, a key.
       const mark = tapMarkFor(tapAnswerMode.value);
-      if (!mark.line && !mark.fill && !mark.pill) return false;
+      if (!mark.line && !mark.fill) return false;
       // Pending whether or not the map could draw it (a row of a unit with no
       // outline in memory): the list is busy and the sentence is said alike.
       // Not when no verdict would end it: the unit's plateau stands, or
@@ -107,8 +105,6 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
     slowSign: () => slowSignMode.value === "on",
     onWait: (stage) => {
       waitStage.value = stage;
-      // The dots on the unit's pill: a DOM write, the map draws nothing for it.
-      mapCmp.value?.setPendingWait(stage === "moving");
       if (perfOn && stage !== "none") waits[stage] = (waits[stage] ?? 0) + 1;
     },
     reask: (unit) => {

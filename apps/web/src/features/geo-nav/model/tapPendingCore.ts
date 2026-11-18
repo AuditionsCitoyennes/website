@@ -1,16 +1,16 @@
 // The PENDING state of a tapped territory, apart from the page (useTapPending
 // wires it): from the tap that selects a unit until its plateau commits, the
 // unit is "pending" — the map marks it (GeoDrillMap.markPending: a flat
-// violet fill, a loading line along its boundary that follows the data of
-// its plateau, its pill), the panel's list is busy, and one sentence is said
-// when it is ready. This is the rule
+// violet fill and a loading line along its boundary that follows the data
+// of its plateau), the panel's list is busy, and one sentence is said when
+// it is ready. This is the rule
 // of when that state begins and ends, and of the frame the mark may get to
 // itself. No import: loadable under node (tapPendingCore.test.ts).
 //
 // It ends:
 // - "risen": the unit's plateau has committed (the pipeline's verdict "rise",
-//   or "same" / "quiet" when it was standing already) — the pill goes, the
-//   sentence is said; the mark itself ends with the pipeline (its fill and
+//   or "same" / "quiet" when it was standing already) — the sentence is
+//   said; the mark itself ends with the pipeline (its fill and
 //   its line leave against the rise's start, and are gone when it starts);
 // - "moved": the scope went to another unit without a tap (a pan or a zoom
 //   that changed it, a crumb) — a pan that leaves the scope alone ends nothing;
@@ -89,7 +89,7 @@ export interface TapPendingDeps {
    *  it waited) — what has arrived for it since its first tap still counts. */
   mark(unit: PendingUnit, again: boolean): boolean;
   /** The mark's verdict on the map: its plateau has committed ("rise": the
-   *  pill goes, the mark ends with the rise), at once ("off"), or fading
+   *  mark ends with the rise), at once ("off"), or fading
    *  where it stands, no plateau having come ("drain"). */
   unmark(how: "rise" | "off" | "drain"): void;
   /** The scope's unit now. */

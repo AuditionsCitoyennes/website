@@ -11,13 +11,13 @@ import { test } from "node:test";
 (globalThis as unknown as { __TEST_TOOLS__: boolean }).__TEST_TOOLS__ = false;
 const tap = await import("./tapAnswerSwitch");
 
-test("line: the fill, the line and the pill, whatever made the tap", () => {
-  assert.deepEqual(tap.tapMarkFor("line"), { line: true, fill: true, pill: true });
+test("line: the fill and the line, no pill, whatever made the tap", () => {
+  assert.deepEqual(tap.tapMarkFor("line"), { line: true, fill: true });
   assert.equal(tap.tapMarkFor.length, 1); // no pointer type: one behaviour
 });
 
 test("off: no mark at all", () => {
-  assert.deepEqual(tap.tapMarkFor("off"), { line: false, fill: false, pill: false });
+  assert.deepEqual(tap.tapMarkFor("off"), { line: false, fill: false });
 });
 
 test("a mode kept by an earlier build is not a mode: it falls to the default", () => {
