@@ -401,8 +401,9 @@ départements of a région, the communes of a département), built by the one
 mesh of its commit instead of a reshape after the rise. The bundle is then
 asked at high priority beside the `u/`, stored as it lands, and counted in
 the tap's loading line. The wait has the cap of the unit's own outline
-(`ac:outline-wait`: four seconds for a tapped unit); past it the plateau
-rises without the lines and the bundle is a late file again. A selection
+(`ac:outline-wait`: four seconds for a tapped unit), a timer of its own per
+visit that is never extended and ends when the unit is left; past it the
+plateau rises without the lines and the bundle is a late file again. A selection
 nobody tapped (a crumb, a link, a search, a pan, the boot) never waits for
 them. `ac:tap-lines` (the DEV dialog's « Lignes intérieures »): `wait` (the
 default), `upper` (only a country and a région wait), `late` (nothing waits,

@@ -318,13 +318,14 @@ const plateau = usePlateau({
   onLift: pins.syncLift,
   onProgress: (scopeId, step) => pendingStep(scopeId, step),
   // The tapped unit's violet leaves it before it rises (ac:tap-end "then"):
-  // its last share once the rise is cleared.
+  // down to its floor, whose share goes with the rise's first frame.
   riseGate: (scopeId, cleared) => plateauWall.pendingGateMs(scopeId, cleared),
   flightEndAt: camera.flightEndAt,
   onRise: (scopeId, how) => {
     if (plateauWall.pendingId !== scopeId) return;
-    // Its plateau starts to rise (or stands already): the line rides the lid
-    // and fades. No rise will come: the mark goes.
+    // Its plateau starts to rise (or stands already): what is left of the
+    // mark goes (under "together" it rides the lid and fades). No rise will
+    // come: the mark goes.
     if (how === "dropped") plateauWall.clearPending();
     else plateauWall.releasePending(scopeId, markMotion());
   },
@@ -585,8 +586,8 @@ function markPending(
 /**
  * The pending state's verdict for the mark. "rise": the unit's plateau has
  * committed (call it from `plateauSettled`): the pill goes; the mark's own
- * end is the pipeline's — its fill left when the data was all in, its line
- * rides the lid when the rise starts (`onRise`). "off": at once (the
+ * end is the pipeline's — its fill and its line leave against the rise's
+ * start, and what is left of them goes when it starts (`onRise`). "off": at once (the
  * selection went elsewhere, or no plateau will come). "drain": no plateau
  * has come for a long while (the parent's long wait turned late): the mark
  * fades where it stands — or goes at once under reduced motion; what it

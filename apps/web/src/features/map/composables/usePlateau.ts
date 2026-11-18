@@ -72,7 +72,7 @@ import { loadReliefClient } from "../relief/demHook";
 import { demTemplate } from "../relief/demTiles";
 import { planPrefetch, type PrefetchPlan } from "../relief/prefetchPlan";
 import { groundFor, reliefGround, type Ground } from "../relief/groundSwitch";
-import { reliefPrefetch } from "../relief/reliefSwitch";
+import { reliefCommitHold, reliefPrefetch } from "../relief/reliefSwitch";
 import type { OutlineFC } from "../types";
 import { coldStartMode } from "../plateau/coldTapSwitch";
 import { LATE_CAP_MS, lateFilesMode } from "../plateau/lateFilesSwitch";
@@ -130,7 +130,7 @@ export interface PlateauInputs {
   /** How long the rise of unit `scopeId` is still held, ms (the pending
    *  mark's violet leaves the unit first: gl/PendingMarkPass). `cleared`:
    *  everything else the rise waits for is satisfied (the commit, the
-   *  camera's landing) — the mark's last share of fill leaves now; false: a
+   *  camera's landing) — a fade that waited for that begins now; false: a
    *  plain query. Absent or 0: no hold. */
   riseGate?: (scopeId: string, cleared: boolean) => number;
   /** When the camera flight in the air ends, a clock time (0: none, or not
@@ -611,6 +611,9 @@ export function usePlateau({
   // selected, the plateau cleared or failed, the unmount.
   const riseHold = createRiseHold();
   let riseWaiting = false;
+  /** When the hold before a commit with nothing standing ends (a clock
+   *  time; past: none under way). */
+  let commitHoldEndAt = 0;
   function dropLanding() {
     riseHold.drop();
     riseWaiting = false;
@@ -634,7 +637,7 @@ export function usePlateau({
       now: performance.now(),
       running: runFor?.scopeId === scope || committed,
       sinkEndAt: exagAnim?.target === 0 ? exagAnim.endAt : 0,
-      holdEndAt: 0,
+      holdEndAt: commitHoldEndAt,
       order: riseStartFor(riseOrder.value, deviceTier()),
       flying: isFlying(map),
       flightEndAt: flightEndAt?.() ?? 0,
@@ -653,7 +656,7 @@ export function usePlateau({
    * The rise of the plateau of `scope`, cleared to start: at once (the same
    * task) when nothing holds it, else once, with `waits`, the camera has
    * landed (LAND_WAIT_CAP_MS at most) and then the gate has passed — read
-   * "cleared", so the mark's last share of fill leaves only now, and read
+   * "cleared", so a fade of the mark that waited for it begins now, and read
    * again after each wait (lib/riseSequence.ts). Meanwhile the
    * map is not "still" (lib/stillMap.ts: no late file is stored between the
    * commit and the rise) and, over flat ground, the pins stay down; they are
@@ -1212,6 +1215,11 @@ export function usePlateau({
       c.onReliefLost(() => void ensurePlateau());
       const { key } = await c.registerSelection(demRaised, heightM);
       if (endKey) endKey();
+      // The hold below, told before the step that may be the data's last:
+      // the mark times its fade against it (riseEta).
+      if (seq === plateauSeq && !plateauVersion) {
+        commitHoldEndAt = performance.now() + reliefCommitHold;
+      }
       if (seq === plateauSeq) progress(scopeId, { t: "key" });
       // Nothing standing, so no sink to wait for: a fixed hold after the
       // registration, timed against the lid shot's settle wait so the commit

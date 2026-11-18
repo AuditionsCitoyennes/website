@@ -43,7 +43,9 @@
 // "wait", the default): the plateau of a unit the visitor tapped also waits
 // for the unit's bundle — its children's boundaries — so that it rises with
 // them on its lid. `holdLines` arms that wait at the selection, for the
-// visit, under the cap the unit's own outline has (ac:outline-wait);
+// visit, under the cap the unit's own outline has (ac:outline-wait) — a
+// timer of its own, never extended, ended when the unit is left
+// (linesHold.ts);
 // `linesHeld` says it is armed and not given up, and the rules
 // (model/outlineRules childLinesDue) then keep the plateau waiting while the
 // bundle is declared and neither in nor failed. Past the cap the unit rises
@@ -85,6 +87,7 @@ import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BundleState } from "../model/outlineRules";
 import { outlinesBuild } from "./outlinesBuild";
 import { DECOR_PARALLEL, outlinesDecor, stillApply } from "./outlinesDecorSwitch";
+import { createLinesHold } from "./linesHold";
 import { createSelfHold } from "./selfHold";
 
 export { OUTLINE_WAIT_MS };
@@ -342,19 +345,17 @@ function createOutlineFiles(): OutlineFiles {
     },
   });
 
-  // The wait for a tapped unit's bundle: the same hold, "stored" being the
-  // bundle in or failed; given up for the visit only.
-  const linesHold = createSelfHold({
-    waitMs: OUTLINE_WAIT_MS,
-    extraMs: OUTLINE_WAIT_MS,
+  // The wait for a tapped unit's bundle (linesHold.ts): a timer of its own
+  // per visit, never extended, ended when the unit is left; "settled" is the
+  // bundle in or failed.
+  const linesHold = createLinesHold({
     setTimer: (fn, ms) => window.setTimeout(fn, ms),
-    stored: (id) => {
+    clearTimer: (timer) => window.clearTimeout(timer as number),
+    settled: (id) => {
       const fid = store.filesIdOf(id);
       return store.bundleLoaded(fid) || loader.isFailed("k", id);
     },
-    abandoned: () => loader.abandoned(),
-    abandonedDone: () => loader.abandonedDone,
-    onHeldOut(id) {
+    onOut(id) {
       if (linesArmed.value.has(id)) linesOut.value = new Set(linesOut.value).add(id);
     },
   });
@@ -413,6 +414,7 @@ function createOutlineFiles(): OutlineFiles {
       selfHold.hold(id, outlineWaitFor(outlineWait.value, coarse, OUTLINE_WAIT_MS, tapped));
     },
     leaveSelf: (id) => {
+      linesHold.leave(id);
       for (const set of [linesArmed, linesOut]) {
         if (!set.value.has(id)) continue;
         const next = new Set(set.value);

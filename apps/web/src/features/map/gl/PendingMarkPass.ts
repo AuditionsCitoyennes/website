@@ -16,26 +16,29 @@
 //   progress given;
 // - `setProgress`: a real step — the line runs to its new length at a
 //   constant speed (`lineFullMs` for the whole boundary, never less than
-//   `stepMs` a step; under "show": an ease over `stepMs`, 0: it jumps); a
-//   step that comes during a run retargets it from the value shown. Never
-//   ahead of the data;
+//   `stepMs` a step, and no drawn frame adds more than MARK_LINE_FRAME_MAX
+//   of the boundary: after a long frame the run's end slips; under "show":
+//   an ease over `stepMs`, 0: it jumps); a step that comes during a run
+//   retargets it from the value shown. Never ahead of the data;
 // - `finish`: the data is all in — the line, if it is on, runs to the whole
 //   boundary. Under "then" the fill leaves against the REAL start of the
 //   rise (`riseEta`, the plateau's: the old plateau's sink, the camera's
 //   landing where the rise waits for it): never before a frame has shown the
 //   whole line, it fades (`unfillMs`, linear) so as to reach
 //   MARK_UNFILL_FLOOR of itself when the rise can start, stays there until
-//   the plateau says the rise is cleared (`gateMs(true)`), and the rest
-//   leaves then. `gateMs()` is what is left until the fill is gone, which
-//   the plateau's rise waits for: no violet rides a rising lid, and the unit
-//   is never bare and flat for more than a frame or two. A rise whose start
+//   the plateau says the rise is cleared (`gateMs(true)`: what is left
+//   until the floor, which the rise waits for), and the floor's share goes
+//   with the rise's own first frame (`release`): no violet rides a rising
+//   lid, and the unit is never bare and flat before it. A rise whose start
 //   is not known keeps the fill whole until it is cleared. Reduced motion,
 //   where nothing eases or fades: two plain steps instead — the line whole
 //   over the fill (held MARK_REDUCED_HOLD_MS), then the fill gone
 //   (MARK_REDUCED_GAP_MS before the rise);
-// - `release`: the plateau starts to rise — the line rides the new lid and
-//   fades (`outMs`); under "together" the fill too; under "then" what is
-//   left of the fill goes at once;
+// - `release`: the plateau starts to rise — under "then" the line has left
+//   with the fill (the same fade, down to the same floor), and what is left
+//   of both goes at once: the lid rises bare. Under "together" (or with no
+//   fill, or no verdict told) the line rides the new lid and fades
+//   (`outMs`), the fill with it;
 // - `dropLine`: the file the line measured will not come, the plateau rises
 //   without it — the line fades where it stands, the fill stays and leaves
 //   by the rule above;
@@ -105,6 +108,7 @@ import {
   MARK_CREEP_FREEZE_MS,
   MARK_CREEP_TICK_MS,
   MARK_LINE_FLOATS,
+  MARK_LINE_FRAME_MAX,
   MARK_LINE_HOLD_CAP_MS,
   MARK_REDUCED_GAP_MS,
   MARK_REDUCED_HOLD_MS,
@@ -127,7 +131,7 @@ import {
   markLineWidth,
   ringVertexCount,
   unfillAlpha,
-  unfillEnd,
+  unfillFloorAt,
   type MarkFill,
   type MarkGeometry,
   type MarkLine,
@@ -304,6 +308,8 @@ export class PendingMarkPass {
   private easeMs = 0;
   /** The run under way is at a constant speed (else an ease-out). */
   private linear = false;
+  /** The line's real value in the last frame drawn (`capRun`). */
+  private drawn = 0;
   /** How the mark moves: the motion given last (`set`, a step, `finish`). */
   private motion: MarkMotion | null = null;
   // ---- when the line shows (ac:tap-fast) ----
@@ -327,8 +333,9 @@ export class PendingMarkPass {
   /** When the line's last run ends, and the first frame that showed it whole. */
   private wholeAt = 0;
   private wholeSeenAt = 0;
-  /** The unfill: begun at `unfillT0` (0: not yet), down to `floor` until
-   *  the rise is cleared (`goAt`, 0: not yet). */
+  /** The unfill: begun at `unfillT0` (0: not yet), down to `floor`, which
+   *  stays until the rise takes it; `goAt`: when the rise was cleared (0:
+   *  not yet) — the fade then no longer waits for the rise's time. */
   private unfillT0 = 0;
   private unfillMs = 0;
   private floor = 0;
@@ -571,6 +578,7 @@ export class PendingMarkPass {
     this.lineOutMs = 0;
     this.markSeenAt = 0;
     this.from = this.goal = this.lineOn ? this.target : 0;
+    this.drawn = this.from;
     this.easeT0 = 0;
     this.easeMs = 0;
     this.linear = false;
@@ -700,8 +708,35 @@ export class PendingMarkPass {
     if (r.lineState !== "ready" || !r.line?.segCount) return;
     this.lineOn = true;
     this.from = this.goal = 0;
+    this.drawn = 0;
     if (this.motion?.animate) this.run(0, this.target);
     else this.from = this.goal = this.target;
+  }
+
+  /**
+   * A run at a constant speed never adds more than MARK_LINE_FRAME_MAX of
+   * the boundary in one drawn frame: after a long frame (a weak device's, a
+   * busy page's) it goes on from the most this frame may show, at the same
+   * speed, and its end slips by what was cut — still never ahead of the
+   * data. A frame every 50 ms or sooner cuts nothing.
+   */
+  private capRun(now: number) {
+    if (!this.lineOn || this.lineSkipped) return;
+    const real = this.realAt(now);
+    const max = this.drawn + MARK_LINE_FRAME_MAX;
+    if (!this.linear || this.easeMs <= 0 || real <= max || this.goal <= this.from) {
+      this.drawn = real;
+      return;
+    }
+    const msPerShare = this.easeMs / (this.goal - this.from);
+    this.from = max;
+    this.easeT0 = now;
+    this.easeMs = (this.goal - max) * msPerShare;
+    this.drawn = max;
+    if (this.told && !this.wholeSeenAt) {
+      this.wholeAt = now + this.easeMs;
+      this.armWhole();
+    }
   }
 
   /**
@@ -816,11 +851,12 @@ export class PendingMarkPass {
   /**
    * How long the plateau's rise still waits for the mark, ms: for a line on
    * screen to have been shown whole and, under "then", for the fill to be
-   * gone (0 with no fill on screen and none about to be) — or, draining,
-   * what is left of that fade. `cleared`: the plateau says everything else
-   * the rise waits for is satisfied — the go: the fill's fade begins now or
-   * runs on past its floor, and the answer is what is left of it. Without
-   * `cleared` it is a plain query, nothing changes.
+   * down to its floor (0 with no fill on screen and none about to be): the
+   * rise starts there, and `release` takes the floor's share away in the
+   * same task — or, draining, what is left of that fade. `cleared`: the
+   * plateau says everything else the rise waits for is satisfied — the go:
+   * the fill's fade begins now if it had not. Without `cleared` it is a
+   * plain query, nothing changes.
    */
   gateMs(cleared = false): number {
     const s = this.spec;
@@ -839,11 +875,13 @@ export class PendingMarkPass {
       this.scheduleFade();
       this.repaint();
     }
-    if (!this.unfillT0) {
-      return whole + (lined ? this.holdMs : 0) + this.unfillMs + this.gateTailMs;
-    }
-    const end = unfillEnd(this.unfillT0, this.unfillMs, this.floor, this.goAt || now);
-    return Math.max(0, end + this.gateTailMs - now);
+    // The rise waits for the fill to be down to its floor only: the floor's
+    // share goes with the rise's own first frame (`release`), so the unit is
+    // never bare and flat while a timer is late.
+    const toFloor = (1 - this.floor) * this.unfillMs;
+    if (!this.unfillT0) return whole + (lined ? this.holdMs : 0) + toFloor + this.gateTailMs;
+    const at = unfillFloorAt(this.unfillT0, this.unfillMs, this.floor);
+    return Math.max(0, at + this.gateTailMs - now);
   }
 
   /** A fill not drawn yet that the next frame draws: ready, or built by that
@@ -858,11 +896,12 @@ export class PendingMarkPass {
   }
 
   /**
-   * The marked unit's plateau starts to rise, its lid `lidM` metres up: the
-   * line moves onto that lid and fades as it rises — with the fill under
-   * "together", or when no verdict was told; under "then" what is left of
-   * the fill goes at once (the gate has passed: no violet rides the lid) —
-   * or the mark goes at once (`motion.animate` false).
+   * The marked unit's plateau starts to rise, its lid `lidM` metres up.
+   * Under "then", the verdict told: what is left of the fill, and of the
+   * line that left with it, goes at once (the gate has passed: nothing of
+   * the mark rides the lid). Under "together", or when no verdict was told
+   * (or the mark has no fill): the line moves onto that lid and fades as it
+   * rises, with the fill. Or the mark goes at once (`motion.animate` false).
    */
   release(lidM: number, motion: MarkMotion) {
     if (!this.spec) return;
@@ -873,6 +912,12 @@ export class PendingMarkPass {
     if (this.phase === "draining") return; // fading already, where it stands
     this.outLidM = lidM;
     if (this.phase === "released") return;
+    // Under "then" the line left with the fill, down to the same floor: the
+    // floor's share of both goes now, and the lid rises bare.
+    if (this.lineWithFill()) {
+      this.end(true);
+      return;
+    }
     // No verdict told: a line on screen is full all the same.
     if (!this.finished) this.step(1, motion, this.shownAt(this.now()));
     this.finished = true;
@@ -1047,17 +1092,27 @@ export class PendingMarkPass {
   private fillAlphaAt(now: number): number {
     const s = this.spec;
     if (!s || !s.fill) return 0;
-    // Its plateau rises after the verdict under "then": nothing rides the lid.
+    // Its plateau rises after the verdict under "then": nothing rides the lid
+    // (a mark with a line and no fill-fade — reduced motion — ends at once).
     if (this.phase === "released" && this.told && this.order === "then") return 0;
     const out = this.phase === "held" ? 1 : fadeAlpha(now, this.outT0, this.outMs);
-    return unfillAlpha(now, this.unfillT0, this.unfillMs, this.floor, this.goAt) * out;
+    return unfillAlpha(now, this.unfillT0, this.unfillMs, this.floor) * out;
+  }
+
+  /** Under "then" a line over a fill leaves with it, ahead of the rise:
+   *  nothing of the mark rides the rising lid. */
+  private lineWithFill(): boolean {
+    const s = this.spec;
+    return !!s && s.fill && this.told && this.order === "then" && this.unfillMs > 0;
   }
 
   private lineAlphaAt(now: number): number {
     const s = this.spec;
     if (!s || !s.line) return 0;
     const drop = this.lineOutT0 ? fadeAlpha(now, this.lineOutT0, this.lineOutMs) : 1;
-    return drop * (this.phase === "held" ? 1 : fadeAlpha(now, this.outT0, this.outMs));
+    const out = this.phase === "held" ? 1 : fadeAlpha(now, this.outT0, this.outMs);
+    if (!this.lineWithFill()) return drop * out;
+    return drop * out * unfillAlpha(now, this.unfillT0, this.unfillMs, this.floor);
   }
 
   /** A run under way asks for its next frame: every frame, or — under short
@@ -1091,6 +1146,7 @@ export class PendingMarkPass {
     }
     this.sawFrame(now);
     this.turnOn(r);
+    this.capRun(now);
     const shown = this.shownAt(now);
     // The first frame that shows the whole line: the fill may leave after it.
     if (this.told && !this.wholeSeenAt && this.lined() && shown >= 1) {
@@ -1101,12 +1157,9 @@ export class PendingMarkPass {
     }
     const fillA = this.fillAlphaAt(now);
     const running = this.lineOn && this.easeMs > 0 && now < this.easeT0 + this.easeMs;
-    // The fill's fade moves: down to its floor, or — cleared — to nothing.
+    // The fill's fade moves: down to its floor (the line's with it).
     const unfilling =
-      this.phase === "held" &&
-      this.unfillT0 > 0 &&
-      this.unfillMs > 0 &&
-      fillA > (this.goAt ? 0 : this.floor);
+      this.phase === "held" && this.unfillT0 > 0 && this.unfillMs > 0 && fillA > this.floor;
     const dropping = this.lineOutT0 > 0 && now < this.lineOutT0 + this.lineOutMs;
     if (this.phase !== "held" || unfilling || dropping) this.repaint();
     else if (running) this.askRunFrame(now);

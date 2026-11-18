@@ -39,7 +39,7 @@ import {
   easeStep,
   lineEaseMs,
   lineRun,
-  unfillEnd,
+  unfillFloorAt,
   fadeAlpha,
   fillThreshold,
   markBuildPlace,
@@ -440,31 +440,21 @@ test("a fade: 1 until it starts, linear, 0 from its end — and at once without 
   assert.equal(fadeAlpha(999, 1000, 0), 1);
 });
 
-test("the unfill: linear, down to its floor until the rise is cleared, then on to nothing", () => {
+test("the unfill: linear, down to its floor, which stays until the rise takes it", () => {
   assert.equal(unfillAlpha(65_000, 0, 100), 1); // not begun
   assert.equal(unfillAlpha(59_900, 60_000, 100), 1); // begins later (the line first)
   assert.ok(near(unfillAlpha(60_040, 60_000, 100), 0.6)); // linear
   assert.equal(unfillAlpha(60_100, 60_000, 100), 0);
-  // A floor: held until the go, then the same speed from where it stood.
+  // A floor: never under it, however long the rise is in coming.
   assert.ok(near(unfillAlpha(60_050, 60_000, 100, 0.25), 0.5));
   assert.equal(unfillAlpha(60_075, 60_000, 100, 0.25), 0.25);
   assert.equal(unfillAlpha(64_000, 60_000, 100, 0.25), 0.25);
-  assert.equal(unfillAlpha(60_300, 60_000, 100, 0.25, 60_300), 0.25);
-  assert.ok(near(unfillAlpha(60_310, 60_000, 100, 0.25, 60_300), 0.15));
-  assert.equal(unfillAlpha(60_325, 60_000, 100, 0.25, 60_300), 0);
-  assert.equal(unfillEnd(60_000, 100, 0.25, 60_300), 60_325);
-  // The go before the floor: the fade runs through, as with no floor.
-  assert.ok(near(unfillAlpha(60_090, 60_000, 100, 0.25, 60_020), 0.1));
-  assert.equal(unfillEnd(60_000, 100, 0.25, 60_020), 60_100);
-  // The go before the fade began (the commit came while the line still ran):
-  // the fade is whole at its start and runs through.
-  assert.equal(unfillAlpha(60_556, 60_556, 100, 0.25, 60_466), 1);
-  assert.ok(near(unfillAlpha(60_606, 60_556, 100, 0.25, 60_466), 0.5));
-  assert.equal(unfillEnd(60_556, 100, 0.25, 60_466), 60_656);
+  assert.equal(unfillFloorAt(60_000, 100, 0.25), 60_075);
+  assert.equal(unfillFloorAt(60_000, 100, 0), 60_100);
   // A plain step (reduced motion): whole until its time, no floor.
   assert.equal(unfillAlpha(60_000, 60_000, 0, 0.25), 0);
   assert.equal(unfillAlpha(59_990, 60_000, 0, 0.25), 1);
-  assert.equal(unfillEnd(60_000, 0, 0.25, 60_500), 60_000);
+  assert.equal(unfillFloorAt(60_000, 0, 0.25), 60_000);
 });
 
 test("the line's run: a constant speed, the whole boundary in MARK_LINE_FULL_MS, a step never under MARK_STEP_MS", () => {

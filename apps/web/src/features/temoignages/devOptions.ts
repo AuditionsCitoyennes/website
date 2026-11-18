@@ -411,7 +411,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "together", label: "Ensemble" },
     ],
     explain:
-      "Ce qui se passe quand toutes les données du territoire touché sont arrivées. « Puis montée » (par défaut) : la ligne finit son tour, le violet s'efface, et le territoire ne se soulève qu'ensuite ; « Ensemble » : le violet s'efface pendant que le territoire se soulève. Sans effet si Réponse au toucher est « Aucune ».",
+      "Ce qui se passe quand toutes les données du territoire touché sont arrivées. « Puis montée » (par défaut) : la ligne finit son tour, le violet et la ligne s'effacent ensemble, et le territoire ne se soulève qu'ensuite ; « Ensemble » : le violet s'efface pendant que le territoire se soulève. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
     defaultId: "then",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
@@ -454,7 +454,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "0", label: "Aucune" },
     ],
     explain:
-      "Le contour précis d'un territoire arrive par un fichier. « Le fichier » (par défaut) : un territoire touché ou cliqué attend son fichier, 4 secondes au plus, la ligne de chargement avançant avec lui, et se soulève directement sur son contour précis ; un territoire atteint autrement (un déplacement de la carte, le fil d'Ariane, un lien) l'attend 1,2 seconde. Passé ce délai, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile ; la marque du toucher s'efface alors là où elle en est, sans que la ligne ait fait le tour. « 1,2 s » attend le fichier 1,2 seconde dans tous les cas, comme avant ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
+      "Le contour précis d'un territoire arrive par un fichier. « Le fichier » (par défaut) : un territoire touché ou cliqué attend son fichier, 4 secondes au plus, la ligne de chargement avançant avec lui, et se soulève directement sur son contour précis ; un territoire atteint autrement (un déplacement de la carte, le fil d'Ariane, un lien) l'attend 1,2 seconde. Passé ce délai, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile ; la ligne de chargement s'efface alors là où elle en est, sans avoir fait le tour, et le violet reste jusqu'à la montée. « 1,2 s » attend le fichier 1,2 seconde dans tous les cas, comme avant ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier, sans attendre non plus ses frontières intérieures. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
     reloads: false,
     defaultId: "file",
   },
@@ -481,7 +481,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "late", label: "Après" },
     ],
     explain:
-      "Les frontières à l'intérieur du territoire touché (départements d'une région, communes d'un département). « Avec le plateau » (par défaut) : le territoire attend ces frontières avant de se soulever, et la ligne de chargement en tient compte ; au bout de l'attente maximale il se soulève sans elles et elles arrivent ensuite. « Pays et régions seulement » : un département se soulève sans attendre ses communes. « Après » : comme avant, les frontières arrivent après la montée.",
+      "Les frontières à l'intérieur du territoire touché (départements d'une région, communes d'un département). « Avec le plateau » (par défaut) : le territoire attend ces frontières avant de se soulever, et la ligne de chargement en tient compte ; au bout de l'attente du contour (4 secondes au plus, jamais prolongée) il se soulève sans elles et elles arrivent ensuite. « Pays et régions seulement » : un département se soulève sans attendre ses communes. « Après » : comme avant, les frontières arrivent après la montée.",
     reloads: false,
     defaultId: "wait",
   },

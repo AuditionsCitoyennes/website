@@ -799,8 +799,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   }
 
   /** How long the rise of unit `id` waits for its mark (its whole line
-   *  shown, its fill gone), ms. `cleared`: everything else the rise waits
-   *  for is satisfied — the fill's last share leaves now. */
+   *  shown, its fill down to its floor), ms. `cleared`: everything else the
+   *  rise waits for is satisfied — a fade that waited for that begins now. */
   pendingGateMs(id: string, cleared = false): number {
     return this.pendingMark.id === id ? this.pendingMark.gateMs(cleared) : 0;
   }
@@ -811,9 +811,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.pendingMark.dropLine(motion);
   }
 
-  /** The plateau of unit `id` starts to rise (its mesh is applied): its
-   *  mark's line moves onto the new lid and fades as it rises; reduced
-   *  motion: the mark goes at once. Another unit's mark is left alone. */
+  /** The plateau of unit `id` starts to rise (its mesh is applied): what is
+   *  left of its mark goes at once — under "together" (or with no fill) the
+   *  line moves onto the new lid and fades as it rises; reduced motion: the
+   *  mark goes at once. Another unit's mark is left alone. */
   releasePending(id: string, motion: MarkMotion) {
     if (this.pendingMark.id !== id) return;
     this.pendingMark.release(this.heightM * WALL_OVERSHOOT, motion);

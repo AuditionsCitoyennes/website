@@ -10,8 +10,8 @@
 // It ends:
 // - "risen": the unit's plateau has committed (the pipeline's verdict "rise",
 //   or "same" / "quiet" when it was standing already) — the pill goes, the
-//   sentence is said; the mark itself ends with the pipeline (its fill left
-//   when the data was all in, its line fades as the plateau rises);
+//   sentence is said; the mark itself ends with the pipeline (its fill and
+//   its line leave against the rise's start, and are gone when it starts);
 // - "moved": the scope went to another unit without a tap (a pan or a zoom
 //   that changed it, a crumb) — a pan that leaves the scope alone ends nothing;
 // - "none": the pipeline's verdict for this unit is that nothing rises

@@ -88,12 +88,18 @@ export const MARK_LINE_SHOW_MS = 200;
  *  long at the fastest, ms: no frame adds more than its own time's share of
  *  the boundary (7 % at 60 Hz, 20 % in a 50 ms frame). */
 export const MARK_LINE_FULL_MS = 250;
+/** …and no drawn frame adds more than this share of the boundary: what a
+ *  50 ms frame adds at that speed. After a longer frame (a weak device's)
+ *  the run goes on from there and ends later by what was cut — five frames
+ *  at least for a whole boundary, so 385 ms instead of 250 at 13 frames a
+ *  second. */
+export const MARK_LINE_FRAME_MAX = 0.2;
 /** Under short motion (a weak device's) a run of the line asks for a frame
  *  this often, ms, while the map draws none of its own. */
 export const MARK_SHORT_FRAME_MS = 50;
 /** The fill's fade once the data is all in, ms: linear, down to
- *  MARK_UNFILL_FLOOR of itself ahead of the rise, the rest once the rise is
- *  cleared to start. */
+ *  MARK_UNFILL_FLOOR of itself ahead of the rise; the rest goes with the
+ *  rise's first frame (or fades on if no rise takes it). */
 export const MARK_UNFILL_MS = 80;
 /** The share of the fill kept until the plateau says its rise is cleared:
  *  the unit is never bare and flat while something still holds the rise. */
@@ -107,10 +113,12 @@ export const MARK_WHOLE_UNSEEN_MS = 100;
  *  the plateau rises. */
 export const MARK_REDUCED_HOLD_MS = 50;
 export const MARK_REDUCED_GAP_MS = 34;
-/** The line's fade once the plateau rises (or the wait turned late), ms. */
+/** The fade of a line that rides the rising lid (`ac:tap-end=together`, or
+ *  a mark with no fill), of a mark whose wait turned late, and of a line
+ *  whose file was given up, ms. */
 export const MARK_FADE_MS = 117;
-/** A full line whose plateau never rose is cleared this long after its
- *  fill went, ms (a safety: nothing known leaves one). Past the longest a
+/** A mark whose plateau never rose is cleared this long after its data
+ *  was all in, ms (a safety: nothing known leaves one). Past the longest a
  *  committed plateau waits to rise: the old one's sink (150 ms), the commit,
  *  the camera's landing (plateau/riseSwitch.ts LAND_WAIT_CAP_MS, 3.5 s). */
 export const MARK_LINE_HOLD_CAP_MS = 6000;
@@ -204,29 +212,18 @@ export function lineRun(from: number, to: number, t: number): number {
 
 /**
  * The unfill's opacity `now`: a linear fade over `ms` from `t0` (0: not
- * begun, 1) that stops at `floor` until the rise is cleared (`goAt`, 0: not
- * yet; before `t0`: the fade runs through), then runs on to 0 at the same
- * speed from where it stood. `ms` 0: a plain step at `t0`, no floor.
+ * begun, 1) that stops at `floor` — the share kept until the rise takes it
+ * away. `ms` 0: a plain step at `t0`, no floor.
  */
-export function unfillAlpha(now: number, t0: number, ms: number, floor = 0, goAt = 0): number {
+export function unfillAlpha(now: number, t0: number, ms: number, floor = 0): number {
   if (!t0) return 1;
   if (ms <= 0) return now >= t0 ? 0 : 1;
-  const line = (at: number) => Math.min(1, Math.max(0, 1 - (at - t0) / ms));
-  if (!goAt) return Math.max(floor, line(now));
-  // Cleared before the fade began: it runs through from its own start.
-  const go = Math.max(goAt, t0);
-  if (now <= go) return Math.max(floor, line(now));
-  const atGo = Math.max(floor, line(go));
-  return Math.max(0, atGo - (now - go) / ms);
+  return Math.max(floor, Math.min(1, 1 - (now - t0) / ms));
 }
 
-/** When the unfill above is over, its `goAt` given: the clock time its
- *  opacity reaches 0 (a plain step: its own time). */
-export function unfillEnd(t0: number, ms: number, floor: number, goAt: number): number {
-  if (ms <= 0) return t0;
-  const go = Math.max(goAt, t0);
-  const atGo = Math.min(1, Math.max(floor, 1 - (go - t0) / ms));
-  return go + atGo * ms;
+/** When the unfill above is down to its floor (a plain step: its own time). */
+export function unfillFloorAt(t0: number, ms: number, floor: number): number {
+  return ms <= 0 ? t0 : t0 + (1 - Math.min(1, Math.max(0, floor))) * ms;
 }
 
 /** The hover fill program's threshold (uFillT) that draws a vertex of

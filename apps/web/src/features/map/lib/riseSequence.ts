@@ -2,7 +2,7 @@
 // riseCleared): the camera's landing where the rise waits for it, then the
 // gate — the pending mark's violet leaving the unit (gl/PendingMarkPass
 // `gateMs(true)`: reading it also tells the mark that everything else the
-// rise waits for is satisfied, so its last share of fill leaves now). The
+// rise waits for is satisfied, so a fade that waited for that begins now). The
 // gate is read again after every wait, and waited for again while it is not
 // 0 (the fade began late, a frame was slow) — a bounded number of rounds: a
 // hidden tab draws no frame, and the rise must still come. Pure: the gate
