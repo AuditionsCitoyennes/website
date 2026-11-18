@@ -355,7 +355,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "off", label: "Aucune" },
     ],
     explain:
-      "Quand on touche ou clique un territoire, il se remplit de violet tout de suite, sur tous les appareils, sans se soulever, et son étiquette s'affiche en violet. « Ligne » (par défaut) : une ligne avance le long de sa frontière à mesure que ses données arrivent et en fait le tour complet quand tout est là ; le violet s'en va alors, puis le territoire se soulève. Si ses données arrivent en moins d'un cinquième de seconde, aucune ligne n'est tracée (voir Toucher rapide). « Aucune » ne marque rien, et le territoire se soulève alors sans attendre ses frontières intérieures : elles arrivent après la montée, comme avant.",
+      "Quand on touche ou clique un territoire, il se remplit de violet tout de suite, sur tous les appareils, sans se soulever ; son étiquette quitte la carte, comme celle de tout territoire choisi. « Ligne » (par défaut) : une ligne avance le long de sa frontière à mesure que ses données arrivent et en fait le tour complet quand tout est là ; le violet s'en va alors, puis le territoire se soulève. Si ses données arrivent en moins d'un cinquième de seconde, aucune ligne n'est tracée (voir Toucher rapide). « Aucune » ne marque rien, et le territoire se soulève alors sans attendre ses frontières intérieures : elles arrivent après la montée, comme avant.",
     reloads: false,
     defaultId: "line",
   },
@@ -548,7 +548,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "off", label: "Rien" },
     ],
     explain:
-      "Quand un territoire touché tarde à se soulever. « Signe » (par défaut) : une fois la carte arrivée sur lui, et au plus tôt 0,8 seconde après le toucher, trois petits points bougent à côté de son étiquette sur la carte et de son nom dans le panneau, jusqu'à ce qu'il se soulève ; ils restent immobiles si l'appareil demande moins d'animations. Au bout de 5 secondes sans rien, la marque du territoire s'efface et le panneau dit « La carte met plus de temps que prévu. », avec un bouton « Réessayer » qui redemande seulement ce qui manque. « Rien » ne montre ni points ni message, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
+      "Quand un territoire touché tarde à se soulever. « Signe » (par défaut) : une fois la carte arrivée sur lui, et au plus tôt 0,8 seconde après le toucher, trois petits points bougent après son nom dans le panneau (rien sur la carte ; sur un téléphone dont le panneau est réduit, ils ne se voient pas), jusqu'à ce qu'il se soulève ; ils restent immobiles si l'appareil demande moins d'animations. Au bout de 5 secondes sans rien, la marque du territoire s'efface et le panneau dit « La carte met plus de temps que prévu. », avec un bouton « Réessayer » qui redemande seulement ce qui manque. « Rien » ne montre ni points ni message, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
     defaultId: "on",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },

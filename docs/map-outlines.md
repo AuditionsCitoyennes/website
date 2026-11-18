@@ -445,17 +445,19 @@ is still on its way) holds for as long as that file takes: up to two 15 s
 attempts. The visitor is told meanwhile. Once the camera has landed, 0.8 s
 at least after the tap, three small dots move after the tapped unit's name
 in the panel's trail (CSS only, 3.9 s of motion at most, still under reduced
-motion); the map shows no name tag on the tapped unit while it waits. Five seconds after the tap with no plateau, the
-tap's mark drains and the panel says « La carte met plus de temps que
-prévu. » with a « Réessayer » button (over the map's top on a phone whose
-sheet is lowered). The button asks again for the missing piece only: while
-the map holds for an outline, the attempts on the network that the plateau
-waits for are dropped and made again at once, at the same priority, without
-counting as one of the request's two (`OutlineLoader.reask`); with the
-outline in memory, the plateau's own run is made once more unless one is
-under way. The scope, the camera, the lists and the files' chain are left as
-they are. `ac:slow-sign=off` (« Attente longue ») shows neither dots nor
-sentence, as before 2026-11-14.
+motion); the map shows no name tag on the tapped unit while it waits, so a
+phone whose sheet is lowered shows no sign before the late stage. Five
+seconds after the tap with no plateau, the tap's mark drains and the panel
+says « La carte met plus de temps que prévu. » with a « Réessayer » button
+(over the map's top on a phone whose sheet is lowered). The button asks
+again for the missing piece only: while the map holds for an outline, the
+attempts on the network that the plateau waits for are dropped and made
+again at once, at the same priority, without counting as one of the
+request's two (`OutlineLoader.reask`); with the outline in memory, the
+plateau's own run is made once more unless one is under way. The scope, the
+camera, the lists and the files' chain are left as they are.
+`ac:slow-sign=off` (« Attente longue ») shows neither dots nor sentence, as
+before 2026-11-14.
 
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps
