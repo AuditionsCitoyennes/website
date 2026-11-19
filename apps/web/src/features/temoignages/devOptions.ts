@@ -14,7 +14,7 @@
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
 // geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
 // map/threadSwitch, map/plateau/lidMapSwitch, map/plateau/lineMeshSwitch,
-// map/plateau/riseSwitch,
+// map/plateau/riseSwitch, map/plateau/haloSwitch,
 // map/cacheBudget, analyses/devSwitch,
 // shared/device/deviceTier, shared/device/motion). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
@@ -91,7 +91,8 @@ export type DevKey =
   | "ac:rise"
   | "ac:rise-order"
   | "ac:testify-nudge"
-  | "ac:testify-look";
+  | "ac:testify-look"
+  | "ac:boundary-halo";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -678,6 +679,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Le moment où le territoire choisi se soulève. « Auto » (par défaut) suit le niveau de l'appareil (section Appareil) : « En vol » au niveau complet, « À l'arrivée » aux niveaux léger et minimal. « En vol » le soulève pendant que la carte se déplace vers lui, comme avant. « À l'arrivée » attend que la carte soit arrivée : pendant le déplacement le territoire reste à plat, ses contours déjà tracés, puis il monte ; la carte a moins à calculer pendant qu'elle bouge.",
     reloads: false,
     defaultId: "auto",
+  },
+  {
+    key: "ac:boundary-halo",
+    section: "carte",
+    label: "Halo des frontières",
+    choices: [
+      { id: "avec", label: "Avec" },
+      { id: "sans", label: "Sans" },
+    ],
+    explain:
+      "La lueur violette qui entoure le territoire choisi, au pied de ses parois. « Avec » (par défaut) la garde, comme avant. « Sans » l'enlève : il ne reste que la paroi et le trait du contour, nets. Les étiquettes des analyses gardent la leur. Le changement se voit tout de suite, sans recharger la page.",
+    reloads: false,
+    defaultId: "avec",
   },
   {
     key: "ac:analyses-pending",
