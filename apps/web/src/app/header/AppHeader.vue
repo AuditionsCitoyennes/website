@@ -250,13 +250,17 @@ const joinTo = { path: ROUTE.auth.path, query: { tab: "inscription" } };
   padding: 0.75rem 1.5rem;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  /* One even gap through the bar's right-hand cluster: the nav links, then
+     the buttons (.header-actions has the same). */
+  gap: 0.5rem;
 }
 
+/* The logo on the left; everything else gathers on the right. */
 .brand {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  margin-right: auto;
   font-weight: 600;
 }
 
@@ -279,8 +283,7 @@ const joinTo = { path: ROUTE.auth.path, query: { tab: "inscription" } };
 
 .nav-desktop {
   display: none;
-  gap: 0.25rem;
-  margin-inline: auto;
+  gap: 0.5rem;
 }
 
 .nav-link {
@@ -306,7 +309,6 @@ const joinTo = { path: ROUTE.auth.path, query: { tab: "inscription" } };
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-left: auto;
 }
 
 .icon-btn {
