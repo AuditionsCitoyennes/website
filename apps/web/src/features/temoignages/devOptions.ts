@@ -704,7 +704,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "lister", label: "Lister" },
     ],
     explain:
-      "Quand on choisit un lieu qui n'a qu'une audition, en touchant ou en cliquant son point sur la carte, ou sa ligne dans le panneau. « Ouvrir l'audition » (par défaut) ouvre aussitôt cette audition et ses témoignages, comme si on l'avait choisie dans la liste du lieu ; la flèche de retour ramène au territoire d'avant. « Lister » affiche la liste des auditions du lieu, une seule ligne à ouvrir, comme avant. Sans effet avec des filtres : le point d'un lieu ouvre déjà son audition dans les résultats.",
+      "Quand on choisit un lieu qui n'a qu'une audition, en touchant ou en cliquant son point sur la carte, ou sa ligne dans le panneau. « Ouvrir l'audition » (par défaut) ouvre aussitôt cette audition et ses témoignages, comme si on l'avait choisie dans la liste du lieu ; la flèche de retour ramène au territoire du lieu, sans passer par une liste d'une seule ligne. « Lister » affiche la liste des auditions du lieu, une seule ligne à ouvrir, comme avant. Sans effet avec des filtres : le point d'un lieu ouvre déjà son audition dans les résultats.",
     reloads: false,
     defaultId: "ouvrir",
   },

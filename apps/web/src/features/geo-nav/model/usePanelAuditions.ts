@@ -332,6 +332,13 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     if (drift) scroller.scrollTop += drift;
   }
 
+  /** The list back at its top: a lieu newly opened with its audition open
+   *  (useNavActions' openPlace) is read from its title, wherever the list
+   *  before it had been scrolled to. */
+  function listToTop() {
+    if (panelListEl.value) panelListEl.value.scrollTop = 0;
+  }
+
   /** What the reader taking the list in hand looks like. */
   const HANDS_ON = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
 
@@ -441,6 +448,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     toggleAud,
     audToTop,
     keepAtTop,
+    listToTop,
     lieuAuditionsOf,
   };
 }

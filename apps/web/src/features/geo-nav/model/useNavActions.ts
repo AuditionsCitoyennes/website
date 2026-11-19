@@ -31,6 +31,8 @@ export interface NavActionsInputs {
     findResultFurther: ((unit: GeoUnit) => Promise<number>) | null;
     /** What is known of a lieu's auditions the moment it is opened. */
     lieuAuditionsOf: (unit: GeoUnit) => LieuAuditionsKnown | null;
+    /** The panel's list back at its top. */
+    listToTop: () => void;
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
@@ -45,7 +47,7 @@ export function useNavActions(inputs: NavActionsInputs) {
     nav;
   const { flyToUnit, spotlightPlace } = camera;
   const { resultAuditions, shownCount, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
-  const { findResultFurther, lieuAuditionsOf } = panel;
+  const { findResultFurther, lieuAuditionsOf, listToTop } = panel;
 
   // The perf probes' tap-answer: a panel row is a tap target of its own.
   if (perfOn) perfTapTargets([{ kind: "row", selector: ".unit-row" }]);
@@ -187,13 +189,18 @@ export function useNavActions(inputs: NavActionsInputs) {
     // it, in the same tick — so the camera's one command below aims with the
     // panel as wide as an open audition makes it, and the press's own return
     // to the lieu is that command.
+    // The list is read from the lieu's title: the scroll of the list before it
+    // (a long text, a long list of lieux) would otherwise carry over, the new
+    // content as tall when the audition's testimonies are already in.
     const only = auditionToOpen({
       mode: lieuSingleMode.value,
-      listMode: false,
       newLieu,
       known: newLieu ? lieuAuditionsOf(unit) : null,
     });
-    if (only) void toggleAud(only, false);
+    if (only) {
+      listToTop();
+      void toggleAud(only, false).then(listToTop);
+    }
     spotlightPlace(unit);
   }
 

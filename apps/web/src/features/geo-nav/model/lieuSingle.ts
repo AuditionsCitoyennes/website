@@ -51,15 +51,14 @@ export function knownFromGroups(
  * The audition to open with a lieu, or null (the lieu's list, as before).
  * Only for a lieu newly opened — the one already open, opened again (its
  * crumb, its own dot), only brings the map back to it and leaves the reader's
- * audition as it is, open or closed. Not with the filters on: a dot there
- * already opens its audition in the results.
+ * audition as it is, open or closed. (With the filters on, openPlace never
+ * gets here: a dot there already opens its audition in the results.)
  */
 export function auditionToOpen(o: {
   mode: "ouvrir" | "lister";
-  listMode: boolean;
   newLieu: boolean;
   known: LieuAuditionsKnown | null;
 }): string | null {
-  if (o.mode !== "ouvrir" || o.listMode || !o.newLieu || !o.known) return null;
+  if (o.mode !== "ouvrir" || !o.newLieu || !o.known) return null;
   return o.known.count === 1 ? o.known.first : null;
 }

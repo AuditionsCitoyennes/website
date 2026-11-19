@@ -1,8 +1,8 @@
 // A lieu with one audition (lieuSingle.ts): what is known of a lieu's
 // auditions from the server's row and from the corpus' groups, and the rule
 // that opens the one audition with a lieu newly opened — never in the
-// « Lister » mode, with the filters on, for the lieu already open, for a lieu
-// of several auditions or of none. Plain objects stand in for the rows and
+// « Lister » mode, for the lieu already open, for a lieu of several auditions
+// or of none. Plain objects stand in for the rows and
 // the groups. Run with `node --import tsx --test` (root "test:scripts").
 // Pure: no Vue, no DOM.
 
@@ -47,15 +47,14 @@ test("knownFromGroups: every audition under the lieu's name, across its groups",
 });
 
 const one = { count: 1, first: "a1" };
-const opening = { mode: "ouvrir" as const, listMode: false, newLieu: true, known: one };
+const opening = { mode: "ouvrir" as const, newLieu: true, known: one };
 
 test("auditionToOpen: a lieu newly opened with one audition opens it", () => {
   assert.equal(auditionToOpen(opening), "a1");
 });
 
-test("auditionToOpen: « Lister », the filters on, or the lieu already open: its list, as before", () => {
+test("auditionToOpen: « Lister », or the lieu already open: its list, as before", () => {
   assert.equal(auditionToOpen({ ...opening, mode: "lister" }), null);
-  assert.equal(auditionToOpen({ ...opening, listMode: true }), null);
   assert.equal(auditionToOpen({ ...opening, newLieu: false }), null);
 });
 
