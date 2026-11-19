@@ -999,7 +999,8 @@ function retryAll() {
       {{ waitStage === "late" && slowWaitAt === "none" ? "" : tapLive }}
     </p>
     <!-- …long enough for the page to say so (ac:slow-sign). On a phone whose
-         sheet is lowered the panel's head is off screen: said over the map. -->
+         sheet is lowered the panel's notice slot is off screen (only the trail
+         row shows): said over the map. -->
     <SlowWaitNotice v-if="slowWaitAt === 'floating'" floating @retry="onRetryWait" />
 
     <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over

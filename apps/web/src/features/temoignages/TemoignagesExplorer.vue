@@ -132,7 +132,7 @@ watch(
             {{ resultCount }} résultat{{ resultCount > 1 ? "s" : "" }}
           </span>
           <!-- On a phone a funnel stands for the word (its aria-label says
-               it); the count of active filters stays beside it. -->
+               it); the count of active filters is a badge on its corner. -->
           <button
             type="button"
             class="ac-btn ac-btn--ghost filters-btn"
@@ -240,8 +240,8 @@ watch(
   gap: 0.6rem;
   /* One line, whatever the width: on a phone this row sits in the sheet's
      measured strip, and a taller strip moves the camera. Squeezed, the count
-     shortens rather than push the buttons out (narrow phones also drop the
-     Analyses label, then the count: below). */
+     shortens rather than push the buttons out (below 900 px both labels and
+     the count go: below). */
   min-width: 0;
 }
 /* Reads as a control, not a caption: the ghost button is otherwise bare text

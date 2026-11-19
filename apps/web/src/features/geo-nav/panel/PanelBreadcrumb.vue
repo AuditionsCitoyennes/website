@@ -7,7 +7,9 @@
 // (`waiting`), three small dots follow its name: the sign of a long wait.
 // They sit on the row like a crumb: where the row is full to within their
 // width, one more leading crumb collapses for as long as they show; anywhere
-// else nothing on the row moves.
+// else nothing on the row moves. With `reserveWait` (the phone's strip, on
+// screen while the sheet is lowered) their room is kept, empty, at all times,
+// so the fold never changes as they come and go.
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { backTarget } from "./backTarget";
@@ -17,6 +19,9 @@ const props = defineProps<{
   trail: GeoUnit[];
   /** The last unit's plateau is long in coming: the dots after its name. */
   waiting?: boolean;
+  /** Keep the dots' room when they are not shown: the trail never refolds
+   *  for them. */
+  reserveWait?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -48,8 +53,9 @@ async function fitCrumbs() {
   }
 }
 watch(
-  // The dots take room on the row too: fitted again as they come and go.
-  () => [props.trail, props.waiting],
+  // The dots take room on the row too: fitted again as they come and go
+  // (unless their room is kept for them at all times).
+  () => [props.trail, props.reserveWait || props.waiting],
   () => void fitCrumbs(),
   { flush: "post" },
 );
@@ -141,7 +147,12 @@ function goBack() {
       <span v-if="i < visibleCrumbs.length - 1" class="crumb-sep" aria-hidden="true">›</span>
     </template>
     <!-- Said by the list's aria-busy and, later, by the page's live sentence. -->
-    <span v-if="waiting" class="wait-dots moving crumb-wait" aria-hidden="true">
+    <span
+      v-if="waiting || reserveWait"
+      class="wait-dots crumb-wait"
+      :class="waiting ? 'moving' : 'crumb-wait-kept'"
+      aria-hidden="true"
+    >
       <i></i><i></i><i></i>
     </span>
   </nav>
@@ -210,6 +221,11 @@ function goBack() {
    colour, right after it. */
 .crumb-wait {
   color: hsl(var(--primary));
+}
+
+/* Its room kept while there is no wait (`reserveWait`): there, unseen. */
+.crumb-wait-kept {
+  visibility: hidden;
 }
 
 /* After `.crumb` (same specificity): a 24 px target, its colours and hover

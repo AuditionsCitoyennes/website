@@ -111,6 +111,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
             class="head-trail"
             :trail="crumbs"
             :waiting="waiting"
+            reserve-wait
             @go="emit('crumb', $event)"
           />
           <p v-else-if="phone" class="head-label">Résultats filtrés</p>
@@ -413,6 +414,12 @@ defineExpose({ el, peekEl, safeEl, listEl });
     margin-top: 0;
     flex: 1 1 auto;
     min-width: 0;
+  }
+
+  /* On the lowered sheet the crumbs are the main targets: as tall as the
+     buttons beside them (the row is that tall already). */
+  .title-row .head-trail :deep(.crumb) {
+    min-height: 2.5rem;
   }
 
   /* The results listed (filters on) have no trail: a short label instead. */
