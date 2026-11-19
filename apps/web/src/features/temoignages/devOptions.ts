@@ -12,7 +12,8 @@
 // map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
-// geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
+// geo-nav/model/slowSignSwitch, geo-nav/panel/cardsBleedSwitch,
+// map/relief/groundSwitch, map/graphicsSwitch,
 // map/threadSwitch, map/plateau/lidMapSwitch, map/plateau/lineMeshSwitch,
 // map/plateau/riseSwitch, map/plateau/haloSwitch,
 // map/cacheBudget, analyses/devSwitch,
@@ -94,7 +95,8 @@ export type DevKey =
   | "ac:testify-nudge"
   | "ac:testify-look"
   | "ac:boundary-halo"
-  | "ac:lieu-single";
+  | "ac:lieu-single"
+  | "ac:cards-bleed";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -992,6 +994,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "L'allure du bouton « Témoigner » quand il invite, toujours en violet. « Lueur » (par défaut) : une lueur douce autour du bouton, qui respire trois fois après l'arrivée sur la page puis reste fixe. « Anneau » : un fin anneau autour du bouton, d'où un anneau plus large s'élargit et s'efface trois fois. « Point » : un petit point violet sur son coin, dont la lueur respire trois fois. Si le système demande de réduire les animations, rien ne bouge.",
     reloads: false,
     defaultId: "lueur",
+  },
+  {
+    key: "ac:cards-bleed",
+    section: "site",
+    label: "Cartes sans marge",
+    choices: [
+      { id: "partout", label: "Partout" },
+      { id: "telephone", label: "Téléphone" },
+      { id: "marge", label: "Avec marge" },
+    ],
+    explain:
+      "Les lignes du panneau des témoignages (les lieux, les auditions) et les témoignages d'une audition ouverte. « Partout » (par défaut) : elles vont d'un bord à l'autre du panneau, sans marge autour, leur texte gardant le même retrait que le fil du panneau. « Téléphone » fait de même sur un téléphone seulement ; « Avec marge », comme avant, laisse une marge de chaque côté de la liste et décale les témoignages sous leur audition.",
+    reloads: false,
+    defaultId: "partout",
   },
 ];
 

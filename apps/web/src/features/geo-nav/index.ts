@@ -17,6 +17,8 @@ export { prefetchMode, setPrefetchMode } from "./data/prefetchSwitch";
 export { slowSignMode, setSlowSignMode } from "./model/slowSignSwitch";
 // What opening a lieu with one audition does (ac:lieu-single), for the DEV dialog.
 export { lieuSingleMode, setLieuSingleMode } from "./model/lieuSingleSwitch";
+// Whether the panel's cards run to its edges (ac:cards-bleed), for the DEV dialog.
+export { cardsBleed, setCardsBleed } from "./panel/cardsBleedSwitch";
 // A lieu's label as the tree gives it (the comparer names the server's lieux so).
 export { placeLabel } from "@/features/geo";
 

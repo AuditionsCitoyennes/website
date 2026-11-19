@@ -10,6 +10,7 @@ import { ref, type StyleValue } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { motionNow } from "@/shared/device/motion";
 import PanelBreadcrumb from "./PanelBreadcrumb.vue";
+import { cardsBleed, cardsBleedClass } from "./cardsBleedSwitch";
 
 defineProps<{
   /** An audition is open on a desktop: the panel widens (`.panel.wide`). */
@@ -133,6 +134,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
     <div
       ref="listEl"
       class="panel-list"
+      :class="cardsBleedClass(cardsBleed)"
       :inert="sheetHidden || undefined"
       :aria-busy="busy || undefined"
     >
@@ -192,6 +194,9 @@ defineExpose({ el, peekEl, safeEl, listEl });
   flex-direction: column;
   border-radius: 0.9rem 0 0 0.9rem;
   overflow: hidden;
+  /* The head's side padding — and, without the list's gutter (.bleed), the
+     rows' and the testimonies' own, so their text lines up with the head's. */
+  --panel-x: 1.1rem;
 }
 
 /* Grown down to the bottom edge (measured in script — `panelFlush`), that corner
@@ -243,7 +248,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
 .panel-head {
   flex-shrink: 0;
-  padding: 1rem 1.1rem 0.85rem;
+  padding: 1rem var(--panel-x) 0.85rem;
   border-bottom: 1px solid hsl(var(--border) / 0.6);
 }
 
@@ -316,6 +321,17 @@ defineExpose({ el, peekEl, safeEl, listEl });
   padding: 0.6rem 0.7rem 0.9rem;
 }
 
+/* The cards without a gutter (cardsBleedSwitch, `ac:cards-bleed`): the list
+   runs to the panel's edges; the rows (UnitList, AuditionList) read
+   --bleed-x for their inner side padding and --row-radius for their corners,
+   so a row's hover ground and the lines between rows span the panel while
+   its text keeps the head's inset. Without the class they keep their own. */
+.panel-list.bleed {
+  padding-inline: 0;
+  --bleed-x: var(--panel-x);
+  --row-radius: 0;
+}
+
 /* Bottom-sheet parts: phone only (shown in the media query below). */
 .sheet-grip,
 .sheet-safe {
@@ -346,8 +362,12 @@ defineExpose({ el, peekEl, safeEl, listEl });
     transition: none;
   }
 
+  .panel {
+    --panel-x: 0.8rem;
+  }
+
   .panel-head {
-    padding: 0 0.8rem 0.5rem;
+    padding: 0 var(--panel-x) 0.5rem;
   }
 
   /* The strip is the handle, so the browser must leave vertical drags on it to
@@ -386,6 +406,13 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
   .panel-list {
     padding: 0.5rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* `ac:cards-bleed` « Téléphone »: no gutter below 900 px only. */
+  .panel-list.bleed-phone {
+    padding-inline: 0;
+    --bleed-x: var(--panel-x);
+    --row-radius: 0;
   }
 }
 

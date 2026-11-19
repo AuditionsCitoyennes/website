@@ -138,10 +138,11 @@ function onMouseEnter(id: string) {
   align-items: center;
   gap: 0.7rem;
   width: 100%;
-  padding: 0.7rem 0.6rem;
+  /* Without the list's gutter (GeoPanel's .bleed), the head's inset. */
+  padding: 0.7rem var(--bleed-x, 0.6rem);
   background: transparent;
   border: none;
-  border-radius: 0.5rem;
+  border-radius: var(--row-radius, 0.5rem);
   text-align: left;
   cursor: pointer;
   transition: background 0.2s ease;

@@ -63,6 +63,7 @@ const rise = await import("../map/plateau/riseSwitch");
 const testify = await import("../../shared/testimony/testifyNudge");
 const halo = await import("../map/plateau/haloSwitch");
 const lieuSingle = await import("../geo-nav/model/lieuSingleSwitch");
+const bleed = await import("../geo-nav/panel/cardsBleedSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -104,6 +105,7 @@ const MODULES = {
   testify: "../../shared/testimony/testifyNudge.ts",
   halo: "../map/plateau/haloSwitch.ts",
   lieuSingle: "../geo-nav/model/lieuSingleSwitch.ts",
+  bleed: "../geo-nav/panel/cardsBleedSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -175,6 +177,7 @@ const KEYS: readonly DevKey[] = [
   "ac:testify-look",
   "ac:boundary-halo",
   "ac:lieu-single",
+  "ac:cards-bleed",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -188,7 +191,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 61);
+  assert.equal(DEV_OPTIONS.length, 62);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -311,6 +314,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:testify-look": ["testify", "setTestifyLook"],
   "ac:boundary-halo": ["halo", "setBoundaryHalo"],
   "ac:lieu-single": ["lieuSingle", "setLieuSingleMode"],
+  "ac:cards-bleed": ["bleed", "setCardsBleed"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -438,6 +442,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:testify-look"), [...testify.TESTIFY_LOOKS]);
   assert.deepEqual(ids("ac:boundary-halo"), [...halo.BOUNDARY_HALOS]);
   assert.deepEqual(ids("ac:lieu-single"), [...lieuSingle.LIEU_SINGLE_MODES]);
+  assert.deepEqual(ids("ac:cards-bleed"), [...bleed.CARDS_BLEEDS]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -521,6 +526,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:testify-look": testify.DEFAULT_TESTIFY_LOOK,
     "ac:boundary-halo": halo.DEFAULT_BOUNDARY_HALO,
     "ac:lieu-single": lieuSingle.DEFAULT_LIEU_SINGLE,
+    "ac:cards-bleed": bleed.DEFAULT_CARDS_BLEED,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
