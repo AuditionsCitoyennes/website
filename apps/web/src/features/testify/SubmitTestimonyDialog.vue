@@ -6,6 +6,7 @@ import { vAutogrow } from "@/shared/ui/directives/autogrow";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import { ROUTE } from "@/shared/routes";
 import CommuneCombobox, { type Commune } from "./CommuneCombobox.vue";
+import { noteTestimony } from "@/shared/testimony/testifyNudge";
 
 // "Témoigner": anyone — signed in or not — leaves a testimony. It joins the
 // online audition of the month of their commune's town hall, and is published
@@ -89,6 +90,8 @@ async function submit() {
       title: result.title,
       devVerificationUrl: result.devVerificationUrl,
     };
+    // The header's « Témoigner » calms down for a week (testifyNudge.ts).
+    noteTestimony();
   } catch (e) {
     error.value =
       e instanceof ApiError ? e.message : "Votre témoignage n'a pas pu être envoyé. Réessayez.";
