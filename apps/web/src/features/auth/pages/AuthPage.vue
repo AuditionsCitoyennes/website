@@ -26,9 +26,10 @@ const signupSchema = z.object({
 const router = useRouter();
 const { toast } = useToast();
 
-// `?tab=inscription` (the home page's "join" button) opens on the sign-up tab —
-// and the plain /auth (the header's "Connexion"), reached from there, goes back
-// to the sign-in one: the page stays mounted while only its query changes.
+// `?tab=inscription` (the home page's "join" button and the header's « Nous
+// rejoindre ») opens on the sign-up tab — and the plain /auth, reached from
+// there, goes back to the sign-in one: the page stays mounted while only its
+// query changes.
 const route = useRoute();
 const tab = ref<"login" | "signup">("login");
 watch(

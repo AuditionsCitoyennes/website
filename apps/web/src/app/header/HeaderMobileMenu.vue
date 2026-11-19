@@ -1,10 +1,15 @@
 <script setup lang="ts">
+import type { RouteLocationRaw } from "vue-router";
 import { useAuthStore } from "@/features/auth";
 import { ROUTE } from "@/shared/routes";
 
 defineProps<{
   open: boolean;
   links: { to: string; label: string }[];
+  /** « Nous rejoindre »: where the bar's entry goes (AppHeader.vue). */
+  joinTo: RouteLocationRaw;
+  /** « Témoigner » invites (shared/testimony/testifyNudge.ts). */
+  nudge: boolean;
 }>();
 const emit = defineEmits<{
   close: [];
@@ -44,9 +49,11 @@ const legal = [
           <button
             type="button"
             class="nav-link-mobile nav-link-mobile-btn"
+            :class="{ 'nav-link-mobile--nudge': nudge }"
             @click="emit('testify')"
           >
             Témoigner
+            <span v-if="nudge" class="nudge-dot" aria-hidden="true"></span>
           </button>
           <template v-if="auth.user">
             <button
@@ -55,14 +62,14 @@ const legal = [
               class="nav-link-mobile nav-link-mobile-btn"
               @click="emit('newAudition')"
             >
-              + Nouvelle Audition
+              + Nouvelle audition
             </button>
             <RouterLink to="/admin" class="nav-link-mobile" @click="emit('close')"
               >Admin</RouterLink
             >
           </template>
-          <RouterLink v-else to="/auth" class="nav-link-mobile" @click="emit('close')">
-            Connexion
+          <RouterLink v-else :to="joinTo" class="nav-link-mobile" @click="emit('close')">
+            Nous rejoindre
           </RouterLink>
         </div>
 
@@ -110,6 +117,23 @@ const legal = [
 
 .nav-link-legal.router-link-active {
   color: hsl(var(--primary));
+}
+
+/* « Témoigner » inviting: in the site's violet, with a still dot. */
+.nav-link-mobile--nudge {
+  color: hsl(var(--primary));
+  font-weight: 600;
+}
+
+.nudge-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 0.45rem;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: hsl(var(--accent-foreground));
+  box-shadow: 0 0 6px 2px hsl(var(--primary) / 0.45);
 }
 
 .nav-link-mobile-btn {
