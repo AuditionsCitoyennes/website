@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // The panel: the aside beside the map (a bottom sheet on a phone) — the strip
 // that is the sheet's handle, the title row and the page's slots, the
-// breadcrumb, and the scrolling list area whose content GeoNav chooses. Its
+// breadcrumb, and the scrolling list area whose content GeoNav chooses. On a
+// phone the breadcrumb IS the title row (no « Témoignages » heading on show):
+// the trail, then the page's buttons, the one line a lowered sheet shows. Its
 // state comes in as props; what the layout and the sheet measure (the aside,
 // the strip, the safe-area probe, the list's scroller) is exposed. The aside's
 // own listeners (a click, a key, the wheel, the pointer resting on it) are
@@ -10,6 +12,7 @@ import { ref, type StyleValue } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { motionNow } from "@/shared/device/motion";
 import PanelBreadcrumb from "./PanelBreadcrumb.vue";
+import { cardsBleed, cardsBleedClass } from "./cardsBleedSwitch";
 
 defineProps<{
   /** An audition is open on a desktop: the panel widens (`.panel.wide`). */
@@ -28,6 +31,9 @@ defineProps<{
   sheetOpen: boolean;
   /** Lowered and at rest: everything under the strip is off screen, and inert. */
   sheetHidden: boolean;
+  /** Below 900 px (the bottom sheet): the trail heads the strip, in the
+   *  title's place. */
+  phone: boolean;
   /** The breadcrumb's trail; null while the results are listed (no trail). */
   crumbs: GeoUnit[] | null;
   /** A territory was tapped and its plateau is on its way: the list is
@@ -50,7 +56,8 @@ const emit = defineEmits<{
 }>();
 
 const el = ref<HTMLElement | null>(null);
-/** Grip + title row — what stays on screen when lowered, and the drag handle. */
+/** Grip + title row (on a phone the trail and the buttons) — what stays on
+ *  screen when lowered, and the drag handle. */
 const peekEl = ref<HTMLElement | null>(null);
 /** Zero-size probe whose padding resolves `env(safe-area-inset-bottom)`. */
 const safeEl = ref<HTMLElement | null>(null);
@@ -95,7 +102,19 @@ defineExpose({ el, peekEl, safeEl, listEl });
           <span aria-hidden="true"></span>
         </button>
         <div class="title-row">
-          <h1>Témoignages</h1>
+          <!-- On a phone the heading is read, not shown: the trail takes its
+               place (the results listed have none: a short label instead).
+               Never inert: lowered, this row is what the sheet shows. -->
+          <h1 :class="{ 'sr-heading': phone }">Témoignages</h1>
+          <PanelBreadcrumb
+            v-if="phone && crumbs"
+            class="head-trail"
+            :trail="crumbs"
+            :waiting="waiting"
+            reserve-wait
+            @go="emit('crumb', $event)"
+          />
+          <p v-else-if="phone" class="head-label">Résultats filtrés</p>
           <!-- Filter entry point (the "Filtres" button + its active count).
                The page owns the filter state, so it fills these slots rather
                than the state being drilled down into this component. -->
@@ -106,7 +125,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
       <!-- Search field, active-filter chips, filter notices — same reason.
            (Everything under the strip is off screen while the sheet is
            lowered, so it is made inert: no focus, no screen-reader stops.) -->
-      <div :inert="sheetHidden || undefined">
+      <div class="sheet-below" :inert="sheetHidden || undefined">
         <slot name="head-below" />
       </div>
 
@@ -116,7 +135,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
            lieu open the trail stays and ends at the lieu itself; an arrow
            before it goes one level up (backTarget.ts). -->
       <PanelBreadcrumb
-        v-if="crumbs"
+        v-if="crumbs && !phone"
         :trail="crumbs"
         :waiting="waiting"
         :inert="sheetHidden || undefined"
@@ -125,14 +144,15 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
       <!-- What the page has to say about the map under the trail (the long
            wait's sentence and its « Réessayer »): GeoNav fills it. -->
-      <div :inert="sheetHidden || undefined">
+      <div class="sheet-below" :inert="sheetHidden || undefined">
         <slot name="head-notice" />
       </div>
     </header>
 
     <div
       ref="listEl"
-      class="panel-list"
+      class="panel-list sheet-below"
+      :class="cardsBleedClass(cardsBleed)"
       :inert="sheetHidden || undefined"
       :aria-busy="busy || undefined"
     >
@@ -192,6 +212,9 @@ defineExpose({ el, peekEl, safeEl, listEl });
   flex-direction: column;
   border-radius: 0.9rem 0 0 0.9rem;
   overflow: hidden;
+  /* The head's side padding — and, without the list's gutter (.bleed), the
+     rows' and the testimonies' own, so their text lines up with the head's. */
+  --panel-x: 1.1rem;
 }
 
 /* Grown down to the bottom edge (measured in script — `panelFlush`), that corner
@@ -243,7 +266,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
 .panel-head {
   flex-shrink: 0;
-  padding: 1rem 1.1rem 0.85rem;
+  padding: 1rem var(--panel-x) 0.85rem;
   border-bottom: 1px solid hsl(var(--border) / 0.6);
 }
 
@@ -316,6 +339,30 @@ defineExpose({ el, peekEl, safeEl, listEl });
   padding: 0.6rem 0.7rem 0.9rem;
 }
 
+/* The cards without a gutter (cardsBleedSwitch, `ac:cards-bleed`): the list
+   runs to the panel's edges; the rows (UnitList, AuditionList) read
+   --bleed-x for their inner side padding and --row-radius for their corners,
+   so a row's hover ground and the lines between rows span the panel while
+   its text keeps the head's inset. Without the class they keep their own. */
+.panel-list.bleed {
+  padding-inline: 0;
+  --bleed-x: var(--panel-x);
+  --row-radius: 0;
+}
+
+/* A phone's heading, read and not shown (the trail stands in its place). */
+.sr-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Bottom-sheet parts: phone only (shown in the media query below). */
 .sheet-grip,
 .sheet-safe {
@@ -346,8 +393,59 @@ defineExpose({ el, peekEl, safeEl, listEl });
     transition: none;
   }
 
+  .panel {
+    --panel-x: 0.8rem;
+  }
+
   .panel-head {
-    padding: 0 0.8rem 0.5rem;
+    padding: 0 var(--panel-x) 0.5rem;
+  }
+
+  /* The trail, then the buttons: the one line of the lowered sheet. Its own
+     bottom padding is the breathing room above the screen's edge, so the
+     strip measured ends where the row's room does and nothing under it
+     peeks (useBottomSheet adds no gap of its own). */
+  .title-row {
+    gap: 0.5rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .title-row .head-trail {
+    margin-top: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* On the lowered sheet the crumbs are the main targets: as tall as the
+     buttons beside them (the row is that tall already). */
+  .title-row .head-trail :deep(.crumb) {
+    min-height: 2.5rem;
+  }
+
+  /* The results listed (filters on) have no trail: a short label instead. */
+  .head-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-ui);
+    font-weight: 700;
+    color: hsl(var(--primary));
+  }
+
+  /* Lowered and at rest, what lies under the strip is hidden too, not only
+     slid off: the home indicator's inset, under the strip, would otherwise
+     show its top. After the slide down (the sheet's 0.35 s); back at once as
+     the sheet rises or is dragged. */
+  .panel.sheet-lowered:not(.sheet-dragging) .sheet-below {
+    visibility: hidden;
+    transition: visibility 0s linear 0.35s;
+  }
+
+  .panel.sheet-lowered:not(.sheet-dragging) .panel-head {
+    border-bottom-color: transparent;
+    transition: border-bottom-color 0s linear 0.35s;
   }
 
   /* The strip is the handle, so the browser must leave vertical drags on it to
@@ -386,6 +484,13 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
   .panel-list {
     padding: 0.5rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* `ac:cards-bleed` « Téléphone »: no gutter below 900 px only. */
+  .panel-list.bleed-phone {
+    padding-inline: 0;
+    --bleed-x: var(--panel-x);
+    --row-radius: 0;
   }
 }
 

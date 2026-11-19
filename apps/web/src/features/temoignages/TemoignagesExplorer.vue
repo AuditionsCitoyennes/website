@@ -75,6 +75,11 @@ const navTestimonies = computed(() => (unitTree ? NO_TESTIMONIES : filteredTesti
 const highlight = computed(() => (serverFilters ? serverFilters.text.value : text.value));
 
 const { analyses, analysesBtn } = useAnalysesToggle(() => Boolean(props.preview));
+/** The filters button's name: the word, and how many filters are on. */
+const filtersLabel = computed(() => {
+  const n = chips.value.length;
+  return n ? `Filtres, ${n} actif${n > 1 ? "s" : ""}` : "Filtres";
+});
 // `!!`: a constant the template reads as is, so a build without the analyses drops the button.
 const analysesOn = !!__ANALYSES__;
 
@@ -126,14 +131,33 @@ watch(
           <span class="result-count">
             {{ resultCount }} résultat{{ resultCount > 1 ? "s" : "" }}
           </span>
+          <!-- On a phone a funnel stands for the word (its aria-label says
+               it); the count of active filters is a badge on its corner. -->
           <button
             type="button"
             class="ac-btn ac-btn--ghost filters-btn"
+            :aria-label="filtersLabel"
             :aria-expanded="filtersOpen"
             @click="filtersOpen = true"
           >
-            Filtres
-            <span v-if="chips.length" class="filters-count">{{ chips.length }}</span>
+            <svg
+              class="filters-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="16"
+              height="16"
+              aria-hidden="true"
+            >
+              <path d="M3 4h18l-7 8.5V19l-4 2v-8.5z" />
+            </svg>
+            <span class="filters-label">Filtres</span>
+            <span v-if="chips.length" class="filters-count" aria-hidden="true">{{
+              chips.length
+            }}</span>
           </button>
           <!-- On a phone this row is the sheet's drag handle: a plain click,
                nothing stopped on pointerdown, or the strip no longer drags. -->
@@ -216,8 +240,8 @@ watch(
   gap: 0.6rem;
   /* One line, whatever the width: on a phone this row sits in the sheet's
      measured strip, and a taller strip moves the camera. Squeezed, the count
-     shortens rather than push the buttons out (narrow phones also drop the
-     Analyses label, then the count: below). */
+     shortens rather than push the buttons out (below 900 px both labels and
+     the count go: below). */
   min-width: 0;
 }
 /* Reads as a control, not a caption: the ghost button is otherwise bare text
@@ -262,21 +286,47 @@ watch(
   color: hsl(var(--muted-foreground));
   font-size: var(--text-caption);
 }
-/* Narrow phones: the Analyses toggle down to its icon (its aria-label says
-   it), a square as tall as Filtres; narrower still, the count goes — the
-   filters dialog repeats it on its button. */
-@media (max-width: 419px) {
-  .analyses-btn {
+/* The funnel is a phone's (below). */
+.filters-icon {
+  display: none;
+  flex-shrink: 0;
+  color: hsl(var(--primary));
+}
+/* Phones (the bottom sheet, whose strip this row is, after the trail): both
+   buttons down to their icons (their aria-labels say them), squares as tall
+   as a button; no result count — the filters dialog says it on its button,
+   and the trail has the room. The active filters' count stays on the funnel. */
+@media (max-width: 899px) {
+  .filters-btn {
+    position: relative;
     width: 2.5rem;
     padding: 0;
   }
-  .analyses-label {
-    display: none;
+  .filters-icon {
+    display: block;
   }
-}
-@media (max-width: 359px) {
+  .filters-label,
+  .analyses-label,
   .result-count {
     display: none;
+  }
+  /* The active filters' count: a badge on the funnel's top-right corner, so
+     the button stays a square like its neighbour. Ringed in the panel's
+     ground so it reads apart from the border it sits on. */
+  .filters-count {
+    position: absolute;
+    top: -0.4rem;
+    right: -0.4rem;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    margin: 0;
+    padding: 0 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    box-shadow: 0 0 0 2px hsl(var(--card));
+    pointer-events: none;
   }
 }
 .head-chips {

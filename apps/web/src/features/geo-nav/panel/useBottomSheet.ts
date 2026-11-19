@@ -1,5 +1,6 @@
 // Mobile bottom sheet. Below 900px the panel is a sheet. It rests LOWERED at
-// the bottom of the map, showing only a grip and its title row, so the map
+// the bottom of the map, showing only a grip and its title row (the trail and
+// the page's buttons, GeoPanel), so the map
 // stays usable; dragging that strip up raises it to the full panel and
 // dragging it down lowers it again (the grip also toggles on tap/keyboard).
 // Desktop ignores all of this: the classes it drives only exist inside the
@@ -12,7 +13,9 @@ export interface BottomSheetInputs {
   isDesktop: Ref<boolean>;
   /** The panel (`.panel`): its box is the sheet's RAISED position. */
   panelEl: Ref<HTMLElement | null>;
-  /** Grip + title row — what stays on screen when lowered, and the drag handle. */
+  /** Grip + title row — what stays on screen when lowered, and the drag handle.
+   *  Its own bottom padding is the room between the row and the screen's edge
+   *  (GeoPanel's phone `.title-row`): the strip measured is all that shows. */
   peekEl: Ref<HTMLElement | null>;
   /** Zero-size probe whose padding resolves `env(safe-area-inset-bottom)`. */
   safeEl: Ref<HTMLElement | null>;
@@ -31,8 +34,6 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
   const sheetLowered = computed(() => !isDesktop.value && !sheetOpen.value);
   /** Lowered and at rest: everything under the strip is off screen. */
   const sheetHidden = computed(() => sheetLowered.value && sheetDragPx.value === null);
-  // Breathing room under the title row, so it does not sit on the screen's edge.
-  const SHEET_PEEK_GAP_PX = 10;
   // Finger travel before a press on the strip counts as a drag rather than a tap
   // on one of its buttons.
   const SHEET_DRAG_SLOP_PX = 6;
@@ -48,7 +49,7 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
     const safe = safeEl.value ? parseFloat(getComputedStyle(safeEl.value).paddingBottom) || 0 : 0;
     // Both rects carry the sheet's own translate, so their difference does not.
     const strip = peek.getBoundingClientRect().bottom - panel.getBoundingClientRect().top;
-    sheetPeekPx.value = Math.round(strip + SHEET_PEEK_GAP_PX + safe);
+    sheetPeekPx.value = Math.round(strip + safe);
     sheetLoweredPx.value = Math.max(0, panel.offsetHeight - sheetPeekPx.value);
   }
 

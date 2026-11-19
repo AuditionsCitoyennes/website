@@ -159,6 +159,12 @@ defineExpose({ moreEl, moreTestimoniesEl });
   flex-direction: column;
 }
 
+/* Without the list's gutter (GeoPanel's .bleed, which sets --bleed-x), what
+   is not a row takes the head's inset; the rows, their own (below). */
+.place-detail > :not(.aud-group, .more-results) {
+  padding-inline: var(--bleed-x, 0);
+}
+
 .place-title {
   font-size: var(--text-title);
   font-weight: 700;
@@ -191,10 +197,10 @@ defineExpose({ moreEl, moreTestimoniesEl });
   align-items: center;
   gap: 0.7rem;
   width: 100%;
-  padding: 0.6rem 0.5rem;
+  padding: 0.6rem var(--bleed-x, 0.5rem);
   background: transparent;
   border: none;
-  border-radius: 0.5rem;
+  border-radius: var(--row-radius, 0.5rem);
   text-align: left;
   cursor: pointer;
 }
@@ -263,13 +269,15 @@ defineExpose({ moreEl, moreTestimoniesEl });
 .aud-body {
   display: flex;
   flex-direction: column;
-  padding: 0.1rem 0.5rem 0.6rem 0.9rem;
+  /* Under its audition, indented; without the list's gutter, at the head's
+     inset like the audition's own line (the quote's bar marks them). */
+  padding: 0.1rem var(--bleed-x, 0.5rem) 0.6rem var(--bleed-x, 0.9rem);
 }
 
 /* Where the body will be: the same inset. */
 .aud-loading {
-  padding-left: 0.9rem;
-  padding-right: 0.5rem;
+  padding-left: var(--bleed-x, 0.9rem);
+  padding-right: var(--bleed-x, 0.5rem);
 }
 
 .aud-empty {

@@ -143,6 +143,8 @@ import {
   slowSignMode,
   lieuSingleMode,
   setLieuSingleMode,
+  cardsBleed,
+  setCardsBleed,
 } from "@/features/geo-nav";
 import { recover, setRecover } from "@/shared/net/recoverSwitch";
 import {
@@ -242,6 +244,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:testify-look": bind(() => testifyLook.value, setTestifyLook),
   "ac:boundary-halo": bind(() => boundaryHalo.value, setBoundaryHalo),
   "ac:lieu-single": bind(() => lieuSingleMode.value, setLieuSingleMode),
+  "ac:cards-bleed": bind(() => cardsBleed.value, setCardsBleed),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

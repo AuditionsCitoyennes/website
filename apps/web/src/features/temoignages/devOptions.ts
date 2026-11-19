@@ -12,7 +12,8 @@
 // map/plateau/tapAnswerSwitch, map/plateau/lateFilesSwitch,
 // map/plateau/coldTapSwitch, geo-nav/model/scopeHold,
 // geo-nav/data/prefetchSwitch, map/plateau/lidCacheSwitch,
-// geo-nav/model/slowSignSwitch, map/relief/groundSwitch, map/graphicsSwitch,
+// geo-nav/model/slowSignSwitch, geo-nav/panel/cardsBleedSwitch,
+// map/relief/groundSwitch, map/graphicsSwitch,
 // map/threadSwitch, map/plateau/lidMapSwitch, map/plateau/lineMeshSwitch,
 // map/plateau/riseSwitch, map/plateau/haloSwitch,
 // map/cacheBudget, analyses/devSwitch,
@@ -94,7 +95,8 @@ export type DevKey =
   | "ac:testify-nudge"
   | "ac:testify-look"
   | "ac:boundary-halo"
-  | "ac:lieu-single";
+  | "ac:lieu-single"
+  | "ac:cards-bleed";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -553,7 +555,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "off", label: "Rien" },
     ],
     explain:
-      "Quand un territoire touché tarde à se soulever. « Signe » (par défaut) : une fois la carte arrivée sur lui, et au plus tôt 0,8 seconde après le toucher, trois petits points bougent après son nom dans le panneau (rien sur la carte ; sur un téléphone dont le panneau est réduit, ils ne se voient pas), jusqu'à ce qu'il se soulève ; ils restent immobiles si l'appareil demande moins d'animations. Au bout de 5 secondes sans rien, la marque du territoire s'efface et le panneau dit « La carte met plus de temps que prévu. », avec un bouton « Réessayer » qui redemande seulement ce qui manque. « Rien » ne montre ni points ni message, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
+      "Quand un territoire touché tarde à se soulever. « Signe » (par défaut) : une fois la carte arrivée sur lui, et au plus tôt 0,8 seconde après le toucher, trois petits points bougent après son nom dans le panneau (rien sur la carte ; sur un téléphone, ils se voient même quand le panneau est réduit, car le fil du panneau est la ligne qui reste affichée), jusqu'à ce qu'il se soulève ; ils restent immobiles si l'appareil demande moins d'animations. Au bout de 5 secondes sans rien, la marque du territoire s'efface et le panneau dit « La carte met plus de temps que prévu. », avec un bouton « Réessayer » qui redemande seulement ce qui manque. « Rien » ne montre ni points ni message, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
     defaultId: "on",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },
@@ -992,6 +994,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "L'allure du bouton « Témoigner » quand il invite, toujours en violet. « Lueur » (par défaut) : une lueur douce autour du bouton, qui respire trois fois après l'arrivée sur la page puis reste fixe. « Anneau » : un fin anneau autour du bouton, d'où un anneau plus large s'élargit et s'efface trois fois. « Point » : un petit point violet sur son coin, dont la lueur respire trois fois. Si le système demande de réduire les animations, rien ne bouge.",
     reloads: false,
     defaultId: "lueur",
+  },
+  {
+    key: "ac:cards-bleed",
+    section: "site",
+    label: "Cartes sans marge",
+    choices: [
+      { id: "partout", label: "Partout" },
+      { id: "telephone", label: "Téléphone" },
+      { id: "marge", label: "Avec marge" },
+    ],
+    explain:
+      "Les lignes du panneau des témoignages (les lieux, les auditions) et les témoignages d'une audition ouverte. « Partout » (par défaut) : elles vont d'un bord à l'autre du panneau, sans marge autour, leur texte gardant le même retrait que le fil du panneau. « Téléphone » fait de même sur un téléphone seulement ; « Avec marge », comme avant, laisse une marge de chaque côté de la liste et décale les témoignages sous leur audition.",
+    reloads: false,
+    defaultId: "partout",
   },
 ];
 
