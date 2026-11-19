@@ -339,6 +339,34 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     if (panelListEl.value) panelListEl.value.scrollTop = 0;
   }
 
+  /**
+   * The keys to an audition's line (its button) once it is listed — the
+   * server's list of a lieu may still be on its way: a lieu opened from the
+   * keys with its one audition open (useNavActions' openPlace). `wanted`: the
+   * move still makes sense when the line shows (the same lieu, the audition
+   * open, the keys not taken elsewhere meanwhile); not wanted, nothing moves
+   * and nothing waits any longer.
+   */
+  function focusAudWhenListed(id: string, wanted: () => boolean) {
+    const tryFocus = () => {
+      if (!wanted()) return true;
+      const header = panelListEl.value?.querySelector<HTMLElement>(
+        `[data-aud="${CSS.escape(id)}"]`,
+      );
+      if (!header) return false;
+      header.focus({ preventScroll: true });
+      return true;
+    };
+    if (tryFocus()) return;
+    const stop = watch(
+      panelAuditions,
+      () => {
+        if (tryFocus()) stop();
+      },
+      { flush: "post" },
+    );
+  }
+
   /** What the reader taking the list in hand looks like. */
   const HANDS_ON = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
 
@@ -449,6 +477,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     audToTop,
     keepAtTop,
     listToTop,
+    focusAudWhenListed,
     lieuAuditionsOf,
   };
 }

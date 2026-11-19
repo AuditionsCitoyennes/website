@@ -33,6 +33,8 @@ export interface NavActionsInputs {
     lieuAuditionsOf: (unit: GeoUnit) => LieuAuditionsKnown | null;
     /** The panel's list back at its top. */
     listToTop: () => void;
+    /** The keys to an audition's line once it is listed, if still `wanted`. */
+    focusAudWhenListed: (id: string, wanted: () => boolean) => void;
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
@@ -47,7 +49,20 @@ export function useNavActions(inputs: NavActionsInputs) {
     nav;
   const { flyToUnit, spotlightPlace } = camera;
   const { resultAuditions, shownCount, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
-  const { findResultFurther, lieuAuditionsOf, listToTop } = panel;
+  const { findResultFurther, lieuAuditionsOf, listToTop, focusAudWhenListed } = panel;
+
+  /** The element the keys are on, when it was reached with them (Tab):
+   *  a click or a tap focuses no :focus-visible element — the panel's own
+   *  rule (usePanelLayout's onPanelFocusIn). */
+  function keyFocused(): HTMLElement | null {
+    const at = document.activeElement;
+    if (!(at instanceof HTMLElement)) return null;
+    try {
+      return at.matches(":focus-visible") ? at : null;
+    } catch {
+      return null; // a browser without :focus-visible
+    }
+  }
 
   // The perf probes' tap-answer: a panel row is a tap target of its own.
   if (perfOn) perfTapTargets([{ kind: "row", selector: ".unit-row" }]);
@@ -198,8 +213,26 @@ export function useNavActions(inputs: NavActionsInputs) {
       known: newLieu ? lieuAuditionsOf(unit) : null,
     });
     if (only) {
+      // Opened from the keys (its dot or its row reached with Tab, then Enter
+      // or Space), the keys go on in the panel, on the audition's line — as
+      // after a press on that line: the screen reader reads it, open
+      // (aria-expanded), and the next Tab stays in the panel instead of
+      // landing on dots the wide panel covers. A click or a tap leaves the
+      // focus where it is.
+      const from = keyFocused();
       listToTop();
-      void toggleAud(only, false).then(listToTop);
+      void toggleAud(only, false).then(() => {
+        listToTop();
+        if (!from) return;
+        focusAudWhenListed(only, () => {
+          const at = document.activeElement;
+          return (
+            selectedPlaceId.value === unit.id &&
+            isAudOpen(only) &&
+            (at === from || at === document.body || at === null)
+          );
+        });
+      });
     }
     spotlightPlace(unit);
   }
