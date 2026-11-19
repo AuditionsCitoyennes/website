@@ -1135,6 +1135,19 @@ defineExpose({
   /** A finger or the mouse is on the map, or it is still gliding from one: a
    *  camera command now would cut that gesture short. */
   inUserHands: camera.inUserHands,
+  /** Where the camera is right now (its padded centre, zoom, bearing and
+   *  pitch), mid-flight included; null without a map. */
+  cameraNow: () => {
+    if (!map) return null;
+    const c = map.getCenter();
+    return {
+      lng: c.lng,
+      lat: c.lat,
+      zoom: map.getZoom(),
+      bearing: map.getBearing(),
+      pitch: map.getPitch(),
+    };
+  },
   /** Where the raised plateau stands on screen, once per frame drawn (see
    *  PlateauFrame); returns the unsubscribe. */
   onFrame: frames.onFrame,
