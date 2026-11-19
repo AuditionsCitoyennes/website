@@ -946,7 +946,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "jamais", label: "Jamais" },
     ],
     explain:
-      "Le bouton « Témoigner » de l'en-tête, et sur téléphone le bouton du menu, attirent un peu plus l'œil (voir « Style de l'invitation »). « Auto » (par défaut) le fait quand ce navigateur n'a envoyé aucun témoignage depuis une semaine, ou jamais : après un envoi, le bouton reste calme sept jours. Seule la date du dernier envoi est gardée, dans ce navigateur. « Toujours » montre l'invitation à chaque fois, « Jamais » jamais.",
+      "Le bouton « Témoigner » de l'en-tête, et sur téléphone le bouton du menu, attirent un peu plus l'œil (voir « Style de l'invitation »). « Auto » (par défaut) le fait quand ce navigateur n'a envoyé aucun témoignage depuis une semaine, ou jamais : après un envoi, le bouton reste calme sept jours. Seule la date du dernier envoi est gardée, dans ce navigateur. « Toujours » montre l'invitation à chaque fois, « Jamais » garde le bouton calme, comme avant.",
     reloads: false,
     defaultId: "auto",
   },

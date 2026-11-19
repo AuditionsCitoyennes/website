@@ -119,9 +119,9 @@ const legal = [
   color: hsl(var(--primary));
 }
 
-/* « Témoigner » inviting: in the site's violet, with a still dot. */
+/* « Témoigner » inviting: bolder, with a still violet dot (the violet text
+   is the current page's). */
 .nav-link-mobile--nudge {
-  color: hsl(var(--primary));
   font-weight: 600;
 }
 

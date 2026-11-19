@@ -401,8 +401,8 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   inset: -1px;
   border-radius: inherit;
   box-shadow:
-    0 0 0 3px hsl(var(--primary) / 0.28),
-    0 0 18px 4px hsl(var(--primary) / 0.5);
+    0 0 0 3px hsl(var(--primary) / 0.3),
+    0 0 20px 5px hsl(var(--primary) / 0.55);
   opacity: 0.65;
   animation: nudge-breathe 2.4s ease-in-out 0.6s 3 both;
 }
@@ -433,9 +433,9 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
 }
 
 .nudge--point::before {
-  box-shadow: 0 0 8px 3px hsl(var(--primary) / 0.6);
+  box-shadow: 0 0 8px 4px hsl(var(--primary) / 0.7);
   opacity: 0.65;
-  animation: nudge-breathe 2.4s ease-in-out 0.6s 3 both;
+  animation: nudge-glow 2.4s ease-in-out 0.6s 3 both;
 }
 
 .nudge--point::after {
@@ -453,6 +453,22 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   }
   75% {
     opacity: 0.25;
+  }
+}
+
+@keyframes nudge-glow {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale(1);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.7);
+  }
+  75% {
+    opacity: 0.3;
+    transform: scale(1);
   }
 }
 
