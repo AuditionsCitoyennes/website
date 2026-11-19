@@ -137,6 +137,72 @@ test("within one gesture the moves add up; separate gestures' do not", () => {
   assert.equal(slow.s.closed, 0);
 });
 
+test("each frame of the gesture: due once the threshold is crossed, between views", () => {
+  const { s, follow } = rig();
+  assert.equal(follow.due(), false, "no gesture under way");
+  follow.gesture(); // movestart
+  const frames: boolean[] = [];
+  for (let px = 4; px <= 40; px += 4) {
+    s.cam = east(LYON, px); // one frame of the drag, no throttled view yet
+    frames.push(follow.due());
+  }
+  // Due from the frame at 32 px on (PAN_PX = 30), not before.
+  assert.deepEqual(
+    frames,
+    [4, 8, 12, 16, 20, 24, 28, 32, 36, 40].map((px) => px >= PAN_PX),
+  );
+  assert.equal(s.closed, 0, "due() closes nothing");
+  follow.view(); // the view the caller has reported at once
+  assert.equal(s.closed, 1);
+  assert.equal(follow.due(), false, "closed: nothing due any more");
+
+  // Not due while the gate is shut, nor after a camera command.
+  for (const change of [
+    (r: ReturnType<typeof rig>) => (r.s.gate.follows = false),
+    (r: ReturnType<typeof rig>) => (r.s.gate.listMode = true),
+    (r: ReturnType<typeof rig>) => r.s.key++,
+  ]) {
+    const r = rig();
+    r.follow.gesture();
+    change(r);
+    r.s.cam = east(LYON, 100);
+    assert.equal(r.follow.due(), false);
+  }
+});
+
+test("a gesture counts from where the camera rested, the touch pan's first jump included", () => {
+  const { s, follow } = rig();
+  follow.end(); // the camera at rest at LYON (the lieu's flight landed)
+  s.cam = east(LYON, 18); // mapbox's touch pan: its start already moved the camera
+  follow.gesture(); // movestart
+  assert.deepEqual(follow.anchor(), LYON);
+  s.cam = east(LYON, PAN_PX);
+  assert.equal(follow.due(), true, "30 px from the rest, not from the jump");
+
+  // Moved since the rest (a view came: the camera's own ease, a gesture not
+  // counted): the count starts where the gesture finds the camera.
+  const moved = rig();
+  moved.follow.end();
+  moved.s.cam = east(LYON, 25);
+  moved.follow.view();
+  moved.follow.gesture();
+  assert.deepEqual(moved.follow.anchor(), east(LYON, 25));
+  const shut = rig({ sinceOpenMs: 100 });
+  shut.follow.end();
+  shut.s.cam = { ...LYON, zoom: LYON.zoom + 1 }; // the opening double-tap's zoom
+  shut.follow.gesture();
+  shut.s.gate.sinceOpenMs = OPEN_TAIL_MS + 50;
+  shut.follow.gesture();
+  assert.deepEqual(shut.follow.anchor(), shut.s.cam);
+  // A command since the rest: its flight landed elsewhere.
+  const cmd = rig();
+  cmd.follow.end();
+  cmd.s.key++;
+  cmd.s.cam = east(LYON, 300);
+  cmd.follow.gesture();
+  assert.deepEqual(cmd.follow.anchor(), cmd.s.cam);
+});
+
 test("the rest counts the gesture's last view", () => {
   const { s, follow } = rig();
   follow.gesture();

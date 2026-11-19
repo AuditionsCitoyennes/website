@@ -15,8 +15,12 @@
 // that stood at the view's centre by PAN_PX on screen (measured on the screen
 // as it is now, so under the tilt a pixel is a pixel wherever the hand
 // grabbed), its zoom by ZOOM_STEP, or its bearing or pitch by TURN_DEG.
-// Measured from the camera at the gesture's first signal (`anchor`), and
-// within that one gesture only: a drag with its glide, a run of wheel events,
+// Measured from where the camera last came to rest, when nothing has moved
+// it since (`rest`: mapbox moves the camera on the very event that starts a
+// touch pan, by the 15-odd pixels it held back to tell a pan from a tap, so
+// the camera at that first signal is already past them), else from the
+// camera at the gesture's first signal (`anchor`); and within that one
+// gesture only: a drag with its glide, a run of wheel events,
 // a pinch. The camera coming to rest ends it (`end`), so two nudges minutes
 // apart never add up; a camera command (a click's flight, a crumb's, the
 // ring's fit) starts the count again too. The camera's centre is the padded
@@ -105,8 +109,9 @@ export interface LieuFollowInputs {
 /**
  * The rule above, fed by the map: `gesture()` at each signal of the
  * visitor's own gesture (GeoDrillMap's `userGesture`, which repeats while it
- * goes on), `view()` at each view the map reports, `end()` when the camera
- * comes to rest (GeoDrillMap's `cameraRest`).
+ * goes on), `view()` at each view the map reports, `due()` at each frame the
+ * gesture moves the map (GeoDrillMap's `gestureMove`), `end()` when the
+ * camera comes to rest (GeoDrillMap's `cameraRest`).
  */
 export function createLieuFollow({
   cameraNow,
@@ -116,6 +121,16 @@ export function createLieuFollow({
   close,
 }: LieuFollowInputs) {
   let anchor: { at: CameraAt; key: number } | null = null;
+  // Where the camera came to rest (`end`), until a view or an uncounted
+  // gesture says it has moved since: where the next gesture starts from.
+  let rest: { at: CameraAt; key: number } | null = null;
+
+  /** The view has moved enough from the anchor (one `project` call). */
+  function movedFrom(at: CameraAt): boolean {
+    const now = cameraNow();
+    const shift = shiftPx(at);
+    return !!now && shift !== null && gestureMoved(at, now, shift);
+  }
 
   function check() {
     if (!anchor) return;
@@ -124,9 +139,7 @@ export function createLieuFollow({
       anchor = null;
       return;
     }
-    const now = cameraNow();
-    const shift = shiftPx(anchor.at);
-    if (!now || shift === null || !gestureMoved(anchor.at, now, shift)) return;
+    if (!movedFrom(anchor.at)) return;
     anchor = null;
     close();
   }
@@ -135,24 +148,42 @@ export function createLieuFollow({
     gesture() {
       if (!gestureCanClose(gate())) {
         anchor = null;
+        rest = null;
         return;
       }
       if (!anchor || anchor.key !== commandKey()) {
-        const at = cameraNow();
-        anchor = at ? { at, key: commandKey() } : null;
+        const key = commandKey();
+        const at = rest && rest.key === key ? rest.at : cameraNow();
+        rest = null;
+        anchor = at ? { at, key } : null;
       } else check();
     },
     view() {
+      rest = null; // the camera has moved since it rested
       if (!gestureCanClose(gate())) {
         anchor = null;
         return;
       }
       check();
     },
+    /**
+     * At each frame the visitor's gesture moves the map (GeoDrillMap's
+     * `gestureMove`, between its views, which come at most every 250 ms):
+     * whether the view has now moved enough to close. Closes nothing: the
+     * caller has the map report its view at once, and `view()` closes on it —
+     * so the lieu closes on the frame the threshold is crossed, the scope
+     * derived from that same view.
+     */
+    due(): boolean {
+      if (!anchor || anchor.key !== commandKey() || !gestureCanClose(gate())) return false;
+      return movedFrom(anchor.at);
+    },
     end() {
       // The last view of the gesture is counted, then the gesture is over.
       if (gestureCanClose(gate())) check();
       anchor = null;
+      const at = cameraNow();
+      rest = at ? { at, key: commandKey() } : null;
     },
     /** Where the count starts, null when none (testing). */
     anchor: () => anchor?.at ?? null,

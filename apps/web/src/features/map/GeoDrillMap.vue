@@ -162,6 +162,13 @@ const emit = defineEmits<{
    */
   cameraRest: [];
   /**
+   * A frame of the USER's gesture moved the map (every `move` of it, glide
+   * included, between the throttled views): for a cheap check that cannot
+   * wait for the next view. The listener runs once per frame: keep it to a
+   * few reads; `reportView()` has the view told at once.
+   */
+  gestureMove: [];
+  /**
    * A run of the plateau pipeline has come to its verdict for unit `scopeId`
    * ("" when the map was cleared): see PlateauSettle. Fires inside the block
    * that applies the plateau, before its first rise frame: what a pending
@@ -962,7 +969,7 @@ function mountMap() {
         // to ignore its first moments.
         if (camera.userHolding()) emit("userGesture");
         view.emitView();
-      }
+      } else if (camera.userHolding()) emit("gestureMove");
     });
     // The frame bus (usePlateauFrames): fired at the end of every frame drawn.
     map.on("render", frames.emitFrame);
@@ -1154,6 +1161,11 @@ defineExpose({
       bearing: map.getBearing(),
       pitch: map.getPitch(),
     };
+  },
+  /** Tell the parent what is in sight now, between the throttled views of a
+   *  gesture (see `gestureMove`). Never mid-flight. */
+  reportView: () => {
+    if (map && !camera.programmatic()) view.emitView();
   },
   /** How far, in screen pixels, the ground point at (lng, lat) stands from
    *  the view's padded centre now; null without a map. */

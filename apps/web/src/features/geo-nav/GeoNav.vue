@@ -440,6 +440,9 @@ function closeLieuForMap() {
   selectedPlaceId.value = null;
   openAuditions.value = new Set();
   hoveredPanelId.value = null;
+  // The list that follows is read from its top, wherever the lieu's text had
+  // been scrolled to (the list's own scroller; the page does not move).
+  panel.listToTop();
 }
 const lieuFollow = createLieuFollow({
   cameraNow: () => mapCmp.value?.cameraNow() ?? null,
@@ -514,6 +517,11 @@ const { pendingUnit, live: tapLive, waitStage } = tap;
 tappedUnit = () => pendingUnit.value?.id ?? "";
 /** GeoDrillMap's `viewChange`: the scope's read of it, then the landing a
  *  pending unit's long-wait sign waits for. */
+/** A frame of the visitor's gesture: once it has moved the map enough, the
+ *  view is reported at once, and closes the lieu (lieuFollow's `due`). */
+function onGestureMove() {
+  if (lieuFollow.due()) mapCmp.value?.reportView();
+}
 function onMapView(view: MapView) {
   onViewChange(view);
   lieuFollow.view();
@@ -1035,6 +1043,7 @@ function retryAll() {
       @view-change="onMapView"
       @user-gesture="onUserGesture"
       @camera-rest="lieuFollow.end()"
+      @gesture-move="onGestureMove"
     />
 
     <!-- The analyses, around the raised territory. Over the map, under the
