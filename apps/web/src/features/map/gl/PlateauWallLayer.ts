@@ -393,6 +393,10 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   private gHaloDirty = false;
   private haloProg: GlProg | null = null;
   private gHaloProg: GlProg | null = null;
+  /** ac:boundary-halo (plateau/haloSwitch.ts): false skips the halo pass in
+   *  both regimes — no draw, no upload (a dirty buffer waits for the pass's
+   *  return). The slabs' glow is theirs, not switched. */
+  private haloOn = true;
   private lastRegimeLog = "";
   /** The halo's width (° of latitude-equivalent) and longitude scale, as the
    *  last setGeometry had them: the slabs glow alike (0: no plateau). */
@@ -691,6 +695,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
   /** The words' boxes' lid when opaque (the site's card colour, straight sRGB 0..1). */
   setSlabColor(rgb: [number, number, number]) {
     this.slabColor = rgb;
+    this.map?.triggerRepaint();
+  }
+
+  /** Whether the plateau's halo draws (ac:boundary-halo): read by the next frame. */
+  setHaloShown(on: boolean) {
+    if (on === this.haloOn) return;
+    this.haloOn = on;
     this.map?.triggerRepaint();
   }
 
@@ -2204,7 +2215,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.pendingMark.drawMercator(gl, matrix, this.scale, "line", null);
 
     // ---- halo (static ribbon from the wall base outward) ----
-    if (this.haloProg && this.haloBuffer && this.haloVertexCount && this.scale >= 0.15) {
+    if (
+      this.haloOn &&
+      this.haloProg &&
+      this.haloBuffer &&
+      this.haloVertexCount &&
+      this.scale >= 0.15
+    ) {
       const p = this.haloProg;
       gl.useProgram(p.prog);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.haloBuffer);
@@ -2605,7 +2622,13 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.pendingMark.drawGlobe(gl, binders, true, this.scale, "line", null);
 
     // ---- halo (static ribbon from the wall base outward) ----
-    if (this.gHaloProg && this.gHaloBuffer && this.haloVertexCount && this.scale >= 0.15) {
+    if (
+      this.haloOn &&
+      this.gHaloProg &&
+      this.gHaloBuffer &&
+      this.haloVertexCount &&
+      this.scale >= 0.15
+    ) {
       const hp = this.gHaloProg;
       setCommon(hp);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.gHaloBuffer);

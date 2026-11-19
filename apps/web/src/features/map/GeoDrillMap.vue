@@ -31,6 +31,7 @@ import { lateFilesMode } from "./plateau/lateFilesSwitch";
 import { tilesMoved, type ViewInSight } from "./plateau/lidMapSwitch";
 import { meshMode } from "./plateau/meshSwitch";
 import { riseOrder, riseStartFor } from "./plateau/riseSwitch";
+import { boundaryHalo, haloShown } from "./plateau/haloSwitch";
 import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
 import { labelGlyphOptions, labelTileGate } from "./labelFont";
 import { useMapView, type MapView } from "./composables/useMapView";
@@ -224,6 +225,10 @@ let resizeObserver: ResizeObserver | null = null;
 // The plateau's violet wall (and the analyses' slabs' pieces): our custom
 // WebGL layer, created here, added to the style by the mask once it loads.
 const plateauWall = new PlateauWallLayer();
+// ac:boundary-halo (plateau/haloSwitch.ts): the plateau's halo, on or off
+// (followed live by the last watcher). A build without the testing tools
+// keeps the default.
+if (__TEST_TOOLS__) plateauWall.setHaloShown(haloShown(boundaryHalo.value));
 // A pending mark's fill built off the frame has landed: a mouse's draped
 // hover fill on that unit gives way to it.
 plateauWall.onPendingFill = (id) => pins.yieldDrapedHover(id);
@@ -1194,6 +1199,9 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
   attrib = newAttribution();
   m.addControl(attrib, creditCorner());
 });
+
+// The DEV dialog's « Halo des frontières »: drawn or skipped from the next frame.
+if (__TEST_TOOLS__) watch(boundaryHalo, (v) => plateauWall.setHaloShown(haloShown(v)));
 </script>
 
 <template>
