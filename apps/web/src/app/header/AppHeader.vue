@@ -6,6 +6,12 @@ import { useTheme } from "@/shared/ui/theme/useTheme";
 import { ROUTE } from "@/shared/routes";
 import { useCreateAudition } from "@/features/admin";
 import { useSubmitTestimony } from "@/features/testify";
+import {
+  lastTestimonyAt,
+  nudgeDue,
+  testifyLook,
+  testifyNudge,
+} from "@/shared/testimony/testifyNudge";
 import { DONATION_URL } from "@/features/support";
 import HeaderMobileMenu from "./HeaderMobileMenu.vue";
 import { useHeaderTuck } from "./useHeaderTuck";
@@ -46,7 +52,7 @@ function leaveMenu() {
   menuToggle.value?.focus({ preventScroll: true });
 }
 
-// "Nouvelle Audition": the popup opens over whichever page this is. (Signing
+// "Nouvelle audition": the popup opens over whichever page this is. (Signing
 // out is on the admin page.)
 function newAudition() {
   leaveMenu();
@@ -59,9 +65,19 @@ function testify() {
   submitTestimony.show();
 }
 
-// The bar is fuller for admins ("+ Nouvelle Audition", "Admin"): their
-// "Témoigner" folds down to its icon sooner.
-const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loading));
+// « Témoigner » invites a little more when this device has sent no testimony
+// for a week (shared/testimony/testifyNudge.ts): a violet glow, ring or dot on
+// the bar's button, and on phones on the menu's tile (the button is in its
+// popup there).
+const nudge = computed(() => nudgeDue(testifyNudge.value, lastTestimonyAt.value, Date.now()));
+const nudgeClass = computed(() => (nudge.value ? ["nudge", `nudge--${testifyLook.value}`] : []));
+
+// The menu's tile invites only while the menu is shut: open, its « Témoigner »
+// row is in view (and the tile is the close button).
+const menuNudgeClass = computed(() => (mobileOpen.value ? [] : nudgeClass.value));
+
+// « Nous rejoindre », for a visitor who is not signed in: the sign-up tab.
+const joinTo = { path: ROUTE.auth.path, query: { tab: "inscription" } };
 </script>
 
 <template>
@@ -100,43 +116,11 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
       </nav>
 
       <div class="header-actions">
-        <button class="icon-btn" :title="isDark ? 'Mode clair' : 'Mode sombre'" @click="toggle">
-          <svg
-            v-if="isDark"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            width="18"
-            height="18"
-          >
-            <circle cx="12" cy="12" r="5" />
-            <path
-              d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
-            />
-          </svg>
-          <svg
-            v-else
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            width="18"
-            height="18"
-          >
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
-        </button>
-
         <div class="auth-desktop">
           <button
             type="button"
             class="btn btn-primary testify"
-            :class="{ 'testify--crowded': crowded }"
+            :class="nudgeClass"
             aria-label="Témoigner"
             title="Témoigner"
             @click="testify"
@@ -172,16 +156,51 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
               @click="newAudition"
             >
               <span aria-hidden="true">+</span>
-              <span class="new-audition-label">Nouvelle Audition</span>
+              <span class="new-audition-label">Nouvelle audition</span>
             </button>
             <RouterLink to="/admin" class="btn btn-ghost">Admin</RouterLink>
           </template>
-          <RouterLink v-else to="/auth" class="btn btn-ghost">Connexion</RouterLink>
+          <!-- Joining the volunteers: the sign-up tab of /auth, whose other tab
+               signs in. -->
+          <RouterLink v-else :to="joinTo" class="btn btn-ghost">Nous rejoindre</RouterLink>
         </div>
+
+        <button class="icon-btn" :title="isDark ? 'Mode clair' : 'Mode sombre'" @click="toggle">
+          <svg
+            v-if="isDark"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            width="18"
+            height="18"
+          >
+            <circle cx="12" cy="12" r="5" />
+            <path
+              d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+            />
+          </svg>
+          <svg
+            v-else
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            width="18"
+            height="18"
+          >
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </button>
 
         <button
           ref="menuToggle"
           class="icon-btn menu-toggle"
+          :class="menuNudgeClass"
           :aria-expanded="mobileOpen"
           aria-label="Menu"
           @click="mobileOpen = !mobileOpen"
@@ -210,6 +229,8 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   <HeaderMobileMenu
     :open="mobileOpen"
     :links="links"
+    :join-to="joinTo"
+    :nudge="nudge"
     @close="closeMobile"
     @testify="testify"
     @new-audition="newAudition"
@@ -229,13 +250,17 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   padding: 0.75rem 1.5rem;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  /* One even gap through the bar's right-hand cluster: the nav links, then
+     the buttons (.header-actions has the same). */
+  gap: 0.5rem;
 }
 
+/* The logo on the left; everything else gathers on the right. */
 .brand {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  margin-right: auto;
   font-weight: 600;
 }
 
@@ -258,8 +283,7 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
 
 .nav-desktop {
   display: none;
-  gap: 0.25rem;
-  margin-inline: auto;
+  gap: 0.5rem;
 }
 
 .nav-link {
@@ -285,7 +309,6 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-left: auto;
 }
 
 .icon-btn {
@@ -346,9 +369,133 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   background: hsl(var(--accent) / 0.6);
 }
 
-/* "+ Nouvelle Audition" (admins). One line, never squeezed by the nav links —
+/* « Admin » and « Nous rejoindre » on their own page: marked like the nav's. */
+.btn-ghost.router-link-active {
+  color: hsl(var(--primary));
+  background: hsl(var(--accent) / 0.5);
+}
+
+/* « Témoigner » inviting (shared/testimony/testifyNudge.ts): the bar's button,
+   and on phones the menu's tile. Only a layer of its own moves, by its opacity
+   and its scale, a few seconds after the page shows; then it holds still.
+   Always the site's violet. */
+.nudge {
+  position: relative;
+  /* A ring as wide as tall around a long button and a square tile alike. */
+  --nudge-grow-x: 1.1;
+  --nudge-grow-y: 1.32;
+}
+
+.icon-btn.nudge {
+  --nudge-grow-x: 1.3;
+  --nudge-grow-y: 1.3;
+}
+
+.nudge::before,
+.nudge::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+/* « Lueur »: a soft glow, breathing three times, then still. */
+.nudge--lueur::after {
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 3px hsl(var(--primary) / 0.3),
+    0 0 20px 5px hsl(var(--primary) / 0.55);
+  opacity: 0.65;
+  animation: nudge-breathe 2.4s ease-in-out 0.6s 3 both;
+}
+
+/* « Anneau »: a thin ring, from which a wider one spreads and fades three
+   times. */
+.nudge--anneau::before,
+.nudge--anneau::after {
+  inset: -4px;
+  border-radius: calc(0.5rem + 4px);
+  border: 1.5px solid hsl(var(--primary) / 0.65);
+}
+
+.nudge--anneau::after {
+  border-width: 2px;
+  opacity: 0;
+  animation: nudge-ripple 1.8s cubic-bezier(0.2, 0.6, 0.3, 1) 0.6s 3 both;
+}
+
+/* « Point »: a small dot on the corner, its glow breathing three times. */
+.nudge--point::before,
+.nudge--point::after {
+  top: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.nudge--point::before {
+  box-shadow: 0 0 8px 4px hsl(var(--primary) / 0.7);
+  opacity: 0.65;
+  animation: nudge-glow 2.4s ease-in-out 0.6s 3 both;
+}
+
+.nudge--point::after {
+  background: hsl(var(--accent-foreground));
+}
+
+@keyframes nudge-breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes nudge-glow {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale(1);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.7);
+  }
+  75% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+}
+
+@keyframes nudge-ripple {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(var(--nudge-grow-x), var(--nudge-grow-y));
+  }
+}
+
+/* Less motion asked for: the still look at once. */
+@media (prefers-reduced-motion: reduce) {
+  .nudge::before,
+  .nudge::after {
+    animation: none;
+  }
+}
+
+/* "+ Nouvelle audition" (admins). One line, never squeezed by the nav links —
    and where the bar is too narrow for all of it (just above the width at which
-   the nav folds into the hamburger), only its "+" is left. */
+   the nav folds into the hamburger), only its "+" is left: the bar's
+   secondary entries fold first, « Témoigner » keeps its word. */
 .new-audition {
   flex-shrink: 0;
   gap: 0.4rem;
@@ -361,26 +508,14 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   }
 }
 
-/* "Témoigner", for everyone: never wrapped, and down to its icon where the
-   bar gets short — sooner for admins, whose bar holds more. */
+/* "Témoigner", for everyone: never wrapped, its word kept at every width of
+   the bar (900 px and up: it fits beside the admins' entries too, their
+   "Nouvelle audition" folded to its "+"). */
 .testify {
   flex-shrink: 0;
   gap: 0.45rem;
   white-space: nowrap;
-  /* As tall as its neighbours when only its icon is left. */
   min-height: 2.45rem;
-}
-
-@media (max-width: 959px) {
-  .testify-label {
-    display: none;
-  }
-}
-
-@media (max-width: 1099px) {
-  .testify--crowded .testify-label {
-    display: none;
-  }
 }
 
 /* Just above the width where the nav folds into the hamburger, the links

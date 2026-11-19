@@ -1,6 +1,6 @@
 import { ref } from "vue";
 
-// The "Nouvelle Audition" popup is asked for from the nav bar — on any page —
+// The "Nouvelle audition" popup is asked for from the nav bar — on any page —
 // and from the admin page. There is ONE popup, mounted once (app/AppDialogs.vue), so what
 // was typed in it is kept wherever it is reopened from.
 const open = ref(false);

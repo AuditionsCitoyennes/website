@@ -12,6 +12,7 @@ import { api, ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import { formatDateLong } from "@/shared/format/dates";
 import TestimonyText from "@/shared/testimony/TestimonyText.vue";
+import { noteTestimony } from "@/shared/testimony/testifyNudge";
 
 interface VerifyTestimonyData {
   id: string;
@@ -131,6 +132,8 @@ async function handleVerify() {
       false,
     );
     completed.value = "verified";
+    // Validated from this device: its header's « Témoigner » calms down too.
+    noteTestimony();
     toast({
       title: "Témoignage validé !",
       description: pendingEdits.value

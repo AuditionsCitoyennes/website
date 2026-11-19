@@ -10,7 +10,7 @@ import { useLazyDialog } from "./useLazyDialog";
 const auth = useAuthStore();
 const queryClient = useQueryClient();
 
-// The "Nouvelle Audition" popup, opened from the nav bar on any page (and from
+// The "Nouvelle audition" popup, opened from the nav bar on any page (and from
 // the admin page). Admins only — nobody else downloads it. If it cannot be
 // downloaded, the buttons that open it must not simply do nothing: it is tried
 // again, then said (useLazyDialog).
