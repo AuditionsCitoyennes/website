@@ -41,6 +41,7 @@ import type { GeoUnit } from "@/features/geo";
 import { EMPTY_KEY, placesKeys } from "../keys";
 import type { NavState } from "../navState";
 import { bySort, type AuditionSort } from "../model/auditions";
+import { knownFromRow, type LieuAuditionsKnown } from "../model/lieuSingle";
 import type { UnitTree } from "./useUnitTree";
 import {
   contentOf,
@@ -474,6 +475,13 @@ export function useServerLists(inputs: ServerListsInputs) {
     return { rows: [], loading: !failed, failed };
   });
 
+  /** What the tree on screen says of a lieu's auditions — how many, and the
+   *  newest — the moment it is opened (model/lieuSingle); null: no row for it. */
+  function lieuAuditionsKnown(id: string): LieuAuditionsKnown | null {
+    const row = tree.data()?.lieux.get(id);
+    return row ? knownFromRow(row) : null;
+  }
+
   // ---- An audition's testimonies ------------------------------------------------
 
   /** The filter key of the lists on screen: the results', or the tree's. */
@@ -705,6 +713,7 @@ export function useServerLists(inputs: ServerListsInputs) {
     loadThrough,
     firstAuditionAt,
     placeList,
+    lieuAuditionsKnown,
     testimoniesFor,
     openTestimonies,
     loadMoreTestimonies,

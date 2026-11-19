@@ -16,7 +16,8 @@
 // map/threadSwitch, map/plateau/lidMapSwitch, map/plateau/lineMeshSwitch,
 // map/plateau/riseSwitch, map/plateau/haloSwitch,
 // map/cacheBudget, analyses/devSwitch,
-// shared/device/deviceTier, shared/device/motion). Under the « Appareil » row
+// shared/device/deviceTier, shared/device/motion,
+// geo-nav/model/lieuSingleSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue
 // alone, so a production build has none of these strings. French typography:
@@ -92,7 +93,8 @@ export type DevKey =
   | "ac:rise-order"
   | "ac:testify-nudge"
   | "ac:testify-look"
-  | "ac:boundary-halo";
+  | "ac:boundary-halo"
+  | "ac:lieu-single";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -692,6 +694,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "La lueur violette qui entoure le territoire choisi, au pied de ses parois. « Avec » (par défaut) la garde, comme avant. « Sans » l'enlève : il ne reste que la paroi et le trait du contour, nets. Les étiquettes des analyses gardent la leur. Le changement se voit tout de suite, sans recharger la page.",
     reloads: false,
     defaultId: "avec",
+  },
+  {
+    key: "ac:lieu-single",
+    section: "carte",
+    label: "Lieu à une audition",
+    choices: [
+      { id: "ouvrir", label: "Ouvrir l'audition" },
+      { id: "lister", label: "Lister" },
+    ],
+    explain:
+      "Quand on choisit un lieu qui n'a qu'une audition, en touchant ou en cliquant son point sur la carte, ou sa ligne dans le panneau. « Ouvrir l'audition » (par défaut) ouvre aussitôt cette audition et ses témoignages, comme si on l'avait choisie dans la liste du lieu ; la flèche de retour ramène au territoire du lieu, sans passer par une liste d'une seule ligne. « Lister » affiche la liste des auditions du lieu, une seule ligne à ouvrir, comme avant. Sans effet avec des filtres : le point d'un lieu ouvre déjà son audition dans les résultats.",
+    reloads: false,
+    defaultId: "ouvrir",
   },
   {
     key: "ac:analyses-pending",

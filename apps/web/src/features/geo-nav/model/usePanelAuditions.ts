@@ -20,6 +20,7 @@ import {
   type AuditionSort,
   type PanelAudition,
 } from "./auditions";
+import { knownFromGroups, type LieuAuditionsKnown } from "./lieuSingle";
 
 export interface PanelAuditionsInputs {
   nav: NavState;
@@ -97,6 +98,14 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     }
     return rows.sort((a, b) => bySort(a, b, sort.value));
   });
+
+  /** What is known of a lieu's auditions the moment it is opened, before its
+   *  list is on screen (model/lieuSingle): the server's tree row, or the
+   *  corpus' groups. */
+  function lieuAuditionsOf(unit: GeoUnit): LieuAuditionsKnown | null {
+    if (server) return server.lieuAuditionsKnown(unit.id);
+    return unit.canonical ? knownFromGroups(groups.value, unit.canonical) : null;
+  }
 
   const resultAuditions = computed<PanelAudition[]>(() => {
     if (!listMode.value) return [];
@@ -270,7 +279,10 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   // tweening (see ExpandTransition's `instantLeave`). A plain close still animates.
   const audSwapping = ref(false);
 
-  async function toggleAud(id: string) {
+  /** `aim`: the map comes back to the lieu (below) — false from a lieu being
+   *  opened with its audition (useNavActions' openPlace), whose own camera
+   *  command follows. */
+  async function toggleAud(id: string, aim = true) {
     const was = openAuditions.value.has(id);
     // Single-open: opening an audition closes the current one in the SAME tick.
     // When the one closing sits ABOVE the one clicked, its body collapsing removes
@@ -306,7 +318,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
         nav.placeOpenedAt.value = performance.now();
         spotlightPlace(unit, true);
       }
-    } else if (!was && selectedPlace.value) {
+    } else if (!was && aim && selectedPlace.value) {
       // Choosing an audition to read is a selection in the panel: the map comes
       // back to its lieu, wherever it had been taken meanwhile.
       spotlightPlace(selectedPlace.value);
@@ -318,6 +330,41 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     const drift =
       header.getBoundingClientRect().top - scroller.getBoundingClientRect().top - keepTop;
     if (drift) scroller.scrollTop += drift;
+  }
+
+  /** The list back at its top: a lieu newly opened with its audition open
+   *  (useNavActions' openPlace) is read from its title, wherever the list
+   *  before it had been scrolled to. */
+  function listToTop() {
+    if (panelListEl.value) panelListEl.value.scrollTop = 0;
+  }
+
+  /**
+   * The keys to an audition's line (its button) once it is listed — the
+   * server's list of a lieu may still be on its way: a lieu opened from the
+   * keys with its one audition open (useNavActions' openPlace). `wanted`: the
+   * move still makes sense when the line shows (the same lieu, the audition
+   * open, the keys not taken elsewhere meanwhile); not wanted, nothing moves
+   * and nothing waits any longer.
+   */
+  function focusAudWhenListed(id: string, wanted: () => boolean) {
+    const tryFocus = () => {
+      if (!wanted()) return true;
+      const header = panelListEl.value?.querySelector<HTMLElement>(
+        `[data-aud="${CSS.escape(id)}"]`,
+      );
+      if (!header) return false;
+      header.focus({ preventScroll: true });
+      return true;
+    };
+    if (tryFocus()) return;
+    const stop = watch(
+      panelAuditions,
+      () => {
+        if (tryFocus()) stop();
+      },
+      { flush: "post" },
+    );
   }
 
   /** What the reader taking the list in hand looks like. */
@@ -429,5 +476,8 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     toggleAud,
     audToTop,
     keepAtTop,
+    listToTop,
+    focusAudWhenListed,
+    lieuAuditionsOf,
   };
 }

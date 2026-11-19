@@ -141,6 +141,8 @@ import {
   setScopeDragMode,
   setSlowSignMode,
   slowSignMode,
+  lieuSingleMode,
+  setLieuSingleMode,
 } from "@/features/geo-nav";
 import { recover, setRecover } from "@/shared/net/recoverSwitch";
 import {
@@ -239,6 +241,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:testify-nudge": bind(() => testifyNudge.value, setTestifyNudge),
   "ac:testify-look": bind(() => testifyLook.value, setTestifyLook),
   "ac:boundary-halo": bind(() => boundaryHalo.value, setBoundaryHalo),
+  "ac:lieu-single": bind(() => lieuSingleMode.value, setLieuSingleMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

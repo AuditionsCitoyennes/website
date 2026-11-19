@@ -7,6 +7,8 @@ import { perfBegin, perfOn } from "@/shared/perf/perf";
 import { perfTapAnswered, perfTapTargets } from "@/shared/perf/tapAnswer";
 import type { NavState } from "../navState";
 import type { PanelAudition } from "./auditions";
+import { auditionToOpen, type LieuAuditionsKnown } from "./lieuSingle";
+import { lieuSingleMode } from "./lieuSingleSwitch";
 import type { TapPending } from "./useTapPending";
 
 export interface NavActionsInputs {
@@ -20,13 +22,19 @@ export interface NavActionsInputs {
   panel: {
     resultAuditions: ComputedRef<PanelAudition[]>;
     shownCount: Ref<number>;
-    toggleAud: (id: string) => Promise<void>;
+    toggleAud: (id: string, aim?: boolean) => Promise<void>;
     isAudOpen: (id: string) => boolean;
     audToTop: (id: string, ifHidden?: boolean) => number | null;
     keepAtTop: (audition: PanelAudition) => void;
     /** The server's lists: where a lieu's first result sits when the pages
      *  loaded do not hold it (-1: not there); null with the corpus'. */
     findResultFurther: ((unit: GeoUnit) => Promise<number>) | null;
+    /** What is known of a lieu's auditions the moment it is opened. */
+    lieuAuditionsOf: (unit: GeoUnit) => LieuAuditionsKnown | null;
+    /** The panel's list back at its top. */
+    listToTop: () => void;
+    /** The keys to an audition's line once it is listed, if still `wanted`. */
+    focusAudWhenListed: (id: string, wanted: () => boolean) => void;
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
@@ -41,7 +49,20 @@ export function useNavActions(inputs: NavActionsInputs) {
     nav;
   const { flyToUnit, spotlightPlace } = camera;
   const { resultAuditions, shownCount, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
-  const { findResultFurther } = panel;
+  const { findResultFurther, lieuAuditionsOf, listToTop, focusAudWhenListed } = panel;
+
+  /** The element the keys are on, when it was reached with them (Tab):
+   *  a click or a tap focuses no :focus-visible element — the panel's own
+   *  rule (usePanelLayout's onPanelFocusIn). */
+  function keyFocused(): HTMLElement | null {
+    const at = document.activeElement;
+    if (!(at instanceof HTMLElement)) return null;
+    try {
+      return at.matches(":focus-visible") ? at : null;
+    } catch {
+      return null; // a browser without :focus-visible
+    }
+  }
 
   // The perf probes' tap-answer: a panel row is a tap target of its own.
   if (perfOn) perfTapTargets([{ kind: "row", selector: ".unit-row" }]);
@@ -167,7 +188,8 @@ export function useNavActions(inputs: NavActionsInputs) {
       perfTapAnswered(unit.id, { via: "place" }); // the tap that asked for it has its answer
       perfBegin("lieu-pins", unit.id); // the dots around it placed, timed from here
     }
-    if (selectedPlaceId.value !== unit.id) openAuditions.value.clear();
+    const newLieu = selectedPlaceId.value !== unit.id;
+    if (newLieu) openAuditions.value.clear();
     selectedPlaceId.value = unit.id;
     // The reader is on the panel — said here too, because the watcher that says
     // it does not run when the lieu was already the open one.
@@ -177,6 +199,41 @@ export function useNavActions(inputs: NavActionsInputs) {
     // The row just clicked leaves the panel without a mouseleave; left set, the
     // map would keep deferring to a hover that no longer exists.
     hoveredPanelId.value = null;
+    // A lieu of one audition opens with it open (ac:lieu-single, model/lieuSingle):
+    // its list would be one line to press. Opened as that line's press opens
+    // it, in the same tick — so the camera's one command below aims with the
+    // panel as wide as an open audition makes it, and the press's own return
+    // to the lieu is that command.
+    // The list is read from the lieu's title: the scroll of the list before it
+    // (a long text, a long list of lieux) would otherwise carry over, the new
+    // content as tall when the audition's testimonies are already in.
+    const only = auditionToOpen({
+      mode: lieuSingleMode.value,
+      newLieu,
+      known: newLieu ? lieuAuditionsOf(unit) : null,
+    });
+    if (only) {
+      // Opened from the keys (its dot or its row reached with Tab, then Enter
+      // or Space), the keys go on in the panel, on the audition's line — as
+      // after a press on that line: the screen reader reads it, open
+      // (aria-expanded), and the next Tab stays in the panel instead of
+      // landing on dots the wide panel covers. A click or a tap leaves the
+      // focus where it is.
+      const from = keyFocused();
+      listToTop();
+      void toggleAud(only, false).then(() => {
+        listToTop();
+        if (!from) return;
+        focusAudWhenListed(only, () => {
+          const at = document.activeElement;
+          return (
+            selectedPlaceId.value === unit.id &&
+            isAudOpen(only) &&
+            (at === from || at === document.body || at === null)
+          );
+        });
+      });
+    }
     spotlightPlace(unit);
   }
 

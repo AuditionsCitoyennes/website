@@ -15,6 +15,8 @@ export { scopeDragMode, setScopeDragMode } from "./model/scopeHold";
 export { prefetchMode, setPrefetchMode } from "./data/prefetchSwitch";
 // Whether a long wait shows its sign and its sentence (ac:slow-sign), for the DEV dialog.
 export { slowSignMode, setSlowSignMode } from "./model/slowSignSwitch";
+// What opening a lieu with one audition does (ac:lieu-single), for the DEV dialog.
+export { lieuSingleMode, setLieuSingleMode } from "./model/lieuSingleSwitch";
 // A lieu's label as the tree gives it (the comparer names the server's lieux so).
 export { placeLabel } from "@/features/geo";
 
