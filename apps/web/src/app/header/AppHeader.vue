@@ -52,7 +52,7 @@ function leaveMenu() {
   menuToggle.value?.focus({ preventScroll: true });
 }
 
-// "Nouvelle Audition": the popup opens over whichever page this is. (Signing
+// "Nouvelle audition": the popup opens over whichever page this is. (Signing
 // out is on the admin page.)
 function newAudition() {
   leaveMenu();
@@ -72,12 +72,12 @@ function testify() {
 const nudge = computed(() => nudgeDue(testifyNudge.value, lastTestimonyAt.value, Date.now()));
 const nudgeClass = computed(() => (nudge.value ? ["nudge", `nudge--${testifyLook.value}`] : []));
 
+// The menu's tile invites only while the menu is shut: open, its « Témoigner »
+// row is in view (and the tile is the close button).
+const menuNudgeClass = computed(() => (mobileOpen.value ? [] : nudgeClass.value));
+
 // « Nous rejoindre », for a visitor who is not signed in: the sign-up tab.
 const joinTo = { path: ROUTE.auth.path, query: { tab: "inscription" } };
-
-// The bar is fuller for admins ("+ Nouvelle Audition", "Admin"): their
-// "Témoigner" folds down to its icon sooner.
-const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loading));
 </script>
 
 <template>
@@ -120,7 +120,7 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
           <button
             type="button"
             class="btn btn-primary testify"
-            :class="[{ 'testify--crowded': crowded }, nudgeClass]"
+            :class="nudgeClass"
             aria-label="Témoigner"
             title="Témoigner"
             @click="testify"
@@ -200,7 +200,7 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
         <button
           ref="menuToggle"
           class="icon-btn menu-toggle"
-          :class="nudgeClass"
+          :class="menuNudgeClass"
           :aria-expanded="mobileOpen"
           aria-label="Menu"
           @click="mobileOpen = !mobileOpen"
@@ -396,8 +396,8 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   pointer-events: none;
 }
 
-/* « Halo »: a soft glow, breathing three times, then still. */
-.nudge--halo::after {
+/* « Lueur »: a soft glow, breathing three times, then still. */
+.nudge--lueur::after {
   inset: -1px;
   border-radius: inherit;
   box-shadow:
@@ -440,7 +440,6 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
 
 .nudge--point::after {
   background: hsl(var(--accent-foreground));
-  box-shadow: 0 0 0 2px hsl(var(--card));
 }
 
 @keyframes nudge-breathe {
@@ -491,9 +490,10 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   }
 }
 
-/* "+ Nouvelle Audition" (admins). One line, never squeezed by the nav links —
+/* "+ Nouvelle audition" (admins). One line, never squeezed by the nav links —
    and where the bar is too narrow for all of it (just above the width at which
-   the nav folds into the hamburger), only its "+" is left. */
+   the nav folds into the hamburger), only its "+" is left: the bar's
+   secondary entries fold first, « Témoigner » keeps its word. */
 .new-audition {
   flex-shrink: 0;
   gap: 0.4rem;
@@ -506,26 +506,14 @@ const crowded = computed(() => Boolean(auth.user) && (auth.isAdmin || auth.loadi
   }
 }
 
-/* "Témoigner", for everyone: never wrapped, and down to its icon where the
-   bar gets short — sooner for admins, whose bar holds more. */
+/* "Témoigner", for everyone: never wrapped, its word kept at every width of
+   the bar (900 px and up: it fits beside the admins' entries too, their
+   "Nouvelle audition" folded to its "+"). */
 .testify {
   flex-shrink: 0;
   gap: 0.45rem;
   white-space: nowrap;
-  /* As tall as its neighbours when only its icon is left. */
   min-height: 2.45rem;
-}
-
-@media (max-width: 959px) {
-  .testify-label {
-    display: none;
-  }
-}
-
-@media (max-width: 1099px) {
-  .testify--crowded .testify-label {
-    display: none;
-  }
 }
 
 /* Just above the width where the nav folds into the hamburger, the links

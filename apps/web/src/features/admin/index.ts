@@ -1,4 +1,4 @@
-// The admin area: one page, per-resource subfolders. The "Nouvelle Audition"
+// The admin area: one page, per-resource subfolders. The "Nouvelle audition"
 // popup is opened from the nav bar on any page, so its state and its loader
 // are exported for app/.
 export { useCreateAudition } from "./auditions/useCreateAudition";

@@ -246,8 +246,19 @@ async function handleForgotPassword() {
           <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
       </div>
-      <h1 class="card-title">Administration</h1>
-      <p class="card-desc center">Accédez à l'espace d'administration</p>
+      <!-- The sign-up tab is where « Nous rejoindre » and « Devenir volontaire »
+           lead: it says so. -->
+      <template v-if="tab === 'signup'">
+        <h1 class="card-title">Nous rejoindre</h1>
+        <p class="card-desc center">
+          Créez votre compte de volontaire&nbsp;: une fois votre inscription validée, vous pourrez
+          publier les auditions que vous menez.
+        </p>
+      </template>
+      <template v-else>
+        <h1 class="card-title">Administration</h1>
+        <p class="card-desc center">Accédez à l'espace d'administration</p>
+      </template>
 
       <OAuthButtons class="oauth-zone" />
 

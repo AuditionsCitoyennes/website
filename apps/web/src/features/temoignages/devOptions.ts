@@ -149,7 +149,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "site",
     title: "Site",
-    intro: "Le chargement des pages, hors de la carte, et le bouton Témoigner de l'en-tête.",
+    intro: "Le reste du site, hors de la carte : le chargement des pages, l'en-tête.",
   },
 ];
 
@@ -955,14 +955,14 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "site",
     label: "Style de l'invitation",
     choices: [
-      { id: "halo", label: "Halo" },
+      { id: "lueur", label: "Lueur" },
       { id: "anneau", label: "Anneau" },
       { id: "point", label: "Point" },
     ],
     explain:
-      "L'allure du bouton « Témoigner » quand il invite, toujours en violet. « Halo » (par défaut) : une lueur douce autour du bouton, qui respire trois fois après l'arrivée sur la page puis reste fixe. « Anneau » : un fin anneau autour du bouton, d'où un anneau plus large s'élargit et s'efface trois fois. « Point » : un petit point sur son coin, dont la lueur respire trois fois. Si le système demande de réduire les animations, rien ne bouge.",
+      "L'allure du bouton « Témoigner » quand il invite, toujours en violet. « Lueur » (par défaut) : une lueur douce autour du bouton, qui respire trois fois après l'arrivée sur la page puis reste fixe. « Anneau » : un fin anneau autour du bouton, d'où un anneau plus large s'élargit et s'efface trois fois. « Point » : un petit point violet sur son coin, dont la lueur respire trois fois. Si le système demande de réduire les animations, rien ne bouge.",
     reloads: false,
-    defaultId: "halo",
+    defaultId: "lueur",
   },
 ];
 

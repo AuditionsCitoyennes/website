@@ -17,6 +17,7 @@ const {
   DEFAULT_TESTIFY_NUDGE,
   LAST_TESTIMONY_KEY,
   TESTIFY_LOOKS,
+  isWeeklyQuotaRefusal,
   TESTIFY_NUDGES,
   noteTestimony,
   nudgeDue,
@@ -52,16 +53,16 @@ test("« Toujours » and « Jamais » ignore the record", () => {
 
 test("the defaults, and a build without the testing tools reads no switch", () => {
   assert.equal(DEFAULT_TESTIFY_NUDGE, "auto");
-  assert.equal(DEFAULT_TESTIFY_LOOK, "halo");
+  assert.equal(DEFAULT_TESTIFY_LOOK, "lueur");
   assert.deepEqual([...TESTIFY_NUDGES], ["auto", "toujours", "jamais"]);
-  assert.deepEqual([...TESTIFY_LOOKS], ["halo", "anneau", "point"]);
+  assert.deepEqual([...TESTIFY_LOOKS], ["lueur", "anneau", "point"]);
   assert.equal(nudge.testifyNudge.value, "auto");
-  assert.equal(nudge.testifyLook.value, "halo");
+  assert.equal(nudge.testifyLook.value, "lueur");
   // The setters do nothing there.
   nudge.setTestifyNudge("jamais");
   nudge.setTestifyLook("point");
   assert.equal(nudge.testifyNudge.value, "auto");
-  assert.equal(nudge.testifyLook.value, "halo");
+  assert.equal(nudge.testifyLook.value, "lueur");
 });
 
 test("the record is an ISO date, garbage reads as none", () => {
@@ -102,4 +103,18 @@ test("a testimony is kept on the device, and read back; blocked storage keeps it
   } finally {
     delete g.localStorage;
   }
+});
+
+test("the API's once-a-week refusal is told apart from its other 429", () => {
+  const weekly =
+    "Un seul témoignage par semaine et par adresse email : cette adresse en a déjà envoyé un ces 7 derniers jours.";
+  assert.equal(isWeeklyQuotaRefusal(429, weekly), true);
+  assert.equal(
+    isWeeklyQuotaRefusal(
+      429,
+      "Le dépôt de témoignages est momentanément saturé. Réessayez plus tard.",
+    ),
+    false,
+  );
+  assert.equal(isWeeklyQuotaRefusal(400, weekly), false);
 });

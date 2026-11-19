@@ -18,7 +18,7 @@
 // (always the invitation) or "jamais" (never: the plain button of before).
 //
 // `ac:testify-look`, the invitation's look, always the site's violet:
-// - "halo" (the default): a soft violet glow around the button, breathing
+// - "lueur" (the default): a soft violet glow around the button, breathing
 //   three times after the page shows, then still;
 // - "anneau": a thin violet ring around it, from which a wider ring spreads
 //   and fades three times, then the thin ring alone;
@@ -38,14 +38,14 @@
 import { ref } from "vue";
 
 export type TestifyNudge = "auto" | "toujours" | "jamais";
-export type TestifyLook = "halo" | "anneau" | "point";
+export type TestifyLook = "lueur" | "anneau" | "point";
 
 /** The modes of a build without the testing tools, and the switches' defaults. */
 export const DEFAULT_TESTIFY_NUDGE: TestifyNudge = "auto";
-export const DEFAULT_TESTIFY_LOOK: TestifyLook = "halo";
+export const DEFAULT_TESTIFY_LOOK: TestifyLook = "lueur";
 
 export const TESTIFY_NUDGES: readonly TestifyNudge[] = ["auto", "toujours", "jamais"];
-export const TESTIFY_LOOKS: readonly TestifyLook[] = ["halo", "anneau", "point"];
+export const TESTIFY_LOOKS: readonly TestifyLook[] = ["lueur", "anneau", "point"];
 
 /** The device's record: the date of its last testimony (not a testing switch). */
 export const LAST_TESTIMONY_KEY = "ac-last-testimony";
@@ -107,6 +107,14 @@ if (typeof window !== "undefined") {
     if (e.key === LAST_TESTIMONY_KEY || e.key === null)
       lastTestimonyAt.value = storedLastTestimony();
   });
+}
+
+/** The API's refusal of a second testimony within the week from one address
+ *  (apps/api/src/modules/online-testimonies/routes.ts, "weeklyQuota": a 429
+ *  whose message names the week). Told apart from the other 429, « momentanément
+ *  saturé », by its words: the API gives no code of its own. */
+export function isWeeklyQuotaRefusal(status: number, message: string): boolean {
+  return status === 429 && /par semaine/.test(message);
 }
 
 /** A testimony was sent (or validated) from this device: kept, the button calm. */

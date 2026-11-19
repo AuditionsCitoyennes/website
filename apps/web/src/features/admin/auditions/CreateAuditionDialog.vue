@@ -269,7 +269,7 @@ watch(
 );
 
 const title = computed(() => {
-  if (step.value === 0) return "Nouvelle Audition";
+  if (step.value === 0) return "Nouvelle audition";
   const total = draftTestimonies.value.length;
   return total > 1 ? `Témoignage ${step.value} sur ${total}` : "Témoignage";
 });

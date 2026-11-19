@@ -31,7 +31,7 @@ onMounted(() => {
   <!-- The testimonies map, once for the whole site: a card on the home page,
        the whole of /temoignages (see useMapStage). -->
   <MapStage />
-  <!-- The two site-wide popups ("Nouvelle Audition", "Témoigner"), each
+  <!-- The two site-wide popups ("Nouvelle audition", "Témoigner"), each
        downloaded only once it is first asked for. -->
   <AppDialogs />
   <ToastHost />
