@@ -1040,6 +1040,7 @@ function retryAll() {
         :sheet-style="sheetStyle"
         :sheet-open="sheetOpen"
         :sheet-hidden="sheetHidden"
+        :phone="!isDesktop"
         :crumbs="listMode ? null : breadcrumb"
         :busy="pendingUnit !== null"
         :waiting="waitStage === 'moving'"

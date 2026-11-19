@@ -75,6 +75,11 @@ const navTestimonies = computed(() => (unitTree ? NO_TESTIMONIES : filteredTesti
 const highlight = computed(() => (serverFilters ? serverFilters.text.value : text.value));
 
 const { analyses, analysesBtn } = useAnalysesToggle(() => Boolean(props.preview));
+/** The filters button's name: the word, and how many filters are on. */
+const filtersLabel = computed(() => {
+  const n = chips.value.length;
+  return n ? `Filtres, ${n} actif${n > 1 ? "s" : ""}` : "Filtres";
+});
 // `!!`: a constant the template reads as is, so a build without the analyses drops the button.
 const analysesOn = !!__ANALYSES__;
 
@@ -126,14 +131,33 @@ watch(
           <span class="result-count">
             {{ resultCount }} résultat{{ resultCount > 1 ? "s" : "" }}
           </span>
+          <!-- On a phone a funnel stands for the word (its aria-label says
+               it); the count of active filters stays beside it. -->
           <button
             type="button"
             class="ac-btn ac-btn--ghost filters-btn"
+            :aria-label="filtersLabel"
             :aria-expanded="filtersOpen"
             @click="filtersOpen = true"
           >
-            Filtres
-            <span v-if="chips.length" class="filters-count">{{ chips.length }}</span>
+            <svg
+              class="filters-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="16"
+              height="16"
+              aria-hidden="true"
+            >
+              <path d="M3 4h18l-7 8.5V19l-4 2v-8.5z" />
+            </svg>
+            <span class="filters-label">Filtres</span>
+            <span v-if="chips.length" class="filters-count" aria-hidden="true">{{
+              chips.length
+            }}</span>
           </button>
           <!-- On a phone this row is the sheet's drag handle: a plain click,
                nothing stopped on pointerdown, or the strip no longer drags. -->
@@ -262,21 +286,36 @@ watch(
   color: hsl(var(--muted-foreground));
   font-size: var(--text-caption);
 }
-/* Narrow phones: the Analyses toggle down to its icon (its aria-label says
-   it), a square as tall as Filtres; narrower still, the count goes — the
-   filters dialog repeats it on its button. */
-@media (max-width: 419px) {
+/* The funnel is a phone's (below). */
+.filters-icon {
+  display: none;
+  flex-shrink: 0;
+  color: hsl(var(--primary));
+}
+/* Phones (the bottom sheet, whose strip this row is, after the trail): both
+   buttons down to their icons (their aria-labels say them), squares as tall
+   as a button; no result count — the filters dialog says it on its button,
+   and the trail has the room. The active filters' count stays on the funnel. */
+@media (max-width: 899px) {
+  .filters-btn {
+    min-width: 2.5rem;
+    justify-content: center;
+    padding: 0.35rem 0.5rem;
+  }
+  .filters-icon {
+    display: block;
+  }
+  .filters-label,
+  .analyses-label,
+  .result-count {
+    display: none;
+  }
   .analyses-btn {
     width: 2.5rem;
     padding: 0;
   }
-  .analyses-label {
-    display: none;
-  }
-}
-@media (max-width: 359px) {
-  .result-count {
-    display: none;
+  .filters-count {
+    margin-left: 0.3rem;
   }
 }
 .head-chips {
