@@ -89,7 +89,9 @@ export type DevKey =
   | "ac:line-mesh"
   | "ac:motion"
   | "ac:rise"
-  | "ac:rise-order";
+  | "ac:rise-order"
+  | "ac:testify-nudge"
+  | "ac:testify-look";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -147,7 +149,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "site",
     title: "Site",
-    intro: "Le chargement des pages, hors de la carte.",
+    intro: "Le chargement des pages, hors de la carte, et le bouton Témoigner de l'en-tête.",
   },
 ];
 
@@ -933,6 +935,34 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Quand un lieu s'ouvre, la page demande à l'avance les premiers témoignages de ses premières auditions, pour qu'elles s'ouvrent aussitôt. « Auto » (par défaut) le fait pour trois auditions, et pour une seule quand le navigateur dit que le visiteur économise ses données ou que sa connexion est lente. « Trois », comme avant, le fait pour trois partout ; « Un » pour une seule partout : les suivantes montrent un instant leur chargement.",
     reloads: true,
     defaultId: "auto",
+  },
+  {
+    key: "ac:testify-nudge",
+    section: "site",
+    label: "Bouton Témoigner",
+    choices: [
+      { id: "auto", label: "Auto" },
+      { id: "toujours", label: "Toujours" },
+      { id: "jamais", label: "Jamais" },
+    ],
+    explain:
+      "Le bouton « Témoigner » de l'en-tête, et sur téléphone le bouton du menu, attirent un peu plus l'œil (voir « Style de l'invitation »). « Auto » (par défaut) le fait quand ce navigateur n'a envoyé aucun témoignage depuis une semaine, ou jamais : après un envoi, le bouton reste calme sept jours. Seule la date du dernier envoi est gardée, dans ce navigateur. « Toujours » montre l'invitation à chaque fois, « Jamais » jamais.",
+    reloads: false,
+    defaultId: "auto",
+  },
+  {
+    key: "ac:testify-look",
+    section: "site",
+    label: "Style de l'invitation",
+    choices: [
+      { id: "halo", label: "Halo" },
+      { id: "anneau", label: "Anneau" },
+      { id: "point", label: "Point" },
+    ],
+    explain:
+      "L'allure du bouton « Témoigner » quand il invite, toujours en violet. « Halo » (par défaut) : une lueur douce autour du bouton, qui respire trois fois après l'arrivée sur la page puis reste fixe. « Anneau » : un fin anneau autour du bouton, d'où un anneau plus large s'élargit et s'efface trois fois. « Point » : un petit point sur son coin, dont la lueur respire trois fois. Si le système demande de réduire les animations, rien ne bouge.",
+    reloads: false,
+    defaultId: "halo",
   },
 ];
 

@@ -141,6 +141,12 @@ import {
   slowSignMode,
 } from "@/features/geo-nav";
 import { recover, setRecover } from "@/shared/net/recoverSwitch";
+import {
+  setTestifyLook,
+  setTestifyNudge,
+  testifyLook,
+  testifyNudge,
+} from "@/shared/testimony/testifyNudge";
 import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
 import { compareState } from "./compare";
 import {
@@ -228,6 +234,8 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:motion": bind(() => motionChoice.value, setMotionChoice),
   "ac:rise": bind(() => riseMode.value, setRiseMode),
   "ac:rise-order": bind(() => riseOrder.value, setRiseOrder),
+  "ac:testify-nudge": bind(() => testifyNudge.value, setTestifyNudge),
+  "ac:testify-look": bind(() => testifyLook.value, setTestifyLook),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
