@@ -156,6 +156,12 @@ const emit = defineEmits<{
    */
   userGesture: [];
   /**
+   * The camera has come to rest (mapbox's `moveend`, the one a camera command
+   * swallows aside), after the view of that moment: a gesture, if one was
+   * going on, is over.
+   */
+  cameraRest: [];
+  /**
    * A run of the plateau pipeline has come to its verdict for unit `scopeId`
    * ("" when the map was cleared): see PlateauSettle. Fires inside the block
    * that applies the plateau, before its first rise frame: what a pending
@@ -918,6 +924,7 @@ function mountMap() {
       // move this was (the view emitted says `byUser`); the camera clears it
       // after, and pays a padding owed.
       onCameraSettled();
+      emit("cameraRest");
       camera.onMoveEnd();
     });
     // Pointers down on the map: a finger at rest is a gesture to come.
@@ -1147,6 +1154,14 @@ defineExpose({
       bearing: map.getBearing(),
       pitch: map.getPitch(),
     };
+  },
+  /** How far, in screen pixels, the ground point at (lng, lat) stands from
+   *  the view's padded centre now; null without a map. */
+  screenShift: (lng: number, lat: number) => {
+    if (!map) return null;
+    const at = map.project([lng, lat]);
+    const centre = map.project(map.getCenter());
+    return Math.hypot(at.x - centre.x, at.y - centre.y);
   },
   /** Where the raised plateau stands on screen, once per frame drawn (see
    *  PlateauFrame); returns the unsubscribe. */

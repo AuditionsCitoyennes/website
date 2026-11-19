@@ -11,12 +11,15 @@
 // close nothing.
 //
 // A grazed map is not taken somewhere else: the lieu closes only once the
-// view has really moved from where the gesture found it — its centre by
-// PAN_PX screen pixels, its zoom by ZOOM_STEP, or its bearing or pitch by
-// TURN_DEG. Measured from the camera at the gesture's first signal
-// (`anchor`), so the moves of a series of gestures with no camera command
-// between them add up; a camera command (a click's flight, a crumb's, the
-// ring's fit) starts the count again. The camera's centre is the padded
+// view has really moved from where the gesture found it — the ground point
+// that stood at the view's centre by PAN_PX on screen (measured on the screen
+// as it is now, so under the tilt a pixel is a pixel wherever the hand
+// grabbed), its zoom by ZOOM_STEP, or its bearing or pitch by TURN_DEG.
+// Measured from the camera at the gesture's first signal (`anchor`), and
+// within that one gesture only: a drag with its glide, a run of wheel events,
+// a pinch. The camera coming to rest ends it (`end`), so two nudges minutes
+// apart never add up; a camera command (a click's flight, a crumb's, the
+// ring's fit) starts the count again too. The camera's centre is the padded
 // view's: the padding ease and a resize leave it where it is.
 //
 // Not closed:
@@ -35,38 +38,21 @@ export interface CameraAt {
   pitch: number;
 }
 
-/** Screen pixels the centre must have travelled: past a click's slop and a
- *  finger's wobble on a tap, well short of a drag that means it. */
+/** Screen pixels the ground point at the view's centre must have travelled:
+ *  past a click's slop and a finger's wobble on a tap, well short of a drag
+ *  that means it. */
 export const PAN_PX = 30;
-/** Zoom levels: one notch of a mouse wheel (about half a level) closes, a
- *  trackpad grazed or the wobble of two fingers resting does not. */
-export const ZOOM_STEP = 0.25;
+/** Zoom levels. A lone notch of a mouse wheel on Windows or Linux zooms
+ *  0.15 (Chrome) to 0.18 (Firefox) of a level at mapbox's wheel rate, and
+ *  closes; a Mac's notch is about 0.03, so a short roll closes, one click
+ *  does not. A grazed trackpad (a few pixels of scroll: about 0.05) and two
+ *  fingers resting (mapbox's pinch starts at 0.1) do not. The wheel zooms
+ *  around the pointer, so off the centre the pan's count can close first. */
+export const ZOOM_STEP = 0.12;
 /** Degrees of bearing or pitch: a rotation that means it. */
 export const TURN_DEG = 10;
 /** After a lieu is opened, the time its own tap may go on moving the map. */
 export const OPEN_TAIL_MS = 400;
-
-const TILE = 512;
-
-/** A point's position in mercator world pixels at `zoom`. */
-function worldPx(lng: number, lat: number, zoom: number): [number, number] {
-  const size = TILE * 2 ** zoom;
-  const clamped = Math.max(-85.05112878, Math.min(85.05112878, lat));
-  const s = Math.sin((clamped * Math.PI) / 180);
-  const y = 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
-  return [((lng + 180) / 360) * size, y * size];
-}
-
-/** How far the centre moved, in screen pixels at the anchor's zoom (the
- *  shorter way round the antimeridian). */
-export function panPx(from: CameraAt, to: CameraAt): number {
-  let dLng = to.lng - from.lng;
-  if (dLng > 180) dLng -= 360;
-  else if (dLng < -180) dLng += 360;
-  const [x0, y0] = worldPx(from.lng, from.lat, from.zoom);
-  const [x1, y1] = worldPx(from.lng + dLng, to.lat, from.zoom);
-  return Math.hypot(x1 - x0, y1 - y0);
-}
 
 /** The angle between two bearings, in degrees (0–180). */
 function turn(a: number, b: number): number {
@@ -74,13 +60,15 @@ function turn(a: number, b: number): number {
   return d;
 }
 
-/** The view has really moved from `from` to `to`. */
-export function gestureMoved(from: CameraAt, to: CameraAt): boolean {
+/** The view has really moved from `from` to `to`, the ground point at
+ *  `from`'s centre standing `shiftPx` screen pixels from the view's centre
+ *  (NaN, a point the camera can no longer place, counts as moved). */
+export function gestureMoved(from: CameraAt, to: CameraAt, shiftPx: number): boolean {
   return (
     Math.abs(to.zoom - from.zoom) >= ZOOM_STEP ||
     turn(from.bearing, to.bearing) >= TURN_DEG ||
     Math.abs(to.pitch - from.pitch) >= TURN_DEG ||
-    panPx(from, to) >= PAN_PX
+    !(shiftPx < PAN_PX)
   );
 }
 
@@ -104,6 +92,9 @@ export function gestureCanClose(g: FollowGate): boolean {
 export interface LieuFollowInputs {
   /** The camera now; null while there is no map. */
   cameraNow: () => CameraAt | null;
+  /** How far, in screen pixels, the ground point at `at`'s centre stands from
+   *  the view's centre now; null while there is no map. */
+  shiftPx: (at: CameraAt) => number | null;
   /** The last camera command's key (navState's cameraKey). */
   commandKey: () => number;
   gate: () => FollowGate;
@@ -114,9 +105,16 @@ export interface LieuFollowInputs {
 /**
  * The rule above, fed by the map: `gesture()` at each signal of the
  * visitor's own gesture (GeoDrillMap's `userGesture`, which repeats while it
- * goes on), `view()` at each view the map reports.
+ * goes on), `view()` at each view the map reports, `end()` when the camera
+ * comes to rest (GeoDrillMap's `cameraRest`).
  */
-export function createLieuFollow({ cameraNow, commandKey, gate, close }: LieuFollowInputs) {
+export function createLieuFollow({
+  cameraNow,
+  shiftPx,
+  commandKey,
+  gate,
+  close,
+}: LieuFollowInputs) {
   let anchor: { at: CameraAt; key: number } | null = null;
 
   function check() {
@@ -127,7 +125,8 @@ export function createLieuFollow({ cameraNow, commandKey, gate, close }: LieuFol
       return;
     }
     const now = cameraNow();
-    if (!now || !gestureMoved(anchor.at, now)) return;
+    const shift = shiftPx(anchor.at);
+    if (!now || shift === null || !gestureMoved(anchor.at, now, shift)) return;
     anchor = null;
     close();
   }
@@ -149,6 +148,11 @@ export function createLieuFollow({ cameraNow, commandKey, gate, close }: LieuFol
         return;
       }
       check();
+    },
+    end() {
+      // The last view of the gesture is counted, then the gesture is over.
+      if (gestureCanClose(gate())) check();
+      anchor = null;
     },
     /** Where the count starts, null when none (testing). */
     anchor: () => anchor?.at ?? null,

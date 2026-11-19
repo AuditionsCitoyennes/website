@@ -94,11 +94,14 @@ function goBack() {
 </script>
 
 <template>
+  <!-- tabindex -1: a focus whose crumb goes (the open lieu closed by the map,
+       GeoNav's closeLieuForMap) lands on the trail itself, which stays. -->
   <nav
     ref="crumbsEl"
     class="crumbs"
     :class="{ tight: crumbsCollapsed === trail.length - 1 }"
     aria-label="Fil d'Ariane"
+    tabindex="-1"
   >
     <button
       v-if="back"

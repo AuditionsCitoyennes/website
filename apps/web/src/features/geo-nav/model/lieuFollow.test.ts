@@ -1,9 +1,9 @@
 // When the visitor's gesture closes the open lieu (lieuFollow.ts), run with
 // `node --import tsx --test` (root "test:scripts"): the thresholds, the gate
 // (the switch, filters on, the tail of the opening tap), and the feed — a
-// gesture that moves the view far enough closes, once; a nudge does not; the
-// camera's own moves (no gesture, or a command since the gesture began)
-// never do.
+// gesture that moves the view far enough closes, once; a nudge does not, nor
+// do nudges of separate gestures added up; the camera's own moves (no
+// gesture, or a command since the gesture began) never do.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -15,42 +15,34 @@ import {
   createLieuFollow,
   gestureCanClose,
   gestureMoved,
-  panPx,
   type CameraAt,
   type FollowGate,
 } from "./lieuFollow";
 
 const LYON: CameraAt = { lng: 4.835, lat: 45.767, zoom: 16, bearing: 0, pitch: 45 };
-/** `px` screen pixels east of `from`, at its zoom. */
+/** `px` screen pixels east of `from`, at its zoom (on the fake flat map). */
 const east = (from: CameraAt, px: number): CameraAt => ({
   ...from,
   lng: from.lng + (px / (512 * 2 ** from.zoom)) * 360,
 });
-
-test("the pan is measured in screen pixels at the anchor's zoom, both ways round", () => {
-  assert.ok(Math.abs(panPx(LYON, east(LYON, 100)) - 100) < 1e-6);
-  // North: mercator, not degrees.
-  const north = { ...LYON, lat: LYON.lat + 0.001 };
-  const px = panPx(LYON, north);
-  assert.ok(px > 0 && Math.abs(px - panPx(north, LYON)) < 1);
-  // Across the antimeridian: the short way.
-  const a = { ...LYON, lng: 179.999, zoom: 10 };
-  const b = { ...LYON, lng: -179.999, zoom: 10 };
-  assert.ok(panPx(a, b) < 10);
-});
+/** The fake map's screen: flat, east–west only — how far `at`'s centre
+ *  stands from `now`'s, in pixels at `now`'s zoom. */
+const shiftOn = (now: CameraAt, at: CameraAt) =>
+  (Math.abs(now.lng - at.lng) / 360) * 512 * 2 ** now.zoom;
 
 test("the thresholds: a pan, a zoom or a turn that means it; a nudge does not", () => {
   assert.equal(PAN_PX, 30);
-  assert.equal(ZOOM_STEP, 0.25);
+  assert.equal(ZOOM_STEP, 0.12);
   assert.equal(TURN_DEG, 10);
-  assert.equal(gestureMoved(LYON, east(LYON, PAN_PX - 1)), false);
-  assert.equal(gestureMoved(LYON, east(LYON, PAN_PX + 1)), true);
-  assert.equal(gestureMoved(LYON, { ...LYON, zoom: LYON.zoom + 0.2 }), false);
-  assert.equal(gestureMoved(LYON, { ...LYON, zoom: LYON.zoom - 0.3 }), true); // a wheel notch out
-  assert.equal(gestureMoved(LYON, { ...LYON, bearing: 9 }), false);
-  assert.equal(gestureMoved(LYON, { ...LYON, bearing: -12 }), true);
-  assert.equal(gestureMoved({ ...LYON, bearing: 355 }, { ...LYON, bearing: 3 }), false); // 8°
-  assert.equal(gestureMoved(LYON, { ...LYON, pitch: 30 }), true);
+  assert.equal(gestureMoved(LYON, LYON, PAN_PX - 1), false);
+  assert.equal(gestureMoved(LYON, LYON, PAN_PX), true);
+  assert.equal(gestureMoved(LYON, LYON, Number.NaN), true); // a point the camera lost
+  assert.equal(gestureMoved(LYON, { ...LYON, zoom: LYON.zoom + 0.06 }, 0), false); // a grazed trackpad
+  assert.equal(gestureMoved(LYON, { ...LYON, zoom: LYON.zoom - 0.15 }, 0), true); // one wheel notch out
+  assert.equal(gestureMoved(LYON, { ...LYON, bearing: 9 }, 0), false);
+  assert.equal(gestureMoved(LYON, { ...LYON, bearing: -12 }, 0), true);
+  assert.equal(gestureMoved({ ...LYON, bearing: 355 }, { ...LYON, bearing: 3 }, 0), false); // 8°
+  assert.equal(gestureMoved(LYON, { ...LYON, pitch: 30 }, 0), true);
 });
 
 const open: FollowGate = { follows: true, lieuOpen: true, listMode: false, sinceOpenMs: 5000 };
@@ -70,6 +62,7 @@ function rig(gate: Partial<FollowGate> = {}) {
   const s = { cam: LYON as CameraAt | null, key: 7, gate: { ...open, ...gate }, closed: 0 };
   const follow = createLieuFollow({
     cameraNow: () => s.cam,
+    shiftPx: (at) => (s.cam ? shiftOn(s.cam, at) : null),
     commandKey: () => s.key,
     gate: () => s.gate,
     close: () => s.closed++,
@@ -93,10 +86,10 @@ test("a drag that passes the threshold closes the lieu, once", () => {
   assert.equal(s.closed, 1, "the count starts again, from the next gesture only");
 });
 
-test("a wheel notch out closes; a tiny nudge does not", () => {
+test("one wheel notch out closes; a tiny nudge does not", () => {
   const wheel = rig();
   wheel.follow.gesture(); // the wheel event, before the zoom
-  wheel.s.cam = { ...LYON, zoom: LYON.zoom - 0.55 };
+  wheel.s.cam = { ...LYON, zoom: LYON.zoom - 0.15 }; // a lone notch, Chrome on Windows
   wheel.follow.view(); // its views, whoever mapbox says moved
   assert.equal(wheel.s.closed, 1);
 
@@ -105,17 +98,52 @@ test("a wheel notch out closes; a tiny nudge does not", () => {
   nudge.s.cam = east(LYON, 6);
   nudge.follow.view();
   nudge.follow.view(); // the moveend view
+  nudge.follow.end();
   assert.equal(nudge.s.closed, 0);
 });
 
-test("nudges with no camera command between them add up", () => {
-  const { s, follow } = rig();
-  for (let i = 1; i <= 4; i++) {
-    follow.gesture();
-    s.cam = east(LYON, 10 * i);
-    follow.view();
+test("within one gesture the moves add up; separate gestures' do not", () => {
+  // One drag, reported as it goes on: 10, 20, 30 px from where it began.
+  const one = rig();
+  one.follow.gesture();
+  for (let i = 1; i <= 3; i++) {
+    one.s.cam = east(LYON, 10 * i);
+    one.follow.view();
+    one.follow.gesture();
   }
-  assert.equal(s.closed, 1); // at the third: 30 px from where the first one found it
+  assert.equal(one.s.closed, 1);
+
+  // Nudges of 20 then 15 px, the camera at rest between them.
+  const two = rig();
+  two.follow.gesture();
+  two.s.cam = east(LYON, 20);
+  two.follow.view();
+  two.follow.end();
+  assert.equal(two.follow.anchor(), null, "the rest ends the gesture");
+  two.follow.gesture();
+  two.s.cam = east(LYON, 35);
+  two.follow.view();
+  two.follow.end();
+  assert.equal(two.s.closed, 0);
+
+  // Wheel notches, each its own gesture: each counts alone.
+  const slow = rig();
+  for (let i = 1; i <= 3; i++) {
+    slow.follow.gesture();
+    slow.s.cam = { ...LYON, zoom: LYON.zoom - 0.03 * i }; // a Mac's notches, apart
+    slow.follow.view();
+    slow.follow.end();
+  }
+  assert.equal(slow.s.closed, 0);
+});
+
+test("the rest counts the gesture's last view", () => {
+  const { s, follow } = rig();
+  follow.gesture();
+  s.cam = east(LYON, 40); // reached between two throttled views
+  follow.end();
+  assert.equal(s.closed, 1);
+  assert.equal(follow.anchor(), null);
 });
 
 test("the camera's own moves close nothing", () => {

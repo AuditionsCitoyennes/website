@@ -412,35 +412,38 @@ function onUserGesture() {
   handMoved();
   lieuFollow.gesture();
 }
-// The switch turned to « Suit la carte » while the panel was folded aside: it
-// comes back, never to fold again.
-watch(lieuHoldMode, () => {
-  if (follows()) mapEngaged.value = false;
+// The panel comes to follow the map while it was folded aside — the switch
+// turned to « Suit la carte », or the filters cleared with the results' lieu
+// still open: it comes back, never to fold again.
+watch(follows, (f) => {
+  if (f) mapEngaged.value = false;
 });
 
 /**
  * The open lieu closes because the visitor took the map elsewhere (or asked
  * for the analyses of what is in view): the panel follows the map again —
  * the scope catches up with the view (the `readingPlace` watch below), the
- * list and the trail with the scope. A focus that was in the lieu's text
- * goes to the trail's last crumb (the territory now listed), without
- * scrolling anything; nothing is read out.
+ * list and the trail with the scope. A focus in what goes or changes with
+ * the lieu (its text in the list, the trail, whose crumbs follow the scope)
+ * goes to the trail itself, which stays, without scrolling anything; one
+ * elsewhere in the panel (the search, the filters) stays where it is.
+ * Nothing is read out.
  */
 function closeLieuForMap() {
   const at = document.activeElement;
-  const held = !!at && at !== document.body && !!panelListEl.value?.contains(at);
+  const trail = panelEl.value?.querySelector<HTMLElement>("nav.crumbs") ?? null;
+  const goes =
+    at instanceof HTMLElement &&
+    at !== trail &&
+    (!!panelListEl.value?.contains(at) || !!trail?.contains(at));
+  if (goes) trail?.focus({ preventScroll: true });
   selectedPlaceId.value = null;
   openAuditions.value = new Set();
   hoveredPanelId.value = null;
-  if (!held) return;
-  void nextTick(() => {
-    const now = document.activeElement;
-    if (now && now !== document.body && now !== at && document.contains(at)) return;
-    panelEl.value?.querySelector<HTMLElement>(".crumb.current")?.focus({ preventScroll: true });
-  });
 }
 const lieuFollow = createLieuFollow({
   cameraNow: () => mapCmp.value?.cameraNow() ?? null,
+  shiftPx: (at) => mapCmp.value?.screenShift(at.lng, at.lat) ?? null,
   commandKey: () => nav.cameraKey.value,
   gate: () => ({
     follows: follows(),
@@ -1031,6 +1034,7 @@ function retryAll() {
       @plateau-settled="onPlateauSettled"
       @view-change="onMapView"
       @user-gesture="onUserGesture"
+      @camera-rest="lieuFollow.end()"
     />
 
     <!-- The analyses, around the raised territory. Over the map, under the
