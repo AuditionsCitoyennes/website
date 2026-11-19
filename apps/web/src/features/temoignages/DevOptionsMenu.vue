@@ -121,6 +121,8 @@ import {
   tapStepsMode,
   setRiseMode,
   setRiseOrder,
+  boundaryHalo,
+  setBoundaryHalo,
   setTintCut,
   tintCut,
 } from "@/features/map";
@@ -236,6 +238,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:rise-order": bind(() => riseOrder.value, setRiseOrder),
   "ac:testify-nudge": bind(() => testifyNudge.value, setTestifyNudge),
   "ac:testify-look": bind(() => testifyLook.value, setTestifyLook),
+  "ac:boundary-halo": bind(() => boundaryHalo.value, setBoundaryHalo),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

@@ -92,5 +92,7 @@ export { lineMesh, setLineMesh, type LineMesh } from "./plateau/lineMeshSwitch";
 // How the ground rises under the plateau and when the rise starts: their DEV switches (the Témoignages page draws them).
 export { riseMode, setRiseMode, type RiseMode } from "./plateau/riseSwitch";
 export { riseOrder, setRiseOrder, type RiseOrder } from "./plateau/riseSwitch";
+// Whether the standing plateau wears its halo: its DEV switch (the Témoignages page draws it).
+export { boundaryHalo, setBoundaryHalo, type BoundaryHalo } from "./plateau/haloSwitch";
 // How much the map keeps in memory of the places already seen: its DEV switch (the Témoignages page draws it).
 export { mapCaches, setMapCaches, type MapCaches } from "./cacheBudget";

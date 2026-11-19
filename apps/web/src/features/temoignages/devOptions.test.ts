@@ -61,6 +61,7 @@ const lineMesh = await import("../map/plateau/lineMeshSwitch");
 const motion = await import("../../shared/device/motion");
 const rise = await import("../map/plateau/riseSwitch");
 const testify = await import("../../shared/testimony/testifyNudge");
+const halo = await import("../map/plateau/haloSwitch");
 
 const MODULES = {
   data: "./dataSource.ts",
@@ -100,6 +101,7 @@ const MODULES = {
   motion: "../../shared/device/motion.ts",
   rise: "../map/plateau/riseSwitch.ts",
   testify: "../../shared/testimony/testifyNudge.ts",
+  halo: "../map/plateau/haloSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -169,6 +171,7 @@ const KEYS: readonly DevKey[] = [
   "ac:rise-order",
   "ac:testify-nudge",
   "ac:testify-look",
+  "ac:boundary-halo",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -182,7 +185,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 59);
+  assert.equal(DEV_OPTIONS.length, 60);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -303,6 +306,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:rise-order": ["rise", "setRiseOrder"],
   "ac:testify-nudge": ["testify", "setTestifyNudge"],
   "ac:testify-look": ["testify", "setTestifyLook"],
+  "ac:boundary-halo": ["halo", "setBoundaryHalo"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -428,6 +432,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:rise-order"), [...rise.RISE_ORDERS]);
   assert.deepEqual(ids("ac:testify-nudge"), [...testify.TESTIFY_NUDGES]);
   assert.deepEqual(ids("ac:testify-look"), [...testify.TESTIFY_LOOKS]);
+  assert.deepEqual(ids("ac:boundary-halo"), [...halo.BOUNDARY_HALOS]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -509,6 +514,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:rise-order": rise.DEFAULT_RISE_ORDER,
     "ac:testify-nudge": testify.DEFAULT_TESTIFY_NUDGE,
     "ac:testify-look": testify.DEFAULT_TESTIFY_LOOK,
+    "ac:boundary-halo": halo.DEFAULT_BOUNDARY_HALO,
   };
   assert.match(code("slabs"), /storedShare\(FILL_KEY, FRAME_FILL\)/);
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
