@@ -298,9 +298,9 @@ watch(
    and the trail has the room. The active filters' count stays on the funnel. */
 @media (max-width: 899px) {
   .filters-btn {
-    min-width: 2.5rem;
-    justify-content: center;
-    padding: 0.35rem 0.5rem;
+    position: relative;
+    width: 2.5rem;
+    padding: 0;
   }
   .filters-icon {
     display: block;
@@ -310,12 +310,23 @@ watch(
   .result-count {
     display: none;
   }
-  .analyses-btn {
-    width: 2.5rem;
-    padding: 0;
-  }
+  /* The active filters' count: a badge on the funnel's top-right corner, so
+     the button stays a square like its neighbour. Ringed in the panel's
+     ground so it reads apart from the border it sits on. */
   .filters-count {
-    margin-left: 0.3rem;
+    position: absolute;
+    top: -0.4rem;
+    right: -0.4rem;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    margin: 0;
+    padding: 0 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    box-shadow: 0 0 0 2px hsl(var(--card));
+    pointer-events: none;
   }
 }
 .head-chips {
