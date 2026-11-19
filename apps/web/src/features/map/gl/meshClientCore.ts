@@ -36,10 +36,20 @@
 //   no build, and no build supersedes it. It never rejects and is never cut
 //   here: it resolves null — superseded, a second miss, the worker lost,
 //   disposed — and the caller cuts the sheet itself if it still wants it.
+// - A tapped unit's pending mark (gl/pendingMark.ts). `buildMark()` asks the
+//   worker for a large unit's line and fill in one regime (and for a wide
+//   unit's bisected globe fill, behind the builds): its geometry
+//   travels under the same tokens, pinned while it is in flight. One flight
+//   per geometry and regime. It never rejects and is never built here: it
+//   resolves null — nothing built, a second miss, no reply within
+//   MARK_REPLY_CAP_MS, the worker lost, disposed — and the caller builds it
+//   itself. Unlike every other request, a mark that fails or stays
+//   unanswered never ends the worker: a mark is a sign, not a plateau.
 
 import type { OutlineFC } from "../types";
 import type { MeshOut } from "./meshBuild";
 import type {
+  MarkRequest,
   MeshMessage,
   MeshPut,
   MeshReply,
@@ -48,6 +58,7 @@ import type {
   MeshWant,
   TintRequest,
 } from "./meshCore";
+import type { MarkFill, MarkLine, MarkRegime } from "./pendingMark";
 import { flatBuffers, flatVertices, flatten, type Geom } from "./meshFlat";
 import type { TintSheet } from "./tintSheet";
 
@@ -55,6 +66,8 @@ import type { TintSheet } from "./tintSheet";
 export const MESH_TOKEN_CAP_VERTICES = 300_000;
 /** A request unanswered this long: the worker is lost (ms). */
 export const MESH_WATCHDOG_MS = 3000;
+/** A mark unanswered this long is given up, the worker left alone (ms). */
+export const MARK_REPLY_CAP_MS = 1500;
 
 type Features = OutlineFC["features"];
 
@@ -78,6 +91,13 @@ export interface MeshResult {
 
 /** A grey sheet the worker cut; `ms` the cut's own time. */
 export type TintResult = TintSheet & { ms: number };
+
+/** A pending mark the worker built; `ms` the build's own time. */
+export interface MarkResult {
+  line: MarkLine;
+  fill: MarkFill;
+  ms: number;
+}
 
 /** What the client needs of a worker. */
 export interface MeshTransport {
@@ -105,6 +125,10 @@ export interface MeshClientDeps {
    *  the build's own time (the worker's), and a grey sheet's round trip. */
   trace?: {
     tintRoundTrip?(ms: number, detail: { puts: number; cloneMs: number }): void;
+    markRoundTrip?(
+      ms: number,
+      detail: { regime: MarkRegime; front: boolean; puts: number; buildMs: number },
+    ): void;
     roundTrip?(
       ms: number,
       detail: { scope: string; first: boolean; puts: number; cloneMs: number },
@@ -148,6 +172,21 @@ type PendingTint = {
   resolve: (r: TintResult | null) => void;
 };
 
+/** A pending mark's build in flight. */
+type PendingMark = {
+  id: number;
+  g: Geom;
+  regime: MarkRegime;
+  front: boolean;
+  tokens: number[];
+  resent: boolean;
+  puts: number;
+  postedAt: number;
+  cancelCap: (() => void) | null;
+  resolve: (r: MarkResult | null) => void;
+  promise: Promise<MarkResult | null>;
+};
+
 function metaOf(f: Features[number]) {
   const g = f.geometry as Geom | null | undefined;
   return {
@@ -170,6 +209,7 @@ export function createMeshClient(deps: MeshClientDeps) {
   let nextId = 1;
   const pending = new Map<number, Pending>();
   const tints = new Map<number, PendingTint>();
+  const marks = new Map<number, PendingMark>();
   const inflight = new Map<string, Pending>();
   let lastApplied: readonly number[] = [];
   // Resolved with a mesh, not applied (yet): dropped once a later one is.
@@ -188,6 +228,8 @@ export function createMeshClient(deps: MeshClientDeps) {
     fallbacks: 0,
     tints: 0,
     tintsCut: 0,
+    marks: 0,
+    marksBuilt: 0,
   });
   let n = zero();
 
@@ -243,6 +285,7 @@ export function createMeshClient(deps: MeshClientDeps) {
     const out = new Set<number>(lastApplied);
     for (const p of pending.values()) for (const t of p.tokens) out.add(t);
     for (const p of tints.values()) for (const t of p.tokens) out.add(t);
+    for (const p of marks.values()) for (const t of p.tokens) out.add(t);
     for (const t of extra) out.add(t);
     return out;
   }
@@ -357,8 +400,10 @@ export function createMeshClient(deps: MeshClientDeps) {
     for (const q of tints.values()) if (q.id !== m.id) watch(q);
     const tint = tints.get(m.id);
     if (tint) return onTintReply(tint, m);
+    const mark = marks.get(m.id);
+    if (mark) return onMarkReply(mark, m);
     const p = pending.get(m.id);
-    if (!p || m.t === "tint") return;
+    if (!p || m.t === "tint" || m.t === "mark") return;
     if (m.t === "error") return fail("error");
     if (m.t === "skipped") {
       settle(p);
@@ -484,6 +529,110 @@ export function createMeshClient(deps: MeshClientDeps) {
     return promise;
   }
 
+  /** `p` posted (again, after a miss: its geometry under a new token). */
+  function sendMark(p: PendingMark) {
+    const alloc = { puts: [] as MeshPut[], used: new Set<number>() };
+    const features = [{ type: "Feature", properties: {}, geometry: p.g }];
+    let scope: MeshSet;
+    try {
+      scope = setOf(features as unknown as Features, alloc)!;
+    } catch {
+      // A geometry the flattening cannot read: nothing posted.
+      forget(alloc.puts.map((x) => x.token));
+      settleMark(p);
+      return p.resolve(null);
+    }
+    p.tokens = [...alloc.used];
+    evict(alloc.used);
+    const knobs = deps.knobs?.();
+    const req: MarkRequest = {
+      t: "mark",
+      id: p.id,
+      scope,
+      puts: alloc.puts,
+      regime: p.regime,
+      front: p.front,
+      // Not the builds' delay: a slowed plateau is studied with its mark on time.
+      fail: knobs?.fail,
+    };
+    try {
+      transport!.post(
+        req,
+        alloc.puts.flatMap((x) => flatBuffers(x.flat)),
+      );
+    } catch {
+      // The worker cannot be reached: it is lost, as for any request — the
+      // marks in flight resolve null there.
+      fail("post");
+      return;
+    }
+    p.puts = alloc.puts.length;
+    p.postedAt = deps.now();
+    // Its own cap, not the watchdog: unanswered, the mark is given up and
+    // the worker is left as it is.
+    p.cancelCap?.();
+    p.cancelCap = deps.schedule(() => {
+      p.cancelCap = null;
+      settleMark(p);
+      p.resolve(null);
+    }, MARK_REPLY_CAP_MS);
+  }
+
+  function settleMark(p: PendingMark) {
+    p.cancelCap?.();
+    p.cancelCap = null;
+    marks.delete(p.id);
+  }
+
+  function onMarkReply(p: PendingMark, m: MeshReply) {
+    if (m.t === "missing") {
+      n.misses++;
+      forget(m.tokens);
+      if (!p.resent) {
+        p.resent = true;
+        n.resends++;
+        return sendMark(p);
+      }
+    }
+    settleMark(p);
+    // Anything but a built mark (nothing built, a second miss, an `error`
+    // that no mark should get): no mark from the worker, and nothing more.
+    if (m.t !== "mark" || !m.built) return p.resolve(null);
+    n.marksBuilt++;
+    deps.trace?.markRoundTrip?.(deps.now() - p.postedAt, {
+      regime: p.regime,
+      front: p.front,
+      puts: p.puts,
+      buildMs: m.built.ms,
+    });
+    p.resolve({ line: m.built.line, fill: m.built.fill, ms: m.built.ms });
+  }
+
+  /** The pending mark of `g` in `regime`, asked of the worker. */
+  function requestMark(g: Geom, regime: MarkRegime, front: boolean): Promise<MarkResult | null> {
+    if (disposed || mode === "main") return Promise.resolve(null);
+    for (const q of marks.values()) if (q.g === g && q.regime === regime) return q.promise;
+    let resolve!: (r: MarkResult | null) => void;
+    const promise = new Promise<MarkResult | null>((r) => (resolve = r));
+    const p: PendingMark = {
+      id: nextId++,
+      g,
+      regime,
+      front,
+      tokens: [],
+      resent: false,
+      puts: 0,
+      postedAt: 0,
+      cancelCap: null,
+      resolve,
+      promise,
+    };
+    marks.set(p.id, p);
+    n.marks++;
+    sendMark(p);
+    return promise;
+  }
+
   /** The worker lost for the session: every pending request built here. */
   function fail(why: string) {
     if (disposed || mode !== "worker") return;
@@ -504,6 +653,11 @@ export function createMeshClient(deps: MeshClientDeps) {
     // The cuts in flight first: their callers cut here, at once.
     for (const p of [...tints.values()]) {
       settleTint(p);
+      p.resolve(null);
+    }
+    // …and the marks: their callers build them.
+    for (const p of [...marks.values()]) {
+      settleMark(p);
       p.resolve(null);
     }
     for (const p of list) {
@@ -570,6 +724,10 @@ export function createMeshClient(deps: MeshClientDeps) {
     /** The flat view's grey sheet cut around `geoms`. Never rejects; null:
      *  no sheet from the worker (the caller cuts it). */
     cutTint: (geoms: readonly Geom[]) => requestTint(geoms),
+    /** A tapped unit's pending mark (its line and its fill) for one regime.
+     *  `front`: the tap's own, ahead of the builds queued. Never rejects;
+     *  null: no mark from the worker (the caller builds it). */
+    buildMark: (g: Geom, regime: MarkRegime, front: boolean) => requestMark(g, regime, front),
     /** `r` is drawn: its tokens stay pinned until the next one is. */
     applied(r: MeshResult) {
       n.applied++;
@@ -598,6 +756,10 @@ export function createMeshClient(deps: MeshClientDeps) {
       }
       for (const p of [...tints.values()]) {
         settleTint(p);
+        p.resolve(null);
+      }
+      for (const p of [...marks.values()]) {
+        settleMark(p);
         p.resolve(null);
       }
       pending.clear();

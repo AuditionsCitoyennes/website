@@ -395,6 +395,22 @@ its children's lines as before. A row hovered in the list prefetches the same
 two files in the same order. `ac:region-self=bundle` (the DEV dialog's
 « Contour seul ») asks the bundle alone, as before 2026-11-14.
 
+A unit the visitor tapped is the exception: its plateau waits for its bundle
+too, so that it rises with its children's boundaries on its lid (the
+départements of a région, the communes of a département), built by the one
+mesh of its commit instead of a reshape after the rise. The bundle is then
+asked at high priority beside the `u/`, stored as it lands, and counted in
+the tap's loading line. The wait has the cap of the unit's own outline
+(`ac:outline-wait`: four seconds for a tapped unit), a timer of its own per
+visit that is never extended and ends when the unit is left; past it the
+plateau rises without the lines and the bundle is a late file again, for the
+rest of the visit — a bundle that had failed and is asked again later does
+not reopen the wait. A selection nobody tapped (a crumb, a link, a search, a
+pan, the boot) never waits for them, nor does a tap with no pending mark
+(`ac:tap-answer=off`). `ac:tap-lines` (the DEV dialog's « Lignes
+intérieures »): `wait` (the default), `upper` (only a country and a région
+wait), `late` (nothing waits, as before 2026-11-17).
+
 A touch screen has no pointer to hover a row with. There, once the first
 plateau stands (France, on the Témoignages page), its lid has landed and the
 map is at rest (no flight, no rise, no finger down, its tiles in), the one or
@@ -409,30 +425,39 @@ asks nothing ahead on a touch screen, as before 2026-11-14.
 
 How long a plateau waits for its own outline while a coarser outline of the
 same unit is in memory (a région's entry in `k/FR`, a country's `g/`) is
-`ac:outline-wait` (« Attente du contour »): `1200` (the default, as before),
-`400` or `0` ms. Past it the plateau rises on the coarse shape; the fine one,
-stored at a still moment, replaces it at the plateau's height, with no sink
-and no rise. With no coarse shape in memory the wait stays 1.2 s. While the
-map holds for an outline, `ac:cold-start=early` (« Avant le contour ») sinks
-the plateau standing and shoots the coming unit's lid over its box at once;
-`hold` (the default) leaves both for the outline's landing, as before.
+`ac:outline-wait` (« Attente du contour »): `file` (the default) — a unit
+the visitor tapped waits for its file itself, 4 s at most, its loading line
+following the file as it arrives (any other selection: 1.2 s) — or `1200`
+(1.2 s tapped or not, as before the loading line), `400` or `0` ms. Past it
+the plateau rises on the coarse shape; the fine one, stored at a still
+moment, replaces it at the plateau's height, with no sink and no rise. A
+tapped unit's loading line measures its own file: once the wait is given up
+the line goes no further and fades where it stands, the violet stays on the
+unit until the plateau is about to rise on the coarse shape, as for any
+tap — the line is never run to the end for a file that has not come. With
+no coarse shape in memory the wait stays 1.2 s. While the map holds for an
+outline, `ac:cold-start=early` (« Avant le contour ») sinks the plateau
+standing and shoots the coming unit's lid over its box at once; `hold` (the
+default) leaves both for the outline's landing, as before.
 
 A unit with no coarse shape in memory (a commune whose département's bundle
 is still on its way) holds for as long as that file takes: up to two 15 s
 attempts. The visitor is told meanwhile. Once the camera has landed, 0.8 s
-at least after the tap, three small dots move beside the tapped unit's pill
-and after its name in the panel's trail (CSS only, 3.9 s of motion at most,
-still under reduced motion). Five seconds after the tap with no plateau, the
-tap's mark drains and the panel says « La carte met plus de temps que
-prévu. » with a « Réessayer » button (over the map's top on a phone whose
-sheet is lowered). The button asks again for the missing piece only: while
-the map holds for an outline, the attempts on the network that the plateau
-waits for are dropped and made again at once, at the same priority, without
-counting as one of the request's two (`OutlineLoader.reask`); with the
-outline in memory, the plateau's own run is made once more unless one is
-under way. The scope, the camera, the lists and the files' chain are left as
-they are. `ac:slow-sign=off` (« Attente longue ») shows neither dots nor
-sentence, as before 2026-11-14.
+at least after the tap, three small dots move after the tapped unit's name
+in the panel's trail (CSS only, 3.9 s of motion at most, still under reduced
+motion); the map shows no name tag on the tapped unit while it waits, so a
+phone whose sheet is lowered shows no sign before the late stage. Five
+seconds after the tap with no plateau, the tap's mark drains and the panel
+says « La carte met plus de temps que prévu. » with a « Réessayer » button
+(over the map's top on a phone whose sheet is lowered). The button asks
+again for the missing piece only: while the map holds for an outline, the
+attempts on the network that the plateau waits for are dropped and made
+again at once, at the same priority, without counting as one of the
+request's two (`OutlineLoader.reask`); with the outline in memory, the
+plateau's own run is made once more unless one is under way. The scope, the
+camera, the lists and the files' chain are left as they are.
+`ac:slow-sign=off` (« Attente longue ») shows neither dots nor sentence, as
+before 2026-11-14.
 
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps

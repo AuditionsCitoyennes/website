@@ -56,6 +56,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
     failed: (id) => outlines.isFailed("k", id) || outlines.isFailed("u", id),
     gaveUp: (id) =>
       outlines.heldOut.value.has(id) || outlines.isGaveUp("u", id) || outlines.isGaveUp("k", id),
+    linesHeld: outlines.linesHeld,
   };
   /** The outline files are read (none read, or the session fell back: not). */
   const filesActive = () => view !== null && view.mode === "fichiers";
@@ -94,9 +95,8 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   // The polygon a unit is drawn and hit with, the one it is raised with,
   // whether its plateau waits for it, whether none will come: the files'
   // (outlineRules), or none at all when no file is read.
-  const { geometryFor, raisedGeometryFor, raisedOutlineDue, geometryKnownAbsent } = view
-    ? outlineRules(view, chainOf)
-    : NO_FILES;
+  const { geometryFor, raisedGeometryFor, raisedOutlineDue, childLinesDue, geometryKnownAbsent } =
+    view ? outlineRules(view, chainOf) : NO_FILES;
 
   // Real polygon containment, used to break bbox ties in the scope walk (e.g. Lyon 3e
   // vs neighbouring Villeurbanne). Returns false when the unit's geometry isn't loaded
@@ -183,6 +183,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
     geometryKnownAbsent,
     raisedGeometryFor,
     raisedOutlineDue,
+    childLinesDue,
     containsPoint,
     finestAt,
     allPlaceUnits,

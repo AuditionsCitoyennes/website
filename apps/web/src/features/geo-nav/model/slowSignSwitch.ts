@@ -5,9 +5,9 @@
 //
 // - "on" (the default): a tapped territory whose plateau is still on its way
 //   once the camera has landed, SLOW_SIGN_FLOOR_MS at least after the tap,
-//   gets a small moving sign on its pill and beside its name in the panel's
-//   breadcrumb; SLOW_WAIT_MS after the tap the mark goes and the panel says
-//   the map is taking longer than expected, with a « Réessayer » button
+//   gets a small moving sign beside its name in the panel's breadcrumb (the
+//   map shows none); SLOW_WAIT_MS after the tap the mark goes and the panel
+//   says the map is taking longer than expected, with a « Réessayer » button
 //   (model/tapPendingCore.ts has the rule).
 // - "off": no sign and no sentence: the pending mark alone, until its
 //   PENDING_CAP_MS, as before.

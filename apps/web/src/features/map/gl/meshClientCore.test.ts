@@ -4,21 +4,30 @@
 // reuse, eviction and resend, pinned tokens, the miss safety net, single
 // flight, superseding, every way the worker can be lost, dispose — and
 // build() never rejecting; the grey sheet's cuts (cutTint) over the same
-// tokens, never cut here. No __TEST_TOOLS__ stub on purpose: nothing here
+// tokens, never cut here; a tapped unit's pending mark (buildMark) over the
+// same tokens, never built here, and never the end of the worker. No
+// __TEST_TOOLS__ stub on purpose: nothing here
 // may read it. Run with `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import type { OutlineFC } from "../types";
 import { buildPlateauMesh } from "./meshBuild";
-import { createMeshClient, type MeshInputs, type MeshResult } from "./meshClientCore";
+import {
+  MARK_REPLY_CAP_MS,
+  createMeshClient,
+  type MeshInputs,
+  type MeshResult,
+} from "./meshClientCore";
 import {
   createMeshCore,
+  type MarkRequest,
   type MeshMessage,
   type MeshReply,
   type MeshRequest,
   type TintRequest,
 } from "./meshCore";
+import { buildMark } from "./pendingMark";
 import { meshBuffers, type Geom } from "./meshFlat";
 import { cutTintSheet } from "./tintSheet";
 
@@ -101,7 +110,13 @@ function rig(
       outbox.push(
         structuredClone(r, {
           transfer:
-            r.t === "mesh" ? meshBuffers(r.mesh) : r.t === "tint" ? [r.positions.buffer] : [],
+            r.t === "mesh"
+              ? meshBuffers(r.mesh)
+              : r.t === "tint"
+                ? [r.positions.buffer]
+                : r.t === "mark" && r.built
+                  ? [r.built.line.segs.buffer, r.built.fill.fill.buffer]
+                  : [],
         }),
       ),
     schedule: (fn, ms) => void schedule(fn, ms),
@@ -153,6 +168,7 @@ function rig(
   };
   const builds = () => posted.filter((m): m is MeshRequest => m.t === "build");
   const tints = () => posted.filter((m): m is TintRequest => m.t === "tint");
+  const marks = () => posted.filter((m): m is MarkRequest => m.t === "mark");
   const releases = () => posted.filter((m) => m.t === "release");
   return {
     client,
@@ -163,6 +179,7 @@ function rig(
     advance,
     builds,
     tints,
+    marks,
     releases,
     fail: (why: string) => handlers!.fail(why),
     terminated: () => terminated,
@@ -675,4 +692,144 @@ test("cutTint: a geometry the flattening cannot read gives no sheet and posts no
   assert.equal(await r.client.cutTint([bad]), null);
   assert.equal(r.tints().length, 0);
   assert.equal(r.client.stats().liveTokens, 0);
+});
+
+const geomOf = (fx: MeshInputs) => fx.features[0].geometry as Geom;
+
+test("buildMark: the worker's line and fill are the page's bit for bit, the geometry travelling once", async () => {
+  const r = rig();
+  const fx = inputs();
+  const here = buildMark(geomOf(fx), "globe")!;
+  const mark = r.client.buildMark(geomOf(fx), "globe", true);
+  const mesh = r.client.build(fx, BOTH);
+  await r.flush();
+  const built = (await mark)!;
+  assert.deepEqual(Buffer.from(built.line.segs.buffer), Buffer.from(here.line.segs.buffer));
+  assert.deepEqual(Buffer.from(built.fill.fill.buffer), Buffer.from(here.fill.fill.buffer));
+  assert.equal(typeof built.ms, "number");
+  // The scope's geometry went with the mark; the build names its token.
+  assert.equal(r.marks()[0].puts.length, 1);
+  assert.equal(r.marks()[0].front, true);
+  assert.equal(r.builds()[0].puts.length, 2);
+  assert.deepEqual(r.builds()[0].scope.tokens, r.marks()[0].scope.tokens);
+  // The mark superseded no build, and the build no mark.
+  assert.equal((await mesh)!.via, "worker");
+  const s = r.client.stats();
+  assert.equal(s.marks, 1);
+  assert.equal(s.marksBuilt, 1);
+  assert.equal(s.droppedBeforeStart, 0);
+});
+
+test("buildMark: one flight per geometry and regime", async () => {
+  const r = rig();
+  const g = geomOf(inputs());
+  const a = r.client.buildMark(g, "merc", true);
+  const b = r.client.buildMark(g, "merc", true);
+  const c = r.client.buildMark(g, "globe", false);
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  await r.flush();
+  assert.ok(await a);
+  assert.ok(await c);
+  assert.equal(r.marks().length, 2);
+  // Answered: a later call asks again (the worker holds the geometry: no put).
+  const d = r.client.buildMark(g, "merc", true);
+  await r.flush();
+  assert.ok(await d);
+  assert.equal(r.marks().length, 3);
+  assert.equal(r.marks()[2].puts.length, 0);
+});
+
+test("buildMark: its token is pinned while it is in flight", async () => {
+  const r = rig({ cap: 5 });
+  const fx = inputs();
+  const mark = r.client.buildMark(geomOf(fx), "merc", true);
+  const mesh = r.client.build(inputs(8), BOTH);
+  const token = r.marks()[0].scope.tokens[0];
+  for (const rel of r.releases()) {
+    assert.ok(!(rel as { tokens: number[] }).tokens.includes(token!));
+  }
+  await r.flush();
+  assert.ok(await mark);
+  assert.ok(await mesh);
+});
+
+test("buildMark: a token the worker lacks is sent again once", async () => {
+  const r = rig();
+  const g = geomOf(inputs());
+  const first = r.client.buildMark(g, "merc", true);
+  await r.flush();
+  await first;
+  r.core.release(r.marks()[0].scope.tokens as number[]);
+  const second = r.client.buildMark(g, "merc", true);
+  await r.flush();
+  assert.ok(await second);
+  assert.equal(r.client.stats().misses, 1);
+  assert.equal(r.client.stats().resends, 1);
+  assert.equal(r.marks().length, 3);
+  assert.equal(r.marks()[2].puts.length, 1);
+});
+
+test("buildMark: nothing built, a throw or no reply resolves null and never ends the worker", async () => {
+  // A throw in the worker: nothing built, the worker lives.
+  const thrown = rig({ knobs: { fail: "throw" } });
+  const a = thrown.client.buildMark(geomOf(inputs()), "merc", true);
+  thrown.work();
+  await thrown.deliver();
+  assert.equal(await a, null);
+  assert.equal(thrown.client.mode, "worker");
+  assert.equal(thrown.terminated(), 0);
+  // No reply: given up at its own cap, well before the watchdog; the worker lives.
+  const hung = rig({ knobs: { fail: "hang" } });
+  const b = hung.client.buildMark(geomOf(inputs()), "merc", true);
+  let settled = false;
+  void b.then(() => (settled = true));
+  hung.work();
+  hung.advance(MARK_REPLY_CAP_MS - 1);
+  await hung.deliver();
+  assert.equal(settled, false);
+  hung.advance(1);
+  assert.equal(await b, null);
+  hung.advance(10_000);
+  assert.equal(hung.client.mode, "worker");
+  assert.equal(hung.terminated(), 0);
+  assert.equal(hung.fallbacks(), 0); // never built here
+  // A geometry with no segment: nothing built.
+  const empty = rig();
+  const c = empty.client.buildMark({ type: "Point", coordinates: [1, 2] }, "merc", true);
+  await empty.flush();
+  assert.equal(await c, null);
+  assert.equal(empty.client.mode, "worker");
+});
+
+test("buildMark: null once the worker is lost, is disposed, or never was", async () => {
+  // Lost while the mark is in flight: null at once, the build made here.
+  const r = rig();
+  const fx = inputs();
+  const mark = r.client.buildMark(geomOf(fx), "merc", true);
+  const mesh = r.client.build(fx, BOTH);
+  r.fail("error");
+  assert.equal(await mark, null);
+  assert.equal((await mesh)!.via, "main");
+  assert.equal(await r.client.buildMark(geomOf(fx), "merc", true), null);
+  assert.equal(r.marks().length, 1); // nothing posted to a lost worker
+  // Disposed.
+  const d = rig();
+  const pending = d.client.buildMark(geomOf(inputs()), "merc", true);
+  d.client.dispose();
+  assert.equal(await pending, null);
+  assert.equal(await d.client.buildMark(geomOf(inputs()), "merc", true), null);
+  // No worker at all.
+  const none = rig({ noTransport: true });
+  assert.equal(await none.client.buildMark(geomOf(inputs()), "merc", true), null);
+  assert.equal(none.fallbacks(), 0);
+});
+
+test("buildMark: a geometry the flattening cannot read gives no mark and posts nothing", async () => {
+  const r = rig();
+  const bad = { type: "Polygon", coordinates: [[[Number.NaN, "x"]]] } as unknown as Geom;
+  const mark = r.client.buildMark(bad, "merc", true);
+  await r.flush();
+  assert.equal(await mark, null);
+  assert.equal(r.client.mode, "worker");
 });

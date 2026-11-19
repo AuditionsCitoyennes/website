@@ -4,7 +4,8 @@
 // the map object (or at its load: ac:boot-workers, bootWorkersSwitch.ts), so
 // the worker's first build does not pay its start-up,
 // disposed with the map. It also cuts the flat view's grey sheet
-// (tintCutterOf, ac:tint-cut). A Worker that cannot be made leaves the session
+// (tintCutterOf, ac:tint-cut) and builds a large tapped unit's pending mark
+// (markProviderOf). A Worker that cannot be made leaves the session
 // building here from the start.
 //
 // Testing tools: `window.__acMesh` = {mode, stats(), reset()} of the last
@@ -17,6 +18,7 @@ import { perfNote, perfOn } from "@/shared/perf/perf";
 import { buildPlateauMesh } from "./meshBuild";
 import { createMeshClient, type MeshClient, type MeshTransport } from "./meshClientCore";
 import type { MeshReply } from "./meshCore";
+import type { MarkProvider } from "./PendingMarkPass";
 import type { GlobeProvider } from "./PlateauWallLayer";
 import type { TintCutter } from "./ScopeTintLayer";
 import { cacheBudgetNow } from "../cacheBudget";
@@ -72,6 +74,7 @@ export function warmMeshWorker(): MeshClient {
       ? {
           roundTrip: (ms, detail) => perfNote("mesh.roundTrip", ms, detail),
           tintRoundTrip: (ms, detail) => perfNote("tint.roundTrip", ms, detail),
+          markRoundTrip: (ms, detail) => perfNote("mark.roundTrip", ms, detail),
           meshBuild: (ms, detail) => perfNote("plateau.meshBuild", ms, detail),
         }
       : undefined,
@@ -109,5 +112,15 @@ export function tintCutterOf(client: MeshClient): TintCutter {
   return {
     live: () => client.mode === "worker",
     cut: (geoms) => client.cutTint(geoms),
+  };
+}
+
+/** A large unit's pending mark, built by `client`'s worker while it lives
+ *  (PlateauWallLayer.setMarkProvider); lost, or with nothing built, the
+ *  layer's pass builds it in a task of the page's own. */
+export function markProviderOf(client: MeshClient): MarkProvider {
+  return {
+    live: () => client.mode === "worker",
+    build: (g, regime, front) => client.buildMark(g, regime, front),
   };
 }

@@ -4,7 +4,9 @@
 // page builds itself, and the queue (superseded requests skipped, the testing
 // tools' delay, throw and hang), and the grey sheet's cut (a `tint` request:
 // the page's own bytes, answered before the builds queued, superseded by a
-// newer tint only). No __TEST_TOOLS__ stub on purpose: nothing
+// newer tint only), and a tapped unit's pending mark (a `mark` request: the
+// page's own bytes, the tap's own ahead of the builds, never superseded by a
+// build, never an `error`). No __TEST_TOOLS__ stub on purpose: nothing
 // here may read it. Run with `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
@@ -13,11 +15,13 @@ import type { OutlineFC } from "../types";
 import { buildPlateauMesh, type MeshOut } from "./meshBuild";
 import {
   createMeshCore,
+  type MarkRequest,
   type MeshReply,
   type MeshRequest,
   type MeshSet,
   type TintRequest,
 } from "./meshCore";
+import { buildMark } from "./pendingMark";
 import { digestParts } from "./meshDigest";
 import { flatten, type Geom } from "./meshFlat";
 import { cutTintSheet } from "./tintSheet";
@@ -349,4 +353,114 @@ test("the testing tools' knobs reach a tint: delay, throw, hang", () => {
   core.receive({ ...tintOf(3, fixture(), false), fail: "hang" });
   flush(1000);
   assert.equal(replies.length, 2);
+});
+
+/** A mark request for the fixture's scope: token 1, put unless `puts` is false. */
+function markOf(id: number, over: Partial<MarkRequest> = {}, puts = true): MarkRequest {
+  const flat = flatten(fixture().scope[0].geometry as Geom)!;
+  return {
+    t: "mark",
+    id,
+    scope: { tokens: [1], meta: [{ id: "", level: "", hasGeom: true }] },
+    puts: puts ? [{ token: 1, flat }] : [],
+    regime: "merc",
+    front: true,
+    ...over,
+  };
+}
+
+test("a mark request is answered with the page's own line and fill, bit for bit, in each regime", () => {
+  for (const regime of ["merc", "globe"] as const) {
+    const { core, replies, flush } = harness();
+    core.receive(markOf(7, { regime }));
+    flush();
+    assert.equal(replies.length, 1);
+    const r = replies[0];
+    assert.equal(r.t, "mark");
+    if (r.t !== "mark" || !r.built) return assert.fail("no mark built");
+    assert.equal(r.id, 7);
+    assert.equal(r.built.regime, regime);
+    const here = buildMark(fixture().scope[0].geometry as Geom, regime)!;
+    assert.deepEqual(Buffer.from(r.built.line.segs.buffer), Buffer.from(here.line.segs.buffer));
+    assert.deepEqual(Buffer.from(r.built.fill.fill.buffer), Buffer.from(here.fill.fill.buffer));
+    assert.equal(r.built.line.segCount, 4);
+    assert.equal(r.built.fill.fillCount, 6);
+    assert.deepEqual(r.built.line.origin, here.line.origin);
+    // The geometry stays in the store, under its token, for the build that follows.
+    assert.deepEqual(core.held(), { tokens: 1, vertices: 5 });
+  }
+});
+
+test("a mark naming a token the store lacks is answered `missing`", () => {
+  const { core, replies, flush } = harness();
+  core.receive(markOf(3, {}, false));
+  flush();
+  assert.deepEqual(replies, [{ t: "missing", id: 3, tokens: [1] }]);
+});
+
+test("the tap's own mark is answered before the builds queued; the follow-up waits its turn", () => {
+  const { core, replies, flush } = harness();
+  core.receive(requestOf(fixture(), { id: 1 }));
+  core.receive(requestOf(fixture(), { id: 2, supersede: false, puts: [] }));
+  core.receive(markOf(3, { front: true }, false));
+  core.receive(markOf(4, { front: false, regime: "globe" }, false));
+  core.receive(requestOf(fixture(), { id: 5, supersede: false, puts: [] }));
+  flush();
+  assert.deepEqual(
+    replies.map((r) => [r.id, r.t]),
+    [
+      [3, "mark"],
+      [1, "mesh"],
+      [2, "mesh"],
+      [4, "mark"],
+      [5, "mesh"],
+    ],
+  );
+});
+
+test("a mark supersedes no build and no build supersedes it; a newer tap's mark supersedes the marks queued", () => {
+  const { core, replies, flush } = harness();
+  core.receive(requestOf(fixture(), { id: 1 }));
+  core.receive(markOf(2, { front: false }, false));
+  // A superseding build: the mark before it is another kind, and stays.
+  core.receive(requestOf(fixture(), { id: 3, puts: [] }));
+  // A newer tap's mark: the mark queued goes, the builds stay as they were.
+  core.receive(markOf(4, { front: true }, false));
+  // A follow-up supersedes nothing.
+  core.receive(markOf(5, { front: false, regime: "globe" }, false));
+  flush();
+  assert.deepEqual(
+    replies.map((r) => [r.id, r.t, r.t === "mark" ? !!r.built : null]),
+    [
+      [1, "skipped", null],
+      [2, "mark", false], // superseded: nothing built
+      [4, "mark", true],
+      [3, "mesh", null],
+      [5, "mark", true],
+    ],
+  );
+});
+
+test("a mark never answers `error`: a throw is nothing built, a geometry with no segment too", () => {
+  const { core, replies, flush } = harness();
+  core.receive({ ...markOf(1), fail: "throw" });
+  flush();
+  assert.deepEqual(replies[0], { t: "mark", id: 1, built: null });
+  // A point: a geometry, but nothing to draw.
+  core.receive({
+    ...markOf(2, {}, false),
+    puts: [{ token: 9, flat: flatten({ type: "Point", coordinates: [1, 2] })! }],
+    scope: { tokens: [9], meta: [{ id: "", level: "", hasGeom: true }] },
+  });
+  flush();
+  assert.deepEqual(replies[1], { t: "mark", id: 2, built: null });
+  // The delay and the hang reach a mark as they do a build.
+  core.receive({ ...markOf(3, {}, false), delayMs: 40 });
+  flush();
+  assert.equal(replies.length, 2);
+  flush(40);
+  assert.equal(replies[2].t, "mark");
+  core.receive({ ...markOf(4, {}, false), fail: "hang" });
+  flush(1000);
+  assert.equal(replies.length, 3);
 });

@@ -39,6 +39,18 @@
 // "late". The loader stores a bundle that lands within SELF_GRACE_MS of the
 // self with it. "bundle": the bundle alone, as before.
 //
+// A tapped unit's inner boundaries (ac:tap-lines, the map's coldTapSwitch;
+// "wait", the default): the plateau of a unit the visitor tapped also waits
+// for the unit's bundle — its children's boundaries — so that it rises with
+// them on its lid. `holdLines` arms that wait at the selection, for the
+// visit, under the cap the unit's own outline has (ac:outline-wait) — a
+// timer of its own, never extended, ended when the unit is left
+// (linesHold.ts); `linesHeld` says it is armed and its time has not passed,
+// and the rules (model/outlineRules childLinesDue) then keep the plateau
+// waiting while the bundle is declared and neither in nor failed. Past the
+// cap the unit rises without them and the bundle is a late file like any
+// other — one that had failed and is asked again included.
+//
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's
 // only trace of it.
@@ -52,6 +64,7 @@ import {
   selfAheadOf,
   type OutlineGeometry,
   type OutlineKind,
+  type OutlineLoaderOptions,
   type OutlineReady,
   type OutlineRow,
   type OutlineStatus,
@@ -63,6 +76,8 @@ import {
   outlineWaitFor,
   regionSelfMode,
   SELF_GRACE_MS,
+  tapLinesMode,
+  tapLinesWaitFor,
 } from "@/features/map";
 import { whenMapStill } from "@/features/map/lib";
 import { absoluteBase } from "@/shared/absoluteUrl";
@@ -72,6 +87,7 @@ import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BundleState } from "../model/outlineRules";
 import { outlinesBuild } from "./outlinesBuild";
 import { DECOR_PARALLEL, outlinesDecor, stillApply } from "./outlinesDecorSwitch";
+import { createLinesHold } from "./linesHold";
 import { createSelfHold } from "./selfHold";
 
 export { OUTLINE_WAIT_MS };
@@ -132,11 +148,23 @@ export interface OutlineFiles {
    *  A wait the file of a unit just left crossed goes on once more, and then
    *  holds the unit out until `leaveSelf` only (data/selfHold.ts). `coarse`:
    *  a coarser outline of the unit is in memory — the wait is the one
-   *  ac:outline-wait says (the map's coldTapSwitch); at 0 the unit is held
-   *  out before this returns, until `leaveSelf`. */
-  holdSelf(id: string, coarse?: boolean): void;
-  /** The unit is no longer the selection: a hold-out that was for its visit ends. */
+   *  ac:outline-wait says (the map's coldTapSwitch; `tapped`: the visitor
+   *  tapped the unit, whose wait is then the file's own); at 0 the unit is
+   *  held out before this returns, until `leaveSelf`. */
+  holdSelf(id: string, coarse?: boolean, tapped?: boolean): void;
+  /** The unit is no longer the selection: a hold-out that was for its visit
+   *  ends, and so does its wait for its children's boundaries. */
   leaveSelf(id: string): void;
+  /** Whether a tapped unit of level `levelKey` waits for its bundle (its
+   *  children's boundaries: ac:tap-lines, ac:outline-wait). */
+  linesWait(levelKey: string): boolean;
+  /** The plateau of unit `id`, which the visitor tapped, waits for the
+   *  unit's bundle from now, for this visit: past the cap (ac:outline-wait,
+   *  a tapped unit's) it stops waiting. Once per visit; whatever the state
+   *  of the unit's row. */
+  holdLines(id: string): void;
+  /** That wait is armed for unit `id` and its time has not passed. */
+  linesHeld(id: string): boolean;
   /** Its self is asked ahead of its bundle (ac:region-self "first"): its row
    *  declares a u/ beside its bundle. The caller asks `ensureSelf` for it,
    *  and its bundle not "due". */
@@ -148,6 +176,10 @@ export interface OutlineFiles {
   /** The rule saying whether the selected unit's plateau waits for a file
    *  (by its key), now; null: none does. Asked as each file lands. */
   setUrgent(rule: ((key: string) => boolean) | null): void;
+  /** Who is told of each file's arrival, step by step (the loader's
+   *  `onProgress`: its response answered, its body's pieces, the body
+   *  whole); null: nobody. */
+  setProgress(listener: OutlineLoaderOptions["onProgress"] | null): void;
   /** The kept files that rule now calls urgent are stored at once. */
   flushDue(): void;
   /** The files that rule calls urgent and that are still on the network are
@@ -161,7 +193,9 @@ export interface OutlineFiles {
   reconnect(): void;
   /** `due`: the selected unit's plateau waits for it (its fetch priority). */
   ensureBundle(id: string, due?: boolean): Promise<OutlineFilesStatus>;
-  ensureSelf(id: string): Promise<OutlineFilesStatus>;
+  /** `tapped`: the visitor tapped the unit — its file is given up on later
+   *  (ac:outline-wait "file", as `holdSelf`). */
+  ensureSelf(id: string, tapped?: boolean): Promise<OutlineFilesStatus>;
   /** Their g/, and the u/ of `selves` (micro-states), in one write
    *  (`decor`: a decorative batch, see outlinesDecorSwitch.ts). */
   ensureGlobe(ids: string[], selves?: string[], decor?: boolean): Promise<OutlineFilesStatus[]>;
@@ -197,8 +231,13 @@ function createOutlineFiles(): OutlineFiles {
   const held = shallowRef<ReadonlySet<string>>(new Set());
   /** The units of `heldOut` held out for their visit only (leaveSelf). */
   const visitOnly = new Set<string>();
+  /** The units whose plateau waits for their bundle (holdLines), and those
+   *  of them whose wait ran out. */
+  const linesArmed = shallowRef<ReadonlySet<string>>(new Set());
+  const linesOut = shallowRef<ReadonlySet<string>>(new Set());
   const quiet = lateFilesMode === "quiet";
   let urgent: ((key: string) => boolean) | null = null;
+  let progress: OutlineLoaderOptions["onProgress"] | null = null;
   // The probe's rawCheck reads them; testing tools only (dev and staging).
   // Weak, so an evicted geometry is still collected and the LRU stays real.
   const seen: WeakRef<object>[] = [];
@@ -252,6 +291,7 @@ function createOutlineFiles(): OutlineFiles {
       if (perfOn) perfNote("outline.fallback", 0, { reason: why?.reason, key: why?.key });
     },
     span: perfOn ? perfSpan : undefined,
+    onProgress: (key, phase, received, total) => progress?.(key, phase, received, total),
     bootMs: BOOT_MS,
     bootCap: __TEST_TOOLS__ ? storedBootCap() : "late",
     bootRetryMs: recover === "auto" ? RECOVER_DELAYS_MS : undefined,
@@ -305,6 +345,21 @@ function createOutlineFiles(): OutlineFiles {
     },
   });
 
+  // The wait for a tapped unit's bundle (linesHold.ts): a timer of its own
+  // per visit, never extended, ended when the unit is left and over for the
+  // visit once its time has passed; "settled" is the bundle in or failed.
+  const linesHold = createLinesHold({
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimer: (timer) => window.clearTimeout(timer as number),
+    settled: (id) => {
+      const fid = store.filesIdOf(id);
+      return store.bundleLoaded(fid) || loader.isFailed("k", id);
+    },
+    onOut(id) {
+      if (linesArmed.value.has(id)) linesOut.value = new Set(linesOut.value).add(id);
+    },
+  });
+
   // For the page's life: the loader is the page's, not a mount's.
   if (recover === "auto") onReconnect(() => loader.reconnect());
 
@@ -354,16 +409,33 @@ function createOutlineFiles(): OutlineFiles {
     has: (id, tier) => read((s) => s.has(id, tier)),
     bundleLoaded: (id) => read((s) => s.bundleLoaded(id)),
     pin: (ids) => store.pin(ids),
-    holdSelf: (id, coarse = false) => {
+    holdSelf: (id, coarse = false, tapped = false) => {
       if (heldOut.value.has(id)) return;
-      selfHold.hold(id, outlineWaitFor(outlineWait.value, coarse, OUTLINE_WAIT_MS));
+      selfHold.hold(id, outlineWaitFor(outlineWait.value, coarse, OUTLINE_WAIT_MS, tapped));
     },
     leaveSelf: (id) => {
+      linesHold.leave(id);
+      for (const set of [linesArmed, linesOut]) {
+        if (!set.value.has(id)) continue;
+        const next = new Set(set.value);
+        next.delete(id);
+        set.value = next;
+      }
       if (!visitOnly.delete(id)) return;
       const next = new Set(heldOut.value);
       next.delete(id);
       heldOut.value = next;
     },
+    linesWait: (levelKey) => tapLinesWaitFor(tapLinesMode.value, outlineWait.value, levelKey),
+    holdLines: (id) => {
+      if (linesArmed.value.has(id)) return;
+      linesArmed.value = new Set(linesArmed.value).add(id);
+      linesHold.hold(id, outlineWaitFor(outlineWait.value, true, OUTLINE_WAIT_MS, true));
+    },
+    // `over` is not reactive, and need not be: when a wait runs its time
+    // with the bundle in or failed nothing is waiting, and it only keeps a
+    // later re-ask of a failed bundle from reopening the wait.
+    linesHeld: (id) => linesArmed.value.has(id) && !linesOut.value.has(id) && !linesHold.over(id),
     selfAhead: (id) =>
       regionSelfMode.value === "first" &&
       read((s) => selfAheadOf(s.rowOf(s.filesIdOf(id)))) !== null,
@@ -372,12 +444,21 @@ function createOutlineFiles(): OutlineFiles {
     setUrgent: (rule) => {
       urgent = rule;
     },
+    setProgress: (listener) => {
+      progress = listener;
+    },
     flushDue: () => loader.flushDue(),
     reaskWaited: () => loader.reask((key) => !!urgent?.(key)),
     ensureRoot: () => loader.ensureRoot(),
     reconnect: () => loader.reconnect(),
     ensureBundle: (id, due = false) => loader.ensureBundle(id, due),
-    ensureSelf: (id) => loader.ensureSelf(id),
+    ensureSelf: (id, tapped = false) =>
+      loader.ensureSelf(
+        id,
+        // Never shorter than the loader's own wait: the page's hold
+        // (holdSelf) is what a shorter ac:outline-wait cuts.
+        Math.max(OUTLINE_WAIT_MS, outlineWaitFor(outlineWait.value, true, OUTLINE_WAIT_MS, tapped)),
+      ),
     ensureGlobe: (ids, selves = [], decor = false) =>
       loader.ensureGlobe(ids, selves, decor && decorLow),
     batchSelf: (ids, decor = false) => loader.batchSelf(ids, decor && decorLow),

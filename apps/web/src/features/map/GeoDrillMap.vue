@@ -30,6 +30,7 @@ import type { MeshClient } from "./gl/meshClientCore";
 import { lateFilesMode } from "./plateau/lateFilesSwitch";
 import { tilesMoved, type ViewInSight } from "./plateau/lidMapSwitch";
 import { meshMode } from "./plateau/meshSwitch";
+import { riseOrder, riseStartFor } from "./plateau/riseSwitch";
 import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
 import { labelGlyphOptions, labelTileGate } from "./labelFont";
 import { useMapView, type MapView } from "./composables/useMapView";
@@ -45,16 +46,37 @@ import { useFlightMeasure } from "./composables/useFlightMeasure";
 import { useContextRestore } from "./composables/useContextRestore";
 import { installProbes } from "./dev/probes";
 import { installPmtilesProbe } from "./dev/pmtiles";
-import { noteRenderer } from "@/shared/device/deviceTier";
+import { deviceTier, noteRenderer } from "@/shared/device/deviceTier";
+import { motionMs, motionNow, prefersReducedMotion } from "@/shared/device/motion";
 import { onReconnect } from "@/shared/net/reconnect";
 import { recover } from "@/shared/net/recoverSwitch";
 import { antialiasNow, capMapsNow } from "./graphicsSwitch";
 import { cacheBudgetAtCreation, tileCacheOption } from "./cacheBudget";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import { rendererOf } from "./relief/groundSwitch";
-import type { MarkGeometry } from "./gl/pendingMark";
+import {
+  MARK_CREEP_TICK_MS,
+  MARK_CREEP_TICK_SHORT_MS,
+  MARK_FADE_MS,
+  MARK_LINE_FULL_MS,
+  MARK_LINE_SHOW_MS,
+  MARK_SHORT_FRAME_MS,
+  MARK_STEP_MS,
+  MARK_UNFILL_MS,
+  type MarkGeometry,
+} from "./gl/pendingMark";
+import type { MarkMotion } from "./gl/PendingMarkPass";
 import type { ComingUnit } from "./lib/coldStart";
-import type { TapMark } from "./plateau/tapAnswerSwitch";
+import {
+  TAP_LINE_RGB,
+  tapEndMode,
+  tapFastMode,
+  tapLineColor,
+  tapStepsMode,
+  type TapMark,
+} from "./plateau/tapAnswerSwitch";
+import { createTapProgress, type TapStep } from "./plateau/tapProgress";
+import { liftOf } from "./plateau/lift";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 import { fallbackForced, fallbackView, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
@@ -202,6 +224,9 @@ let resizeObserver: ResizeObserver | null = null;
 // The plateau's violet wall (and the analyses' slabs' pieces): our custom
 // WebGL layer, created here, added to the style by the mask once it loads.
 const plateauWall = new PlateauWallLayer();
+// A pending mark's fill built off the frame has landed: a mouse's draped
+// hover fill on that unit gives way to it.
+plateauWall.onPendingFill = (id) => pins.yieldDrapedHover(id);
 // ac:mesh=worker (plateau/meshSwitch.ts): this map's own mesh worker, made at
 // its load and disposed with it. Null before then and in every other mode.
 let meshClient: MeshClient | null = null;
@@ -286,9 +311,29 @@ const plateau = usePlateau({
   clearSlabs: () => slabs.clearSlabs(),
   forgetLidExtra: () => slabs.forgetLidExtra(),
   meshClient: () => meshClient,
-  onSettled: (scopeId, how) => emit("plateauSettled", scopeId, how),
+  onSettled: (scopeId, how) => {
+    // The run's verdict is the last step of a tapped unit's progress.
+    if (how === "rise" || how === "same" || how === "quiet") pendingStep(scopeId, { t: "settled" });
+    emit("plateauSettled", scopeId, how);
+  },
   onLift: pins.syncLift,
+  onProgress: (scopeId, step) => pendingStep(scopeId, step),
+  // The tapped unit's violet leaves it before it rises (ac:tap-end "then"):
+  // down to its floor, whose share goes with the rise's first frame.
+  riseGate: (scopeId, cleared) => plateauWall.pendingGateMs(scopeId, cleared),
+  flightEndAt: camera.flightEndAt,
+  onRise: (scopeId, how) => {
+    if (plateauWall.pendingId !== scopeId) return;
+    // Its plateau starts to rise (or stands already): what is left of the
+    // mark goes (under "together" it rides the lid and fades). No rise will
+    // come: the mark goes.
+    if (how === "dropped") plateauWall.clearPending();
+    else plateauWall.releasePending(scopeId, markMotion());
+  },
 });
+// The mark's fill leaves against the rise's real start, which the plateau
+// knows (the layer exists before the plateau does).
+plateauWall.pendingRiseEta = (id) => plateau.riseEta(id);
 const slabs = usePlateauSlabs({
   getMap,
   wall: plateauWall,
@@ -300,59 +345,271 @@ const slabs = usePlateauSlabs({
   hidePinsUnderSlabs: pins.hidePinsUnderSlabs,
 });
 
-// ---- A tapped unit's PENDING mark (the parent decides when: see GeoNav's
-// model/tapPendingCore) — drawn by the plateau's layer in buffers of its own,
-// and worn by the unit's pill ----
+// ---- A tapped unit's PENDING mark (the parent decides when the pending
+// state begins and ends: GeoNav's model/tapPendingCore) — a flat fill and a
+// loading line drawn by the plateau's layer in buffers of its own
+// (gl/PendingMarkPass) ----
+// How far the data of the tapped unit's plateau has come (plateau/
+// tapProgress.ts): fed by the pipeline's run for it and by the parent (its
+// outline's file); the mark's line shows it.
+const tapProgress = createTapProgress();
+/** The mark last set, kept while its pending state lasts: a unit marked
+ *  again once it is the scope (« Réessayer ») is no longer among `units`. */
+let lastMark: {
+  id: string;
+  g: MarkGeometry;
+  spanDeg: number;
+  raised: boolean;
+  lidM: number;
+} | null = null;
+
+/** How the mark moves now (shared/device/motion). ac:tap-fast "hide": the
+ *  line runs at a constant speed between steps, under short motion too (a
+ *  frame asked every MARK_SHORT_FRAME_MS only); "show": it eases between
+ *  steps under full motion and jumps otherwise. The fill's fade is shorter
+ *  under short motion — except where the rise waits for the camera's
+ *  landing (plateau/riseSwitch.ts riseStartFor, "after": the weaker tiers):
+ *  there the fade runs ahead of the flight's known end and delays nothing
+ *  (with no flight in the air it delays the rise by what it delays it on a
+ *  full device), so it keeps its whole length and a slow frame rate still
+ *  shows it as a fade. Reduced motion runs and fades nothing — the end is
+ *  two plain steps (the pass holds each one a few frames). */
+function markMotion(): MarkMotion {
+  const reduced = prefersReducedMotion();
+  const motion = motionNow();
+  const afterLanding = riseStartFor(riseOrder.value, deviceTier()) === "after";
+  const base = {
+    animate: !reduced,
+    unfillMs: reduced ? 0 : afterLanding ? MARK_UNFILL_MS : motionMs(MARK_UNFILL_MS, motion),
+    outMs: MARK_FADE_MS,
+  };
+  if (tapFastMode.value === "show") {
+    return { ...base, stepMs: !reduced && motion === "full" ? MARK_STEP_MS : 0 };
+  }
+  return {
+    ...base,
+    stepMs: reduced ? 0 : MARK_STEP_MS,
+    lineFullMs: reduced ? 0 : MARK_LINE_FULL_MS,
+    frameGapMs: !reduced && motion !== "full" ? MARK_SHORT_FRAME_MS : 0,
+  };
+}
+
+// The outline file's steps come many a second (one per chunk): the line is
+// told at most once per OUTLINE_STEP_GAP_MS (an ease's length, so one ease
+// runs into the next), the last value never lost. The file stored, and every
+// step of the pipeline's, are told at once.
+const OUTLINE_STEP_GAP_MS = 100;
+let outlineStepAt = -Infinity;
+let outlineStepTimer = 0;
+function showOutlineStep() {
+  window.clearTimeout(outlineStepTimer);
+  outlineStepTimer = 0;
+  outlineStepAt = performance.now();
+  if (plateauWall.pendingId && plateauWall.pendingId === tapProgress.id()) {
+    plateauWall.setPendingProgress(tapProgress.value(), markMotion());
+  }
+}
+
+/** A unit pending with no mark on the map: its outline was not in memory at
+ *  the tap (a panel row's unit), so there was nothing to fill. It is marked
+ *  when its outline comes (`markLate`). */
+let unmarked: { id: string; mark: TapMark } | null = null;
+
+/** The geometry the pipeline raises for unit `id` now (the outline's scope
+ *  feature), if it is that unit's. */
+function raisedGeometryOf(
+  id: string,
+): { g: MarkGeometry; spanDeg: number; lng: number; lat: number } | null {
+  for (const f of props.outline?.features ?? []) {
+    if (f.properties?.kind !== "scope" || String(f.properties?.id ?? "") !== id) continue;
+    const g = f.geometry as MarkGeometry | undefined;
+    const b = g ? boundsOfFeatures([f]) : null;
+    if (!g || !b) return null;
+    return {
+      g,
+      spanDeg: Math.max(b.maxLng - b.minLng, b.maxLat - b.minLat),
+      lng: (b.minLng + b.maxLng) / 2,
+      lat: (b.minLat + b.maxLat) / 2,
+    };
+  }
+  return null;
+}
+
+/** The pipeline's run for a unit pending with no mark has started: its
+ *  outline is in memory now — the mark it could not have at the tap, its
+ *  line where its data has come. */
+function markLate(id: string) {
+  const want = unmarked;
+  if (!want || want.id !== id || plateauWall.pendingId === id) return;
+  unmarked = null;
+  const found = raisedGeometryOf(id);
+  if (!found || !(want.mark.line || want.mark.fill)) return;
+  // On the lid of the plateau still standing when the unit lies on it (it
+  // rides that plateau's sink), else on the ground.
+  const onLid =
+    plateau.active() &&
+    plateauWall.scopeId !== id &&
+    liftOf(plateau.raised(), 1).holds(found.lng, found.lat);
+  showMark(id, found.g, found.spanDeg, want.mark, onLid ? { raised: true } : undefined);
+}
+
+/** The mark of unit `id` drawn from outline `g`, its line at the unit's
+ *  progress. Answers whether its fill is drawn by the next frame. */
+function showMark(
+  id: string,
+  g: MarkGeometry,
+  spanDeg: number,
+  mark: TapMark,
+  where?: { raised: boolean; lidM?: number },
+) {
+  const motion = markMotion();
+  const at = plateauWall.setPending(
+    id,
+    g,
+    {
+      line: mark.line,
+      fill: mark.fill,
+      spanDeg,
+      rgb: TAP_LINE_RGB[tapLineColor.value],
+      // The small lead of ac:tap-steps "creep": not under reduced motion;
+      // under short motion (a weak device's) drawn a few times a second only.
+      creep: tapStepsMode.value === "creep" && motion.animate,
+      creepTickMs: motionNow() === "full" ? MARK_CREEP_TICK_MS : MARK_CREEP_TICK_SHORT_MS,
+      // ac:tap-fast "hide": no line for a wait too short to be read.
+      showAfterMs: tapFastMode.value === "hide" ? MARK_LINE_SHOW_MS : 0,
+    },
+    tapProgress.value(),
+    where,
+    motion,
+  );
+  lastMark = { id, g, spanDeg, raised: at.raised, lidM: at.lidM };
+  // A mouse's draped hover fill on the unit gives way to the mark's.
+  if (at.fillAtOnce) pins.yieldDrapedHover(id);
+  // Marked with its data all in (the verdict is what it waits for).
+  if (tapProgress.value() >= 1) plateauWall.finishPending(motion, tapEndMode.value);
+}
+
+/** A real step toward the plateau of unit `id` (the parent: its outline's
+ *  file; the pipeline: its run). Another unit's is ignored. The line follows;
+ *  the data all in, the fill starts to leave. A run that starts without the
+ *  unit's file ends the mark instead, its line where it stood. */
+function pendingStep(id: string, step: TapStep) {
+  const r = tapProgress.note(id, step);
+  if (step.t === "run" && tapProgress.id() === id) {
+    if (tapProgress.waived()) {
+      // The run starts on a coarser outline, the unit's file given up on
+      // (ac:outline-wait): the line has measured a file that has not come,
+      // so it is not run to the end — it fades where it stands. The fill
+      // stays, and leaves as for any tap once the run comes to its verdict
+      // (below). A unit with no mark yet gets none.
+      unmarked = null;
+      if (plateauWall.pendingId === id) plateauWall.dropPendingLine(markMotion());
+      return;
+    }
+    markLate(id);
+  }
+  // A waived tap's verdict: nothing counts any more (`note` answers null),
+  // the fill leaves all the same, against the rise.
+  if (step.t === "settled" && plateauWall.pendingId === id && tapProgress.id() === id) {
+    if (tapProgress.waived()) {
+      plateauWall.finishPending(markMotion(), tapEndMode.value);
+      return;
+    }
+  }
+  if (!r || plateauWall.pendingId !== id) return;
+  if (r.done) {
+    plateauWall.finishPending(markMotion(), tapEndMode.value);
+    return;
+  }
+  if (step.t !== "outline" || step.frac >= 1) {
+    showOutlineStep();
+    return;
+  }
+  const wait = outlineStepAt + OUTLINE_STEP_GAP_MS - performance.now();
+  if (wait <= 0) showOutlineStep();
+  else if (!outlineStepTimer) outlineStepTimer = window.setTimeout(showOutlineStep, wait);
+}
+
+/** The pending state of unit `id` has ended, however it did (the parent's
+ *  model/tapPendingCore): what was kept for it goes. */
+function pendingEnded(id: string) {
+  if (tapProgress.id() === id) tapProgress.end();
+  if (lastMark?.id === id) lastMark = null;
+  if (unmarked?.id === id) unmarked = null;
+  // The mark's meshes too, unless a newer tap's mark has taken its place.
+  if (!plateauWall.pendingId || plateauWall.pendingId === id) plateauWall.forgetPending();
+}
+
 /**
- * Mark unit `id` as tapped, its plateau on its way: `mark.stroke` and
- * `mark.fill` on its territory, from its outline as it is in `units` NOW (so
- * before the selection replaces them), `mark.pill` on its pill. One repaint;
- * nothing moves until `endPending`. A newer mark replaces this one. Answers
- * "shown", "none" (nothing could be shown: a unit with no outline in memory
- * and no pill), or that no verdict will follow (`plateauSettled`): "standing"
- * (the unit's plateau stands already) and "unavailable" (no map, or its
- * style not loaded yet).
+ * Mark unit `id` as tapped, the data of its plateau on its way: `mark.fill`
+ * and `mark.line` on its territory, from its outline as it is in `units` NOW
+ * (so before the selection replaces them). One repaint; then the line
+ * moves with `pendingStep`, and nothing else moves until the data is in.
+ * No name on the map: the unit's own pin goes with the selection, as any
+ * scope's does. A newer mark replaces this one. `again`: the unit was
+ * pending already (« Réessayer », the same unit tapped once more) — its
+ * line starts where its data had come, and a unit that is the scope by now
+ * is marked from what the mark before kept. A unit with no outline in
+ * memory is marked when the pipeline starts its run (`markLate`). Answers
+ * "shown", "none" (nothing could be shown yet: no outline in memory), or
+ * that no verdict will follow (`plateauSettled`): "standing" (the unit's
+ * plateau stands already) and "unavailable" (no map, or its style not
+ * loaded yet).
  */
-function markPending(id: string, mark: TapMark): "shown" | "none" | "standing" | "unavailable" {
+function markPending(
+  id: string,
+  mark: TapMark,
+  again = false,
+): "shown" | "none" | "standing" | "unavailable" {
   if (!map || !mapReady) return "unavailable";
   if (plateau.active() && plateauWall.scopeId === id) {
     endPending("off");
     return "standing";
   }
+  // The unit's progress starts over, unless it was pending already.
+  tapProgress.begin(id, { key: !plateau.flatWanted(), mesh: !!meshClient }, again);
   const unit = props.units.find((u) => u.id === id);
-  const pill = mark.pill && !!unit && !unit.isLeaf;
-  const g = unit && !unit.isLeaf ? (unit.geometry as MarkGeometry | undefined) : undefined;
-  const drawn = !!g && (mark.stroke || mark.fill);
-  if (drawn) plateauWall.setPending(id, g, mark);
-  else plateauWall.clearPending();
-  pins.setPendingPin(pill ? id : "");
-  return drawn || pill ? "shown" : "none";
+  let g = unit && !unit.isLeaf ? (unit.geometry as MarkGeometry | undefined) : undefined;
+  const b = unit?.bounds;
+  let spanDeg = b ? Math.max(b.maxLng - b.minLng, b.maxLat - b.minLat) : 360;
+  let where: { raised: boolean; lidM: number } | undefined;
+  if (!g && again && lastMark?.id === id) {
+    g = lastMark.g;
+    spanDeg = lastMark.spanDeg;
+    where = { raised: lastMark.raised, lidM: lastMark.lidM };
+  }
+  const drawn = !!g && (mark.line || mark.fill);
+  unmarked = null;
+  if (drawn && g) showMark(id, g, spanDeg, mark, where);
+  else {
+    plateauWall.clearPending();
+    lastMark = null;
+    // No outline of the unit in memory: marked when its own comes.
+    if (mark.line || mark.fill) unmarked = { id, mark };
+  }
+  return drawn ? "shown" : "none";
 }
 /**
- * The pending mark ends. "rise": its unit's plateau has just committed (call
- * it from `plateauSettled`): the mark moves onto the new lid and fades as it
- * rises — or goes at once under reduced motion. "off": at once (the
- * selection went elsewhere, or no plateau will come). "drain": no plateau
- * has come for a long while (the parent's long wait turned late): the mark
- * fades where it stands, as briefly — or goes at once under reduced motion.
- * The pill goes at once.
+ * The pending state's verdict for the mark. "rise": the unit's plateau has
+ * committed (call it from `plateauSettled`): the mark's own end is the
+ * pipeline's — its fill and its line leave against the rise's start, and
+ * what is left of them goes when it starts (`onRise`). "off": at
+ * once (the selection went elsewhere, or no plateau will come). "drain": no
+ * plateau has come for a long while (the parent's long wait turned late):
+ * the mark fades where it stands — or goes at once under reduced motion;
+ * what it kept stays for a retry.
  */
 function endPending(how: "rise" | "off" | "drain") {
-  pins.setPendingPin("");
+  if (how === "rise") return;
+  unmarked = null;
+  pins.restoreDrapedHover();
   if (how === "off") {
     plateauWall.clearPending();
-    return;
-  }
-  const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-  if (how === "rise") plateauWall.commitPending(!still);
-  else plateauWall.drainPending(!still);
+    tapProgress.end();
+    lastMark = null;
+  } else plateauWall.drainPending(markMotion());
 }
 
-/** The sign of a long wait on the pending unit's pill, on or off (the parent
- *  decides when: model/tapPendingCore). A DOM write: no frame is drawn. */
-function setPendingWait(on: boolean) {
-  pins.setPendingWait(on);
-}
 /** The plateau of unit `id` asked once more, from the outline in memory (the
  *  panel's « Réessayer »): see usePlateau's `retry`. */
 function retryPlateau(id: string) {
@@ -428,10 +685,11 @@ function startWorkers() {
   // the worker, a page on another mode never loads them.
   if (meshMode === "worker") {
     void import("./gl/meshClient").then(
-      ({ warmMeshWorker, globeProviderOf, tintCutterOf }) => {
+      ({ warmMeshWorker, globeProviderOf, tintCutterOf, markProviderOf }) => {
         if (!map) return; // unmounted meanwhile (or the map was declared unavailable)
         meshClient = warmMeshWorker();
         plateauWall.setGlobeProvider(globeProviderOf(meshClient));
+        plateauWall.setMarkProvider(markProviderOf(meshClient)); // a large tapped unit's mark
         mask.setTintCutter(tintCutterOf(meshClient)); // ac:tint-cut
       },
       () => {},
@@ -515,6 +773,7 @@ function mountMap() {
       slabs,
       meshDigest: __TEST_TOOLS__ ? (o) => plateauWall.meshDigest(o) : null,
       pendingMark: () => plateauWall.pendingState(),
+      tapProgress: () => tapProgress.state(),
       tintDigest: __TEST_TOOLS__ ? mask.tintDigest : null,
       context: glContext,
     });
@@ -785,10 +1044,16 @@ onBeforeUnmount(() => {
   slabs.dispose();
   flight.dispose();
   plateau.abort(); // abort any in-flight ensurePlateau
+  // The pending mark first: nothing of it is built once the worker is gone.
+  window.clearTimeout(outlineStepTimer);
+  outlineStepTimer = 0;
+  unmarked = null;
+  plateauWall.clearPending();
   // Its worker terminated, its pending meshes resolved null (and dropped).
   meshClient?.dispose();
   meshClient = null;
   plateauWall.setGlobeProvider(null);
+  plateauWall.setMarkProvider(null);
   mask.setTintCutter(null);
   lid.destroy();
   styleRecovery?.stop();
@@ -874,8 +1139,10 @@ defineExpose({
   /** A tapped unit's pending mark, set and ended (see the functions). */
   markPending,
   endPending,
-  /** The long wait's sign on the pending pill; the plateau asked once more. */
-  setPendingWait,
+  /** A real step of the tapped unit's data, and the end of its pending state. */
+  pendingStep,
+  pendingEnded,
+  /** The plateau asked once more. */
   retryPlateau,
   /** Work that waits for a map at rest (see the function). */
   whenAtRest,

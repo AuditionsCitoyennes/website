@@ -41,10 +41,15 @@ export type DevKey =
   | "ac:relief-prefetch"
   | "ac:frame-fill"
   | "ac:tap-answer"
+  | "ac:tap-line"
+  | "ac:tap-steps"
+  | "ac:tap-fast"
+  | "ac:tap-end"
   | "ac:tap-frame"
   | "ac:late-files"
   | "ac:outline-wait"
   | "ac:region-self"
+  | "ac:tap-lines"
   | "ac:cold-start"
   | "ac:scope-drag"
   | "ac:outlines-ahead"
@@ -346,15 +351,70 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Réponse au toucher",
     choices: [
-      { id: "auto", label: "Auto" },
-      { id: "stroke", label: "Contour" },
-      { id: "fill", label: "Violet" },
+      { id: "line", label: "Ligne" },
       { id: "off", label: "Aucune" },
     ],
     explain:
-      "Quand on touche ou clique un territoire, il est marqué tout de suite, en attendant qu'il se soulève. « Auto » (par défaut) trace un contour clair et épais autour de lui et, sur un écran tactile, le remplit aussi de violet ; « Contour » ne trace que le contour ; « Violet » ne fait que le remplir, sur tous les appareils ; « Aucune » ne marque rien, comme avant. Avec les trois premiers choix, l'étiquette du territoire s'affiche aussi, en violet.",
+      "Quand on touche ou clique un territoire, il se remplit de violet tout de suite, sur tous les appareils, sans se soulever ; son étiquette quitte la carte, comme celle de tout territoire choisi. « Ligne » (par défaut) : une ligne avance le long de sa frontière à mesure que ses données arrivent et en fait le tour complet quand tout est là ; le violet s'en va alors, puis le territoire se soulève. Si ses données arrivent en moins d'un cinquième de seconde, aucune ligne n'est tracée (voir Toucher rapide). « Aucune » ne marque rien, et le territoire se soulève alors sans attendre ses frontières intérieures : elles arrivent après la montée, comme avant.",
     reloads: false,
-    defaultId: "auto",
+    defaultId: "line",
+  },
+  {
+    key: "ac:tap-line",
+    section: "carte",
+    label: "Couleur de la ligne",
+    choices: [
+      { id: "deep", label: "Violet profond" },
+      { id: "indigo", label: "Indigo" },
+      { id: "site", label: "Violet du site" },
+    ],
+    explain:
+      "La couleur de la ligne de chargement tracée le long de la frontière du territoire touché. « Violet profond » (par défaut) est le violet de la carte, en plus sombre ; « Indigo » est le plus contrasté et le plus lourd ; « Violet du site » reprend la teinte des boutons du site, en plus sombre. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "deep",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
+  },
+  {
+    key: "ac:tap-steps",
+    section: "carte",
+    label: "Avancée de la ligne",
+    choices: [
+      { id: "steps", label: "Par étapes" },
+      { id: "creep", label: "En continu" },
+    ],
+    explain:
+      "Comment la ligne de chargement avance entre deux arrivées de données. « Par étapes » (par défaut) : elle ne bouge que lorsqu'une donnée arrive ; « En continu » : elle glisse aussi un peu pendant l'attente, de quelques centièmes de la frontière au plus au-delà de ce qui est arrivé, sans jamais faire le tour complet avant que tout soit arrivé. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "steps",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
+  },
+  {
+    key: "ac:tap-fast",
+    section: "carte",
+    label: "Toucher rapide",
+    choices: [
+      { id: "hide", label: "Sans ligne" },
+      { id: "show", label: "Ligne toujours" },
+    ],
+    explain:
+      "Quand les données d'un territoire arrivent en moins d'un cinquième de seconde, « Sans ligne » (par défaut) ne trace pas la ligne de chargement : le violet, puis la montée. Si l'attente dure, la ligne apparaît et avance à vitesse régulière, un tour complet prenant au moins trois dixièmes de seconde. « Ligne toujours » la trace dès le toucher, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "hide",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
+  },
+  {
+    key: "ac:tap-end",
+    section: "carte",
+    label: "Fin du chargement",
+    choices: [
+      { id: "then", label: "Puis montée" },
+      { id: "together", label: "Ensemble" },
+    ],
+    explain:
+      "Ce qui se passe quand toutes les données du territoire touché sont arrivées. « Puis montée » (par défaut) : la ligne finit son tour, le violet et la ligne s'effacent ensemble, et le territoire ne se soulève qu'ensuite ; « Ensemble » : le violet s'efface pendant que le territoire se soulève. Sans effet si Réponse au toucher est « Aucune ».",
+    reloads: false,
+    defaultId: "then",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
     key: "ac:tap-frame",
@@ -388,14 +448,15 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Attente du contour",
     choices: [
+      { id: "file", label: "Le fichier" },
       { id: "1200", label: "1,2 s" },
       { id: "400", label: "0,4 s" },
       { id: "0", label: "Aucune" },
     ],
     explain:
-      "Le contour précis d'un territoire arrive par un fichier. S'il tarde, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile. « 1,2 s » (par défaut) attend le fichier jusqu'à 1,2 seconde, comme avant ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
+      "Le contour précis d'un territoire arrive par un fichier. « Le fichier » (par défaut) : un territoire touché ou cliqué attend son fichier, 4 secondes au plus, la ligne de chargement avançant avec lui, et se soulève directement sur son contour précis ; un territoire atteint autrement (un déplacement de la carte, le fil d'Ariane, un lien) l'attend 1,2 seconde. Passé ce délai, la carte soulève le territoire sur un contour plus grossier qu'elle a déjà, puis met le contour précis à sa place, sans le faire redescendre, une fois la carte immobile ; la ligne de chargement s'efface alors là où elle en est, sans avoir fait le tour, et le violet reste jusqu'à la montée. « 1,2 s » attend le fichier 1,2 seconde dans tous les cas, comme avant ; « 0,4 s » l'attend moins longtemps ; « Aucune » ne l'attend pas : le territoire se soulève tout de suite sur le contour grossier, sans attendre non plus ses frontières intérieures. Sans contour grossier déjà là, l'attente reste de 1,2 seconde.",
     reloads: false,
-    defaultId: "1200",
+    defaultId: "file",
   },
   {
     key: "ac:region-self",
@@ -409,6 +470,21 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Le contour d'une région existe en deux fichiers : un petit, la région seule, et un gros, la région avec tous ses départements. « D'abord » (par défaut) demande le petit en premier : la région se soulève dès qu'il est là, et les lignes de ses départements sont tracées dessus quand le gros arrive, une fois la carte immobile. « Ensemble » attend le gros fichier, comme avant : la région se soulève plus tard, ses départements déjà tracés. De même pour un département et ses communes.",
     reloads: false,
     defaultId: "first",
+  },
+  {
+    key: "ac:tap-lines",
+    section: "carte",
+    label: "Lignes intérieures",
+    choices: [
+      { id: "wait", label: "Avec le plateau" },
+      { id: "upper", label: "Pays et régions seulement" },
+      { id: "late", label: "Après" },
+    ],
+    explain:
+      "Les frontières à l'intérieur du territoire touché (départements d'une région, communes d'un département). « Avec le plateau » (par défaut) : le territoire attend ces frontières avant de se soulever, et la ligne de chargement en tient compte ; au bout de l'attente du contour (4 secondes au plus, jamais prolongée) il se soulève sans elles et elles arrivent ensuite. « Pays et régions seulement » : un département se soulève sans attendre ses communes. « Après » : comme avant, les frontières arrivent après la montée. Sans effet si Réponse au toucher est « Aucune » : rien n'attend alors ces frontières.",
+    reloads: false,
+    defaultId: "wait",
+    inactiveWhen: { key: "ac:tap-answer", id: "off" },
   },
   {
     key: "ac:cold-start",
@@ -472,7 +548,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "off", label: "Rien" },
     ],
     explain:
-      "Quand un territoire touché tarde à se soulever. « Signe » (par défaut) : une fois la carte arrivée sur lui, et au plus tôt 0,8 seconde après le toucher, trois petits points bougent à côté de son étiquette sur la carte et de son nom dans le panneau, jusqu'à ce qu'il se soulève ; ils restent immobiles si l'appareil demande moins d'animations. Au bout de 5 secondes sans rien, la marque du territoire s'efface et le panneau dit « La carte met plus de temps que prévu. », avec un bouton « Réessayer » qui redemande seulement ce qui manque. « Rien » ne montre ni points ni message, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
+      "Quand un territoire touché tarde à se soulever. « Signe » (par défaut) : une fois la carte arrivée sur lui, et au plus tôt 0,8 seconde après le toucher, trois petits points bougent après son nom dans le panneau (rien sur la carte ; sur un téléphone dont le panneau est réduit, ils ne se voient pas), jusqu'à ce qu'il se soulève ; ils restent immobiles si l'appareil demande moins d'animations. Au bout de 5 secondes sans rien, la marque du territoire s'efface et le panneau dit « La carte met plus de temps que prévu. », avec un bouton « Réessayer » qui redemande seulement ce qui manque. « Rien » ne montre ni points ni message, comme avant. Sans effet si Réponse au toucher est « Aucune ».",
     reloads: false,
     defaultId: "on",
     inactiveWhen: { key: "ac:tap-answer", id: "off" },

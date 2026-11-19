@@ -1,11 +1,8 @@
 // The pins: a marker per unit, diffed across updates; the hit rings the hover
 // and the click test against; the hovered unit (the pointer's, or the panel's
 // through `hoveredId`); the macro pills anchored on their unit's visible
-// territory (updateSticky) and shown while hovered, or while their unit wears
-// the pending mark (setPendingPin: tapped, its plateau on its way), with the
-// sign of a long wait beside it (setPendingWait); the pins hidden under the
-// analyses' slabs. Hot paths (onMapHover, updateSticky)
-// allocate nothing.
+// territory (updateSticky) and shown while hovered; the pins hidden under the
+// analyses' slabs. Hot paths (onMapHover, updateSticky) allocate nothing.
 // Over flat ground (plateau/lift.ts) the pins of the raised unit stand at the
 // lid's height and a pointer over the lid reads the lid: on raised ground
 // mapbox's terrain does both.
@@ -117,14 +114,6 @@ export function useMapPins({
   let pinHoveredId = "";
   // The pin currently wearing `.geo-pin-active` (props.activeId, once applied).
   let activePinId = "";
-  // The pill wearing `.geo-pin-pending` (setPendingPin): its unit was tapped
-  // and its plateau is on its way. The tap usually takes the unit out of
-  // `units` (it becomes the scope): its marker is then HELD here, out of the
-  // diff, where it stood at the tap, until the pending state ends.
-  let pendingPinId = "";
-  let heldPin: MarkerEntry | null = null;
-  // The pending pill shows the sign of a long wait (setPendingWait).
-  let pendingWait = false;
 
   function makePin(unit: MapUnit): HTMLElement {
     const root = document.createElement("button");
@@ -157,9 +146,6 @@ export function useMapPins({
 
   function clearMarkers() {
     rebuildLater.cancel();
-    heldPin?.marker.remove();
-    heldPin = null;
-    pendingPinId = "";
     for (const e of markerById.values()) e.marker.remove();
     markerById.clear();
     hitById.clear();
@@ -216,11 +202,6 @@ export function useMapPins({
       const sig = pinSignature(unit);
       const alt = altitudeAt(lifted, lng, lat);
       let entry = stale.get(unit.id);
-      // The pending unit is back among the units: its held pill is its pin again.
-      if (!entry && heldPin && unit.id === pendingPinId) {
-        entry = heldPin;
-        heldPin = null;
-      }
 
       if (entry && entry.sig === sig) {
         // Survivor: keep its DOM node and listeners, just move it if it shifted.
@@ -247,11 +228,6 @@ export function useMapPins({
           : { element: el, altitude: alt };
         const marker = new mapboxgl.Marker(opts).setLngLat([lng, lat]).addTo(map);
         entry = { marker, el, sig, lng, lat, alt, halfW: 0, halfH: 0 };
-        // A pill made anew for the pending unit wears its look from the start.
-        if (!unit.isLeaf && unit.id === pendingPinId) {
-          el.classList.add("geo-pin-pending");
-          if (pendingWait) showWait(el, true);
-        }
         if (!unit.isLeaf) {
           // The pin element sits ABOVE the canvas: hovering it fires the canvas
           // mouseout, which must not clear the hover that revealed this very pin.
@@ -289,14 +265,6 @@ export function useMapPins({
       }
     }
 
-    // The pending unit left the units (it is the scope now): its pill stays
-    // where it is, held, until the pending state ends.
-    const leaving = pendingPinId ? stale.get(pendingPinId) : undefined;
-    if (leaving && leaving.sig !== "leaf") {
-      stale.delete(pendingPinId);
-      heldPin?.marker.remove();
-      heldPin = leaving;
-    }
     for (const e of stale.values()) e.marker.remove();
     for (const id of hitById.keys()) if (!next.has(id)) hitById.delete(id);
     for (const id of wholeShapeInterior.keys()) if (!next.has(id)) wholeShapeInterior.delete(id);
@@ -366,8 +334,6 @@ export function useMapPins({
     const view = sticky.length ? screenBoundsInset(STICKY_MARGIN) : null;
     if (view) {
       for (const s of sticky) {
-        // A pending pill was placed at the tap (setPendingPin) and rides the map.
-        if (s.id === pendingPinId) continue;
         let hit: InteriorHit | null = null;
         // applyPinVisibility only ever shows the HOVERED pill, so recomputing an
         // interior point (a scanline pass over the unit's polygon) + setLngLat for
@@ -396,81 +362,8 @@ export function useMapPins({
   // affected pins only. Macro pins are HOVER-ONLY: the territory is the visible
   // UI (boundaries + highlight), the pill appears as its label while pointed at.
   function applyPinVisibility(s: (typeof sticky)[number]) {
-    const shown = hoveredUnitId === s.id || pendingPinId === s.id;
+    const shown = hoveredUnitId === s.id;
     s.el.style.visibility = s.onScreen && shown && !pinsUnderSlab.has(s.id) ? "" : "hidden";
-  }
-
-  /**
-   * The pill of the unit wearing the pending mark (`id`; "": none): shown
-   * where its unit is in view, in its pending look (`.geo-pin-pending`,
-   * geo-pins.css: pressed back onto its territory, filled, and out of the
-   * pointer's way), whether or not it is hovered — a touch never hovers, and
-   * a small territory or an island has no other readable mark. It is placed
-   * once, at the tap, and then rides the map. The pill of the unit marked
-   * before goes back to what it was, or away if it was only held.
-   */
-  function setPendingPin(id: string) {
-    if (id === pendingPinId) return;
-    const prev = pendingPinId;
-    pendingPinId = id;
-    pendingWait = false; // the sign was the pill before's
-    if (heldPin) {
-      heldPin.marker.remove();
-      heldPin = null;
-    }
-    if (prev) {
-      const was = sticky.find((x) => x.id === prev);
-      if (was) {
-        showWait(was.el, false);
-        was.el.classList.remove("geo-pin-pending");
-        was.el.classList.toggle("geo-pin-hover", hoveredUnitId === prev);
-        applyPinVisibility(was);
-      }
-    }
-    const s = id ? sticky.find((x) => x.id === id) : undefined;
-    if (!s) return;
-    const view = screenBoundsInset(STICKY_MARGIN);
-    s.onScreen = false; // out of view: no pill (the cached value may be a hover's)
-    if (s.geometry && s.bounds && view && boundsIntersect(s.bounds, view)) {
-      const hit = interiorInView(s.geometry, s.bounds, view);
-      s.onScreen = !!hit;
-      if (hit) s.marker.setLngLat(hit.pt);
-    }
-    s.el.classList.remove("geo-pin-hover");
-    s.el.classList.add("geo-pin-pending");
-    hidePinsUnderSlabs();
-    applyPinVisibility(s);
-  }
-
-  /** The sign of a long wait on a pill: three dots in a chip beside it (the
-   *  shared `.wait-dots`, placed by geo-pins.css), added or taken away. A DOM
-   *  write on the marker's own element: the map draws no frame for it. */
-  function showWait(el: HTMLElement, on: boolean) {
-    const had = el.querySelector(".wait-dots");
-    el.classList.toggle("geo-pin-waiting", on);
-    if (!on) {
-      had?.remove();
-      return;
-    }
-    if (had) return;
-    const dots = document.createElement("span");
-    dots.className = "wait-dots moving";
-    dots.setAttribute("aria-hidden", "true");
-    for (let i = 0; i < 3; i++) dots.appendChild(document.createElement("i"));
-    el.querySelector(".geo-pin-bubble")?.appendChild(dots);
-  }
-
-  /**
-   * The pending pill shows the sign of a long wait (`on`), or no longer does:
-   * its unit's plateau is still on its way well after the tap (the parent
-   * decides when: GeoNav's model/tapPendingCore). Nothing without a pending
-   * pill; a newer pending pill (setPendingPin) starts without it.
-   */
-  function setPendingWait(on: boolean) {
-    pendingWait = on && pendingPinId !== "";
-    const el =
-      heldPin?.el ?? (pendingPinId ? sticky.find((x) => x.id === pendingPinId)?.el : undefined);
-    if (el) showWait(el, pendingWait);
   }
 
   // ---- Pins under the analyses' slabs -------------------------------------------
@@ -532,10 +425,7 @@ export function useMapPins({
       const boxes = slabDotBoxes(DOT_RADIUS_PX);
       for (const [id, e] of markerById) {
         const dot = e.sig === "leaf";
-        if (
-          dot ? !mayBeUnderSlab(boxes, e.lng, e.lat) : id !== hoveredUnitId && id !== pendingPinId
-        )
-          continue;
+        if (dot ? !mayBeUnderSlab(boxes, e.lng, e.lat) : id !== hoveredUnitId) continue;
         const p = map.project(e.marker.getLngLat(), e.alt);
         let on: boolean;
         if (dot) on = pinOnSlab(p.x, p.y, DOT_RADIUS_PX, DOT_RADIUS_PX, DOT_RIM);
@@ -621,6 +511,7 @@ export function useMapPins({
   function setHover(id: string) {
     if (id === hoveredUnitId) return;
     const map = getMap();
+    restoreDrapedHover();
     const prev = hoveredUnitId;
     hoveredUnitId = id;
     // The newly hovered pill is the only one that will be shown, and updateSticky
@@ -640,8 +531,7 @@ export function useMapPins({
     if (map) map.getCanvas().style.cursor = id ? "pointer" : "";
     for (const s of sticky) {
       if (s.id === prev || s.id === id) {
-        // A pending pill keeps its pending look under the pointer.
-        s.el.classList.toggle("geo-pin-hover", s.id === id && s.id !== pendingPinId);
+        s.el.classList.toggle("geo-pin-hover", s.id === id);
         applyPinVisibility(s);
       }
     }
@@ -656,6 +546,29 @@ export function useMapPins({
         ["!=", ["get", "kind"], "scope"],
         ["==", ["get", "id"], drapedId],
       ]);
+    }
+  }
+
+  // The draped hover fill given up for the hovered unit: a pending mark's
+  // fill has taken its place (GeoDrillMap.markPending), so the violet on the
+  // unit neither doubles nor drops at the tap. A paint value, constant: the
+  // layer's source is not read again, where a filter change would lay the
+  // tiles out once more. Back at the next hover change, or when the mark
+  // ends without a plateau.
+  let drapedYielded = false;
+  function yieldDrapedHover(id: string) {
+    const map = getMap();
+    if (drapedYielded || !id || id !== hoveredUnitId) return;
+    if (!map?.getLayer("scope-hover-fill")) return;
+    map.setPaintProperty("scope-hover-fill", "fill-opacity", 0);
+    drapedYielded = true;
+  }
+  function restoreDrapedHover() {
+    if (!drapedYielded) return;
+    drapedYielded = false;
+    const map = getMap();
+    if (map?.getLayer("scope-hover-fill")) {
+      map.setPaintProperty("scope-hover-fill", "fill-opacity", 0.6);
     }
   }
 
@@ -771,10 +684,8 @@ export function useMapPins({
     onMouseOut,
     onClick,
     scheduleSticky,
-    /** The pill of the unit wearing the pending mark ("": none). */
-    setPendingPin,
-    /** The sign of a long wait on that pill, on or off. */
-    setPendingWait,
+    yieldDrapedHover,
+    restoreDrapedHover,
     /** The pins drawn on a slab, hidden; those no longer there, shown again. */
     hidePinsUnderSlabs,
     /** The pins at their altitude over flat ground, after its plateau changed. */

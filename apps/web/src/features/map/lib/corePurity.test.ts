@@ -28,6 +28,8 @@ const CORE = [
   "gl/meshFlat.ts",
   // The flat view's grey sheet, cut in the worker too (ac:tint-cut).
   "gl/tintSheet.ts",
+  // A large tapped unit's pending mark, built in the worker too.
+  "gl/pendingMark.ts",
 ];
 
 const FORBIDDEN = (spec: string) =>

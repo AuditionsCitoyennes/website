@@ -27,6 +27,10 @@ export interface CameraInputs {
   outlines: OutlineFiles | null;
   mapCmp: Ref<MapHandle | null>;
   listMode: ComputedRef<boolean>;
+  /** Whether the visitor tapped unit `id` and its plateau is still pending
+   *  (model/useTapPending): its bundle is then asked as a file its plateau
+   *  waits for (ac:tap-lines). Absent: never. */
+  tapped?: (id: string) => boolean;
 }
 
 export function useCamera(inputs: CameraInputs) {
@@ -122,11 +126,15 @@ export function useCamera(inputs: CameraInputs) {
         // waits for this file; with its self in, it brings its children only.
         // A self its row declares alone in a u/ (ac:region-self "first") is
         // asked from there first, due, and the bundle is then not.
+        // A unit the visitor tapped whose plateau waits for its children's
+        // boundaries (ac:tap-lines): the bundle is due all the same — this
+        // ask is the first one made for it.
         else {
           const due = !outlines.selfOf(unit.id);
           const ahead = due && outlines.selfAhead(unit.id);
           if (ahead) void outlines.ensureSelf(unit.id);
-          void outlines.ensureBundle(unit.id, due && !ahead);
+          const lines = !!inputs.tapped?.(unit.id) && outlines.linesWait(unit.levelKey);
+          void outlines.ensureBundle(unit.id, (due && !ahead) || lines);
         }
       }
       const geometry = byBox ? undefined : raisedGeometryFor(unit);

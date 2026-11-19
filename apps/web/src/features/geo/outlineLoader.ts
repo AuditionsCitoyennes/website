@@ -62,6 +62,16 @@
 // lines — and the u/ then has nothing left to write. Past it, the u/ is
 // written alone and the bundle is a late file like any other.
 //
+// `onProgress` (the page's loading line along a tapped unit's boundary): told
+// as a file's response is answered (its headers are in and it is the file
+// asked), as each piece of its body arrives, and once the body is whole. The
+// body is then read piece by piece instead of at once; the text is the same.
+// Only for a file a plateau waits for or may come to wait for: one asked
+// "due", one the page calls urgent when its response comes, and a prefetch
+// (the click its hover announces joins that very request). Every other file
+// — the boot's, the late and the decorative ones, hundreds over a session —
+// is read at once, as before.
+//
 // `reask` (the page's « Réessayer », once a plateau has waited too long): the
 // attempts on the network the page says a plateau waits for are dropped and
 // made again at once. Such an attempt is none of its request's two: the
@@ -109,13 +119,21 @@ export type OutlineStatus = "loaded" | "absent" | "failed" | "fallback";
 export type OutlineMode = "fichiers" | "fallback";
 export type OutlineReady = "loading" | "late" | "ok" | "fallback";
 
-/** What the loader reads of a response. */
+/** What the loader reads of a response. `body`: its stream, where the host
+ *  has one (read piece by piece when `onProgress` is given). */
 export interface OutlineResponse {
   ok: boolean;
   status: number;
   headers: { get(name: string): string | null };
   text(): Promise<string>;
+  body?: {
+    getReader?(): { read(): Promise<{ done: boolean; value?: Uint8Array }> };
+  } | null;
 }
+
+/** A file's arrival, step by step: its response answered, a piece of its
+ *  body in (`received`: the bytes so far, decoded), the body whole. */
+export type OutlinePhase = "answered" | "bytes" | "landed";
 type Timer = unknown;
 type Detail = Record<string, unknown>;
 
@@ -170,6 +188,12 @@ export interface OutlineLoaderOptions {
   /** How long a self from its u/ waits, once in, for its unit's bundle still
    *  on the network (none, or 0: written at once). */
   selfGraceMs?: number;
+  /** A file's arrival, step by step (see OutlinePhase), for the files a
+   *  plateau waits for or may come to wait for (asked "due" or "prefetch",
+   *  or urgent when answered). `total`: the body's size when the response says it (a
+   *  Content-Length with no Content-Encoding), else null. A listener that
+   *  throws is ignored. */
+  onProgress?: (key: string, phase: OutlinePhase, received: number, total: number | null) => void;
 }
 
 /** A low request waiting for its turn: its URL and its start (`low`: it
@@ -211,7 +235,8 @@ export class OutlineLoader {
   private readonly o: OutlineLoaderOptions;
   private readonly inflight = new Map<string, Promise<Checked<unknown>>>();
   private readonly prefetched = new Set<string>();
-  private readonly waiting = new Set<string>();
+  /** The self files being waited for, and the longest wait asked of each, ms. */
+  private readonly waiting = new Map<string, number>();
   /** Network failures past their failedMs: the next ensure asks again. */
   private readonly retryable = new Set<string>();
   private readonly live = new Set<AbortController>();
@@ -341,8 +366,9 @@ export class OutlineLoader {
 
   /** The unit's self: nothing to fetch when it is stored (a département's
    *  entry is its self), else its u/ file, else its bundle. Asked "due": a
-   *  plateau waits for it. */
-  async ensureSelf(unit: string): Promise<OutlineStatus> {
+   *  plateau waits for it — `waitMs` long before it is given up on (the
+   *  options' wait by default; longer for a unit the visitor tapped). */
+  async ensureSelf(unit: string, waitMs?: number): Promise<OutlineStatus> {
     if (await this.stopped()) return "fallback";
     const id = this.o.store.filesIdOf(unit);
     const row = this.o.store.rowOf(id);
@@ -350,7 +376,7 @@ export class OutlineLoader {
     if (this.o.store.has(id, row.st)) return "loaded";
     const kind = this.selfKind(id);
     if (!kind) return "absent";
-    const stop = this.waitFor(fileKey(kind, id));
+    const stop = this.waitFor(fileKey(kind, id), waitMs);
     try {
       return kind === "u" ? await this.loadSelf(id) : await this.ensureBundle(id, true);
     } finally {
@@ -636,17 +662,35 @@ export class OutlineLoader {
     this.o.onMode(mode, ready, why);
   }
 
-  /** Arms the give-up timer of a self file, once per request of it. A wait
-   *  the file of a unit since left crossed (`abandoned`) goes on once more. */
-  private waitFor(key: string): () => void {
-    if (this.waiting.has(key) || this.gaveUp.has(key)) return () => {};
-    this.waiting.add(key);
-    const ms = this.o.waitMs ?? OUTLINE_WAIT_MS;
+  /** Arms the give-up timer of a self file, once per request of it, `waitMs`
+   *  long (the options' wait by default). A second caller of the same
+   *  request that waits longer (the scope's chain, for a unit the visitor
+   *  tapped, after the camera's own ask) makes the timer go on to its
+   *  length. A wait the file of a unit since left crossed (`abandoned`)
+   *  goes on once more. */
+  private waitFor(key: string, waitMs?: number): () => void {
+    const ms = waitMs ?? this.o.waitMs ?? OUTLINE_WAIT_MS;
+    const live = this.waiting.get(key);
+    if (live !== undefined) {
+      if (ms > live) this.waiting.set(key, ms);
+      return () => {};
+    }
+    if (this.gaveUp.has(key)) return () => {};
+    this.waiting.set(key, ms);
+    let waited = ms;
     const done0 = this.abandonedDone;
     let crossed = this.abandoned();
     let timer: Timer;
     const end = (extended: boolean) => {
       if (this.held.has(key)) return; // kept as text: in, not given up
+      // A longer wait asked meanwhile: on to its length.
+      const longest = this.waiting.get(key) ?? waited;
+      if (longest > waited) {
+        const more = longest - waited;
+        waited = longest;
+        timer = this.o.setTimer(() => end(extended), more);
+        return;
+      }
       crossed ||= this.abandoned() || this.abandonedDone !== done0;
       if (crossed && !extended) {
         timer = this.o.setTimer(() => end(true), ms);
@@ -805,7 +849,9 @@ export class OutlineLoader {
           contentType: res.headers.get("content-type"),
         });
         if (bad) return { ok: false, reason: bad } as const;
-        text = await res.text();
+        // Step by step for a file a plateau waits for, or may come to.
+        const stepwise = ask === "due" || ask === "prefetch" || !!late?.urgent(key);
+        text = stepwise ? await this.read(res, key) : await res.text();
       } catch {
         return NETWORK;
       } finally {
@@ -825,6 +871,44 @@ export class OutlineLoader {
       this.live.delete(abort);
       this.attempts.delete(url);
     }
+  }
+
+  /** A response's text, its arrival told step by step (`onProgress`): read
+   *  piece by piece where the response has a stream, else at once. A read
+   *  that fails (an abort mid-body) rejects, as `text()` does. */
+  private async read(res: OutlineResponse, key: string): Promise<string> {
+    const { onProgress } = this.o;
+    if (!onProgress) return res.text();
+    const tell = (phase: OutlinePhase, received: number, total: number | null) => {
+      try {
+        onProgress(key, phase, received, total);
+      } catch {
+        /* the page's listener: never the file's failure */
+      }
+    };
+    const length = Number(res.headers.get("content-length"));
+    const total =
+      !res.headers.get("content-encoding") && Number.isFinite(length) && length > 0 ? length : null;
+    tell("answered", 0, total);
+    const reader = res.body?.getReader?.();
+    let text: string;
+    if (!reader || typeof TextDecoder === "undefined") text = await res.text();
+    else {
+      const decoder = new TextDecoder();
+      let received = 0;
+      text = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        received += value.byteLength;
+        text += decoder.decode(value, { stream: true });
+        tell("bytes", received, total);
+      }
+      text += decoder.decode();
+    }
+    tell("landed", text.length, total);
+    return text;
   }
 
   /** A file's text parsed and checked. */

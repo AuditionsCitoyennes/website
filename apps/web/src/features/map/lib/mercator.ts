@@ -79,3 +79,39 @@ export function baseOf(lng: number, lat: number): PBase {
     ],
   };
 }
+
+/** Floats `projectInto` writes per vertex. */
+export const PROJECTED_FLOATS = 9;
+
+/**
+ * The vertex at (lng, lat) written into `out` at `o`, with no object made:
+ * [x, y, zPerM, lo×3, d×3] — `baseOf`'s values, operation for operation
+ * (lib/mercator.test.ts ties the two). For a mesh assembled straight into
+ * typed arrays (the pending mark's, gl/pendingMark.ts). Throws as `baseOf`.
+ */
+export function projectInto(out: Float64Array, o: number, lng: number, lat: number): void {
+  if (isNaN(lng) || isNaN(lat)) {
+    throw new Error(`Invalid LngLat object: (${lng}, ${lat})`);
+  }
+  if (lat > 90 || lat < -90) {
+    throw new Error("Invalid LngLat latitude value: must be between -90 and 90");
+  }
+  out[o] = (180 + lng) / 360;
+  out[o + 1] =
+    (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))) / 360;
+  out[o + 2] = 1 / (EARTH_CIRCUMFERENCE * Math.cos((lat * Math.PI) / 180));
+  const cosLat = Math.cos(lat * DEG_TO_RAD);
+  const sinLat = Math.sin(lat * DEG_TO_RAD);
+  const lngR = lng * DEG_TO_RAD;
+  const sinLng = Math.sin(lngR);
+  const cosLng = Math.cos(lngR);
+  const lo0 = cosLat * sinLng * ECEF_R0;
+  const lo1 = -sinLat * ECEF_R0;
+  const lo2 = cosLat * cosLng * ECEF_R0;
+  out[o + 3] = lo0;
+  out[o + 4] = lo1;
+  out[o + 5] = lo2;
+  out[o + 6] = cosLat * sinLng * ECEF_R1 - lo0;
+  out[o + 7] = -sinLat * ECEF_R1 - lo1;
+  out[o + 8] = cosLat * cosLng * ECEF_R1 - lo2;
+}

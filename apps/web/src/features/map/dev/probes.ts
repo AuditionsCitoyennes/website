@@ -6,7 +6,9 @@
 // `__acFrame` (the frame bus, DEV). Testing tools only (__TEST_TOOLS__): the
 // map's idleness check, `__acPerf.rendersIn(ms)`, the plateau mesh's
 // fingerprint, `__acMeshHash()` (PlateauWallLayer.meshDigest), the grey
-// sheet's, `__acTintHash()` (ScopeTintLayer.digest), the two
+// sheet's, `__acTintHash()` (ScopeTintLayer.digest), a tapped unit's pending
+// mark and the progress of its data, `__acTap()` (cheap: read every frame by
+// the headless checks, where `__acPlateau` serialises the style), the two
 // motion counters of `__acPerf.dump().probes` (motionProbes.ts:
 // `motion-mutations`, `plateau-runs`), and the still-map scheduler's state:
 // `__acPerf.busy()` (what keeps the map from being still now) and
@@ -31,6 +33,7 @@ type Probes = {
   __acPerf?: Record<string, unknown>;
   __acMeshHash?: (opts?: { globe?: boolean }) => unknown;
   __acTintHash?: () => unknown;
+  __acTap?: () => unknown;
 };
 
 /** Idleness check: request one repaint, then count the map's `render` events over
@@ -90,6 +93,8 @@ export interface ProbeSources {
   meshDigest: ((opts?: { globe?: boolean }) => unknown) | null;
   /** The tapped unit's pending mark as the layer holds it (null: none). */
   pendingMark: () => unknown;
+  /** How far the tapped unit's data has come (plateau/tapProgress.ts; null: none). */
+  tapProgress?: () => unknown;
   /** The flat view's grey sheet's fingerprint (testing tools; null without them). */
   tintDigest?: (() => unknown) | null;
   /** The map's WebGL context, lost and given back (useContextRestore). */
@@ -106,6 +111,7 @@ export function installProbes({
   slabs,
   meshDigest,
   pendingMark,
+  tapProgress,
   tintDigest,
   context,
 }: ProbeSources): () => void {
@@ -142,6 +148,8 @@ export function installProbes({
     w.__acPerf.whenStill = whenStill;
   }
   if (__TEST_TOOLS__ && meshDigest) w.__acMeshHash = meshDigest;
+  const tapProbe = () => ({ mark: pendingMark(), progress: tapProgress?.() ?? null });
+  if (__TEST_TOOLS__) w.__acTap = tapProbe;
   if (__TEST_TOOLS__ && tintDigest) w.__acTintHash = tintDigest;
   // The map's mutators wrapped and counted while the map moves (testing tools).
   const uninstallMotion = __TEST_TOOLS__ && map ? installMotionProbes(map) : null;
@@ -153,6 +161,7 @@ export function installProbes({
       delete w.__acPerf.whenStill;
     }
     if (__TEST_TOOLS__ && meshDigest && w.__acMeshHash === meshDigest) delete w.__acMeshHash;
+    if (__TEST_TOOLS__ && w.__acTap === tapProbe) delete w.__acTap;
     if (__TEST_TOOLS__ && tintDigest && w.__acTintHash === tintDigest) delete w.__acTintHash;
     if (uninstallMotion) uninstallMotion();
   };

@@ -137,10 +137,15 @@ const KEYS: readonly DevKey[] = [
   "ac:filters-load",
   "ac:prefetch",
   "ac:tap-answer",
+  "ac:tap-line",
+  "ac:tap-steps",
+  "ac:tap-fast",
+  "ac:tap-end",
   "ac:tap-frame",
   "ac:late-files",
   "ac:outline-wait",
   "ac:region-self",
+  "ac:tap-lines",
   "ac:cold-start",
   "ac:scope-drag",
   "ac:outlines-ahead",
@@ -173,7 +178,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 52);
+  assert.equal(DEV_OPTIONS.length, 57);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -264,10 +269,15 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:filters-load": ["bootReads", "setFiltersLoad"],
   "ac:prefetch": ["bootReads", "setPrefetch"],
   "ac:tap-answer": ["tap", "setTapAnswerMode"],
+  "ac:tap-line": ["tap", "setTapLineColor"],
+  "ac:tap-steps": ["tap", "setTapStepsMode"],
+  "ac:tap-fast": ["tap", "setTapFastMode"],
+  "ac:tap-end": ["tap", "setTapEndMode"],
   "ac:tap-frame": ["tap", "setTapFrameMode"],
   "ac:late-files": ["late", "setLateFilesMode"],
   "ac:outline-wait": ["cold", "setOutlineWait"],
   "ac:region-self": ["cold", "setRegionSelfMode"],
+  "ac:tap-lines": ["cold", "setTapLinesMode"],
   "ac:cold-start": ["cold", "setColdStartMode"],
   "ac:scope-drag": ["hold", "setScopeDragMode"],
   "ac:outlines-ahead": ["ahead", "setPrefetchMode"],
@@ -382,10 +392,15 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:filters-load"), [...bootReadsSwitch.FILTERS_LOADS]);
   assert.deepEqual(ids("ac:prefetch"), [...bootReadsSwitch.PREFETCHES]);
   assert.deepEqual(ids("ac:tap-answer"), [...tap.TAP_ANSWER_MODES]);
+  assert.deepEqual(ids("ac:tap-line"), [...tap.TAP_LINE_COLORS]);
+  assert.deepEqual(ids("ac:tap-steps"), [...tap.TAP_STEPS_MODES]);
+  assert.deepEqual(ids("ac:tap-fast"), [...tap.TAP_FAST_MODES]);
+  assert.deepEqual(ids("ac:tap-end"), [...tap.TAP_END_MODES]);
   assert.deepEqual(ids("ac:tap-frame"), [...tap.TAP_FRAME_MODES]);
   assert.deepEqual(ids("ac:late-files"), [...late.LATE_FILES_MODES]);
   assert.deepEqual(ids("ac:outline-wait"), [...cold.OUTLINE_WAITS]);
   assert.deepEqual(ids("ac:region-self"), [...cold.REGION_SELF_MODES]);
+  assert.deepEqual(ids("ac:tap-lines"), [...cold.TAP_LINES_MODES]);
   assert.deepEqual(ids("ac:cold-start"), [...cold.COLD_START_MODES]);
   assert.deepEqual(ids("ac:scope-drag"), [...hold.SCOPE_DRAG_MODES]);
   assert.deepEqual(ids("ac:outlines-ahead"), [...ahead.PREFETCH_MODES]);
@@ -415,9 +430,14 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:frame-fill"), scale);
   assert.deepEqual(row("ac:lid-check").inactiveWhen, { key: "ac:lid", id: "aucun" });
   assert.deepEqual(row("ac:tap-frame").inactiveWhen, { key: "ac:tap-answer", id: "off" });
+  for (const key of ["ac:tap-line", "ac:tap-steps", "ac:tap-fast", "ac:tap-end"] as const) {
+    assert.deepEqual(row(key).inactiveWhen, { key: "ac:tap-answer", id: "off" }, key);
+  }
   assert.deepEqual(row("ac:slow-sign").inactiveWhen, { key: "ac:tap-answer", id: "off" });
+  // No pending state, so no tapped unit waits for its inner boundaries.
+  assert.deepEqual(row("ac:tap-lines").inactiveWhen, { key: "ac:tap-answer", id: "off" });
   assert.deepEqual(row("ac:lid-map").inactiveWhen, { key: "ac:lid", id: "aucun" });
-  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 4);
+  assert.equal(DEV_OPTIONS.filter((o) => o.inactiveWhen).length, 9);
 });
 
 test("the default marked in each sentence is the module's", () => {
@@ -451,10 +471,15 @@ test("the default marked in each sentence is the module's", () => {
     "ac:filters-load": bootReadsSwitch.DEFAULT_FILTERS_LOAD,
     "ac:prefetch": bootReadsSwitch.DEFAULT_PREFETCH,
     "ac:tap-answer": tap.DEFAULT_TAP_ANSWER,
+    "ac:tap-line": tap.DEFAULT_TAP_LINE,
+    "ac:tap-steps": tap.DEFAULT_TAP_STEPS,
+    "ac:tap-fast": tap.DEFAULT_TAP_FAST,
+    "ac:tap-end": tap.DEFAULT_TAP_END,
     "ac:tap-frame": tap.DEFAULT_TAP_FRAME,
     "ac:late-files": late.DEFAULT_LATE_FILES,
     "ac:outline-wait": cold.DEFAULT_OUTLINE_WAIT,
     "ac:region-self": cold.DEFAULT_REGION_SELF,
+    "ac:tap-lines": cold.DEFAULT_TAP_LINES,
     "ac:cold-start": cold.DEFAULT_COLD_START,
     "ac:scope-drag": hold.DEFAULT_SCOPE_DRAG,
     "ac:outlines-ahead": ahead.DEFAULT_PREFETCH,

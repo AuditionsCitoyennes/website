@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import mapboxgl from "mapbox-gl";
-import { baseOf, type PBase } from "./mercator";
+import { PROJECTED_FLOATS, baseOf, projectInto, type PBase } from "./mercator";
 
 /** The old baseOf (projection.ts before mercator.ts), verbatim. */
 function mapboxBaseOf(lng: number, lat: number): PBase {
@@ -106,4 +106,25 @@ test("NaN and a latitude past ±90 throw on both sides, with mapbox's message", 
     assert.ok(want instanceof Error, `mapbox throws at (${lng}, ${lat})`);
     assert.throws(() => baseOf(lng, lat), { message: (want as Error).message });
   }
+});
+
+test("projectInto writes baseOf's values, bit for bit, at any offset, and throws as it does", () => {
+  const out = new Float64Array(PROJECTED_FLOATS + 3);
+  const points: [number, number][] = [
+    [2.35, 48.85],
+    [-179.9, -89.9],
+    [180, 85.05],
+    [-0, 0],
+    [55.5, -21.1],
+  ];
+  for (const [lng, lat] of points) {
+    projectInto(out, 3, lng, lat);
+    const b = baseOf(lng, lat);
+    const want = [b.x, b.y, b.zPerM, ...b.lo, ...b.d];
+    for (let i = 0; i < PROJECTED_FLOATS; i++) {
+      assert.ok(Object.is(out[3 + i], want[i]), `(${lng}, ${lat}) component ${i}`);
+    }
+  }
+  assert.throws(() => projectInto(out, 0, Number.NaN, 0), /Invalid LngLat object/);
+  assert.throws(() => projectInto(out, 0, 0, 91), /latitude value/);
 });

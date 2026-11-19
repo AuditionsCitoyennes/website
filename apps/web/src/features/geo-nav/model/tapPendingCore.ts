@@ -1,15 +1,17 @@
 // The PENDING state of a tapped territory, apart from the page (useTapPending
 // wires it): from the tap that selects a unit until its plateau commits, the
-// unit is "pending" — the map marks it (GeoDrillMap.markPending: a stroke
-// along its boundary, a flat fill on a touch screen, its pill), the panel's
-// list is busy, and one sentence is said when it is ready. This is the rule
+// unit is "pending" — the map marks it (GeoDrillMap.markPending: a flat
+// violet fill and a loading line along its boundary that follows the data
+// of its plateau), the panel's list is busy, and one sentence is said when
+// it is ready. This is the rule
 // of when that state begins and ends, and of the frame the mark may get to
 // itself. No import: loadable under node (tapPendingCore.test.ts).
 //
 // It ends:
 // - "risen": the unit's plateau has committed (the pipeline's verdict "rise",
-//   or "same" / "quiet" when it was standing already) — the mark fades as the
-//   plateau rises, and the sentence is said;
+//   or "same" / "quiet" when it was standing already) — the sentence is
+//   said; the mark itself ends with the pipeline (its fill and
+//   its line leave against the rise's start, and are gone when it starts);
 // - "moved": the scope went to another unit without a tap (a pan or a zoom
 //   that changed it, a crumb) — a pan that leaves the scope alone ends nothing;
 // - "none": the pipeline's verdict for this unit is that nothing rises
@@ -51,8 +53,9 @@ export type PendingEnd = "risen" | "moved" | "none" | "replaced" | "timeout";
 /** The plateau pipeline's verdicts (the map's PlateauSettle). */
 export type SettleHow = "rise" | "same" | "quiet" | "cleared" | "failed";
 
-/** After this long with no verdict the mark goes, ms: past the outline's
- *  1.2 s wait and the slowest measured transition (about 3 s) with room. */
+/** After this long with no verdict the mark goes, ms: past a tapped unit's
+ *  wait for its outline file (4 s) and the slowest measured transition
+ *  (about 3 s) with room. */
 export const PENDING_CAP_MS = 8000;
 
 /** The long wait's sign: none, the moving sign, or the sentence and its
@@ -81,10 +84,13 @@ export function readySentence(unit: PendingUnit): string {
 
 export interface TapPendingDeps {
   /** Show the mark on the map for `unit` (replacing any other); false: the
-   *  switch is off, there is no pending state at all. */
-  mark(unit: PendingUnit): boolean;
-  /** End the mark on the map: fading as the plateau rises ("rise"), at once
-   *  ("off"), or fading where it stands, no plateau having come ("drain"). */
+   *  switch is off, there is no pending state at all. `again`: the unit was
+   *  pending already (« Réessayer », or the same unit tapped once more while
+   *  it waited) — what has arrived for it since its first tap still counts. */
+  mark(unit: PendingUnit, again: boolean): boolean;
+  /** The mark's verdict on the map: its plateau has committed ("rise": the
+   *  mark ends with the rise), at once ("off"), or fading
+   *  where it stands, no plateau having come ("drain"). */
   unmark(how: "rise" | "off" | "drain"): void;
   /** The scope's unit now. */
   scopeId(): string;
@@ -96,7 +102,9 @@ export interface TapPendingDeps {
   onChange(unit: PendingUnit | null): void;
   /** The polite live region's text ("" clears it). */
   say(text: string): void;
-  /** The testing tools' count of how each state ended. */
+  /** A state ended, however it did (a late one too, whose mark went when
+   *  it turned late): the map lets go of what it kept for the unit, and the
+   *  testing tools count the ends. */
   onEnd?(unit: PendingUnit, end: PendingEnd, heldMs: number): void;
   now(): number;
   /** The long wait's sign is on (read at each tap); absent: off. */
@@ -170,10 +178,11 @@ export function createTapPending(deps: TapPendingDeps) {
    *  scope is written. False: no pending state (the switch is off). */
   function begin(unit: PendingUnit): boolean {
     const had = current !== null;
+    const again = current?.unit.id === unit.id;
     if (current) end("replaced");
     // The same sentence twice in a row is not said twice: cleared first.
     deps.say("");
-    if (!deps.mark(unit)) {
+    if (!deps.mark(unit, again)) {
       // Switched off since the last tap: that tap's mark goes too.
       if (had) deps.unmark("off");
       deps.onChange(null);
@@ -251,7 +260,7 @@ export function createTapPending(deps: TapPendingDeps) {
     const c = current;
     if (!c || c.stage !== "late") return false;
     deps.say("");
-    if (!deps.mark(c.unit)) {
+    if (!deps.mark(c.unit, true)) {
       end("none");
       return false;
     }

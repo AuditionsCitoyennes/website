@@ -57,8 +57,14 @@ import {
   type PendingFill,
 } from "./meshBuild";
 import { digestParts } from "./meshDigest";
-import { PendingMarkPass } from "./PendingMarkPass";
-import type { MarkGeometry } from "./pendingMark";
+import {
+  PendingMarkPass,
+  type MarkMotion,
+  type MarkProvider,
+  type MarkRiseEta,
+  type PendingMarkSpec,
+} from "./PendingMarkPass";
+import type { MarkGeometry, MarkRegime } from "./pendingMark";
 import {
   FILL_FS,
   FILL_VS,
@@ -694,54 +700,147 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
-  // ---- a tapped unit's PENDING mark, from the tap until its plateau commits
+  // ---- a tapped unit's PENDING mark, from the tap until its plateau rises
   // (./PendingMarkPass): buffers of its own, so neither a mesh rebuild, nor
   // the hover fill's single buffer, nor the rise's scale gates take it away ----
-  private readonly pendingMark = new PendingMarkPass(() => this.map?.triggerRepaint());
+  private readonly pendingMark = new PendingMarkPass({
+    repaint: () => this.map?.triggerRepaint(),
+    onFill: (id) => this.onPendingFill?.(id),
+    riseEta: (id) => this.pendingRiseEta?.(id) ?? null,
+  });
+  /** When the rise of unit `id` can start, as far as the plateau knows
+   *  (plateau/riseEta.ts; null: not known): the mark's fill leaves against
+   *  it. Set by the page once the plateau exists. */
+  pendingRiseEta: ((id: string) => MarkRiseEta | null) | null = null;
+  /** A mark's fill built off the frame has joined the mark of unit `id` (the
+   *  page hands the unit's draped hover fill over to it). */
+  onPendingFill: ((id: string) => void) | null = null;
 
   /** What the testing tools read of the pending mark (null: none). */
   pendingState() {
-    return this.pendingMark.state();
+    return this.pendingMark.state(__TEST_TOOLS__);
+  }
+
+  /** The unit that wears the pending mark, "" when none. */
+  get pendingId(): string {
+    return this.pendingMark.id;
+  }
+
+  /** Who builds a large unit's mark off the page (the mesh worker; null: a
+   *  task of the page's own). */
+  setMarkProvider(provider: MarkProvider | null) {
+    this.pendingMark.setProvider(provider);
+  }
+
+  /** The regime mapbox draws in at the camera's zoom now. */
+  private regimeNow(): MarkRegime {
+    return (this.map?.getZoom() ?? 6) < 6 ? "globe" : "merc";
   }
 
   /**
-   * Mark unit `id` as tapped, with its outline `g` as it is in memory now:
-   * a stroke along its boundary and/or a flat fill, held until
-   * commitPending or clearPending — whatever the mesh does meanwhile. It
-   * stands where the unit does: on the standing plateau's lid for one of its
-   * children (riding its sink), on the ground otherwise. A newer mark
-   * replaces this one. With the fill, the unit's hover fill (a mouse's) is
-   * handed over rather than drained under it.
+   * Mark unit `id` as tapped, with its outline `g` as it is in memory now: a
+   * flat fill over it and a loading line along its boundary at `progress`
+   * (./PendingMarkPass), held until releasePending, drainPending or
+   * clearPending — whatever the mesh does meanwhile. It stands where the
+   * unit does: on the standing plateau's lid for one of its children (riding
+   * its sink), on the ground otherwise — or where `where` says (a unit
+   * marked again once it is the scope). A newer mark replaces this one.
+   * Answers where it stands, and whether its fill is drawn by the next frame
+   * (else it joins when it is built: `onPendingFill`).
    */
-  setPending(id: string, g: MarkGeometry, want: { stroke: boolean; fill: boolean }) {
-    const at = this.pendingFills.get(id);
-    this.pendingMark.set({
-      id,
-      g,
-      stroke: want.stroke,
-      fill: want.fill,
-      raised: !!at?.raised,
-      lidM: this.heightM * WALL_OVERSHOOT,
-    });
-    if (want.fill && this.hoveredFillId === id) this.hoveredFillId = "";
+  setPending(
+    id: string,
+    g: MarkGeometry,
+    look: Pick<
+      PendingMarkSpec,
+      "line" | "fill" | "spanDeg" | "rgb" | "creep" | "creepTickMs" | "showAfterMs"
+    >,
+    progress = 0,
+    where?: { raised: boolean; lidM?: number },
+    motion?: MarkMotion,
+  ): { raised: boolean; lidM: number; fillAtOnce: boolean } {
+    const at = {
+      raised: where ? where.raised : !!this.pendingFills.get(id)?.raised,
+      lidM: where?.lidM ?? this.heightM * WALL_OVERSHOOT,
+    };
+    const regime = this.regimeNow();
+    this.pendingMark.set(
+      { id, g, ...look, raised: at.raised, lidM: at.lidM },
+      progress,
+      regime,
+      motion,
+    );
+    return { ...at, fillAtOnce: this.pendingMark.fillAtOnce(regime) };
   }
 
-  /** The marked unit's plateau has just been applied (applyMesh): the mark
-   *  moves onto its lid and fades as it rises; `animate` false (reduced
-   *  motion): it goes at once. */
-  commitPending(animate: boolean) {
-    this.pendingMark.commit(this.heightM * WALL_OVERSHOOT, animate);
+  /** A real step of the marked unit's data: its line goes to `value`. */
+  setPendingProgress(value: number, motion: MarkMotion) {
+    this.pendingMark.setProgress(value, motion);
   }
 
-  /** No pending mark, at once. */
+  /** The marked unit's data is all in: its line, if shown, runs to the
+   *  whole boundary and, under "then", its fill leaves against the rise's
+   *  start — the rise waits for that (pendingGateMs). */
+  finishPending(motion: MarkMotion, order: "then" | "together") {
+    const id = this.pendingMark.id;
+    this.pendingMark.finish(motion, order);
+    if (id && order === "then" && this.hoveredFillId === id) {
+      const regime = this.regimeNow();
+      // The mark's own fill is the violet on the unit (drawn, or built by
+      // its first frame: the data was all in before any): it leaves in its
+      // own time, the hover fill goes without a sweep.
+      if (this.pendingMark.ownsFill(regime) || this.pendingMark.fillAtOnce(regime)) {
+        this.hoveredFillId = "";
+      }
+      // A mouse's hover fill left on the unit because the mark's own never
+      // came (a large unit's, still being built): it drains now instead.
+      else this.retractHover(id);
+    }
+  }
+
+  /** How long the rise of unit `id` waits for its mark (its whole line
+   *  shown, its fill down to its floor), ms. `cleared`: everything else the
+   *  rise waits for is satisfied — a fade that waited for that begins now. */
+  pendingGateMs(id: string, cleared = false): number {
+    return this.pendingMark.id === id ? this.pendingMark.gateMs(cleared) : 0;
+  }
+
+  /** The marked unit's plateau will rise without the file its line
+   *  measured: the line fades where it stands, the fill stays. */
+  dropPendingLine(motion: MarkMotion) {
+    this.pendingMark.dropLine(motion);
+  }
+
+  /** The plateau of unit `id` starts to rise (its mesh is applied): what is
+   *  left of its mark goes at once — under "together" (or with no fill) the
+   *  line moves onto the new lid and fades as it rises; reduced motion: the
+   *  mark goes at once. Another unit's mark is left alone. */
+  releasePending(id: string, motion: MarkMotion) {
+    if (this.pendingMark.id !== id) return;
+    this.pendingMark.release(this.heightM * WALL_OVERSHOOT, motion);
+  }
+
+  /** No pending mark, at once, and nothing kept of it. */
   clearPending() {
     this.pendingMark.clear();
   }
 
   /** No plateau came for the marked unit (a long wait turned late): the mark
-   *  fades where it stands; `animate` false (reduced motion): it goes at once. */
-  drainPending(animate: boolean) {
-    this.pendingMark.drain(animate);
+   *  fades where it stands (reduced motion: it goes at once); its meshes are
+   *  kept for a retry. */
+  drainPending(motion: MarkMotion) {
+    this.pendingMark.drain(motion);
+  }
+
+  /** The pending state is over: what the mark kept goes. */
+  forgetPending() {
+    this.pendingMark.forget();
+  }
+
+  /** The hovered unit is the one whose pending mark has its fill in
+   *  `regime`: its hover fill is left out while the mark lasts. */
+  private markHasFill(regime: MarkRegime): boolean {
+    return this.hoveredFillId === this.pendingMark.id && this.pendingMark.ownsFill(regime);
   }
 
   /** Highlight (or clear) the hovered unit's fill (restarts the inward sweep). */
@@ -769,6 +868,18 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
    *  the fill mesh (the selection drops the unit's range). */
   beginSelection(id: string) {
     if (!id || id !== this.hoveredFillId) return;
+    // The unit wears a pending mark with a fill: that fill is the violet on
+    // it and leaves in its own time — the hover fill goes without a sweep
+    // (or stays under the tap until the mark's own, still being built, joins).
+    if (this.pendingMark.id === id && this.pendingMark.wantsFill) {
+      if (this.pendingMark.ownsFill(this.regimeNow())) this.hoveredFillId = "";
+      return;
+    }
+    this.retractHover(id);
+  }
+
+  /** The hovered unit's fill snapshotted and drained centre → boundary. */
+  private retractHover(id: string) {
     const range = this.fillRanges.get(id);
     this.hoveredFillId = "";
     if (!range) return;
@@ -1992,7 +2103,12 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // order already guarantees correctness (lid drew before, lines draw after).
     // GROUND (context) fills KEEP the depth test — that is what hides the parts
     // running behind the raised plateau (the terrain wrote nearer depth).
-    const hovRange = this.hoveredFillId ? this.fillRanges.get(this.hoveredFillId) : undefined;
+    // (Not the unit that wears the pending mark's fill: one violet at a time.)
+    this.pendingMark.prepare(gl, "merc", this.map?.getZoom());
+    const hovRange =
+      this.hoveredFillId && !this.markHasFill("merc")
+        ? this.fillRanges.get(this.hoveredFillId)
+        : undefined;
     if (this.fillProg && this.hovBuffer && hovRange && this.scale >= 0.15) {
       if (hovRange.raised) gl.disable(gl.DEPTH_TEST);
       gl.useProgram(this.fillProg.prog);
@@ -2030,7 +2146,7 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       gl.drawArrays(gl.TRIANGLES, 0, this.retractPositions.length / 4);
       gl.enable(gl.DEPTH_TEST);
     }
-    // ---- the pending mark's flat fill (a tapped unit, until its plateau commits) ----
+    // ---- the pending mark's flat fill (a tapped unit, until its data is in) ----
     this.pendingMark.drawMercator(gl, matrix, this.scale, "fill", this.fillProg);
 
     // ---- boundary lines (constant screen width; focus on the lid, context and
@@ -2084,8 +2200,8 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
       this.drawLineInstances(gl, p, this.lineBuffer, this.leanLineLocs, LEAN_FLOATS, null);
       gl.enable(gl.DEPTH_TEST);
     }
-    // ---- the pending mark's stroke, over the unit's own boundary line ----
-    this.pendingMark.drawMercator(gl, matrix, this.scale, "stroke", null);
+    // ---- the pending mark's loading line, over the unit's own boundary line ----
+    this.pendingMark.drawMercator(gl, matrix, this.scale, "line", null);
 
     // ---- halo (static ribbon from the wall base outward) ----
     if (this.haloProg && this.haloBuffer && this.haloVertexCount && this.scale >= 0.15) {
@@ -2365,7 +2481,11 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // the plateau (walls + lid) paints OVER it — that is what keeps neighbour
     // boundaries from leaking onto the raised top. RAISED geometry follows the
     // lid. The draw closures are shared between the two passes.
-    const hovRange = this.hoveredFillId ? this.fillRanges.get(this.hoveredFillId) : undefined;
+    this.pendingMark.prepare(gl, "globe", this.map?.getZoom());
+    const hovRange =
+      this.hoveredFillId && !this.markHasFill("globe")
+        ? this.fillRanges.get(this.hoveredFillId)
+        : undefined;
     const drawHoverFill = () => {
       if (!this.gFillProg || !this.gHovBuffer || !hovRange || this.scale < 0.15) return;
       setCommon(this.gFillProg);
@@ -2440,9 +2560,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // ---- GROUND pass (hidden behind the plateau by paint order) ----
     if (hovRange && !hovRange.raised) drawHoverFill();
     if (this.retractActive && !this.retractRaised) drawRetract();
-    this.pendingMark.drawGlobe(gl, binders, false, "fill", this.gFillProg);
+    this.pendingMark.drawGlobe(gl, binders, false, this.scale, "fill", this.gFillProg);
     drawLines(false);
-    this.pendingMark.drawGlobe(gl, binders, false, "stroke", null);
+    this.pendingMark.drawGlobe(gl, binders, false, this.scale, "line", null);
     // ---- walls ----
     if (this.gWallProg && this.gWallBuffer && this.vertexCount) {
       setCommon(this.gWallProg);
@@ -2480,9 +2600,9 @@ export class PlateauWallLayer implements mapboxgl.CustomLayerInterface {
     // ---- RAISED pass (on the plateau top) ----
     if (hovRange && hovRange.raised) drawHoverFill();
     if (this.retractActive && this.retractRaised) drawRetract();
-    this.pendingMark.drawGlobe(gl, binders, true, "fill", this.gFillProg);
+    this.pendingMark.drawGlobe(gl, binders, true, this.scale, "fill", this.gFillProg);
     drawLines(true);
-    this.pendingMark.drawGlobe(gl, binders, true, "stroke", null);
+    this.pendingMark.drawGlobe(gl, binders, true, this.scale, "line", null);
 
     // ---- halo (static ribbon from the wall base outward) ----
     if (this.gHaloProg && this.gHaloBuffer && this.haloVertexCount && this.scale >= 0.15) {

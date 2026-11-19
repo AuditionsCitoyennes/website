@@ -44,6 +44,7 @@ function view(mode = "fichiers") {
   const bundles = new Map<string, Map<string, object>>();
   const failed = new Set<string>();
   const gaveUp = new Set<string>();
+  const linesHeld = new Set<string>();
   const v: OutlineView = {
     mode,
     rowOf: (id) => rows.get(id),
@@ -53,6 +54,7 @@ function view(mode = "fichiers") {
       bundles.has(id) ? "loaded" : failed.has(id) ? "failed" : rows.get(id)?.k ? "loading" : "none",
     failed: (id) => failed.has(id),
     gaveUp: (id) => gaveUp.has(id),
+    linesHeld: (id) => linesHeld.has(id),
   };
   const row = (id: string, st = "e50", k: 0 | 1 = 1, u: 0 | 1 = 1) =>
     void rows.set(id, { st, k, u });
@@ -62,7 +64,7 @@ function view(mode = "fichiers") {
     bundles.set(id, new Map(entries));
     for (const [e] of entries) if (!rows.has(e)) row(e, rows.get(id)?.st ?? "e50", 0, 0);
   };
-  return { v, selves, bundles, failed, gaveUp, row, land };
+  return { v, selves, bundles, failed, gaveUp, linesHeld, row, land };
 }
 
 const WORLD = unit("world", null, "world");
@@ -326,4 +328,49 @@ test("finestAtIn + containsPointIn: Saint-Mandé stays in Val-de-Marne, whatever
   assert.deepEqual([inside(paris, 48.835, 2.395), inside(vdm, 48.835, 2.395)], [true, false]);
   geometry.delete(saintMande.id); // not loaded: no hit, the départements' own outlines answer
   assert.deepEqual([finest(lat, lng), inside(paris, lat, lng)], [null, true]);
+});
+
+test("a tapped unit's plateau waits for its children's boundaries: armed, declared, neither in nor failed (rule 2b)", () => {
+  const { childLinesDue } = rules;
+  const t = booted();
+  const c = [WORLD, FR, ARA];
+  // Not armed (a selection nobody tapped): never.
+  assert.equal(childLinesDue(t.v, ARA), false);
+  // Armed, its bundle declared and on its way.
+  t.linesHeld.add(ARA.id);
+  assert.equal(childLinesDue(t.v, ARA), true);
+  // Its self in from its u/ meanwhile: the plateau still waits, for the lines.
+  t.selves.set(ARA.id, { e50: ARA.id });
+  assert.equal(raisedOutlineDue(t.v, ARA), false);
+  assert.equal(childLinesDue(t.v, ARA), true);
+  // Given up at the cap (useOutlineFiles' holdLines): no longer.
+  t.linesHeld.delete(ARA.id);
+  assert.equal(childLinesDue(t.v, ARA), false);
+  assert.equal(pending(t.v, ...c), false);
+  // Armed again, the bundle failed: nothing to wait for.
+  t.linesHeld.add(ARA.id);
+  t.failed.add(ARA.id);
+  assert.equal(childLinesDue(t.v, ARA), false);
+  t.failed.delete(ARA.id);
+  // The bundle in: its entries are the lid's lines, nothing is due.
+  t.land(ARA.id, [[RHONE.id, { e50: RHONE.id }]], t.selves.get(ARA.id));
+  assert.equal(childLinesDue(t.v, ARA), false);
+  // A row with no bundle (k:0), a row not known, the world, a lieu: never.
+  t.row("fr:com:1", "e50", 0, 0);
+  for (const u of [
+    unit("fr:com:1", RHONE.id, "city"),
+    unit("xx:unknown", "world", "country"),
+    WORLD,
+    unit("l:1", LYON_7.id, "place"),
+  ]) {
+    t.linesHeld.add(u.id);
+    assert.equal(childLinesDue(t.v, u), false, u.id);
+  }
+  // No file read (the fallback): never, whatever is armed.
+  const off = view("fallback");
+  off.row(ARA.id);
+  off.linesHeld.add(ARA.id);
+  const answers = rules.outlineRules(off.v, () => [WORLD, FR, ARA]);
+  assert.equal(answers.childLinesDue(ARA), false);
+  assert.equal(rules.NO_FILES.childLinesDue(ARA), false);
 });

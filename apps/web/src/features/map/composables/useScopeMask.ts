@@ -401,7 +401,13 @@ export function useScopeMask({
       type: "fill",
       source: OUTLINE_SOURCE,
       filter: ["==", ["get", "id"], "__none__"],
-      paint: { "fill-color": "#7c5cff", "fill-opacity": 0.6 },
+      // No transition: a pending mark's fill takes this one's place in one
+      // frame (useMapPins.yieldDrapedHover).
+      paint: {
+        "fill-color": "#7c5cff",
+        "fill-opacity": 0.6,
+        "fill-opacity-transition": { duration: 0 },
+      },
     });
     // NO draped line layer: with terrain active (which is nearly always — every
     // selection stands a plateau, and even teardown revives the style fragment's

@@ -284,6 +284,9 @@ const moreTestimoniesEl = computed(() => auditionsCmp.value?.moreTestimoniesEl ?
 
 // ---- The camera (model/useCamera): what GeoDrillMap is told to frame ----
 const mapCmp = ref<InstanceType<typeof GeoDrillMap> | null>(null);
+/** The unit a tap left pending, "" when none (model/useTapPending, made
+ *  further down: read when a unit is selected, never before). */
+let tappedUnit: () => string = () => "";
 const cam = useCamera({
   nav,
   index,
@@ -292,6 +295,8 @@ const cam = useCamera({
   outlines,
   mapCmp,
   listMode,
+  // A tapped unit's plateau waits for its children's boundaries (ac:tap-lines).
+  tapped: (id) => tappedUnit() === id,
 });
 const { camera, framedFit, flyToUnit, spotlightPlace, scheduleFilterFrame, handMoved } = cam;
 
@@ -333,6 +338,11 @@ const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
   selectedPlace,
   outlines,
   booting,
+  // The share of a selected unit's outline file that has arrived: a real
+  // step of the tapped unit's loading line on the map.
+  onOutlineProgress: (id, share) => mapCmp.value?.pendingStep(id, { t: "outline", frac: share }),
+  // A tapped unit waits for its own outline file (ac:outline-wait "file").
+  tapped: (id) => tappedUnit() === id,
 });
 
 /** The page the map fills (`.geo-page`), GeoNav's own element. */
@@ -446,6 +456,7 @@ const tap = useTapPending({
   },
 });
 const { pendingUnit, live: tapLive, waitStage } = tap;
+tappedUnit = () => pendingUnit.value?.id ?? "";
 /** GeoDrillMap's `viewChange`: the scope's read of it, then the landing a
  *  pending unit's long-wait sign waits for. */
 function onMapView(view: MapView) {
@@ -939,7 +950,6 @@ function retryAll() {
     :class="{ preview }"
     :inert="preview || undefined"
     :style="{ '--sheet-peek': `${sheetPeekPx}px`, '--panel-cover': `${panelCover}px` }"
-    @pointerdown.capture.passive="tap.onPointerDown"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the
          keyboard goes from the header straight to the usable panel. -->

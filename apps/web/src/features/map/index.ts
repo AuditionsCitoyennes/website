@@ -22,18 +22,31 @@ export { glyphs, setGlyphs, GLYPHS, type Glyphs } from "./glyphSwitch";
 // What the map's box shows when the map cannot start: its DEV switch (the Témoignages page draws it).
 export { mapFallback, setMapFallback, MAP_FALLBACKS, type MapFallback } from "./fallbackSwitch";
 // How a tap on a territory is answered while its plateau is on its way: its
-// two DEV switches (the Témoignages page draws them) and what GeoNav reads of them.
+// DEV switches (the Témoignages page draws them) and what GeoNav reads of them.
 export {
   setTapAnswerMode,
+  setTapEndMode,
+  setTapFastMode,
   setTapFrameMode,
+  setTapLineColor,
+  setTapStepsMode,
   tapAnswerMode,
+  tapEndMode,
+  tapFastMode,
   tapFrameMode,
-  tapIsTouch,
+  tapLineColor,
   tapMarkFor,
+  tapStepsMode,
   type TapAnswerMode,
+  type TapEndMode,
+  type TapFastMode,
   type TapFrameMode,
+  type TapLineColor,
   type TapMark,
+  type TapStepsMode,
 } from "./plateau/tapAnswerSwitch";
+// A real step of a tapped unit's data (GeoNav reports its outline file's).
+export type { TapStep } from "./plateau/tapProgress";
 // What a late outline file does to the map: its DEV switch (the Témoignages
 // page draws it; geo-nav's outline files and the map's outline watcher read it).
 export {
@@ -54,9 +67,13 @@ export {
   setColdStartMode,
   setOutlineWait,
   setRegionSelfMode,
+  setTapLinesMode,
+  tapLinesMode,
+  tapLinesWaitFor,
   type ColdStartMode,
   type OutlineWait,
   type RegionSelfMode,
+  type TapLinesMode,
 } from "./plateau/coldTapSwitch";
 // What the plateau stands on, raised ground or flat: its DEV switch (the Témoignages page draws it).
 export { reliefGround, setReliefGround, type ReliefGround } from "./relief/groundSwitch";

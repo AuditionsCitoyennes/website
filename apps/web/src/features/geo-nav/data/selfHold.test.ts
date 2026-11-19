@@ -1,4 +1,5 @@
-// A plateau's wait for its unit's own file (selfHold.ts), on a fake clock.
+// A plateau's wait for its unit's own file (selfHold.ts), on a fake clock
+// that starts at a page's age.
 // Run with `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
@@ -7,7 +8,7 @@ import { createSelfHold } from "./selfHold";
 
 function setup() {
   const timers: { at: number; fn: () => void }[] = [];
-  let now = 0;
+  let now = 60_000;
   const state = { stored: new Set<string>(), abandoned: false, done: 0 };
   const out: [string, boolean][] = [];
   const hold = createSelfHold({

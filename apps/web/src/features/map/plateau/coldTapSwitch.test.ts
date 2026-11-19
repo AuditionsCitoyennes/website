@@ -35,6 +35,15 @@ test("the wait: the switch's with a coarse shape in memory, the full one without
   assert.equal(m.outlineWaitFor("400", true, 1200), 400);
   assert.equal(m.outlineWaitFor("0", true, 1200), 0);
   for (const wait of m.OUTLINE_WAITS) assert.equal(m.outlineWaitFor(wait, false, 1200), 1200);
+  // "file": a unit the visitor tapped waits for its file, any other the full wait.
+  assert.equal(m.outlineWaitFor("file", true, 1200), 1200);
+  assert.equal(m.outlineWaitFor("file", true, 1200, true), m.TAP_OUTLINE_WAIT_MS);
+  assert.equal(m.outlineWaitFor("file", false, 1200, true), 1200);
+  // The tap changes nothing under the other waits.
+  assert.equal(m.outlineWaitFor("1200", true, 1200, true), 1200);
+  assert.equal(m.outlineWaitFor("400", true, 1200, true), 400);
+  // Under the long wait's sentence (geo-nav's SLOW_WAIT_MS, 5 s), over the full wait.
+  assert.ok(m.TAP_OUTLINE_WAIT_MS > 1200 && m.TAP_OUTLINE_WAIT_MS < 5000);
 });
 
 test("without the testing tools: the defaults, storage unread, the setters ignored", async () => {
@@ -59,12 +68,12 @@ test("without the testing tools: the defaults, storage unread, the setters ignor
   }
 });
 
-test("the defaults: today's wait, today's hold, the self first; each one of its choices", async () => {
+test("the defaults: a tapped unit's own file, today's hold, the self first; each one of its choices", async () => {
   const m = await load(false);
-  assert.equal(m.DEFAULT_OUTLINE_WAIT, "1200");
+  assert.equal(m.DEFAULT_OUTLINE_WAIT, "file");
   assert.equal(m.DEFAULT_COLD_START, "hold");
   assert.equal(m.DEFAULT_REGION_SELF, "first");
-  assert.deepEqual([...m.OUTLINE_WAITS], ["1200", "400", "0"]);
+  assert.deepEqual([...m.OUTLINE_WAITS], ["file", "1200", "400", "0"]);
   assert.deepEqual([...m.REGION_SELF_MODES], ["first", "bundle"]);
   assert.deepEqual([...m.COLD_START_MODES], ["hold", "early"]);
   assert.ok(m.SELF_GRACE_MS > 0 && m.SELF_GRACE_MS <= 100);
@@ -124,4 +133,49 @@ test("with the testing tools: an unknown value or a storage that throws gives th
   } finally {
     delete g.localStorage;
   }
+});
+
+test("ac:tap-lines: the default waits; a kept key keeps its mode, garbage gives the default; a build without the testing tools reads nothing", async () => {
+  let m = await load(false);
+  assert.equal(m.DEFAULT_TAP_LINES, "wait");
+  assert.deepEqual([...m.TAP_LINES_MODES], ["wait", "upper", "late"]);
+  const values: Record<string, string> = { "ac:tap-lines": "late" };
+  g.localStorage = keeping(values);
+  try {
+    reads = 0;
+    m = await load(false);
+    assert.equal(reads, 0);
+    assert.equal(m.tapLinesMode.value, "wait");
+    m.setTapLinesMode("upper");
+    assert.equal(m.tapLinesMode.value, "wait");
+    m = await load(true);
+    assert.equal(m.tapLinesMode.value, "late");
+    m.setTapLinesMode("upper");
+    assert.equal(m.tapLinesMode.value, "upper");
+    assert.equal(values["ac:tap-lines"], "upper");
+    values["ac:tap-lines"] = "always";
+    m = await load(true);
+    assert.equal(m.tapLinesMode.value, "wait");
+  } finally {
+    delete g.localStorage;
+  }
+});
+
+test("which tapped units wait for their children's boundaries", async () => {
+  const m = await load(false);
+  for (const level of ["country", "region", "dep", "city"]) {
+    assert.equal(m.tapLinesWaitFor("wait", "file", level), true, level);
+    assert.equal(m.tapLinesWaitFor("late", "file", level), false, level);
+    // The plateau waits for nothing (ac:outline-wait "0"): nor for them.
+    assert.equal(m.tapLinesWaitFor("wait", "0", level), false, level);
+  }
+  assert.equal(m.tapLinesWaitFor("upper", "file", "country"), true);
+  assert.equal(m.tapLinesWaitFor("upper", "file", "region"), true);
+  assert.equal(m.tapLinesWaitFor("upper", "file", "dep"), false);
+  assert.equal(m.tapLinesWaitFor("upper", "file", "city"), false);
+  for (const mode of m.TAP_LINES_MODES) {
+    assert.equal(m.tapLinesWaitFor(mode, "file", "world"), false);
+    assert.equal(m.tapLinesWaitFor(mode, "file", "place"), false);
+  }
+  assert.equal(m.tapLinesWaitFor("wait", "400", "region"), true);
 });
