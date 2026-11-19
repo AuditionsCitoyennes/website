@@ -19,6 +19,8 @@ export { slowSignMode, setSlowSignMode } from "./model/slowSignSwitch";
 export { lieuSingleMode, setLieuSingleMode } from "./model/lieuSingleSwitch";
 // Whether the panel's cards run to its edges (ac:cards-bleed), for the DEV dialog.
 export { cardsBleed, setCardsBleed } from "./panel/cardsBleedSwitch";
+// What an open lieu does when the map is used (ac:lieu-hold), for the DEV dialog.
+export { lieuHoldMode, setLieuHoldMode } from "./model/lieuHoldSwitch";
 // A lieu's label as the tree gives it (the comparer names the server's lieux so).
 export { placeLabel } from "@/features/geo";
 
