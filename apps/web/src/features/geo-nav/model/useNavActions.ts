@@ -7,6 +7,8 @@ import { perfBegin, perfOn } from "@/shared/perf/perf";
 import { perfTapAnswered, perfTapTargets } from "@/shared/perf/tapAnswer";
 import type { NavState } from "../navState";
 import type { PanelAudition } from "./auditions";
+import { auditionToOpen, type LieuAuditionsKnown } from "./lieuSingle";
+import { lieuSingleMode } from "./lieuSingleSwitch";
 import type { TapPending } from "./useTapPending";
 
 export interface NavActionsInputs {
@@ -20,13 +22,15 @@ export interface NavActionsInputs {
   panel: {
     resultAuditions: ComputedRef<PanelAudition[]>;
     shownCount: Ref<number>;
-    toggleAud: (id: string) => Promise<void>;
+    toggleAud: (id: string, aim?: boolean) => Promise<void>;
     isAudOpen: (id: string) => boolean;
     audToTop: (id: string, ifHidden?: boolean) => number | null;
     keepAtTop: (audition: PanelAudition) => void;
     /** The server's lists: where a lieu's first result sits when the pages
      *  loaded do not hold it (-1: not there); null with the corpus'. */
     findResultFurther: ((unit: GeoUnit) => Promise<number>) | null;
+    /** What is known of a lieu's auditions the moment it is opened. */
+    lieuAuditionsOf: (unit: GeoUnit) => LieuAuditionsKnown | null;
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
@@ -41,7 +45,7 @@ export function useNavActions(inputs: NavActionsInputs) {
     nav;
   const { flyToUnit, spotlightPlace } = camera;
   const { resultAuditions, shownCount, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
-  const { findResultFurther } = panel;
+  const { findResultFurther, lieuAuditionsOf } = panel;
 
   // The perf probes' tap-answer: a panel row is a tap target of its own.
   if (perfOn) perfTapTargets([{ kind: "row", selector: ".unit-row" }]);
@@ -167,7 +171,8 @@ export function useNavActions(inputs: NavActionsInputs) {
       perfTapAnswered(unit.id, { via: "place" }); // the tap that asked for it has its answer
       perfBegin("lieu-pins", unit.id); // the dots around it placed, timed from here
     }
-    if (selectedPlaceId.value !== unit.id) openAuditions.value.clear();
+    const newLieu = selectedPlaceId.value !== unit.id;
+    if (newLieu) openAuditions.value.clear();
     selectedPlaceId.value = unit.id;
     // The reader is on the panel — said here too, because the watcher that says
     // it does not run when the lieu was already the open one.
@@ -177,6 +182,18 @@ export function useNavActions(inputs: NavActionsInputs) {
     // The row just clicked leaves the panel without a mouseleave; left set, the
     // map would keep deferring to a hover that no longer exists.
     hoveredPanelId.value = null;
+    // A lieu of one audition opens with it open (ac:lieu-single, model/lieuSingle):
+    // its list would be one line to press. Opened as that line's press opens
+    // it, in the same tick — so the camera's one command below aims with the
+    // panel as wide as an open audition makes it, and the press's own return
+    // to the lieu is that command.
+    const only = auditionToOpen({
+      mode: lieuSingleMode.value,
+      listMode: false,
+      newLieu,
+      known: newLieu ? lieuAuditionsOf(unit) : null,
+    });
+    if (only) void toggleAud(only, false);
     spotlightPlace(unit);
   }
 

@@ -20,6 +20,7 @@ import {
   type AuditionSort,
   type PanelAudition,
 } from "./auditions";
+import { knownFromGroups, type LieuAuditionsKnown } from "./lieuSingle";
 
 export interface PanelAuditionsInputs {
   nav: NavState;
@@ -97,6 +98,14 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     }
     return rows.sort((a, b) => bySort(a, b, sort.value));
   });
+
+  /** What is known of a lieu's auditions the moment it is opened, before its
+   *  list is on screen (model/lieuSingle): the server's tree row, or the
+   *  corpus' groups. */
+  function lieuAuditionsOf(unit: GeoUnit): LieuAuditionsKnown | null {
+    if (server) return server.lieuAuditionsKnown(unit.id);
+    return unit.canonical ? knownFromGroups(groups.value, unit.canonical) : null;
+  }
 
   const resultAuditions = computed<PanelAudition[]>(() => {
     if (!listMode.value) return [];
@@ -270,7 +279,10 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   // tweening (see ExpandTransition's `instantLeave`). A plain close still animates.
   const audSwapping = ref(false);
 
-  async function toggleAud(id: string) {
+  /** `aim`: the map comes back to the lieu (below) — false from a lieu being
+   *  opened with its audition (useNavActions' openPlace), whose own camera
+   *  command follows. */
+  async function toggleAud(id: string, aim = true) {
     const was = openAuditions.value.has(id);
     // Single-open: opening an audition closes the current one in the SAME tick.
     // When the one closing sits ABOVE the one clicked, its body collapsing removes
@@ -306,7 +318,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
         nav.placeOpenedAt.value = performance.now();
         spotlightPlace(unit, true);
       }
-    } else if (!was && selectedPlace.value) {
+    } else if (!was && aim && selectedPlace.value) {
       // Choosing an audition to read is a selection in the panel: the map comes
       // back to its lieu, wherever it had been taken meanwhile.
       spotlightPlace(selectedPlace.value);
@@ -429,5 +441,6 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     toggleAud,
     audToTop,
     keepAtTop,
+    lieuAuditionsOf,
   };
 }
