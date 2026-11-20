@@ -3,26 +3,19 @@
 // button over the map's bottom-right corner (GeoNav's `map-tools` slot: on a
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
-// « Options de test », a row for each switch of devOptions.ts — the place
-// tree (placeTreeSwitch.ts), the plateau's lid, its check, its
-// hidden map, the pictures of it that are kept, its mesh, its lines' layout,
-// its ground, its rise, the relief's prefetch and the answer to a tap
-// (map), what the map keeps in memory (map/cacheBudget),
-// the boot curtain's cover (geo-nav/bootListSwitch), what a pan does to the
-// selected zone, the files a touch screen asks ahead and the sign of a long wait
-// (geo-nav), the framing and the analyses' slabs
-// (analyses/devSwitch), the device's tier (shared/device/deviceTier) with
-// what the page knows of the device listed under it, what the map does where
-// the graphics are slow and whether it times its first flight
-// (map/graphicsSwitch), where the map's work runs during a selection
-// (map/threadSwitch), how much the page moves
-// (shared/device/motion) —, each with its
-// sentences for a tester and a mark on the ones that reload the page. A choice
-// that is not its switch's default is marked: a count on the button,
-// « modifié » on its row, and at the top of the dialog the count again with
-// « Tout remettre par défaut », which removes the stored keys (and the device
-// tier's kept measure) and loads the page again. The testing tools only: the
-// explorer loads it behind `__TEST_TOOLS__`.
+// « Options de test », a row for each switch of devOptions.ts — the map's
+// fallback (map/fallbackSwitch), what an
+// open lieu does when the map is used (geo-nav), the analyses' slabs
+// (analyses/devSwitch; their section only in a build with the analyses), the
+// device's tier (shared/device/deviceTier) with what the page knows of the
+// device listed under it, the map's pixel ratio and whether it times its
+// first flight (map/graphicsSwitch) —, each with its sentences for a tester
+// and a mark on the ones that reload the page. A choice that is not its
+// switch's default is marked: a count on the button, « modifié » on its row,
+// and at the top of the dialog the count again with « Tout remettre par
+// défaut », which removes the stored keys (and the device tier's kept
+// measure) and loads the page again. The testing tools only: the explorer
+// loads it behind `__TEST_TOOLS__`.
 import { computed, nextTick, ref, useId } from "vue";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import {
@@ -35,18 +28,9 @@ import {
   setTierChoice,
   tierChoice,
 } from "@/shared/device/deviceTier";
-import { glass, setGlass } from "@/shared/device/glassSwitch";
-import { mapPreload, setMapPreload } from "@/shared/boot/mapPreload";
-import { authClient, setAuthClient } from "@/shared/api/authClientSwitch";
-import { poster, setPoster } from "@/shared/ui/posterSwitch";
-import { cardOpen, setCardOpen } from "@/shared/device/cardOpenSwitch";
-import { hero, homeBoot, setHero, setHomeBoot } from "@/shared/boot/homeBoot";
-import { motionChoice, setMotionChoice } from "@/shared/device/motion";
 import {
-  frameFill,
   pendingAnalysesMode,
   ringBandMode,
-  setFrameFill,
   setPendingAnalysesMode,
   setRingBandMode,
   setSlabLidMode,
@@ -57,103 +41,14 @@ import {
   slabTextScale,
 } from "@/features/analyses";
 import {
-  bootWorkers,
-  glyphs,
-  coldStartMode,
-  lateFilesMode,
-  lidCacheMode,
   dprChoice,
   frameMeasure,
-  globeLate,
-  lidCheck,
-  lidMap,
-  lidMode,
-  lineMesh,
-  linesMesh,
-  mapCaches,
-  meshMode,
-  outlineWait,
-  regionSelfMode,
-  msaaChoice,
-  pinsRebuild,
-  reliefGround,
-  reliefPrefetch,
-  setBootWorkers,
-  setGlyphs,
-  setColdStartMode,
-  setLateFilesMode,
-  setLidCacheMode,
-  riseMode,
-  riseOrder,
+  mapFallback,
   setDprChoice,
   setFrameMeasure,
-  setGlobeLate,
-  setLidCheck,
-  mapFallback,
-  setLidMap,
-  setLidMode,
   setMapFallback,
-  setLineMesh,
-  setLinesMesh,
-  setMapCaches,
-  setMeshMode,
-  setOutlineWait,
-  setRegionSelfMode,
-  setTapLinesMode,
-  tapLinesMode,
-  setMsaaChoice,
-  setPinsRebuild,
-  setReliefGround,
-  setReliefPrefetch,
-  setTapAnswerMode,
-  setTapEndMode,
-  setTapFastMode,
-  setTapFrameMode,
-  setTapLineColor,
-  setTapStepsMode,
-  tapAnswerMode,
-  tapEndMode,
-  tapFastMode,
-  tapFrameMode,
-  tapLineColor,
-  tapStepsMode,
-  setRiseMode,
-  setRiseOrder,
-  boundaryHalo,
-  setBoundaryHalo,
-  setTintCut,
-  tintCut,
 } from "@/features/map";
-import {
-  bootList,
-  filtersLoad,
-  outlinesDecor,
-  prefetch,
-  prefetchMode,
-  scopeDragMode,
-  setBootList,
-  setFiltersLoad,
-  setOutlinesDecor,
-  setPrefetch,
-  setPrefetchMode,
-  setScopeDragMode,
-  setSlowSignMode,
-  slowSignMode,
-  lieuSingleMode,
-  setLieuSingleMode,
-  cardsBleed,
-  lieuHoldMode,
-  setLieuHoldMode,
-  setCardsBleed,
-} from "@/features/geo-nav";
-import { recover, setRecover } from "@/shared/net/recoverSwitch";
-import {
-  setTestifyLook,
-  setTestifyNudge,
-  testifyLook,
-  testifyNudge,
-} from "@/shared/testimony/testifyNudge";
-import { placeTreeMode, setPlaceTreeMode } from "./placeTreeSwitch";
+import { lieuHoldMode, setLieuHoldMode } from "@/features/geo-nav";
 import {
   DEV_CHANGED_MARK,
   DEV_DESCRIPTION,
@@ -182,75 +77,24 @@ const share = (now: () => number, set: (v: number) => void): Binding => ({
 });
 
 const BINDINGS: Record<DevKey, Binding> = {
-  "ac:place-tree": bind(() => placeTreeMode.value, setPlaceTreeMode),
-  "ac:lid": bind(() => lidMode, setLidMode),
-  "ac:lid-check": bind(() => lidCheck, setLidCheck),
-  "ac:mesh": bind(() => meshMode, setMeshMode),
-  "ac:relief-prefetch": bind(() => reliefPrefetch, setReliefPrefetch),
-  "ac:frame-fill": share(() => frameFill.value, setFrameFill),
-  "ac:tap-answer": bind(() => tapAnswerMode.value, setTapAnswerMode),
-  "ac:tap-line": bind(() => tapLineColor.value, setTapLineColor),
-  "ac:tap-steps": bind(() => tapStepsMode.value, setTapStepsMode),
-  "ac:tap-fast": bind(() => tapFastMode.value, setTapFastMode),
-  "ac:tap-end": bind(() => tapEndMode.value, setTapEndMode),
-  "ac:tap-frame": bind(() => tapFrameMode.value, setTapFrameMode),
-  "ac:late-files": bind(() => lateFilesMode, setLateFilesMode),
-  "ac:outline-wait": bind(() => outlineWait.value, setOutlineWait),
-  "ac:region-self": bind(() => regionSelfMode.value, setRegionSelfMode),
-  "ac:tap-lines": bind(() => tapLinesMode.value, setTapLinesMode),
-  "ac:cold-start": bind(() => coldStartMode.value, setColdStartMode),
-  "ac:scope-drag": bind(() => scopeDragMode.value, setScopeDragMode),
-  "ac:outlines-ahead": bind(() => prefetchMode.value, setPrefetchMode),
-  "ac:lid-cache": bind(() => lidCacheMode.value, setLidCacheMode),
-  "ac:slow-sign": bind(() => slowSignMode.value, setSlowSignMode),
   "ac:analyses-pending": bind(() => pendingAnalysesMode.value, setPendingAnalysesMode),
   "ac:slab-lid-verre": bind(() => slabLidMode.value, setSlabLidMode),
   "ac:slab-text": bind(() => slabTextMode.value, setSlabTextMode),
   "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
-  "ac:boot-list": bind(() => bootList, setBootList),
-  "ac:boot-workers": bind(() => bootWorkers, setBootWorkers),
-  "ac:outlines-decor": bind(() => outlinesDecor, setOutlinesDecor),
-  "ac:glyphs": bind(() => glyphs, setGlyphs),
-  "ac:map-preload": bind(() => mapPreload, setMapPreload),
-  "ac:glass": bind(() => glass, setGlass),
-  "ac:auth-client": bind(() => authClient, setAuthClient),
   "ac:map-fallback": bind(() => mapFallback, setMapFallback),
-  "ac:poster": bind(() => poster, setPoster),
-  "ac:card-open": bind(() => cardOpen, setCardOpen),
-  "ac:home-boot": bind(() => homeBoot, setHomeBoot),
-  "ac:hero": bind(() => hero, setHero),
-  "ac:recover": bind(() => recover, setRecover),
-  "ac:filters-load": bind(() => filtersLoad, setFiltersLoad),
-  "ac:prefetch": bind(() => prefetch, setPrefetch),
-  "ac:relief-ground": bind(() => reliefGround.value, setReliefGround),
-  "ac:msaa": bind(() => msaaChoice, setMsaaChoice),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
-  "ac:lines-mesh": bind(() => linesMesh.value, setLinesMesh),
-  "ac:globe-late": bind(() => globeLate.value, setGlobeLate),
-  "ac:tint-cut": bind(() => tintCut.value, setTintCut),
-  "ac:pins-rebuild": bind(() => pinsRebuild.value, setPinsRebuild),
-  "ac:lid-map": bind(() => lidMap, setLidMap),
-  "ac:map-caches": bind(() => mapCaches, setMapCaches),
-  "ac:line-mesh": bind(() => lineMesh, setLineMesh),
-  "ac:motion": bind(() => motionChoice.value, setMotionChoice),
-  "ac:rise": bind(() => riseMode.value, setRiseMode),
-  "ac:rise-order": bind(() => riseOrder.value, setRiseOrder),
-  "ac:testify-nudge": bind(() => testifyNudge.value, setTestifyNudge),
-  "ac:testify-look": bind(() => testifyLook.value, setTestifyLook),
-  "ac:boundary-halo": bind(() => boundaryHalo.value, setBoundaryHalo),
-  "ac:lieu-single": bind(() => lieuSingleMode.value, setLieuSingleMode),
-  "ac:cards-bleed": bind(() => cardsBleed.value, setCardsBleed),
   "ac:lieu-hold": bind(() => lieuHoldMode.value, setLieuHoldMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
 const set = (key: DevKey, id: string) => BINDINGS[key].set(id);
-const inactive = (o: DevOption) =>
-  !!o.inactiveWhen && now(o.inactiveWhen.key) === o.inactiveWhen.id;
 const rowsOf = (section: string) => DEV_OPTIONS.filter((o) => o.section === section);
+/** The sections drawn: « Analyses » only in a build with the analyses (its
+ *  rows set nothing in one without). */
+const sections = DEV_SECTIONS.filter((s) => s.id !== "analyses" || __ANALYSES__);
 
 /** The rows off their default: what this browser shows differently. */
 const changed = computed(() => changedOptions(now));
@@ -337,7 +181,7 @@ function close() {
           {{ DEV_RESET_LABEL }}
         </button>
       </div>
-      <section v-for="s in DEV_SECTIONS" :key="s.id" class="dev-section">
+      <section v-for="s in sections" :key="s.id" class="dev-section">
         <h3>{{ s.title }}</h3>
         <p class="sec-intro">{{ s.intro }}</p>
         <div
@@ -360,7 +204,6 @@ function close() {
               type="button"
               class="seg-btn"
               :aria-pressed="now(o.key) === c.id"
-              :disabled="inactive(o)"
               @click="set(o.key, c.id)"
             >
               {{ c.label }}
@@ -522,11 +365,6 @@ function close() {
   background: hsl(var(--card));
   color: hsl(var(--primary));
   box-shadow: var(--shadow-sm);
-}
-
-.seg-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .opt-explain {
