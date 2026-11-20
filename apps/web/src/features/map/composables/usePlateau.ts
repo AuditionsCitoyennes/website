@@ -52,7 +52,7 @@ import { riseProgress } from "../lib/rise";
 import { stillMap } from "../lib/stillMap";
 import { markPlateauStood } from "../lib/plateauStood";
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
-import { createDemSlots, repointDemSlot, type DemSlot } from "../plateau/demSlots";
+import { createDemSlots, repointDemSlot, spareSlotAction, type DemSlot } from "../plateau/demSlots";
 import type { PlateauStep } from "../plateau/tapProgress";
 import { liftOf, type PlateauLift } from "../plateau/lift";
 import { GROUND_DATA_URL } from "../relief/demGround";
@@ -1091,14 +1091,13 @@ export function usePlateau({
       }
       if (map.getLayer("plateau-prefetch")) map.removeLayer("plateau-prefetch");
       const template = demTemplate(key);
-      // The spare slot and its prefetch: a spare slot that is the terrain is
-      // re-pointed at zCanon, never removed (mapbox breaks on a terrain source
-      // removed); otherwise it is added. An invisible hillshade on it makes
-      // mapbox fetch its tiles while the old plateau sinks.
+      // The spare slot and its prefetch (plateau/demSlots.ts spareSlotAction):
+      // a spare slot that is the terrain is re-pointed at zCanon, never removed
+      // (mapbox breaks on a terrain source removed); otherwise it is added. An
+      // invisible hillshade on it makes mapbox fetch its tiles while the old
+      // plateau sinks.
       const quiet = !changed && !!plateauVersion && !!map.getTerrain();
-      const spare = map.getSource(next);
-      const nextIsTerrain = map.getTerrain()?.source === next;
-      if (!(spare && nextIsTerrain)) {
+      if (spareSlotAction(map, next) === "add") {
         // The spare slot's source is replaced: its key is no longer held.
         relief?.releaseSlot(next);
         slots.addDemSlot(map, next, {

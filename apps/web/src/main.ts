@@ -31,8 +31,7 @@ app.use(createPinia());
 // The Supabase client is downloaded when a visit needs it (shared/api/
 // supabaseLazy.ts). A return from Supabase Auth (an email link, Google) has
 // its session in the address: the client is made before the router may move
-// away from it, as when it was part of the first files. The DEV choice
-// « Au démarrage » asks for it at boot on every page, as before.
+// away from it, as when it was part of the first files.
 const start = () => {
   app.use(router);
   app.use(VueQueryPlugin, vueQueryOptions);

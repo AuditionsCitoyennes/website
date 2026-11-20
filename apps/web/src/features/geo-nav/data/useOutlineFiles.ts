@@ -18,38 +18,34 @@
 // container: geometry must stay a plain, identity-stable object (the WeakMap
 // caches are keyed on it).
 //
-// A boot failed on
-// the network is not a fallback: the session turns "late" and the boot is
-// asked again after RECOVER_DELAYS_MS, then whenever the browser is back
-// online or the page shown again — which also lets a file failed on the
-// network be asked again by the next move.
+// A boot failed on the network is not a fallback: the session turns "late"
+// and the boot is asked again after RECOVER_DELAYS_MS, then whenever the
+// browser is back online or the page shown again — which also lets a file
+// failed on the network be asked again by the next move.
 //
-// Late files (map/plateau/lateFilesSwitch.ts; "quiet", the
-// default): a file nothing waits for — what `setUrgent`'s rule says, GeoNav's
-// (model/useMapFeed) — is kept as text by the loader and stored once the map
-// is still (the map's whenMapStill, or LATE_CAP_MS at the latest), every kept
-// file in one write: one bump of `version`, one rebuild. `held` names them
-// meanwhile. "direct": every file stored as it lands, as before.
+// Late files (map/plateau/lateFilesSwitch.ts): a file nothing waits for — what
+// `setUrgent`'s rule says, GeoNav's (model/useMapFeed) — is kept as text by the
+// loader and stored once the map is still (the map's whenMapStill, or
+// LATE_CAP_MS at the latest), every kept file in one write: one bump of
+// `version`, one rebuild. `held` names them meanwhile.
 //
-// A self ahead of its bundle (the map's coldTapSwitch;
-// "first", the default): a French région's or département's plateau is not
-// made to wait for its bundle (its self and every child) when its row
-// declares the self alone in a u/ file — `selfAhead` says so, and the callers
-// (model/useCamera, model/useMapFeed) then ask that u/ "due" and the bundle
-// "late". The loader stores a bundle that lands within SELF_GRACE_MS of the
-// self with it. "bundle": the bundle alone, as before.
+// A self ahead of its bundle (the map's coldTapSwitch): a French région's or
+// département's plateau is not made to wait for its bundle (its self and every
+// child) when its row declares the self alone in a u/ file — `selfAhead` says
+// so, and the callers (model/useCamera, model/useMapFeed) then ask that u/
+// "due" and the bundle "late". The loader stores a bundle that lands within
+// SELF_GRACE_MS of the self with it.
 //
-// A tapped unit's inner boundaries (the map's coldTapSwitch;
-// "wait", the default): the plateau of a unit the visitor tapped also waits
-// for the unit's bundle — its children's boundaries — so that it rises with
-// them on its lid. `holdLines` arms that wait at the selection, for the
-// visit, under the cap the unit's own outline has — a
-// timer of its own, never extended, ended when the unit is left
-// (linesHold.ts); `linesHeld` says it is armed and its time has not passed,
-// and the rules (model/outlineRules childLinesDue) then keep the plateau
-// waiting while the bundle is declared and neither in nor failed. Past the
-// cap the unit rises without them and the bundle is a late file like any
-// other — one that had failed and is asked again included.
+// A tapped unit's inner boundaries (the map's coldTapSwitch): the plateau of a
+// unit the visitor tapped also waits for the unit's bundle — its children's
+// boundaries — so that it rises with them on its lid. `holdLines` arms that
+// wait at the selection, for the visit, under the cap the unit's own outline
+// has — a timer of its own, never extended, ended when the unit is left
+// (linesHold.ts); `linesHeld` says it is armed and its time has not passed, and
+// the rules (model/outlineRules childLinesDue) then keep the plateau waiting
+// while the bundle is declared and neither in nor failed. Past the cap the unit
+// rises without them and the bundle is a late file like any other — one that
+// had failed and is asked again included.
 //
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's

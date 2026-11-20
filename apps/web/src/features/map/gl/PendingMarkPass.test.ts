@@ -561,6 +561,20 @@ test("a line with no fill: the release rides the new lid and ends within its fad
   assert.equal(h.count("drawArraysInstanced"), drawn);
 });
 
+test("released with no verdict told: the fill rides the lid and fades with the line", () => {
+  const h = harness();
+  h.pass.set(spec());
+  h.frame();
+  h.pass.release(1500, FULL);
+  h.advance(58);
+  h.frame(0.3);
+  const s = h.pass.state()!;
+  assert.ok(s.fillAlpha > 0.4 && s.fillAlpha < 0.6);
+  assert.ok(Math.abs(s.fillAlpha - s.lineAlpha) < 1e-9);
+  h.run(300);
+  assert.equal(h.pass.active, false);
+});
+
 test("reduced motion: the release switches the mark off at once", () => {
   const h = harness();
   h.pass.set(spec());
@@ -571,6 +585,34 @@ test("reduced motion: the release switches the mark off at once", () => {
   const drawn = h.count("drawArrays");
   h.frame();
   assert.equal(h.count("drawArrays"), drawn);
+});
+
+test("on the globe a mark draws in its own pass only: ground before the walls, raised after", () => {
+  const h = harness();
+  const draw = (raised: boolean) => {
+    h.pass.prepare(h.gl, "globe");
+    h.pass.drawGlobe(h.gl, h.binders, raised, 1, "fill", fillProg);
+    h.pass.drawGlobe(h.gl, h.binders, raised, 1, "line", null);
+  };
+  h.pass.set(spec(), 0.5);
+  draw(true);
+  assert.equal(h.count("drawArrays") + h.count("drawArraysInstanced"), 0);
+  draw(false);
+  assert.equal(h.count("drawArrays"), 1);
+  assert.equal(h.count("drawArraysInstanced"), 1);
+  assert.equal(h.pass.state()!.lineBytes, 4 * G_MARK_LINE_FLOATS * 4); // the globe's records
+  // Released with no verdict told: its plateau rises — the raised pass from now.
+  h.pass.release(1500, FULL);
+  draw(false);
+  assert.equal(h.count("drawArraysInstanced"), 1);
+  draw(true);
+  assert.equal(h.count("drawArraysInstanced"), 2);
+  // A child of a standing plateau: the raised pass from the tap.
+  h.pass.set(spec({ raised: true, lidM: 1000 }), 0.5);
+  draw(false);
+  assert.equal(h.count("drawArraysInstanced"), 2);
+  draw(true);
+  assert.equal(h.count("drawArraysInstanced"), 3);
 });
 
 test("the last tap wins: a newer mark replaces the older in one repaint, with its own meshes", () => {
@@ -674,6 +716,25 @@ test("dropped meshes leave the GPU by the next frame, once", () => {
   kept.pass.forget();
   kept.frame();
   assert.equal(kept.emptied(), 2);
+});
+
+test("forget: the kept meshes go once the mark is over, not while it fades", () => {
+  const h = harness();
+  const g = square(4);
+  h.pass.set(spec({ g }));
+  h.frame();
+  h.pass.release(1000, FULL); // no verdict told: the mark fades on the lid
+  h.pass.forget(); // the pending state ended while the mark fades on the lid
+  h.advance(16);
+  h.frame();
+  assert.equal(h.pass.active, true);
+  assert.ok(h.pass.state()!.fillBytes > 0);
+  h.run(300);
+  assert.equal(h.pass.active, false);
+  const uploads = h.count("bufferData");
+  h.pass.set(spec({ g }));
+  h.frame();
+  assert.equal(h.count("bufferData"), uploads + 2); // the fill and the line, built again
 });
 
 test("nothing asked for: no mark at all", () => {
@@ -1126,6 +1187,51 @@ for (const age of [60_000, 3_600_000]) {
 
   for (const from of ["globe", "merc"] as const) {
     const to = other(from);
+    test(`released with no verdict told in the ${from} regime: the ${to} regime's first frame draws the fill at its fading alpha`, () => {
+      const h = harness(60_000);
+      h.pass.set(spec(), 0.4, from);
+      draw(h, from);
+      h.advance(150);
+      draw(h, from);
+      h.pass.release(1500, FULL);
+      h.advance(16);
+      draw(h, from, 0.1);
+      h.advance(16);
+      draw(h, from, 0.2);
+      const fills = h.count("drawArrays");
+      const lines = h.count("drawArraysInstanced");
+      // The camera crosses zoom 6, 48 ms into the fade.
+      h.advance(16);
+      draw(h, to, 0.3);
+      const alpha = 1 - 48 / MARK_FADE_MS;
+      assert.equal(h.count("drawArrays"), fills + 1); // the violet, in the new regime
+      assert.equal(h.count("drawArraysInstanced"), lines + 1); // and the line
+      near(h.uniform("uFillT"), fillThreshold(MARK_FILL_SHARE * alpha), "the fill's threshold");
+      near(h.uniform("uAlpha"), alpha, "the line's alpha");
+      assert.equal(h.pass.ownsFill(to), true);
+      const s = h.pass.state()!;
+      near(s.fillAlpha, alpha, "the probe's fill alpha");
+      assert.ok(s.fillBytes > 0 && s.lineBytes > 0);
+      // It fades on to its end there, a frame at a time, and nothing is asked off the frame.
+      let last = h.uniform("uFillT")!;
+      for (let i = 0; i < 4; i++) {
+        h.advance(16);
+        draw(h, to, 0.4);
+        assert.equal(h.count("drawArrays"), fills + 2 + i);
+        assert.ok(h.uniform("uFillT")! < last, "the violet keeps fading");
+        last = h.uniform("uFillT")!;
+      }
+      for (let i = 0; i < 10; i++) {
+        h.advance(16);
+        draw(h, to, 0.6);
+      }
+      assert.equal(h.pass.active, false);
+      assert.equal(h.deferred.length, 0);
+    });
+  }
+
+  for (const from of ["globe", "merc"] as const) {
+    const to = other(from);
     test(`a drain started in the ${from} regime: the ${to} regime's first frame draws the fill and the line as they fade`, () => {
       const h = harness(60_000);
       h.pass.set(spec(), 0, from);
@@ -1173,6 +1279,103 @@ for (const age of [60_000, 3_600_000]) {
     assert.equal(h.count("drawArraysInstanced"), lines);
     assert.equal(h.count("bufferData"), uploads);
     assert.equal(h.pass.ownsFill("merc"), false);
+  });
+
+  test("a fading mark whose fill was never on screen gets none in a regime first drawn then", () => {
+    // Released with no verdict told before any frame drew it.
+    const h = harness(60_000);
+    h.pass.set(spec(), 0.4, "globe");
+    h.pass.release(1500, FULL);
+    h.advance(16);
+    h.frame(0.1);
+    assert.equal(h.count("drawArrays"), 0);
+    assert.equal(h.count("drawArraysInstanced"), 1); // the line alone
+    assert.equal(h.pass.state()!.fillBytes, 0);
+  });
+
+  test("released with no verdict told, a large unit: the other regime's first frame fills it with a stand-in, nothing triangulated whole on the page; the worker's meshes take their place", async () => {
+    const g = large();
+    const whole = { globe: buildMark(g, "globe")!, merc: buildMark(g, "merc")! };
+    const h = harness(60_000);
+    const p = provider();
+    h.pass.setProvider(p);
+    h.pass.set(spec({ g }), 0.4, "globe");
+    globeFrame(h);
+    p.asks[0].answer(whole.globe);
+    await settle();
+    globeFrame(h);
+    h.advance(150);
+    globeFrame(h);
+    h.pass.release(1500, FULL);
+    h.advance(16);
+    globeFrame(h, 0.1);
+    const fills = h.count("drawArrays");
+    const lines = h.count("drawArraysInstanced");
+    const uploads = h.count("bufferData");
+    const globeBytes = h.pass.state()!.fillBytes;
+    // The camera crosses zoom 6, 40 ms into the fade.
+    h.advance(24);
+    h.frame(0.2);
+    const alpha = 1 - 40 / MARK_FADE_MS;
+    assert.equal(h.count("drawArrays"), fills + 1); // the violet, in that very frame
+    near(h.uniform("uFillT"), fillThreshold(MARK_FILL_SHARE * alpha), "the fill's threshold");
+    assert.equal(h.count("bufferData"), uploads + 1); // the stand-in alone
+    const standIn = h.pass.state()!.fillBytes - globeBytes;
+    assert.ok(standIn > 0 && standIn <= 3 * MARK_STANDIN_VERTICES * 4 * 4, `${standIn} bytes`);
+    assert.ok(standIn < whole.merc.fill.fill.byteLength / 2);
+    assert.equal(h.pass.ownsFill("merc"), true);
+    // The real meshes: asked of the worker, behind its builds — never the page's task.
+    assert.deepEqual(
+      p.asks.map((a) => [a.regime, a.front]),
+      [
+        ["globe", true],
+        ["merc", false],
+      ],
+    );
+    assert.equal(h.deferred.length, 0);
+    assert.equal(h.count("drawArraysInstanced"), lines); // its line: not before they land
+    h.advance(16);
+    p.asks[1].answer(whole.merc);
+    await settle();
+    h.frame(0.3);
+    assert.equal(h.count("drawArrays"), fills + 2);
+    assert.equal(h.count("drawArraysInstanced"), lines + 1);
+    assert.equal(h.pass.state()!.fillBytes, globeBytes + whole.merc.fill.fill.byteLength);
+    near(h.uniform("uAlpha"), 1 - 56 / MARK_FADE_MS, "the line's alpha");
+    assert.deepEqual(h.filled, []); // nothing joined late: no hand-over
+  });
+
+  test("released with no verdict told, a large unit and no worker: the stand-in fades in the other regime, the page's task triangulates nothing", () => {
+    const g = large();
+    const h = harness(60_000);
+    h.pass.set(spec({ g }), 0.4, "globe");
+    globeFrame(h);
+    h.deferred[0](); // the tap's regime: its real fill and its line, after the tap's frame
+    globeFrame(h);
+    h.advance(150);
+    globeFrame(h);
+    h.pass.release(1500, FULL);
+    h.advance(16);
+    globeFrame(h, 0.1);
+    const fills = h.count("drawArrays");
+    const globeBytes = h.pass.state()!.fillBytes;
+    h.advance(24);
+    h.frame(0.2);
+    assert.equal(h.count("drawArrays"), fills + 1);
+    const standIn = h.pass.state()!.fillBytes - globeBytes;
+    assert.ok(standIn > 0 && standIn <= 3 * MARK_STANDIN_VERTICES * 4 * 4, `${standIn} bytes`);
+    assert.equal(h.deferred.length, 2);
+    h.deferred[1]();
+    h.advance(16);
+    h.frame(0.3);
+    assert.equal(h.count("drawArrays"), fills + 2); // the stand-in still, fading
+    assert.equal(h.pass.state()!.fillBytes, globeBytes + standIn);
+    assert.equal(h.pass.state()!.fillPlain, true);
+    for (let i = 0; i < 8; i++) {
+      h.advance(16);
+      h.frame(0.5);
+    }
+    assert.equal(h.pass.active, false);
   });
 }
 

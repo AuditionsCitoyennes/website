@@ -8,6 +8,7 @@ import {
   createDemSlots,
   DROP_FLOOR_MS,
   repointDemSlot,
+  spareSlotAction,
   type DemSlot,
   type DemSlotMap,
 } from "./demSlots";
@@ -542,4 +543,22 @@ test("repointDemSlot: new tiles on the same source, its maxzoom written first wh
     "setTiles ac-dem://new/{z}/{x}/{y} maxzoom 11",
     "setTiles ac-dem://newer/{z}/{x}/{y} maxzoom 11",
   ]);
+});
+
+test("the spare slot is the terrain: re-pointed, never added", () => {
+  const map = new FakeMap();
+  map.sources.add(B);
+  map.terrain = { source: B };
+  assert.equal(spareSlotAction(map, B), "repoint");
+  // The other slot, or no terrain at all: added.
+  map.sources.add(A);
+  assert.equal(spareSlotAction(map, A), "add");
+  map.terrain = null;
+  assert.equal(spareSlotAction(map, B), "add");
+});
+
+test("a terrain id with no source behind it: added (nothing to remove)", () => {
+  const map = new FakeMap();
+  map.terrain = { source: B };
+  assert.equal(spareSlotAction(map, B), "add");
 });
