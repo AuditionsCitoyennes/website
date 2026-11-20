@@ -54,7 +54,7 @@ const roundTrip = (fs: Feature[]) =>
     return { ...f, geometry: flat ? unflatten(flat) : f.geometry };
   });
 
-const ALL = { merc: true, globe: true, concat: true };
+const ALL = { merc: true, globe: true };
 
 /** Every typed array by its bytes (−0 and NaN seen), the rest strictly. */
 function assertSameMesh(a: MeshOut, b: MeshOut) {
@@ -101,7 +101,7 @@ function cases() {
 
 test("flatten → unflatten builds the same bytes as the original geometries", () => {
   for (const [name, c] of Object.entries(cases())) {
-    for (const want of [ALL, { merc: true, globe: false, concat: true }]) {
+    for (const want of [ALL, { merc: true, globe: false }]) {
       const raw = buildPlateauMesh(c.scope, 1500, c.focus, c.context, want);
       // The shared object stays shared: one flat, one unflattened object.
       const g = new Map<unknown, Geom>();

@@ -1,6 +1,5 @@
-// The plateau's line groups packed with one TypedArray.set each (meshConcat.ts,
-// ac:mesh=concat) against the loop they replace in
-// PlateauWallLayer.setGeometry, byte for byte: an element `!==` cannot see
+// The plateau's line groups packed with one TypedArray.set each (meshConcat.ts)
+// against a value-by-value loop, byte for byte: an element `!==` cannot see
 // `-0` nor NaN, the bytes can. Run with `node --import tsx --test` (root
 // "test:scripts"). Pure: no DOM, no alias at run time.
 
@@ -10,8 +9,8 @@ import { concatGroups } from "./meshConcat";
 
 type Group = { verts: number[]; gVerts: number[] };
 
-/** Today's assembly (PlateauWallLayer.setGeometry, ac:mesh=ancien), copied:
- *  the ranges, then both buffers as the layer stores them. */
+/** The value-by-value assembly: the ranges, then both buffers as the layer
+ *  stores them. */
 function oracle(groups: Group[]) {
   const lineVerts: number[] = [];
   const gLine: number[] = [];

@@ -1,4 +1,4 @@
-// The idle prefetch (the outline files, ac:outlines-ahead "idle"): a touch screen
+// The idle prefetch (the outline files): a touch screen
 // has no pointer to hover a row with, so nothing is asked ahead of its taps
 // (data/hoverPrefetch.ts). Once the FIRST plateau stands, its lid has landed
 // and the map is at rest, the one or two units under it that hold the most
@@ -22,8 +22,6 @@ export const PREFETCH_UNITS_WEAK = 1;
 const SLOW_LINKS: readonly string[] = ["slow-2g", "2g", "3g"];
 
 export interface PrefetchGuard {
-  /** The switch (data/prefetchSwitch.ts). */
-  mode: "idle" | "off";
   /** The outline files are the session's source (not the fallback). */
   files: boolean;
   /** The main pointer hovers (a mouse): the row hover asks ahead there. */
@@ -37,7 +35,7 @@ export interface PrefetchGuard {
 /** Whether a file may be asked ahead now. A browser that says nothing of its
  *  link (Safari, Firefox) is not read as slow. */
 export function prefetchAllowed(g: PrefetchGuard): boolean {
-  if (g.mode !== "idle" || !g.files || g.hover || g.saveData) return false;
+  if (!g.files || g.hover || g.saveData) return false;
   return g.effectiveType === null || !SLOW_LINKS.includes(g.effectiveType);
 }
 

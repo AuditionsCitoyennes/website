@@ -1,5 +1,5 @@
 // The plateau mesh's geometries and mesh as they cross to the mesh worker and
-// back (ac:mesh=worker, gl/meshClient.ts): a (multi)polygon flattened into
+// back (gl/meshClient.ts): a (multi)polygon flattened into
 // one Float64Array of lng, lat pairs and two offset tables, so a postMessage
 // moves three buffers instead of structured-cloning thousands of nested
 // arrays, and the list of a mesh's buffers for the transfer list of its
@@ -95,11 +95,9 @@ export function meshBuffers(m: Partial<MeshOut>): ArrayBuffer[] {
     m.positions,
     m.lidPositions,
     m.linePositions,
-    m.haloPositions,
     m.gWallPositions,
     m.gLidPositions,
     m.gLinePositions,
-    m.gHaloPositions,
   ]);
 }
 

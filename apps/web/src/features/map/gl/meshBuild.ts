@@ -1,5 +1,5 @@
 // The plateau's mesh, built (PlateauWallLayer.setGeometry and its deferred
-// globe pass, ac:mesh=merc): every array the layer draws the raised unit and
+// globe pass): every array the layer draws the raised unit and
 // its boundary lines with, and what goes with them — the rim the frame bus
 // follows, the origin, the line groups' draw ranges, the units a hover may
 // fill, the halo's width. A pure function of its inputs and the per-geometry
@@ -11,7 +11,7 @@
 import type { OutlineFC } from "../types";
 import { boundsIntersect, polysOf, ringBounds } from "../lib/polygon";
 import { lidBasesOf, ringBasesOf, sampleRim, type PBase } from "../lib/projection";
-import { WALL_OVERSHOOT, buildHaloRing, pushGlobeVert, pushHaloVert, pushWallRing } from "./mesh";
+import { WALL_OVERSHOOT, pushGlobeVert, pushWallRing } from "./mesh";
 import { LEAN_FLOATS, SEGMENT_VERTICES, packLeanLines, type SegmentGroup } from "./lineSegments";
 import { concatGroups } from "./meshConcat";
 
@@ -46,7 +46,7 @@ export type PendingFill = {
   raised: boolean;
 };
 
-/** The mesh. The mercator set (`rim` to `haloPositions`, and the four counts)
+/** The mesh. The mercator set (`rim` to `linePositions`, and the three counts)
  *  is null (0) unless `want.merc`, the globe set (`g*`) unless `want.globe`;
  *  the rest comes from the rings and is the same whatever `want` is. */
 export interface MeshOut {
@@ -60,15 +60,12 @@ export interface MeshOut {
   positions: Float32Array<ArrayBuffer> | null;
   lidPositions: Float32Array<ArrayBuffer> | null;
   linePositions: Float32Array<ArrayBuffer> | null;
-  haloPositions: Float32Array<ArrayBuffer> | null;
   gWallPositions: Float32Array<ArrayBuffer> | null;
   gLidPositions: Float32Array<ArrayBuffer> | null;
   gLinePositions: Float32Array<ArrayBuffer> | null;
-  gHaloPositions: Float32Array<ArrayBuffer> | null;
   vertexCount: number;
   lidVertexCount: number;
   lineVertexCount: number;
-  haloVertexCount: number;
   /** How the two line arrays are laid out: "full", 6 vertices a segment (8
    *  floats each in mercator, 20 on the globe); "lean", one record a segment
    *  (gl/lineSegments.ts: 6 floats, 18). */
@@ -77,8 +74,8 @@ export interface MeshOut {
    *  what every array is relative to. Null: nothing drawn. */
   origin: [number, number] | null;
   lineGroups: LineRange[];
-  /** The halo's width (° of latitude-equivalent) and longitude scale. Null:
-   *  untouched (no origin). */
+  /** The width of the analyses' slabs' glow (° of latitude-equivalent) and
+   *  its longitude scale. Null: untouched (no origin). */
   haloW: number | null;
   haloCos: number | null;
   /** Empty unless there is an origin and a raised unit: focus first, then
@@ -87,17 +84,17 @@ export interface MeshOut {
 }
 
 /** One rebuild of the plateau's mesh: one quad (two triangles) per boundary
- *  edge for the walls, the lid, the boundary lines, the halo. `want.concat`:
- *  the line groups packed with one TypedArray.set each (ac:mesh=concat and
- *  merc, gl/meshConcat.ts), the same values as pushing them one by one.
- *  `want.lean` (ac:line-mesh, plateau/lineMeshSwitch.ts): the boundary lines
- *  in the lean layout (gl/lineSegments.ts), whatever `want.concat` says. */
+ *  edge for the walls, the lid, the boundary lines, the halo. `want.lean`:
+ *  the boundary lines in the lean layout (gl/lineSegments.ts), the one the
+ *  map draws; without it, the full layout (six vertices a segment, each with
+ *  both ends, the line groups packed with one TypedArray.set each,
+ *  gl/meshConcat.ts), which the mesh tests compare the lean one against. */
 export function buildPlateauMesh(
   features: OutlineFC["features"],
   heightM: number,
   focus: OutlineFC["features"],
   context: OutlineFC["features"],
-  want: { merc: boolean; globe: boolean; concat: boolean; lean?: boolean },
+  want: { merc: boolean; globe: boolean; lean?: boolean },
 ): MeshOut {
   const lean = want.lean === true;
   // The frame bus follows the raised unit's rim (sampled from the same cached
@@ -267,26 +264,23 @@ export function buildPlateauMesh(
     addLineFeature(f, lifted.has(f) ? hl : GROUND_ALT, 0.95, lifted.has(f));
   }
   for (const f of context) addLineFeature(f, GROUND_ALT, 0.85, false);
-  const lineVerts: number[] = [];
-  const gLine: number[] = [];
   const lineGroups: LineRange[] = [];
-  // ac:mesh=concat and merc (plateau/meshSwitch.ts): the same non-empty
-  // groups in the same order, each copied ONCE into one Float32Array per
-  // regime (the globe set has the same vertex ranges, 20 floats a vertex).
-  const fast = want.concat;
   let packed: {
     lines: Float32Array<ArrayBuffer> | null;
     gLines: Float32Array<ArrayBuffer> | null;
-  } | null = null;
+  };
   if (lean) {
-    // ac:line-mesh=lean: one record a segment, written straight into one
-    // Float32Array per regime; the ranges count 6 vertices a segment.
+    // One record a segment, written straight into one Float32Array per
+    // regime; the ranges count 6 vertices a segment.
     const groups: SegmentGroup[] = [];
     for (const grp of lineGroupMap.values()) if (grp.segs) groups.push(grp.segs);
     const { lines, gLines, ranges } = packLeanLines(groups, origin, want);
     for (const r of ranges) lineGroups.push(r);
     packed = { lines, gLines };
-  } else if (fast) {
+  } else {
+    // The full layout: the non-empty groups in their order, each copied ONCE
+    // into one Float32Array per regime (the globe set has the same vertex
+    // ranges, 20 floats a vertex).
     const groups: LineGroup[] = [];
     for (const grp of lineGroupMap.values()) {
       const count = grp.n;
@@ -308,20 +302,6 @@ export function buildPlateauMesh(
       lines: want.merc ? concatGroups(groups.map((grp) => grp.verts ?? [])).array : null,
       gLines: want.globe ? concatGroups(groups.map((grp) => grp.gVerts ?? [])).array : null,
     };
-  } else {
-    for (const grp of lineGroupMap.values()) {
-      const count = grp.n;
-      if (!count) continue;
-      lineGroups.push({
-        width: grp.width,
-        alpha: grp.alpha,
-        raised: grp.raised,
-        start: lineVerts.length / 8,
-        count,
-      });
-      for (const v of grp.verts ?? []) lineVerts.push(v);
-      for (const v of grp.gVerts ?? []) gLine.push(v);
-    }
   }
   // Hover fills: opaque violet sweep that FILLS FROM THE BOUNDARY INWARD. Each
   // unit's polygon is earcut then refined (edge ≤ ~span/9) so vertices exist in
@@ -360,20 +340,12 @@ export function buildPlateauMesh(
     // lines (their fill must hide behind the raised plateau too).
     context.forEach((f, i) => record(f, "context", i, GROUND_ALT, false));
   }
-  // Halo: a CONTINUOUS ribbon hugging the scope boundary — the ring is first
-  // SIMPLIFIED to segments comparable to the band width (per-segment screen
-  // quads on a jagged boundary read as separate spikes), then each kept vertex
-  // is offset OUTWARD along its miter normal in GEO space (width ∝ unit size).
-  // Inner edge d=0 sits at the wall base, outer edge d=1. Layouts match the
-  // fill meshes ([pos, d]) so the programs stay simple. 12 m off the ground:
-  // outside the plateau the DEM is flat 0, and the offset avoids drape z-fight.
-  const haloVerts: number[] | null = want.merc ? [] : null; // [x, y, z, d]
-  const gHalo: number[] | null = want.globe ? [] : null; // [merc3, lo3, hi3, d]
+  // The analyses' slabs' glow (PlateauWallLayer's slab halo): its band width
+  // in degrees, proportional to the selection's own span, and its longitude
+  // scale.
   let haloW: number | null = null; // null: untouched (no origin)
   let haloCos = 1;
   if (origin) {
-    const HALO_ALT = 12;
-    // Band width in degrees, proportional to the selection's own span.
     let mnLa = 90;
     let mxLa = -90;
     let mnLo = 180;
@@ -395,22 +367,12 @@ export function buildPlateauMesh(
     const cosH = Math.cos((((mnLa + mxLa) / 2) * Math.PI) / 180) || 1e-6;
     const spanH = Math.max(mxLa - mnLa, (mxLo - mnLo) * cosH);
     const W = Math.max(spanH / 95, 0.003); // ° of latitude-equivalent
-    // Kept for the analyses' slabs: their glow is the plateau's.
     haloW = features.length ? W : 0;
     haloCos = cosH;
-    const pushHV = (b: PBase, d: number) => pushHaloVert(haloVerts, gHalo, b, d, origin!, HALO_ALT);
-    for (const f of features) {
-      const g = f.geometry as { type?: string; coordinates?: unknown } | undefined;
-      if (!g?.type) continue;
-      for (const rings of ringBasesOf(g)) {
-        for (const ringB of rings) buildHaloRing(ringB, W, cosH, pushHV);
-      }
-    }
   }
   const positions = verts ? new Float32Array(verts) : null;
   const lidPositions = lidVerts ? new Float32Array(lidVerts) : null;
-  const linePositions = want.merc ? (packed?.lines ?? new Float32Array(lineVerts)) : null;
-  const haloPositions = haloVerts ? new Float32Array(haloVerts) : null;
+  const linePositions = want.merc ? (packed.lines ?? new Float32Array(0)) : null;
   return {
     scopeId: String(features[0]?.properties?.id ?? ""),
     heightM: features.length ? heightM : 0,
@@ -419,11 +381,9 @@ export function buildPlateauMesh(
     positions,
     lidPositions,
     linePositions,
-    haloPositions,
     gWallPositions: gWall ? new Float32Array(gWall) : null,
     gLidPositions: gLid ? new Float32Array(gLid) : null,
-    gLinePositions: want.globe ? (packed?.gLines ?? new Float32Array(gLine)) : null,
-    gHaloPositions: gHalo ? new Float32Array(gHalo) : null,
+    gLinePositions: want.globe ? (packed.gLines ?? new Float32Array(0)) : null,
     vertexCount: positions ? positions.length / 3 : 0,
     lidVertexCount: lidPositions ? lidPositions.length / 3 : 0,
     lineVertexCount: !linePositions
@@ -431,7 +391,6 @@ export function buildPlateauMesh(
       : lean
         ? (linePositions.length / LEAN_FLOATS) * SEGMENT_VERTICES
         : linePositions.length / 8,
-    haloVertexCount: haloPositions ? haloPositions.length / 4 : 0,
     lineLayout: lean ? "lean" : "full",
     origin,
     lineGroups,

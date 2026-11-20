@@ -7,7 +7,7 @@
 // lid's height and a pointer over the lid reads the lid: on raised ground
 // mapbox's terrain does both.
 // When the units to plot change, the markers and the hit rings are brought in
-// line after the frame that follows (`unitsChanged`, ac:pins-rebuild), not in
+// line after the frame that follows (`unitsChanged`), not in
 // the act's own task; until then the pins and the click targets are the
 // previous units'.
 
@@ -27,7 +27,6 @@ import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createAfterFrame } from "../lib/afterFrame";
 import { canvasHoverGate } from "../lib/canvasHover";
 import { altitudeAt, pointerLngLat, type PlateauLift } from "../plateau/lift";
-import { pinsRebuild } from "../threadSwitch";
 import type { MapUnit } from "../types";
 import type { useSlabOcclusion } from "./useSlabOcclusion";
 
@@ -168,16 +167,16 @@ export function useMapPins({
     return hit;
   }
 
-  // ac:pins-rebuild (../threadSwitch.ts): the rebuild a change of the units
-  // asked for, waiting for the frame that follows the act to be drawn.
+  // The rebuild a change of the units asked for, waiting for the frame that
+  // follows the act to be drawn.
   const rebuildLater = createAfterFrame();
 
-  /** The units to plot changed (the `units` watcher). "next": the markers are
+  /** The units to plot changed (the `units` watcher): the markers are
    *  rebuilt after the next frame, so the act's task and its frame do not
    *  carry it — several changes before then make one rebuild, from the units
-   *  of that moment. "now": rebuilt here, in the act. */
+   *  of that moment. */
   function unitsChanged() {
-    if (pinsRebuild.value === "now" || !getMap()) {
+    if (!getMap()) {
       buildMarkers();
       return;
     }

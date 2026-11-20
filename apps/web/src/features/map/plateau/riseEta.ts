@@ -9,7 +9,7 @@
 // The rise starts once the run's data is in (the caller asks only then),
 // the plateau that stood has sunk (`sinkEndAt`), a hold before the commit
 // has passed (`holdEndAt`) and, where the rise waits for the camera
-// (`ac:rise-order`, "after"), the flight in the air has landed
+// ("after"), the flight in the air has landed
 // (`flightEndAt`: its known end; 0: not known).
 
 export interface RiseEtaInputs {

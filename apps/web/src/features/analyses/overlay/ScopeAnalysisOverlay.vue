@@ -41,7 +41,8 @@ import { emptyTextOf, fmtN, shortName } from "../content/text";
 import { ringReading } from "../content/summary";
 import { RING_LABEL } from "../content/ring";
 import type { SlabSizes } from "../content/slabSizes";
-import { frameFill, ringBandMode, slabLidMode, slabTextMode, slabTextScale } from "../devSwitch";
+import { ringBandMode, slabLidMode, slabTextMode, slabTextScale } from "../devSwitch";
+import { FRAME_FILL } from "@/features/map/lib";
 import type { FrameSource } from "./frameSource";
 import { useRingPick } from "./useRingPick";
 import { stretchOf, useSlabLayout, type SlabName } from "./useSlabLayout";
@@ -301,7 +302,7 @@ function probe() {
     lid: slabLidMode.value,
     text: slabTextMode.value,
     textScale: slabTextScale.value,
-    frameFill: frameFill.value,
+    frameFill: FRAME_FILL,
     ringBand: ringBandMode.value,
     resting: state.resting,
     sizes: contentSizes.value,

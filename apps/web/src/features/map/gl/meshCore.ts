@@ -1,4 +1,4 @@
-// The mesh worker's core (ac:mesh=worker, gl/meshWorker.ts): the geometries
+// The mesh worker's core (gl/meshWorker.ts): the geometries
 // the page sent, by token, and the builds it asks for, one at a time.
 //
 // The store keeps each token's geometry as ONE unflattened object, reused by
@@ -15,7 +15,7 @@
 // marks every queued one before it as superseded, and those are answered
 // `skipped` without being built (the page's newer run has no use for them).
 //
-// The flat view's grey sheet is cut here too (ac:tint-cut, gl/tintSheet.ts):
+// The flat view's grey sheet is cut here too (gl/tintSheet.ts):
 // a `tint` request names the selection's geometries by token like a build,
 // and is answered before the builds queued — it is small, and the grey is
 // what the visitor sees first. A newer tint supersedes the tints queued; a
@@ -56,7 +56,7 @@ export interface MeshSet {
 }
 
 /** The sets to build: mercator, globe, or both — and `lean`, the boundary
- *  lines in the lean layout (ac:line-mesh, gl/lineSegments.ts; absent: full). */
+ *  lines in the lean layout (gl/lineSegments.ts; absent: full). */
 export interface MeshWant {
   merc: boolean;
   globe: boolean;
@@ -210,7 +210,6 @@ export function createMeshCore(deps: MeshCoreDeps) {
     const want = {
       merc: req.want.merc,
       globe: req.want.globe,
-      concat: true,
       lean: req.want.lean === true,
     };
     const t0 = performance.now();

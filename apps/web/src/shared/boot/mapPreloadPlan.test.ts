@@ -2,19 +2,12 @@
 // `node --import tsx --test` (root "test:scripts"): the files picked from a
 // build (the map page's chunks and their static imports, less the entry's,
 // then their stylesheets), and the inline script run in a stub page: links
-// on the map page alone, in the mode "html" alone, as Vite's helper makes
-// them; the switch read only in a build with the testing tools.
+// on the map page alone, as Vite's helper makes them, no storage read.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import {
-  DEFAULT_MAP_PRELOAD,
-  MAP_PAGE_PATH,
-  mapPreloadFiles,
-  mapPreloadScript,
-  type PlanChunk,
-} from "./mapPreloadPlan";
+import { MAP_PAGE_PATH, mapPreloadFiles, mapPreloadScript, type PlanChunk } from "./mapPreloadPlan";
 
 const chunk = (
   fileName: string,
@@ -62,7 +55,7 @@ test("the map page's chunks and their imports, less the entry's, then their styl
   // A build without the map page's chunks asks for nothing, and writes no script.
   const none = mapPreloadFiles(BUILD.filter((c) => !/Stage|Temoignages/.test(c.fileName)));
   assert.deepEqual(none, { js: [], css: [] });
-  assert.equal(mapPreloadScript(none, true), "");
+  assert.equal(mapPreloadScript(none), "");
 });
 
 test("the map page's paths, and no other", () => {
@@ -104,7 +97,7 @@ function run(script: string, path: string, stored: string | null | Error): Link[
 const FILES = mapPreloadFiles(BUILD);
 
 test("on the map page the script asks for each file, as Vite's preload helper does", () => {
-  const links = run(mapPreloadScript(FILES, false), "/temoignages", null);
+  const links = run(mapPreloadScript(FILES), "/temoignages", null);
   assert.deepEqual(
     links.map((l) => ({ ...l })),
     [
@@ -114,22 +107,11 @@ test("on the map page the script asks for each file, as Vite's preload helper do
   );
 });
 
-test("elsewhere, or with the mode « page », it asks for nothing", () => {
-  assert.equal(DEFAULT_MAP_PRELOAD, "html");
+test("elsewhere it asks for nothing, and it reads no storage", () => {
   for (const path of ["/", "/auth", "/admin", "/soutenir"]) {
-    assert.equal(run(mapPreloadScript(FILES, true), path, null).length, 0, path);
+    assert.equal(run(mapPreloadScript(FILES), path, null).length, 0, path);
   }
-  assert.equal(run(mapPreloadScript(FILES, true), "/temoignages", "page").length, 0);
-});
-
-test("the switch is read in a build with the testing tools alone", () => {
-  // Production: the default baked in, no storage read.
-  const prod = run(mapPreloadScript(FILES, false), "/temoignages", "page");
-  assert.equal(prod.length, FILES.js.length + FILES.css.length);
-  assert.equal((prod as unknown as { reads: number }).reads, 0);
-  // Testing tools: garbage and blocked storage read as the default.
-  const tools = mapPreloadScript(FILES, true);
-  assert.equal(run(tools, "/temoignages", "html").length, 7);
-  assert.equal(run(tools, "/temoignages", "garbage").length, 7);
-  assert.equal(run(tools, "/temoignages", new Error("blocked")).length, 7);
+  const links = run(mapPreloadScript(FILES), "/temoignages", "page");
+  assert.equal(links.length, FILES.js.length + FILES.css.length);
+  assert.equal((links as unknown as { reads: number }).reads, 0);
 });

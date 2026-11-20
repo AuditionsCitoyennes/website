@@ -93,11 +93,9 @@ const digestOf = (m: MeshOut) =>
     ["positions", m.positions],
     ["lidPositions", m.lidPositions],
     ["linePositions", m.linePositions],
-    ["haloPositions", m.haloPositions],
     ["gWallPositions", m.gWallPositions],
     ["gLidPositions", m.gLidPositions],
     ["gLinePositions", m.gLinePositions],
-    ["gHaloPositions", m.gHaloPositions],
     ["rim", m.rim],
     [
       "state",
@@ -183,19 +181,8 @@ test("the sets asked for, and the same digest as the page's own build", () => {
     assert.equal(r.mesh.positions === null, !want.merc);
     assert.equal(r.mesh.gWallPositions === null, !want.globe);
     assert.ok(r.ms >= 0);
-    const page = buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, {
-      ...want,
-      concat: true,
-    });
+    const page = buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, want);
     assert.deepEqual(digestOf(r.mesh), digestOf(page));
-    // concat off (ac:mesh=ancien) hands the GPU the same bytes too. (A
-    // globe-only build is the deferred pass's: always concat.)
-    if (!want.merc) continue;
-    const ancien = buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, {
-      ...want,
-      concat: false,
-    });
-    assert.deepEqual(digestOf(r.mesh).parts, digestOf(ancien).parts);
   }
 });
 
@@ -212,7 +199,6 @@ test("a request for the lean line layout: the page's own lean build, the other a
   assert.equal(r.mesh.gLinePositions!.length, 8 * 18);
   const page = buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, {
     ...want,
-    concat: true,
   });
   assert.deepEqual(digestOf(r.mesh), digestOf(page));
   const full = core.build(requestOf(fixture(), { id: 2 }));

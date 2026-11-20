@@ -1,7 +1,9 @@
-// The map page's code asked for from the HTML (the build's part of
-// shared/boot/mapPreload.ts): which built files the map page needs beyond the
-// entry, and the small inline script that asks for them before the entry
-// module runs, on the map page alone.
+// The map page's code asked for from the HTML: which built files the map page
+// needs beyond the entry, and the small inline script that asks for them
+// before the entry module runs, on the map page alone (written into the page
+// by vite.config.ts at build time). The list and the plateau come sooner, the
+// first paint a little later. The dev server has no built files to name, so
+// it asks for nothing early.
 //
 // The site serves one index.html for every path, so the HTML cannot carry the
 // map's files as plain <link> tags: the home page and the legal pages would
@@ -16,15 +18,6 @@
 //
 // Pure, no browser and no Vite import: read by vite.config.ts at build time
 // and by node (mapPreloadPlan.test.ts).
-
-export type MapPreload = "html" | "page";
-
-/** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_MAP_PRELOAD: MapPreload = "html";
-export const MAP_PRELOADS: readonly MapPreload[] = ["html", "page"];
-
-/** The localStorage key of the DEV switch. */
-export const MAP_PRELOAD_KEY = "ac:map-preload";
 
 /** The paths of the map page (shared/routes: ROUTE.temoignages) whose first
  *  load asks for the map's code from the HTML. "/analyses" is a redirect to it
@@ -78,25 +71,16 @@ export function mapPreloadFiles(
 }
 
 /**
- * The inline script: on the map page, when the mode is "html", a
- * <link rel=modulepreload> per script and a <link rel=preload as=style> per
- * stylesheet, both `crossorigin` as Vite's own preload helper asks for them
- * (which then finds them and asks again for none). `testTools`: the build
- * reads the DEV switch (MAP_PRELOAD_KEY); any other build has the default
- * baked in and reads no storage.
+ * The inline script: on the map page, a <link rel=modulepreload> per script
+ * and a <link rel=preload as=style> per stylesheet, both `crossorigin` as
+ * Vite's own preload helper asks for them (which then finds them and asks
+ * again for none). It reads no storage.
  */
-export function mapPreloadScript(
-  files: { js: readonly string[]; css: readonly string[] },
-  testTools: boolean,
-): string {
+export function mapPreloadScript(files: { js: readonly string[]; css: readonly string[] }): string {
   if (!files.js.length && !files.css.length) return "";
-  const mode = testTools
-    ? `var m=null;try{m=localStorage.getItem(${JSON.stringify(MAP_PRELOAD_KEY)})}catch(e){}` +
-      `if(${JSON.stringify(MAP_PRELOADS)}.indexOf(m)<0)m=${JSON.stringify(DEFAULT_MAP_PRELOAD)};`
-    : `var m=${JSON.stringify(DEFAULT_MAP_PRELOAD)};`;
   return (
-    `(function(){${mode}` +
-    `if(m!=="html"||!${MAP_PAGE_PATH.toString()}.test(location.pathname))return;` +
+    `(function(){` +
+    `if(!${MAP_PAGE_PATH.toString()}.test(location.pathname))return;` +
     `var h=document.head,a=function(r,f,s){var l=document.createElement("link");` +
     `l.rel=r;if(s)l.as=s;l.crossOrigin="";l.href=f;h.appendChild(l)};` +
     `${JSON.stringify(files.js)}.forEach(function(f){a("modulepreload",f)});` +

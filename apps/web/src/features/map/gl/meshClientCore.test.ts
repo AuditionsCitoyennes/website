@@ -139,7 +139,7 @@ function rig(
     fallbackBuild(i, want) {
       fallbacks++;
       if (opts.fallbackThrows) throw new Error("baseOf");
-      return buildPlateauMesh(i.features, i.heightM, i.focus, i.context, { ...want, concat: true });
+      return buildPlateauMesh(i.features, i.heightM, i.focus, i.context, { ...want });
     },
     capVertices: () => opts.cap ?? 300_000,
     knobs: () => opts.knobs ?? {},
@@ -204,7 +204,7 @@ test("a geometry travels once: the next request names its tokens only", async ()
   assert.equal(r.builds()[1].puts.length, 0);
   assert.deepEqual(r.builds()[1].scope.tokens, r.builds()[0].scope.tokens);
   // The same bytes as a build here.
-  const here = buildPlateauMesh(fx.features, 1500, fx.focus, fx.context, { ...BOTH, concat: true });
+  const here = buildPlateauMesh(fx.features, 1500, fx.focus, fx.context, { ...BOTH });
   assert.deepEqual(
     Buffer.from(a.mesh.linePositions!.buffer),
     Buffer.from(here.linePositions!.buffer),
@@ -254,17 +254,15 @@ test("a mesh with no unit, the lines alone, is the page's own bit for bit", asyn
   // Only the lines' geometries travelled: the focus square and the context one.
   assert.equal(r.builds()[0].puts.length, 2);
   assert.deepEqual(r.builds()[0].scope, { tokens: [], meta: [] });
-  const here = buildPlateauMesh([], 0, fx.focus, fx.context, { ...BOTH, concat: true });
+  const here = buildPlateauMesh([], 0, fx.focus, fx.context, { ...BOTH });
   for (const k of [
     "rim",
     "positions",
     "lidPositions",
     "linePositions",
-    "haloPositions",
     "gWallPositions",
     "gLidPositions",
     "gLinePositions",
-    "gHaloPositions",
   ] as const) {
     assert.deepEqual(Buffer.from(a.mesh[k]!.buffer), Buffer.from(here[k]!.buffer), k);
   }
@@ -275,7 +273,6 @@ test("a mesh with no unit, the lines alone, is the page's own bit for bit", asyn
     "vertexCount",
     "lidVertexCount",
     "lineVertexCount",
-    "haloVertexCount",
     "origin",
     "lineGroups",
     "haloW",

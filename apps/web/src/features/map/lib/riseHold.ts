@@ -1,6 +1,6 @@
 // What a committed plateau's rise waits for before it starts: a gate of a few
 // milliseconds (the pending mark's violet leaving the unit first: gl/
-// PendingMarkPass, `gateMs`) and, with `ac:rise-order=after`, the camera's
+// PendingMarkPass, `gateMs`) and, on a weak device, the camera's
 // landing (lib/landing.ts). One wait at a time, the PLATEAU's and not its
 // run's: a later run for the same unit that comes to its own rise takes the
 // wait over (`wait` again, or `take`), and the run that held it stops without

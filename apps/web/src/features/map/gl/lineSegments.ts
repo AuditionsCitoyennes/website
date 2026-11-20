@@ -1,5 +1,4 @@
-// The boundary lines' lean layout (ac:line-mesh=lean, plateau/lineMeshSwitch.ts;
-// gl/meshBuild.ts builds it, PlateauWallLayer draws it): one record per
+// The boundary lines' lean layout (gl/meshBuild.ts builds it, PlateauWallLayer draws it): one record per
 // SEGMENT — its two ends — instead of six vertices that each repeat both
 // ends, the quad's six corners being the same for every segment
 // (LINE_CORNERS, one small buffer, the segments drawn as instances of it).

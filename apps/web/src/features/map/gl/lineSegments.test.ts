@@ -299,7 +299,7 @@ function fixture() {
   };
 }
 const build = (lean: boolean, want = { merc: true, globe: true }, fx = fixture()) =>
-  buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, { ...want, concat: true, lean });
+  buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, { ...want, lean });
 
 /** A lean mesh's lines as the full layout's vertices: each record's six
  *  corners through LINE_CORNERS, as the lean vertex shader reads them — self,
@@ -419,10 +419,8 @@ test("the lean mesh: everything but the lines is the full mesh's", () => {
     "rim",
     "positions",
     "lidPositions",
-    "haloPositions",
     "gWallPositions",
     "gLidPositions",
-    "gHaloPositions",
   ] as const) {
     assert.deepEqual(bytes(lean[k]), bytes(full[k]), k);
   }
@@ -432,7 +430,6 @@ test("the lean mesh: everything but the lines is the full mesh's", () => {
     "rimCount",
     "vertexCount",
     "lidVertexCount",
-    "haloVertexCount",
     "origin",
     "haloW",
     "haloCos",
@@ -460,11 +457,10 @@ test("the lean mesh: mercator first, then the globe pass, each equal to the eage
 
 test("the lean mesh at a world scope: the lines alone, no pair on the ground, the origin the first line vertex's", () => {
   const ctx = [rect("FR", -5, 42, 4, 51, "country"), rect("DE", 4, 42, 13, 51, "country")];
-  const full = buildPlateauMesh([], 0, ctx, [], { merc: true, globe: true, concat: true });
+  const full = buildPlateauMesh([], 0, ctx, [], { merc: true, globe: true });
   const lean = buildPlateauMesh([], 0, ctx, [], {
     merc: true,
     globe: true,
-    concat: true,
     lean: true,
   });
   assert.deepEqual(lean.origin, full.origin);

@@ -826,7 +826,7 @@ test("(20d) reconnect(): a file failed on the network is asked again by the next
   assert.equal(t.loader.mode, "fichiers");
 });
 
-// ---- The late files (`late`: the page's ac:late-files "quiet") ----
+// ---- The late files (`late`) ----
 
 /** A loader with the late rules: `urgent` the keys a plateau waits for,
  *  `still()` the map coming to rest (the jobs asked of whenStill run). */

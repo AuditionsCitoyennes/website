@@ -3,7 +3,7 @@
 // rises on what it has — for the rest of the session, so a file that is slow
 // by itself is waited for once.
 //
-// With the late files kept quiet (ac:late-files, nothing is aborted), the
+// With the late files kept quiet (nothing is aborted), the
 // file of a unit the visitor has just left can still be on the network,
 // sharing the link with this unit's. A wait that such a file crossed
 // (`abandoned` at its start or its end, or one landed meanwhile:
@@ -11,7 +11,7 @@
 // after that, it is for this visit only (`session` false): the slowness was
 // not its file's.
 //
-// A wait can be another length than `waitMs` (ac:outline-wait, the map's
+// A wait can be another length than `waitMs` (the map's
 // coldTapSwitch: a coarser outline of the unit is in memory to rise on —
 // shorter, or longer for a unit the visitor tapped). It then goes on by its
 // own length when crossed. A wait of 0 holds the unit

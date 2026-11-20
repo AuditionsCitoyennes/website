@@ -25,7 +25,7 @@ function snapshot() {
     loaded: o.loadedKeys(),
     failed: [...o.failed.value],
     gaveUp: [...o.gaveUp.value],
-    // ac:late-files: the files in memory as text, and the units held out.
+    // The files in memory as text, and the units held out.
     held: [...o.held.value],
     heldOut: [...o.heldOut.value],
     async ensure(kind: ProbeKind, id = "") {

@@ -1,4 +1,4 @@
-// The plateau lid's pixel budget from the screen ("ecran", plateau/lidSwitch):
+// The plateau lid's pixel budget from the screen:
 // the backing-store sizes the hidden map may capture at, read from the WINDOW
 // (not the map's canvas), so the home card's lid is already sized for the page
 // it opens into. Pure: no DOM, no Vue — the caller reads the window and

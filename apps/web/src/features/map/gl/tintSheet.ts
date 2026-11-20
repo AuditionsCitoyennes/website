@@ -3,7 +3,7 @@
 // the selection's enclaves filled back in. A pure function of the selection's
 // geometries and the per-geometry projection cache (lib/projection.ts): no
 // mapbox-gl, no page (lib/corePurity.test.ts), so the mesh worker cuts it
-// with the same code as the page (ac:tint-cut, ../threadSwitch.ts).
+// with the same code as the page (../threadSwitch.ts).
 
 import earcut from "earcut";
 import { ringBasesOf, type PBase } from "../lib/projection";

@@ -20,8 +20,6 @@
 // 8×8 readback on the main thread. And a frame whose basemap really is
 // uniform (open sea, a featureless area) with no map error: it now becomes
 // the lid, where the readback rejected it (lid-readback, stated change 4).
-// "pixels" is the shot before lid-readback: every grab is read back, a
-// uniform one rejected.
 
 export type ShotEnd = "ok" | "superseded" | "timeout" | "lost" | "undrawn" | "blank" | "failed";
 
@@ -111,25 +109,6 @@ export async function settleAndGrab<B>(
     return { end: "lost" };
   }
   return s.errors > at.errors ? judged(io, b) : { end: "ok", bitmap: b };
-}
-
-/**
- * "pixels": the shot as it was before lid-readback, await for await — ready
- * on loaded() alone, every grab read back, a grab that rejects propagating.
- */
-export async function settleAndGrabPixels<B>(io: ShotIO<B>): Promise<Shot<B>> {
-  await io.frame();
-  const ok = await io.until(() => io.alive() && io.map.loaded(), READY_TIMEOUT_MS);
-  if (!io.current()) return { end: "superseded" };
-  if (!ok) return { end: "timeout" };
-  await io.wait(SETTLE_MS);
-  if (!io.current()) return { end: "superseded" };
-  const b = await io.grab();
-  if (!io.current()) {
-    io.close(b);
-    return { end: "superseded" };
-  }
-  return judged(io, b);
 }
 
 /** The 8×8 readback's verdict on a grab. */

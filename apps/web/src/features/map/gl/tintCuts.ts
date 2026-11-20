@@ -1,5 +1,5 @@
 // Which grey sheet the flat view shows and which is on its way
-// (gl/ScopeTintLayer.ts, ac:tint-cut): a selection's sheet is cut here, in
+// (gl/ScopeTintLayer.ts): a selection's sheet is cut here, in
 // the call, or asked of a cutter that answers later (the mesh worker,
 // gl/meshClient.ts) and laid when it does. At most one cut is in flight or
 // kept, for one selection; a newer selection drops it, and its answer with

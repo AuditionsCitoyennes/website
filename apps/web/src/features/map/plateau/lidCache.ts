@@ -1,4 +1,4 @@
-// The lid pictures kept (ac:lid-cache, plateau/lidCacheSwitch.ts): which
+// The lid pictures kept: which
 // ones, and how many bytes of them. A plateau's lid is a picture of the map
 // shot by the hidden map (mapSnapshot.ts) and uploaded as a texture; the
 // whole-unit pictures already uploaded are kept, the least recently shown
@@ -25,8 +25,6 @@ export interface LidCacheBudget {
 }
 
 export interface LidCacheBudgetInput {
-  /** The switch. */
-  on: boolean;
   tier: DeviceTier;
   /** A phone: a coarse pointer and a short side under 600 css px (as lidTier.ts). */
   phone: boolean;
@@ -43,7 +41,6 @@ export interface LidCacheBudgetInput {
  *    desktop's floor), four at 1024.
  *  A picture larger than the cap is not kept at all (a 4096 px refine is 85 MiB). */
 export function lidCacheBudget(i: LidCacheBudgetInput): LidCacheBudget {
-  if (!i.on) return { bytes: 0, count: 0 };
   if (i.tier !== "full" || i.lowMemory) return { bytes: 12 * MIB, count: 2 };
   if (i.phone) return { bytes: 24 * MIB, count: 4 };
   return { bytes: 64 * MIB, count: 4 };

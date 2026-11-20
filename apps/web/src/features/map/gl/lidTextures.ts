@@ -1,5 +1,5 @@
 // The lid's textures, out of PlateauWallLayer: the one showing, and the ones
-// kept for a unit selected again (ac:lid-cache, plateau/lidCache.ts).
+// kept for a unit selected again (plateau/lidCache.ts).
 //
 // - A picture that is not kept (a refine over the visible slice, the DEV
 //   "Carte" shot, every picture with the cache off) is uploaded into ONE

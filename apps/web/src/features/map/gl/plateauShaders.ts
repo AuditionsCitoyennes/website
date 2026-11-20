@@ -50,65 +50,13 @@ export const G_LID_VS = `attribute vec3 aMerc;
     gl_Position = morphProject(aMerc, aEcefLo, aEcefHi);
   }`;
 
-// ---- the boundary lines: each vertex carries the segment's other end and a
-// side, extruded perpendicular in SCREEN space to a constant pixel width; the
-// quad is 1 px wider each side and the fragment feathers over that pixel
-// (vSide, the GEOMETRIC side, runs -1…1 across the width) ----
-export const LINE_VS = `attribute vec3 aPos;
-  attribute vec3 aOther;
-  attribute float aSide;
-  attribute float aGeomSide;
-  uniform mat4 uMatrix;
-  uniform float uScale;
-  uniform vec2 uViewport;
-  uniform float uWidth;
-  varying float vSide;
-  void main() {
-    vec4 p = uMatrix * vec4(aPos.xy, aPos.z * uScale, 1.0);
-    vec4 q = uMatrix * vec4(aOther.xy, aOther.z * uScale, 1.0);
-    vec2 d = (q.xy / q.w - p.xy / p.w) * uViewport;
-    float len = length(d);
-    vec2 n = len > 0.0 ? vec2(-d.y, d.x) / len : vec2(0.0, 0.0);
-    vSide = aGeomSide;
-    gl_Position = p + vec4(n * aSide * (uWidth + 2.0) / uViewport * p.w, 0.0, 0.0);
-  }`;
-// #7c5cff at the group's opacity, premultiplied (custom layers blend
-// premultiplied), with a 1 px alpha feather at the edges.
-export const LINE_FS = `precision highp float;
-  varying float vSide;
-  uniform float uWidth;
-  uniform float uAlpha;
-  void main() {
-    float a = clamp((uWidth * 0.5 + 1.0) * (1.0 - abs(vSide)), 0.0, 1.0) * uAlpha;
-    gl_FragColor = vec4(0.486, 0.361, 1.0, 1.0) * a;
-  }`;
-export const G_LINE_VS = `attribute vec3 aMerc;
-  attribute vec3 aEcefLo;
-  attribute vec3 aEcefHi;
-  attribute vec3 aOMerc;
-  attribute vec3 aOEcefLo;
-  attribute vec3 aOEcefHi;
-  attribute float aSide;
-  attribute float aGeomSide;
-  uniform vec2 uViewport;
-  uniform float uWidth;
-  varying float vSide;
-  ${GLOBE_PROJECT_GLSL}
-  void main() {
-    vec4 p = morphProject(aMerc, aEcefLo, aEcefHi);
-    vec4 q = morphProject(aOMerc, aOEcefLo, aOEcefHi);
-    vec2 d = (q.xy / q.w - p.xy / p.w) * uViewport;
-    float len = length(d);
-    vec2 n = len > 0.0 ? vec2(-d.y, d.x) / len : vec2(0.0, 0.0);
-    vSide = aGeomSide;
-    gl_Position = p + vec4(n * aSide * (uWidth + 2.0) / uViewport * p.w, 0.0, 0.0);
-  }`;
-
-// ---- the boundary lines in the lean layout (ac:line-mesh=lean,
-// gl/lineSegments.ts): a segment's two ends are per-instance attributes, and
+// ---- the boundary lines, in the lean layout (gl/lineSegments.ts): constant
+// pixel width, extruded perpendicular in SCREEN space, the quad 1 px wider
+// each side and the fragment alpha feathered over that pixel (#7c5cff at the
+// group's opacity, premultiplied). A segment's two ends are per-instance attributes, and
 // each of the quad's six corners says which end it stands at and its two
 // signs (aCorner: LINE_CORNERS). The end is picked, not mixed, so p, q and
-// everything after them are the full layout's values. A range that stands
+// everything after them are exact. A range that stands
 // for two segments lying on each other (uTwice = 1) is blended once at the
 // opacity two passes of a give: a + a(1 − a) ----
 const LEAN_EXTRUDE_GLSL = `

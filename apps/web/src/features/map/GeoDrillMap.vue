@@ -27,12 +27,8 @@ import { stillMap } from "./lib/stillMap";
 import { resetPlateauStood } from "./lib/plateauStood";
 import { PlateauWallLayer } from "./gl/PlateauWallLayer";
 import type { MeshClient } from "./gl/meshClientCore";
-import { lateFilesMode } from "./plateau/lateFilesSwitch";
 import { tilesMoved, type ViewInSight } from "./plateau/lidMapSwitch";
-import { meshMode } from "./plateau/meshSwitch";
-import { riseOrder, riseStartFor } from "./plateau/riseSwitch";
-import { boundaryHalo, haloShown } from "./plateau/haloSwitch";
-import { bootWorkers, workersStartAt } from "./bootWorkersSwitch";
+import { riseStartFor } from "./plateau/riseSwitch";
 import { labelGlyphOptions, labelTileGate } from "./labelFont";
 import { useMapView, type MapView } from "./composables/useMapView";
 import { useScopeMask } from "./composables/useScopeMask";
@@ -50,14 +46,11 @@ import { installPmtilesProbe } from "./dev/pmtiles";
 import { deviceTier, noteRenderer } from "@/shared/device/deviceTier";
 import { motionMs, motionNow, prefersReducedMotion } from "@/shared/device/motion";
 import { onReconnect } from "@/shared/net/reconnect";
-import { recover } from "@/shared/net/recoverSwitch";
 import { antialiasNow, capMapsNow } from "./graphicsSwitch";
 import { cacheBudgetAtCreation, tileCacheOption } from "./cacheBudget";
 import { demTransformRequest, loadReliefClient } from "./relief/demHook";
 import { rendererOf } from "./relief/groundSwitch";
 import {
-  MARK_CREEP_TICK_MS,
-  MARK_CREEP_TICK_SHORT_MS,
   MARK_FADE_MS,
   MARK_LINE_FULL_MS,
   MARK_LINE_SHOW_MS,
@@ -67,20 +60,12 @@ import {
   type MarkGeometry,
 } from "./gl/pendingMark";
 import type { MarkMotion } from "./gl/PendingMarkPass";
-import type { ComingUnit } from "./lib/coldStart";
-import {
-  TAP_LINE_RGB,
-  tapEndMode,
-  tapFastMode,
-  tapLineColor,
-  tapStepsMode,
-  type TapMark,
-} from "./plateau/tapAnswerSwitch";
+import { TAP_LINE_RGB, type TapMark } from "./plateau/tapAnswerSwitch";
 import { createTapProgress, type TapStep } from "./plateau/tapProgress";
 import { liftOf } from "./plateau/lift";
 import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
-import { fallbackForced, fallbackView, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
+import { fallbackForced, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
 import {
   createStyleRecovery,
   finalStatus,
@@ -115,9 +100,6 @@ const props = defineProps<{
   /** The scope's boundary geometry is still loading (cold cache) — hold the
    *  current plateau instead of tearing it down for a transient blank. */
   scopePending?: boolean;
-  /** The unit that hold is for (its id, its box): what the map can start
-   *  before its outline lands (ac:cold-start, lib/coldStart.ts). */
-  coming?: ComingUnit | null;
   /** Unit hovered OUTSIDE the map (a panel row) — drives the same highlight the
    *  map's own pointer does. Null/absent leaves the map's hover to the pointer. */
   hoveredId?: string | null;
@@ -189,13 +171,12 @@ const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? "";
 const STYLE = import.meta.env.VITE_MAPBOX_STYLE || "mapbox://styles/mapbox/dark-v11";
 
 const el = ref<HTMLElement | null>(null);
-// No map: no token in the build, or not started on purpose (`ac:map-fallback`
-// "essai"); later, the style refused or the engine failing. What the box then
-// shows: fallbackSwitch.ts.
-const unavailable = ref(!TOKEN || fallbackForced(mapFallback));
-const fallback = fallbackView(mapFallback);
+// No map: no token in the build, or not started on purpose (the testing
+// tools' `ac:map-fallback` "essai"); later, the style refused or the engine
+// failing. What the box then shows: fallbackSwitch.ts.
+const unavailable = ref(!TOKEN || (__TEST_TOOLS__ && fallbackForced(mapFallback)));
 // The style's request failed and the attempts made by themselves did too
-// (`ac:recover` "auto", lib/styleRecovery.ts): the box says so over the map,
+// (lib/styleRecovery.ts): the box says so over the map,
 // which stays, with a « Réessayer ». "asking": pressed, the style on its way.
 const styleDown = ref<false | "down" | "asking">(false);
 /** The style's document is in (mapbox's first `styledata`). */
@@ -238,15 +219,11 @@ let resizeObserver: ResizeObserver | null = null;
 // The plateau's violet wall (and the analyses' slabs' pieces): our custom
 // WebGL layer, created here, added to the style by the mask once it loads.
 const plateauWall = new PlateauWallLayer();
-// ac:boundary-halo (plateau/haloSwitch.ts): the plateau's halo, on or off
-// (followed live by the last watcher). A build without the testing tools
-// keeps the default.
-if (__TEST_TOOLS__) plateauWall.setHaloShown(haloShown(boundaryHalo.value));
 // A pending mark's fill built off the frame has landed: a mouse's draped
 // hover fill on that unit gives way to it.
 plateauWall.onPendingFill = (id) => pins.yieldDrapedHover(id);
-// ac:mesh=worker (plateau/meshSwitch.ts): this map's own mesh worker, made at
-// its load and disposed with it. Null before then and in every other mode.
+// This map's own mesh worker, made with the map and disposed with it. Null
+// before then.
 let meshClient: MeshClient | null = null;
 
 // ---- The composables, in dependency order ----------------------------------------
@@ -320,7 +297,6 @@ const plateau = usePlateau({
   introPending: camera.introPending,
   outline: () => props.outline,
   scopePending: () => props.scopePending,
-  coming: () => props.coming,
   lid,
   flatCamera: camera.flatCamera,
   applyMask: mask.applyMask,
@@ -336,7 +312,7 @@ const plateau = usePlateau({
   },
   onLift: pins.syncLift,
   onProgress: (scopeId, step) => pendingStep(scopeId, step),
-  // The tapped unit's violet leaves it before it rises (ac:tap-end "then"):
+  // The tapped unit's violet leaves it before it rises:
   // down to its floor, whose share goes with the rise's first frame.
   riseGate: (scopeId, cleared) => plateauWall.pendingGateMs(scopeId, cleared),
   flightEndAt: camera.flightEndAt,
@@ -381,10 +357,9 @@ let lastMark: {
   lidM: number;
 } | null = null;
 
-/** How the mark moves now (shared/device/motion). ac:tap-fast "hide": the
- *  line runs at a constant speed between steps, under short motion too (a
- *  frame asked every MARK_SHORT_FRAME_MS only); "show": it eases between
- *  steps under full motion and jumps otherwise. The fill's fade is shorter
+/** How the mark moves now (shared/device/motion): the line runs at a
+ *  constant speed between steps, under short motion too (a frame asked
+ *  every MARK_SHORT_FRAME_MS only). The fill's fade is shorter
  *  under short motion — except where the rise waits for the camera's
  *  landing (plateau/riseSwitch.ts riseStartFor, "after": the weaker tiers):
  *  there the fade runs ahead of the flight's known end and delays nothing
@@ -395,15 +370,12 @@ let lastMark: {
 function markMotion(): MarkMotion {
   const reduced = prefersReducedMotion();
   const motion = motionNow();
-  const afterLanding = riseStartFor(riseOrder.value, deviceTier()) === "after";
+  const afterLanding = riseStartFor(deviceTier()) === "after";
   const base = {
     animate: !reduced,
     unfillMs: reduced ? 0 : afterLanding ? MARK_UNFILL_MS : motionMs(MARK_UNFILL_MS, motion),
     outMs: MARK_FADE_MS,
   };
-  if (tapFastMode.value === "show") {
-    return { ...base, stepMs: !reduced && motion === "full" ? MARK_STEP_MS : 0 };
-  }
   return {
     ...base,
     stepMs: reduced ? 0 : MARK_STEP_MS,
@@ -488,13 +460,9 @@ function showMark(
       line: mark.line,
       fill: mark.fill,
       spanDeg,
-      rgb: TAP_LINE_RGB[tapLineColor.value],
-      // The small lead of ac:tap-steps "creep": not under reduced motion;
-      // under short motion (a weak device's) drawn a few times a second only.
-      creep: tapStepsMode.value === "creep" && motion.animate,
-      creepTickMs: motionNow() === "full" ? MARK_CREEP_TICK_MS : MARK_CREEP_TICK_SHORT_MS,
-      // ac:tap-fast "hide": no line for a wait too short to be read.
-      showAfterMs: tapFastMode.value === "hide" ? MARK_LINE_SHOW_MS : 0,
+      rgb: TAP_LINE_RGB,
+      // No line for a wait too short to be read.
+      showAfterMs: MARK_LINE_SHOW_MS,
     },
     tapProgress.value(),
     where,
@@ -504,7 +472,7 @@ function showMark(
   // A mouse's draped hover fill on the unit gives way to the mark's.
   if (at.fillAtOnce) pins.yieldDrapedHover(id);
   // Marked with its data all in (the verdict is what it waits for).
-  if (tapProgress.value() >= 1) plateauWall.finishPending(motion, tapEndMode.value);
+  if (tapProgress.value() >= 1) plateauWall.finishPending(motion);
 }
 
 /** A real step toward the plateau of unit `id` (the parent: its outline's
@@ -516,7 +484,7 @@ function pendingStep(id: string, step: TapStep) {
   if (step.t === "run" && tapProgress.id() === id) {
     if (tapProgress.waived()) {
       // The run starts on a coarser outline, the unit's file given up on
-      // (ac:outline-wait): the line has measured a file that has not come,
+      //: the line has measured a file that has not come,
       // so it is not run to the end — it fades where it stands. The fill
       // stays, and leaves as for any tap once the run comes to its verdict
       // (below). A unit with no mark yet gets none.
@@ -530,13 +498,13 @@ function pendingStep(id: string, step: TapStep) {
   // the fill leaves all the same, against the rise.
   if (step.t === "settled" && plateauWall.pendingId === id && tapProgress.id() === id) {
     if (tapProgress.waived()) {
-      plateauWall.finishPending(markMotion(), tapEndMode.value);
+      plateauWall.finishPending(markMotion());
       return;
     }
   }
   if (!r || plateauWall.pendingId !== id) return;
   if (r.done) {
-    plateauWall.finishPending(markMotion(), tapEndMode.value);
+    plateauWall.finishPending(markMotion());
     return;
   }
   if (step.t !== "outline" || step.frac >= 1) {
@@ -682,9 +650,8 @@ function whenAtRest(job: () => void): () => void {
 
 let uninstallProbes: () => void = () => {};
 
-/** The relief worker and the mesh worker, started once per mount, before the
- *  first selection needs them: with the map object (ac:boot-workers "early",
- *  the default) or in its `load` handler ("load", as before). */
+/** The relief worker and the mesh worker, started once per mount, with the
+ *  map object, before the first selection needs them. */
 let workersStarted = false;
 function startWorkers() {
   if (workersStarted) return;
@@ -697,22 +664,19 @@ function startWorkers() {
       () => {},
     );
   }
-  // ac:mesh=worker: the mesh worker started now (a fresh worker's first
-  // build is its slowest). Only this guard reaches the client: "worker" is
-  // the default (plateau/meshSwitch.ts), so every build emits its chunk and
-  // the worker, a page on another mode never loads them.
-  if (meshMode === "worker") {
-    void import("./gl/meshClient").then(
-      ({ warmMeshWorker, globeProviderOf, tintCutterOf, markProviderOf }) => {
-        if (!map) return; // unmounted meanwhile (or the map was declared unavailable)
-        meshClient = warmMeshWorker();
-        plateauWall.setGlobeProvider(globeProviderOf(meshClient));
-        plateauWall.setMarkProvider(markProviderOf(meshClient)); // a large tapped unit's mark
-        mask.setTintCutter(tintCutterOf(meshClient)); // ac:tint-cut
-      },
-      () => {},
-    );
-  }
+  // The mesh worker started now (a fresh worker's first build is its
+  // slowest). Lost (it fails, or says nothing for 3 s), the session builds on
+  // the page (gl/meshClient.ts).
+  void import("./gl/meshClient").then(
+    ({ warmMeshWorker, globeProviderOf, tintCutterOf, markProviderOf }) => {
+      if (!map) return; // unmounted meanwhile (or the map was declared unavailable)
+      meshClient = warmMeshWorker();
+      plateauWall.setGlobeProvider(globeProviderOf(meshClient));
+      plateauWall.setMarkProvider(markProviderOf(meshClient)); // a large tapped unit's mark
+      mask.setTintCutter(tintCutterOf(meshClient));
+    },
+    () => {},
+  );
 }
 
 onMounted(() => {
@@ -765,7 +729,7 @@ function mountMap() {
         demTransformRequest,
       ) as unknown as mapboxgl.MapOptions["transformRequest"],
       // The labels' letters: the style's files, or drawn on the device with
-      // the site's font (ac:glyphs, labelFont.ts). The lid's map gets the same.
+      // the site's font (labelFont.ts). The lid's map gets the same.
       ...labelGlyphOptions(),
     });
     // The device's tier (shared/device/deviceTier) is told the graphics chip's
@@ -773,9 +737,11 @@ function mountMap() {
     // Before the workers start: the ground a weak device stands its plateaus
     // on needs no relief worker.
     noteRenderer(rendererOf(map.getCanvas().getContext("webgl2")));
-    // The two workers start with the map object (ac:boot-workers, default
-    // "early"): neither touches the style, so neither waits for its load.
-    if (workersStartAt(bootWorkers) === "mount") startWorkers();
+    // The two workers start with the map object, while Mapbox still fetches
+    // its style, tiles and letters: neither touches the style, so neither
+    // waits for its load, and their scripts arrive long before the first
+    // plateau asks for them.
+    startWorkers();
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-left");
     attrib = newAttribution();
     map.addControl(attrib, creditCorner());
@@ -799,41 +765,39 @@ function mountMap() {
     // The slabs' opaque lids take the site's card colour, and follow the theme.
     slabs.observeTheme();
 
-    // The style's request failing (ac:recover "auto"): asked again by itself
+    // The style's request failing: asked again by itself
     // a few times, then the box says so, with a button (lib/styleRecovery.ts).
     // The map stays as it is meanwhile: a new style on the same map, not a
     // new map. Everything below waits for `load` as ever, whichever attempt
     // brings it.
-    if (recover === "auto") {
-      styleRecovery = createStyleRecovery({
-        ask: () => {
-          styleIn = false;
-          try {
-            // No diff against the style that never came. The label fonts
-            // left out are the map's own (mapbox fills them in; its .d.ts
-            // wants them spelt): one cast.
-            getMap()?.setStyle(STYLE, { diff: false } as Parameters<mapboxgl.Map["setStyle"]>[1]);
-          } catch {
-            styleRecovery?.failed();
-          }
-        },
-        setTimer: (fn, ms) => window.setTimeout(fn, ms),
-        clearTimer: (timer) => window.clearTimeout(timer as number),
-        onState: (state) => {
-          styleDown.value = state === "down" || state === "asking" ? state : false;
-          // The message is up: nothing more comes by itself — never strand a boot overlay.
-          if (state === "down") emitReady();
-          if (perfOn) perfNote("style.state", 0, { state });
-        },
-      });
-      map.on("styledata", () => {
-        if (styleIn) return;
-        styleIn = true;
-        styleRecovery?.arrived();
-      });
-      // The browser back online, the page shown again: an attempt now.
-      stopStyleReconnect = onReconnect(retryStyle);
-    }
+    styleRecovery = createStyleRecovery({
+      ask: () => {
+        styleIn = false;
+        try {
+          // No diff against the style that never came. The label fonts
+          // left out are the map's own (mapbox fills them in; its .d.ts
+          // wants them spelt): one cast.
+          getMap()?.setStyle(STYLE, { diff: false } as Parameters<mapboxgl.Map["setStyle"]>[1]);
+        } catch {
+          styleRecovery?.failed();
+        }
+      },
+      setTimer: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimer: (timer) => window.clearTimeout(timer as number),
+      onState: (state) => {
+        styleDown.value = state === "down" || state === "asking" ? state : false;
+        // The message is up: nothing more comes by itself — never strand a boot overlay.
+        if (state === "down") emitReady();
+        if (perfOn) perfNote("style.state", 0, { state });
+      },
+    });
+    map.on("styledata", () => {
+      if (styleIn) return;
+      styleIn = true;
+      styleRecovery?.arrived();
+    });
+    // The browser back online, the page shown again: an attempt now.
+    stopStyleReconnect = onReconnect(retryStyle);
 
     let initialLoadDone = false;
     map.once("load", () => {
@@ -844,12 +808,9 @@ function mountMap() {
       mask.applyOutline();
       mask.applyMask();
       pins.buildMarkers();
-      // ac:boot-workers=load: the two workers start only now.
-      if (workersStartAt(bootWorkers) === "load") startWorkers();
       // The ground the plateaus will stand on (usePlateau): where it stays
       // flat (a weak device, relief/groundSwitch.ts), the flat terrain from
-      // here on; elsewhere the relief worker, started above or with the map
-      // object already (asked twice, it is started once).
+      // here on; elsewhere the relief worker, started with the map object.
       plateau.prepareGround();
       // Testing tools: a PMTiles archive named in the address, laid over the map.
       if (__TEST_TOOLS__) {
@@ -875,9 +836,8 @@ function mountMap() {
       const atLoad = inSight();
       if (props.camera) camera.runCamera({ ...props.camera, animate: false });
       view.emitView();
-      // The lid's hidden map (plateau/lidMapSwitch.ts). On the world
-      // (« Carte cachée » on "boot", the lid as before): created now, as
-      // ever. On the first place a plateau will stand on — the scope's
+      // The lid's hidden map (plateau/lidMapSwitch.ts), on the first place a
+      // plateau will stand on — the scope's
       // outline when it is in, else what the camera command frames — so the
       // tiles it loads are the first lid's: now when the command above left
       // this map on the tiles it had (they are in), else at this map's first
@@ -1093,7 +1053,7 @@ onBeforeUnmount(() => {
 // ---- The watchers, in today's order (watchers run in the order they are made) ----
 watch(
   () => props.units,
-  () => pins.unitsChanged(), // ac:pins-rebuild: now, or after the next frame
+  () => pins.unitsChanged(), // Now, or after the next frame
   { deep: false },
 );
 watch(
@@ -1110,12 +1070,11 @@ watch(
     }
     mask.applyOutline();
     mask.applyMask(); // the hole is cut from props.outline — follow it immediately
-    // ac:late-files "quiet": the outline is judged against what stands — a
-    // run of the pipeline for a new unit or shape, one reshape in place for
-    // lines that changed around the standing plateau, nothing for an outline
-    // that changes nothing (usePlateau.outlineChanged). "direct": a run, always.
-    if (lateFilesMode === "quiet") plateau.outlineChanged();
-    else void plateau.ensurePlateau(); // selection changed → re-raise the new area
+    // The outline is judged against what stands — a run of the pipeline for
+    // a new unit or shape, one reshape in place for lines that changed around
+    // the standing plateau, nothing for an outline that changes nothing
+    // (usePlateau.outlineChanged).
+    plateau.outlineChanged();
   },
 );
 watch(
@@ -1239,39 +1198,23 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
   attrib = newAttribution();
   m.addControl(attrib, creditCorner());
 });
-
-// The DEV dialog's « Halo des frontières »: drawn or skipped from the next frame.
-if (__TEST_TOOLS__) watch(boundaryHalo, (v) => plateauWall.setHaloShown(haloShown(v)));
 </script>
 
 <template>
-  <div v-if="unavailable && fallback.developerHint" class="map-root map-fallback">
-    <p>
-      Carte indisponible.<br />
-      <span class="hint">Configurez <code>VITE_MAPBOX_TOKEN</code> dans apps/web/.env</span>
-    </p>
-  </div>
-  <div v-else-if="unavailable" class="map-root map-fallback map-fallback--poster">
+  <div v-if="unavailable" class="map-root map-fallback map-fallback--poster">
     <FrancePoster class="map-fallback-poster" />
     <p class="map-fallback-text">{{ MAP_FALLBACK_TEXT }}</p>
   </div>
   <div v-else class="map-root">
     <!-- The map's own box: mapbox wants its container empty. -->
     <div ref="el" class="map-box"></div>
-    <!-- The style could not be had (ac:recover, lib/styleRecovery.ts): the
-         fallback of ac:map-fallback over the map, which stays under it, and
-         a button that asks for the style again. No developer's hint here: a
-         network's failure is not the token's. -->
-    <div
-      v-if="styleDown"
-      class="map-fallback map-down"
-      :class="{ 'map-fallback--poster': fallback.poster }"
-    >
-      <FrancePoster v-if="fallback.poster" class="map-fallback-poster" />
+    <!-- The style could not be had (lib/styleRecovery.ts): the fallback over
+         the map, which stays under it, and a button that asks for the style
+         again. -->
+    <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
+      <FrancePoster class="map-fallback-poster" />
       <div class="map-down-say">
-        <p :class="{ 'map-fallback-text': fallback.poster }" role="status">
-          {{ fallback.poster ? MAP_FALLBACK_TEXT : "Carte indisponible." }}
-        </p>
+        <p class="map-fallback-text" role="status">{{ MAP_FALLBACK_TEXT }}</p>
         <button
           type="button"
           class="ac-btn ac-btn--outline ac-btn--sm map-down-retry"
@@ -1304,10 +1247,6 @@ if (__TEST_TOOLS__) watch(boundaryHalo, (v) => plateauWall.setHaloShown(haloShow
   text-align: center;
   color: hsl(var(--muted-foreground));
   padding: 1.5rem;
-}
-
-.map-fallback .hint {
-  font-size: var(--text-caption);
 }
 
 /* France, muted, behind one sentence: it reads as a stand-in, not as the map. */
