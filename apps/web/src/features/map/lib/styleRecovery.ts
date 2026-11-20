@@ -1,9 +1,9 @@
-// What the map does when the request for its style fails (`ac:recover`
-// "auto", shared/net/recoverSwitch.ts). Mapbox asks for the style once: when
+// What the map does when the request for its style fails
+// (shared/net/recoverSwitch.ts). Mapbox asks for the style once: when
 // that request fails, the map stays an empty dark box for good. Here the
 // style is asked again by itself, a bounded number of times with a growing
 // pause (STYLE_RETRY_WAITS_MS); after the last failure the map's box says so
-// ("down": GeoDrillMap shows the fallback of `ac:map-fallback` and a
+// ("down": GeoDrillMap shows the fallback (map/fallbackSwitch.ts) and a
 // « Réessayer »), and from then on only the visitor's button, the browser
 // back online or the page shown again ask again — once each. The style
 // arriving at any moment ends it all ("in").

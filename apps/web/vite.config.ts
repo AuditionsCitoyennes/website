@@ -8,7 +8,6 @@ import {
   type PlanChunk,
 } from "./src/shared/boot/mapPreloadPlan";
 import { afterCharset, homeBootScript, homePreloadFiles } from "./src/shared/boot/homeBootPlan";
-import { HERO_IMAGE, heroSources } from "./src/features/home/homeImages";
 
 // The outline build the site reads (features/geo-nav/data/useOutlineFiles):
 // the lock's, read once at start, so a lock bump needs a dev-server restart.
@@ -27,20 +26,18 @@ function outlinesBuild(): string {
   }
 }
 
-// The map page's code asked for from the HTML (shared/boot/mapPreload.ts): the
-// built page is told the names of the map page's chunks and stylesheets, in a
-// small inline script that asks for them on the map page alone. A build only:
-// the dev server has no chunks to name. `testTools`: the script reads the DEV
-// switch (a staging build); otherwise it has the default baked in.
-function mapPreloadHtml(mode: string): Plugin {
-  const testTools = loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging";
+// The map page's code asked for from the HTML (shared/boot/mapPreloadPlan.ts):
+// the built page is told the names of the map page's chunks and stylesheets,
+// in a small inline script that asks for them on the map page alone. A build
+// only: the dev server has no chunks to name.
+function mapPreloadHtml(): Plugin {
   return {
     name: "ac-map-preload",
     apply: "build",
     transformIndexHtml: {
       order: "post",
       handler(_html, ctx) {
-        const script = mapPreloadScript(mapPreloadFiles(planChunks(ctx.bundle)), testTools);
+        const script = mapPreloadScript(mapPreloadFiles(planChunks(ctx.bundle)));
         return script ? [{ tag: "script", children: script, injectTo: "head" }] : [];
       },
     },
@@ -77,22 +74,15 @@ function planChunks(bundle: Record<string, unknown> | undefined): PlanChunk[] {
 // small inline script, right after <meta charset> (which must stay in the
 // first 1024 bytes), puts the theme's class on <html> and,
 // on "/", the hero's dark ground under the still empty page, asks for the home
-// page's chunk and stylesheet, and (`ac:hero` "html") for the photograph. A
-// build only, like the map's. `testTools`: the script reads the DEV switches.
-function homeBootHtml(mode: string): Plugin {
-  const testTools = loadEnv(mode, process.cwd(), "VITE_").VITE_APP_ENV === "staging";
+// page's chunk and stylesheet. A build only, like the map's.
+function homeBootHtml(): Plugin {
   return {
     name: "ac-home-boot",
     apply: "build",
     transformIndexHtml: {
       order: "post",
       handler(html, ctx) {
-        const script = homeBootScript({
-          files: homePreloadFiles(planChunks(ctx.bundle)),
-          hero: heroSources(HERO_IMAGE, "portrait"),
-          heroOrigin: new URL(HERO_IMAGE.src).origin,
-          testTools,
-        });
+        const script = homeBootScript(homePreloadFiles(planChunks(ctx.bundle)));
         return afterCharset(html, script);
       },
     },
@@ -100,7 +90,7 @@ function homeBootHtml(mode: string): Plugin {
 }
 
 export default defineConfig(({ command, mode }) => ({
-  plugins: [vue(), mapPreloadHtml(mode), homeBootHtml(mode)],
+  plugins: [vue(), mapPreloadHtml(), homeBootHtml()],
   define: {
     // Every component is `<script setup>`, so the Options API runtime is dead
     // weight — flagging it lets the minifier drop that branch of Vue.

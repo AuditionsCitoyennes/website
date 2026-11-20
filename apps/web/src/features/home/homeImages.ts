@@ -6,7 +6,7 @@
 // Pure: read by vite.config.ts at build time (the HTML's early ask for the
 // hero, shared/boot/homeBootPlan.ts) and by node (homeImages.test.ts).
 
-import type { Hero, ImageSource } from "../../shared/boot/homeBootPlan";
+import type { ImageSource } from "../../shared/boot/homeBootPlan";
 
 export interface HomeImage {
   /** The image itself, without size parameters (see `srcFor`). */
@@ -103,16 +103,15 @@ export function cutSrcFor(img: HomeImage, width: number, height: number): string
   return `${img.src}?auto=format&fit=crop&crop=center&q=${PORTRAIT_QUALITY}&w=${width}&h=${height}`;
 }
 
-/** The hero's sources in a mode of `ac:hero` (shared/boot/homeBootPlan.ts):
- *  "ancien", today's copies alone; otherwise the portrait cuts first (when the
- *  host can cut), then today's copies for every other screen. */
-export function heroSources(img: HomeImage, mode: Hero): ImageSource[] {
+/** The hero's sources: the portrait cuts first (when the host can cut), then
+ *  the landscape copies for every other screen. */
+export function heroSources(img: HomeImage): ImageSource[] {
   const legacy: ImageSource = {
     maxAspect: null,
     srcset: srcsetFor(img, HERO_WIDTHS),
     sizes: HERO_SIZES,
   };
-  if (mode === "ancien" || !cutSrcFor(img, 1, 1)) return [legacy];
+  if (!cutSrcFor(img, 1, 1)) return [legacy];
   const cuts = HERO_PORTRAIT_CUTS.map(({ maxAspect: [w, h], widths }): ImageSource => ({
     maxAspect: [w, h],
     srcset: widths

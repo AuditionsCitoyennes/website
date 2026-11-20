@@ -2,24 +2,21 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useSubmitTestimony } from "@/features/testify";
 import { ROUTE } from "@/shared/routes";
-import { hero as heroMode } from "@/shared/boot/homeBoot";
 import { pictureMedia } from "@/shared/boot/homeBootPlan";
 import { HERO_IMAGE as hero, heroSources, srcFor } from "./homeImages";
 
-// The photograph's copies: cut to a portrait screen's shape on a phone, today's
-// on a wide screen (`ac:hero`, shared/boot/homeBootPlan.ts). The last source
-// is the <img>'s own.
-const sources = heroSources(hero, heroMode);
+// The photograph's copies: cut to a portrait screen's shape on a phone, the
+// landscape ones on a wide screen (homeImages.ts). The last source is the
+// <img>'s own.
+const sources = heroSources(hero);
 const fallback = sources[sources.length - 1];
 const cuts = sources.slice(0, -1).map((s) => ({ ...s, media: pictureMedia(s)! }));
 const imgSrc = srcFor(hero, 1920);
-// In "ancien" the <img> gets its copies from the template, as before. With the
-// cuts, once it stands in the <picture> beside its sources (onMounted): Vue
-// sets an element's attributes before it puts it in its parent, and WebKit
-// starts a download at each of them (src, then srcset, then sizes, then the
-// <picture>'s source): three to four copies of the photo on an iPhone.
-const bound = heroMode === "ancien";
-const templateAttrs = bound ? { src: imgSrc, srcset: fallback.srcset, sizes: fallback.sizes } : {};
+// The <img> gets its copies once it stands in the <picture> beside its sources
+// (onMounted), not from the template: Vue sets an element's attributes before
+// it puts it in its parent, and WebKit starts a download at each of them (src,
+// then srcset, then sizes, then the <picture>'s source): three to four copies
+// of the photo on an iPhone.
 
 // `ready` once the photograph is shown — or could not be: at once when it is
 // there already (cached, or decoded before this ran), else when it loads or
@@ -31,7 +28,7 @@ let stopWaiting: (() => void) | null = null;
 
 onMounted(() => {
   const img = heroImg.value;
-  if (img && !bound) {
+  if (img) {
     // sizes and srcset first: when src comes, the choice is already made.
     img.sizes = fallback.sizes;
     img.srcset = fallback.srcset;
@@ -89,7 +86,6 @@ function glideTo(e: MouseEvent, id: string) {
       <img
         ref="heroImg"
         class="hero-img"
-        v-bind="templateAttrs"
         :alt="hero.alt"
         :style="{ objectPosition: hero.position ?? '50% 50%' }"
         fetchpriority="high"
