@@ -140,28 +140,6 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
     [...index.value.values()].filter((u) => u.levelKey === "place"),
   );
 
-  /** A lieu's unit by its canonical name (its label, for the panel's lines and
-   *  the analyses). */
-  const placeByCanonical = computed(() => {
-    const map = new Map<string, GeoUnit>();
-    for (const u of allPlaceUnits.value) if (u.canonical) map.set(u.canonical, u);
-    return map;
-  });
-
-  /** A lieu's unit id by its canonical name (PanelAudition.placeId). The same
-   *  Map while the ids are: the hierarchy is rebuilt as each contour arrives,
-   *  its lieux keeping their ids, and a fresh Map would redo every list. */
-  let lastPlaceIds = new Map<string, string>();
-  const placeIdByCanonical = computed(() => {
-    const next = new Map<string, string>();
-    for (const [canonical, u] of placeByCanonical.value) next.set(canonical, u.id);
-    const same =
-      next.size === lastPlaceIds.size &&
-      [...next].every(([canonical, id]) => lastPlaceIds.get(canonical) === id);
-    if (!same) lastPlaceIds = next;
-    return lastPlaceIds;
-  });
-
   return {
     filesActive,
     /** The outline files as the rules read them. */
@@ -178,8 +156,6 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
     containsPoint,
     finestAt,
     allPlaceUnits,
-    placeByCanonical,
-    placeIdByCanonical,
   };
 }
 

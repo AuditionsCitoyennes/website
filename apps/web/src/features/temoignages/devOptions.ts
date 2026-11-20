@@ -718,7 +718,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "masquer", label: "Masquer" },
     ],
     explain:
-      "Quand on arrive directement sur un petit territoire sans passer par ceux qui le contiennent (un résultat de la liste filtrée ou d'une recherche, un lieu choisi dans les Filtres), ses chiffres peuvent arriver un peu après lui. En attendant, « Garder » (par défaut) laisse les chiffres d'avant sur les analyses ; « Masquer » n'en montre aucun. Seulement avec « Serveur » ou « Comparer ».",
+      "Quand on arrive directement sur un petit territoire sans passer par ceux qui le contiennent (un résultat de la liste filtrée ou d'une recherche, un lieu choisi dans les Filtres), ses chiffres peuvent arriver un peu après lui. En attendant, « Garder » (par défaut) laisse les chiffres d'avant sur les analyses ; « Masquer » n'en montre aucun.",
     reloads: false,
     defaultId: "garder",
   },
