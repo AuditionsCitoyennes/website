@@ -1,7 +1,7 @@
 // Actions (pins, rows, breadcrumb all fly the map; the scope follows): a unit
 // activated from the panel, a click on the map, a crumb, a lieu opened, a
 // result's lieu asked for from its dot.
-import { nextTick, type ComputedRef, type Ref } from "vue";
+import { nextTick, type ComputedRef } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { perfBegin, perfOn } from "@/shared/perf/perf";
 import { perfTapAnswered, perfTapTargets } from "@/shared/perf/tapAnswer";
@@ -21,14 +21,13 @@ export interface NavActionsInputs {
   };
   panel: {
     resultAuditions: ComputedRef<PanelAudition[]>;
-    shownCount: Ref<number>;
     toggleAud: (id: string, aim?: boolean) => Promise<void>;
     isAudOpen: (id: string) => boolean;
     audToTop: (id: string, ifHidden?: boolean) => number | null;
     keepAtTop: (audition: PanelAudition) => void;
     /** The server's lists: where a lieu's first result sits when the pages
-     *  loaded do not hold it (-1: not there); null with the corpus'. */
-    findResultFurther: ((unit: GeoUnit) => Promise<number>) | null;
+     *  loaded do not hold it (-1: not there). */
+    findResultFurther: (unit: GeoUnit) => Promise<number>;
     /** What is known of a lieu's auditions the moment it is opened. */
     lieuAuditionsOf: (unit: GeoUnit) => LieuAuditionsKnown | null;
     /** The panel's list back at its top. */
@@ -51,7 +50,7 @@ export function useNavActions(inputs: NavActionsInputs) {
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, openAuditions, hoveredPanelId } =
     nav;
   const { flyToUnit, spotlightPlace } = camera;
-  const { resultAuditions, shownCount, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
+  const { resultAuditions, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
   const { findResultFurther, lieuAuditionsOf, listToTop, focusAudWhenListed } = panel;
 
   /** The element the keys are on, when it was reached with them (Tab):
@@ -154,12 +153,10 @@ export function useNavActions(inputs: NavActionsInputs) {
       return;
     }
     const click = ++resultClicks;
-    // The corpus' results are all in memory (by the lieu's name); the server's
-    // pages loaded may not reach the lieu's (by its id): the server says where.
-    let at = findResultFurther
-      ? resultAuditions.value.findIndex((a) => a.placeId === unit.id)
-      : resultAuditions.value.findIndex((a) => a.canonical === unit.canonical);
-    if (at === -1 && findResultFurther) {
+    // The pages loaded may not reach the lieu's results (by its id): the
+    // server says where.
+    let at = resultAuditions.value.findIndex((a) => a.placeId === unit.id);
+    if (at === -1) {
       at = await findResultFurther(unit);
       // Another click took over meanwhile; or this audition was opened since
       // (its line pressed): opened, not closed again.
@@ -173,7 +170,6 @@ export function useNavActions(inputs: NavActionsInputs) {
     }
     if (at === -1 || !listMode.value) return;
     const audition = resultAuditions.value[at];
-    if (at >= shownCount.value) shownCount.value = at + 1; // its line may not be listed yet
     sheetOpen.value = true;
     await nextTick();
     await toggleAud(audition.id);

@@ -27,7 +27,6 @@ import {
 } from "./devOptions";
 
 (globalThis as unknown as { __TEST_TOOLS__: boolean }).__TEST_TOOLS__ = false;
-const data = await import("./dataSource");
 const lid = await import("../map/plateau/lidSwitch");
 const mesh = await import("../map/plateau/meshSwitch");
 const relief = await import("../map/relief/reliefSwitch");
@@ -67,7 +66,7 @@ const bleed = await import("../geo-nav/panel/cardsBleedSwitch");
 const lieuHold = await import("../geo-nav/model/lieuHoldSwitch");
 
 const MODULES = {
-  data: "./dataSource.ts",
+  placeTree: "./placeTreeSwitch.ts",
   lid: "../map/plateau/lidSwitch.ts",
   mesh: "../map/plateau/meshSwitch.ts",
   relief: "../map/relief/reliefSwitch.ts",
@@ -118,7 +117,6 @@ const code = (m: keyof typeof MODULES) =>
     .replace(/^\s*\/\/.*$/gm, "");
 
 const KEYS: readonly DevKey[] = [
-  "ac:data-source",
   "ac:analyses-pending",
   "ac:place-tree",
   "ac:lid",
@@ -194,7 +192,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 63);
+  assert.equal(DEV_OPTIONS.length, 62);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -256,8 +254,7 @@ test("the sentences are plain French, long enough, with their no-break spaces", 
 
 /** The setter of each key: its module and its name. */
 const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
-  "ac:data-source": ["data", "setDataSource"],
-  "ac:place-tree": ["data", "setPlaceTreeMode"],
+  "ac:place-tree": ["placeTree", "setPlaceTreeMode"],
   "ac:lid": ["lid", "setLidMode"],
   "ac:lid-check": ["lid", "setLidCheck"],
   "ac:mesh": ["mesh", "setMeshMode"],
@@ -343,7 +340,6 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
   assert.deepEqual(
     DEV_OPTIONS.filter((o) => o.reloads).map((o) => o.label),
     [
-      "Données",
       "Couvercle",
       "Contrôle",
       "Maillage",
@@ -391,8 +387,7 @@ const constant = (name: string) => {
 };
 
 test("the choices are the modules' own, in today's order", () => {
-  assert.deepEqual(ids("ac:data-source"), [...data.DATA_SOURCES]);
-  assert.deepEqual(ids("ac:place-tree"), storedCall("data", "TREE_KEY").ids);
+  assert.deepEqual(ids("ac:place-tree"), storedCall("placeTree", "TREE_KEY").ids);
   assert.deepEqual(ids("ac:lid"), [...lid.LID_MODES]);
   assert.deepEqual(ids("ac:lid-check"), [...lid.LID_CHECKS]);
   assert.deepEqual(ids("ac:mesh"), [...mesh.MESH_MODES]);
@@ -470,8 +465,7 @@ test("the choices are the modules' own, in today's order", () => {
 
 test("the default marked in each sentence is the module's", () => {
   const defaults: Record<DevKey, string> = {
-    "ac:data-source": data.DEFAULT_SOURCE,
-    "ac:place-tree": storedCall("data", "TREE_KEY").fallback,
+    "ac:place-tree": storedCall("placeTree", "TREE_KEY").fallback,
     "ac:lid": lid.DEFAULT_LID_MODE,
     "ac:lid-check": lid.DEFAULT_LID_CHECK,
     "ac:mesh": mesh.DEFAULT_MESH_MODE,
@@ -560,8 +554,7 @@ const changedWith = (now: Partial<Record<DevKey, string>>) =>
 
 test("the rows off their default are found, in the menu's order", () => {
   assert.deepEqual(changedWith({}), []);
-  assert.deepEqual(changedWith({ "ac:data-source": "corpus" }), ["ac:data-source"]);
-  assert.deepEqual(changedWith({ "ac:data-source": "comparer" }), ["ac:data-source"]);
+  assert.deepEqual(changedWith({ "ac:place-tree": "avec" }), ["ac:place-tree"]);
   // A share is read as the switch stores it, and a default kept on purpose is not a change.
   assert.deepEqual(
     changedWith({ "ac:ring-band": "fin", "ac:frame-fill": "100", "ac:lid": "ecran" }),
@@ -585,16 +578,6 @@ test("the reset removes the key of every row, and no other", () => {
   ]);
   clearOptions((key) => kept.delete(key));
   assert.deepEqual([...kept.keys()], [...NO_ROW, "sb-auth-token"]);
-});
-
-test("« Données » says what the map loses with the corpus and the comparer", () => {
-  const { explain } = row("ac:data-source");
-  const after = explain.split("par défaut")[1];
-  assert.match(
-    after,
-    /Avec «\u00a0Corpus\u00a0» et «\u00a0Comparer\u00a0», la carte ne montre que les points des lieux/,
-  );
-  for (const lost of ["contour", "relief", "analyses"]) assert.ok(after.includes(lost), lost);
 });
 
 test("« Appareil » lists the tier detected, the two kinds of weak and every signal", () => {

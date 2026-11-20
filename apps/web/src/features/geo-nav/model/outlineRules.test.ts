@@ -223,7 +223,7 @@ test("the session's fallback: every unit known absent, nothing held", () => {
   );
 });
 
-test("no files read (the corpus, the comparer): the same answers", () => {
+test("no files read (the session fell back): the same answers", () => {
   const { NO_FILES } = rules;
   for (const u of [WORLD, FR, ARA, RHONE, LYON, LYON_7]) {
     assert.equal(NO_FILES.geometryFor(u), undefined, u.id);

@@ -8,11 +8,10 @@
 // - the outline files in (`ok`): Etalab's contours-administratifs;
 // - « Pays » only once country files are drawn (outline-world turns
 //   `countries` on);
-// - anything else draws no boundary — no files read (`session` null: the
-//   corpus source, the comparer), the files not in yet (`loading`: the boot
-//   curtain hides the map anyway; `late`: the curtain lifted on a boot still
-//   under way), the session fallen back (`fallback`) — and credits none: one
-//   empty list.
+// - anything else draws no boundary — the files not in yet (`loading`: the
+//   boot curtain hides the map anyway; `late`: the curtain lifted on a boot
+//   still under way), the session fallen back (`fallback`) — and credits
+//   none: one empty list.
 //
 // Sources read 2026-11-02: data.gouv.fr datasets « Contours administratifs »
 // (licence ODbL; IGN Admin Express, OpenStreetMap for the collectivités
@@ -24,9 +23,8 @@
 // Pure: frozen module-level arrays, one per case, so the same inputs give the
 // same array (GeoDrillMap re-creates its control only when the text changes).
 
-/** Where the outline files' session stands (useOutlineFiles' `ready`); null
- *  when the explorer reads no files at all. */
-export type OutlineSession = "loading" | "late" | "ok" | "fallback" | null;
+/** Where the outline files' session stands (useOutlineFiles' `ready`). */
+export type OutlineSession = "loading" | "late" | "ok" | "fallback";
 
 // Licence Ouverte 2.0 on data.gouv.fr: Etalab's own licence page now
 // redirects to the data.gouv.fr home page.

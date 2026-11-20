@@ -2,7 +2,7 @@
 // key, name, choices, its sentences for a tester (what changes on screen, when
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
-// modules own the keys, the defaults and the reads (dataSource.ts,
+// modules own the keys, the defaults and the reads (placeTreeSwitch.ts,
 // map/plateau/lidSwitch, map/plateau/meshSwitch, map/relief/reliefSwitch,
 // geo-nav/bootListSwitch, map/bootWorkersSwitch, geo-nav/data/outlinesDecorSwitch,
 // map/glyphSwitch, shared/device/glassSwitch, shared/boot/mapPreload,
@@ -35,7 +35,6 @@ import type {
 export type DevSection = "donnees" | "carte" | "analyses" | "appareil" | "site";
 
 export type DevKey =
-  | "ac:data-source"
   | "ac:place-tree"
   | "ac:lid"
   | "ac:lid-check"
@@ -135,7 +134,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "donnees",
     title: "Données",
-    intro: "D'où viennent les chiffres, et la liste des lieux des Filtres.",
+    intro: "La liste des lieux des Filtres.",
   },
   {
     id: "carte",
@@ -169,20 +168,6 @@ const SHARES: readonly DevChoice[] = [
 
 export const DEV_OPTIONS: readonly DevOption[] = [
   {
-    key: "ac:data-source",
-    section: "donnees",
-    label: "Données",
-    choices: [
-      { id: "corpus", label: "Corpus" },
-      { id: "serveur", label: "Serveur" },
-      { id: "comparer", label: "Comparer" },
-    ],
-    explain:
-      "D'où la page tire ses chiffres et ses listes. « Serveur » (par défaut, comme le site public) les demande au serveur ; « Corpus » télécharge tous les témoignages et compte dans la page ; « Comparer » affiche ceux du serveur, recompte à côté et signale les écarts (pastille Δ). Avec « Corpus » et « Comparer », la carte ne montre que les points des lieux : elle ne trace pas le contour des territoires, ne soulève pas en relief celui qui est choisi et ne pose pas les analyses autour de lui.",
-    reloads: true,
-    defaultId: "serveur",
-  },
-  {
     key: "ac:place-tree",
     section: "donnees",
     label: "Arbre des lieux",
@@ -191,7 +176,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "avec", label: "Avec arr." },
     ],
     explain:
-      "Dans le champ « Lieu » des Filtres, Paris, Lyon et Marseille apparaissent chacune comme une seule commune (« Sans arr. », par défaut) ou avec leurs arrondissements en dessous (« Avec arr. »). Sans effet avec « Corpus ».",
+      "Dans le champ « Lieu » des Filtres, Paris, Lyon et Marseille apparaissent chacune comme une seule commune (« Sans arr. », par défaut) ou avec leurs arrondissements en dessous (« Avec arr. »).",
     reloads: false,
     defaultId: "sans",
   },

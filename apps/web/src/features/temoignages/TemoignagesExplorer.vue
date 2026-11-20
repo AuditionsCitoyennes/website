@@ -1,38 +1,21 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, effectScope, onBeforeUnmount, ref, watch } from "vue";
+import { computed, defineAsyncComponent, watch } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
-import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { FiltersDialog, FilterChips } from "@/features/filters";
 import { GeoNav } from "@/features/geo-nav";
-import { useMapGroupsQuery, useTestimoniesQuery } from "./api/queries";
 import { useTestimonyFiltering } from "./useTestimonyFiltering";
 import { useAnalysesToggle } from "./useAnalysesToggle";
-import { dataSource, placeTreeMode } from "./dataSource";
+import { placeTreeMode } from "./placeTreeSwitch";
 
 // The testimonies map — the page, or (preview) the card on the home page: the
 // same instance moves between the two (see MapStage).
 const props = defineProps<{ preview?: boolean }>();
 
-// Where the figures come from (dataSource.ts: a DEV switch; production's is
-// the server). From the server, the lists too: the corpus and the map's
-// groups are not even asked for — unless the switch picks the corpus, or the
-// comparer runs the corpus' pipeline beside the server's.
-const fromServer = dataSource !== "corpus";
-const comparing = __TEST_TOOLS__ && dataSource === "comparer";
-const corpusMounted = !fromServer || comparing;
-
-const testimoniesQuery = corpusMounted ? useTestimoniesQuery(computed(() => !props.preview)) : null;
-
-const mapQuery = corpusMounted ? useMapGroupsQuery() : null;
-
-const ownGroups = computed(() => mapQuery?.data.value ?? []);
-
-const queryClient = useQueryClient();
+// The figures and the lists come from the server's place reads (map phase 1).
 const filtering = useTestimonyFiltering({
   preview: () => Boolean(props.preview),
-  testimonies: testimoniesQuery?.data ?? ref(undefined),
-  ownGroups,
-  server: fromServer ? { queryClient, placeTreeMode, comparing } : undefined,
+  queryClient: useQueryClient(),
+  placeTreeMode,
 });
 const {
   text,
@@ -46,8 +29,6 @@ const {
   removeChip,
   reset: resetFilters,
   filtersOpen,
-  filteredTestimonies,
-  groups,
   resultCount,
   locationTree,
   loadLocationChildren,
@@ -59,20 +40,11 @@ const {
   serverFilters,
 } = filtering;
 
-// The panel waits for the corpus — or for the server's world answer.
-const loading = computed(() =>
-  unitTree ? unitTree.loading() : (testimoniesQuery?.isLoading.value ?? false),
-);
-const isError = computed(() =>
-  unitTree ? unitTree.failed() : (testimoniesQuery?.isError.value ?? false),
-);
-// The server's tree and lists stand alone: GeoNav reads none of the corpus.
-const NO_GROUPS: LocationGroup[] = [];
-const NO_TESTIMONIES: PublicTestimony[] = [];
-const navGroups = computed(() => (unitTree ? NO_GROUPS : groups.value));
-const navTestimonies = computed(() => (unitTree ? NO_TESTIMONIES : filteredTestimonies.value));
-// What the results were looked up with: the text as debounced, from the server.
-const highlight = computed(() => (serverFilters ? serverFilters.text.value : text.value));
+// The panel waits for the server's world answer.
+const loading = computed(() => unitTree.loading());
+const isError = computed(() => unitTree.failed());
+// What the results were looked up with: the text as debounced.
+const highlight = computed(() => serverFilters.text.value);
 
 const { analyses, analysesBtn } = useAnalysesToggle(() => Boolean(props.preview));
 /** The filters button's name: the word, and how many filters are on. */
@@ -83,20 +55,10 @@ const filtersLabel = computed(() => {
 // `!!`: a constant the template reads as is, so a build without the analyses drops the button.
 const analysesOn = !!__ANALYSES__;
 
-// The testing tools: the testing options menu, and the comparer (both
-// pipelines side by side, every difference in window.__acCompare). Not in a
-// production build.
+// The testing tools: the testing options menu. Not in a production build.
 const DevOptionsMenu = __TEST_TOOLS__
   ? defineAsyncComponent(() => import("./DevOptionsMenu.vue"))
   : null;
-if (comparing && unitTree) {
-  const tree = unitTree;
-  const scope = effectScope();
-  onBeforeUnmount(() => scope.stop());
-  void import("./compare").then(({ startCompare }) =>
-    scope.run(() => startCompare({ queryClient, tree, filtering, preview: () => !!props.preview })),
-  );
-}
 
 // Back to a card: it shows everything again.
 watch(
@@ -114,8 +76,6 @@ watch(
   <div class="temoignages">
     <GeoNav
       v-model:analyses="analyses"
-      :groups="navGroups"
-      :testimonies="navTestimonies"
       :loading="loading"
       :is-error="isError"
       :highlight="highlight"
@@ -124,7 +84,6 @@ watch(
       :theme-filter="topics"
       :preview="preview"
       :unit-tree="unitTree"
-      :comparing="comparing"
     >
       <template #head-actions>
         <div class="head-actions">

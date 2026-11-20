@@ -1,15 +1,11 @@
 // One hierarchy, both nav models read from it, enriched with real geometry:
 // the outline files' (outlineRules.ts) — their rows' centres and extents, the
 // polygons a unit is drawn, framed and hit with, whether it has none to wait
-// for, and whether a unit holds a point. The hierarchy is the corpus' (the
-// map's groups), or the server's tree (map phase 1). The files are read under
-// the server's tree only (`outlines`, GeoNav); without them (the corpus, the
-// comparer) or once the session falls back, every unit is known absent.
-import { computed, type ComputedRef, type Ref } from "vue";
-import type { LocationGroup } from "@ac/shared";
+// for, and whether a unit holds a point. The hierarchy is the server's tree
+// (map phase 1); once the session falls back, every unit is known absent.
+import { computed, type ComputedRef } from "vue";
 import {
   applyBoundaries,
-  buildGeoHierarchy,
   buildTreeFromUnits,
   communeCodeOf,
   geometryContains,
@@ -25,26 +21,23 @@ import {
   containsPointIn,
   finestAtIn,
   geometryFor as filesGeometryFor,
-  NO_FILES,
   outlineRules,
   type OutlineView,
 } from "./outlineRules";
 
 export interface GeoHierarchyInputs {
-  groups: Ref<LocationGroup[]>;
-  /** The server's tree: the hierarchy is built from it, not from `groups`. */
-  unitTree?: UnitTree | null;
-  /** The outline files (GeoNav: under the server's tree); null: none read. */
-  outlines: OutlineFiles | null;
+  /** The server's tree: the hierarchy is built from it. */
+  unitTree: UnitTree;
+  /** The outline files. */
+  outlines: OutlineFiles;
 }
 
 const NO_UNITS: UnitTreeData = { units: new Map(), lieux: new Map() };
 
 export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
-  const { groups, outlines } = inputs;
-  const unitTree = inputs.unitTree ?? null;
-  /** The files as the rules read them; null: none read. */
-  const view: OutlineView | null = outlines && {
+  const { unitTree, outlines } = inputs;
+  /** The files as the rules read them. */
+  const view: OutlineView = {
     get mode() {
       return outlines.mode.value;
     },
@@ -58,18 +51,18 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
       outlines.heldOut.value.has(id) || outlines.isGaveUp("u", id) || outlines.isGaveUp("k", id),
     linesHeld: outlines.linesHeld,
   };
-  /** The outline files are read (none read, or the session fell back: not). */
-  const filesActive = () => view !== null && view.mode === "fichiers";
+  /** The outline files are read (the session fell back: not). */
+  const filesActive = () => view.mode === "fichiers";
 
   /** Every unit's frame from its row, once the row is known (root.json's,
    *  or an entry's once its parent's bundle is in); France keeps its own
    *  (applyBoundaries), a row known absent frames nothing (outlineRoles). */
   function rowFrames(index: Map<string, GeoUnit>): Map<string, UnitGeo> {
-    void outlines!.version.value;
+    void outlines.version.value;
     const m = new Map<string, UnitGeo>();
     for (const u of index.values()) {
       if (u.levelKey === "world" || u.levelKey === "place") continue;
-      const row = outlines!.rowOf(u.id);
+      const row = outlines.rowOf(u.id);
       if (row && !rowKnownAbsent(row)) m.set(u.id, { center: row.center, bounds: row.bounds });
     }
     return m;
@@ -77,9 +70,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
 
   const hierarchy = computed(() => {
     const end = perfOn ? perfSpan("vue.hierarchy") : null;
-    const h = unitTree
-      ? buildTreeFromUnits(unitTree.data() ?? NO_UNITS)
-      : buildGeoHierarchy(groups.value);
+    const h = buildTreeFromUnits(unitTree.data() ?? NO_UNITS);
     applyBoundaries(h.index, filesActive() ? { byId: rowFrames(h.index) } : {});
     if (end) end({ units: h.index.size });
     return h;
@@ -94,9 +85,9 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
   ];
   // The polygon a unit is drawn and hit with, the one it is raised with,
   // whether its plateau waits for it, whether none will come: the files'
-  // (outlineRules), or none at all when no file is read.
+  // (outlineRules).
   const { geometryFor, raisedGeometryFor, raisedOutlineDue, childLinesDue, geometryKnownAbsent } =
-    view ? outlineRules(view, chainOf) : NO_FILES;
+    outlineRules(view, chainOf);
 
   // Real polygon containment, used to break bbox ties in the scope walk (e.g. Lyon 3e
   // vs neighbouring Villeurbanne). Returns false when the unit's geometry isn't loaded
@@ -128,14 +119,14 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
    *  (none without the files). */
   function finestAt(lat: number, lng: number): GeoUnit | null {
     if (!filesActive()) return null;
-    const version = outlines!.version.value;
+    const version = outlines.version.value;
     const units = communeUnits.value;
     const m = finestMemo;
     const same = m && m.lat === lat && m.lng === lng && m.units === units;
     if (same && m.version === version) return m.hit;
     // Their entries in their parent's bundle, framed by their rows.
-    const at = (u: GeoUnit) => filesGeometryFor(view!, u);
-    const box = (u: GeoUnit) => outlines!.rowOf(u.id)?.bounds;
+    const at = (u: GeoUnit) => filesGeometryFor(view, u);
+    const box = (u: GeoUnit) => outlines.rowOf(u.id)?.bounds;
     const hit = finestAtIn(units, at, box, geometryContains, lat, lng);
     finestMemo = { lat, lng, units, version, hit };
     return hit;
@@ -173,7 +164,7 @@ export function useGeoHierarchy(inputs: GeoHierarchyInputs) {
 
   return {
     filesActive,
-    /** The outline files as the rules read them (null: none read). */
+    /** The outline files as the rules read them. */
     outlineView: view,
     chainOf,
     hierarchy,
