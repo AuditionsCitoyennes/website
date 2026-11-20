@@ -1,5 +1,4 @@
-// What a new outline asks of the plateau (ac:late-files "quiet",
-// plateau/lateFilesSwitch.ts): a run of its pipeline, a reshape of its lines
+// What a new outline asks of the plateau (plateau/lateFilesSwitch.ts): a run of its pipeline, a reshape of its lines
 // in place, or nothing.
 //
 // The outline is a fresh object at every recompute, on purpose (geo-nav's

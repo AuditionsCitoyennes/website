@@ -8,7 +8,6 @@ import { perfTapAnswered, perfTapTargets } from "@/shared/perf/tapAnswer";
 import type { NavState } from "../navState";
 import type { PanelAudition } from "./auditions";
 import { auditionToOpen, type LieuAuditionsKnown } from "./lieuSingle";
-import { lieuSingleMode } from "./lieuSingleSwitch";
 import type { TapPending } from "./useTapPending";
 
 export interface NavActionsInputs {
@@ -42,7 +41,7 @@ export interface NavActionsInputs {
   follows: () => boolean;
   /** The pending state of a tapped territory (useTapPending): a selection is
    *  marked on the map first, then written — at once, or a frame later. */
-  tap: Pick<TapPending, "select" | "cancelWaiting">;
+  tap: Pick<TapPending, "select">;
 }
 
 export function useNavActions(inputs: NavActionsInputs) {
@@ -129,7 +128,6 @@ export function useNavActions(inputs: NavActionsInputs) {
       openPlace(u);
       return;
     }
-    tap.cancelWaiting(); // a tapped territory still waiting for its frame is left
     selectTimed(u, "crumb");
     selectedPlaceId.value = null;
     currentScope.value = u; // optimistic — see activate()
@@ -141,7 +139,6 @@ export function useNavActions(inputs: NavActionsInputs) {
   /** The latest click's: a click whose lookup a later one overtook is dropped. */
   let resultClicks = 0;
   async function openResultAt(unit: GeoUnit) {
-    tap.cancelWaiting();
     if (perfOn) perfTapAnswered(unit.id, { via: "result" }); // answered from here (tap-answer)
     hoveredPanelId.value = null;
     // The dot of the lieu whose audition is being read: only bring the map (and
@@ -184,7 +181,6 @@ export function useNavActions(inputs: NavActionsInputs) {
       void openResultAt(unit);
       return;
     }
-    tap.cancelWaiting();
     // Re-opening the lieu already open (its crumb, its own dot on the map) only
     // brings the map back to it: the audition being read stays unfolded.
     if (perfOn) {
@@ -202,7 +198,7 @@ export function useNavActions(inputs: NavActionsInputs) {
     // The row just clicked leaves the panel without a mouseleave; left set, the
     // map would keep deferring to a hover that no longer exists.
     hoveredPanelId.value = null;
-    // A lieu of one audition opens with it open (ac:lieu-single, model/lieuSingle):
+    // A lieu of one audition opens with it open (model/lieuSingle):
     // its list would be one line to press. Opened as that line's press opens
     // it, in the same tick — so the camera's one command below aims with the
     // panel as wide as an open audition makes it, and the press's own return
@@ -211,7 +207,6 @@ export function useNavActions(inputs: NavActionsInputs) {
     // (a long text, a long list of lieux) would otherwise carry over, the new
     // content as tall when the audition's testimonies are already in.
     const only = auditionToOpen({
-      mode: lieuSingleMode.value,
       newLieu,
       known: newLieu ? lieuAuditionsOf(unit) : null,
     });

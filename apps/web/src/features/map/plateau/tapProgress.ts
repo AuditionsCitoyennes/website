@@ -23,7 +23,7 @@
 //
 // A run that starts while the outline's file is still on its way rises on a
 // coarser outline of the unit, in memory since before the tap (the page
-// stopped waiting for the file: geo-nav's selfHold, ac:outline-wait). The
+// stopped waiting for the file: geo-nav's selfHold). The
 // file the line measured has not come, and no timer may move the line: from
 // then on the tap is `waived` — the value keeps what it showed, never 1,
 // `note` answers null, and the page lets the line fade where it stands; the

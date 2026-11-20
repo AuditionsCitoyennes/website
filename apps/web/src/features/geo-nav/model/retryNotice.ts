@@ -1,6 +1,6 @@
 // One « Réessayer » at a time on the map page. Two things can offer one: the
-// panel's own failure message, in its body (its reads could not be had,
-// `ac:recover`), and the long wait's sentence (`ac:slow-sign`, the tapped
+// panel's own failure message, in its body (its reads could not be had),
+// and the long wait's sentence (the tapped
 // territory's plateau five seconds late), in the panel's head or, on a phone
 // whose sheet is lowered, over the map. On a dead network both are due at
 // once. The panel's message says more and its button asks for more, so it

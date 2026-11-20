@@ -37,10 +37,9 @@ export function knownFromRow(row: {
  * gets here: a dot there already opens its audition in the results.)
  */
 export function auditionToOpen(o: {
-  mode: "ouvrir" | "lister";
   newLieu: boolean;
   known: LieuAuditionsKnown | null;
 }): string | null {
-  if (o.mode !== "ouvrir" || !o.newLieu || !o.known) return null;
+  if (!o.newLieu || !o.known) return null;
   return o.known.count === 1 ? o.known.first : null;
 }
