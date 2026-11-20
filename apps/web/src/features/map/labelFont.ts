@@ -31,7 +31,6 @@ import {
   LABEL_WEIGHTS,
   fontHoldMs,
   glyphMapOptions,
-  glyphs,
   labelFontPlan,
   labelsLocal,
   settleWithin,
@@ -45,15 +44,11 @@ const URLS: Record<(typeof LABEL_SUBSETS)[number]["subset"], string> = {
 };
 
 /** Whether this page load's labels are local, read once. The WebGL renderer
- *  is probed (a throwaway context) only when the hints alone say "full" and
- *  the switch leaves it to the device. */
+ *  is probed (a throwaway context) only when the hints alone say "full". */
 let local: boolean | undefined;
 function wantLocal(): boolean {
   if (local === undefined) {
-    local =
-      glyphs === "auto"
-        ? labelsLocal(glyphs, deviceTier()) || labelsLocal(glyphs, deviceTier(probeRenderer()))
-        : labelsLocal(glyphs, "full");
+    local = labelsLocal(deviceTier()) || labelsLocal(deviceTier(probeRenderer()));
   }
   return local;
 }
@@ -117,7 +112,6 @@ if (typeof document !== "undefined" && wantLocal()) void loadFace();
 
 perfProbe("labelFont", {
   read: () => ({
-    mode: glyphs,
     local: wantLocal(),
     plan,
     heldMs,

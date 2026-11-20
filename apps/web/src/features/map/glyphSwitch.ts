@@ -1,21 +1,15 @@
-// Where the letters of the map's labels come from, compared live in the builds
-// with the testing tools (the dev server and staging, __TEST_TOOLS__), kept in
-// localStorage like the plateau lid's mode (plateau/lidSwitch.ts) and drawn as
-// the DEV dialog's « Police des noms » row:
+// Where the letters of the map's labels come from:
 //
-// - "mapbox": as before. Mapbox downloads the style's letter files (DIN Pro,
-//   with Arial Unicode MS behind it): a dozen range files, about 400 kB on a
-//   first visit, and the map's `load` waits for the last of them.
-// - "local": Mapbox draws every letter on the device, with the site's own
-//   font (Source Sans 3, which the page already has), and downloads no letter
-//   file. The labels change look: Source Sans in place of DIN Pro, and Mapbox
-//   keeps only the weight of a font name (light, regular, medium, bold), so
-//   the italics of the seas and rivers are drawn upright.
-// - "auto" (the default): "local" on a weak device (the device tier "light"
-//   or "minimal", shared/device/deviceTier.ts), "mapbox" on every other.
-//
-// Read once per page load: switching reloads the page. Production has neither
-// key nor switch: DEFAULT_GLYPHS, so "auto".
+// - on a device of the tier "full": Mapbox downloads the style's letter files
+//   (DIN Pro, with Arial Unicode MS behind it): a dozen range files, about
+//   400 kB on a first visit, and the map's `load` waits for the last of them.
+// - on a weak device (the tier "light" or "minimal",
+//   shared/device/deviceTier.ts): Mapbox draws every letter on the device,
+//   with the site's own font (Source Sans 3, which the page already has), and
+//   downloads no letter file. The labels change look there: Source Sans in
+//   place of DIN Pro, and Mapbox keeps only the weight of a font name (light,
+//   regular, medium, bold), so the italics of the seas and rivers are drawn
+//   upright.
 //
 // The browser part (the font loaded before a map draws its first letter, the
 // options both maps get) is labelFont.ts; this module is pure, loadable under
@@ -23,41 +17,9 @@
 
 import type { DeviceTier } from "@/shared/device/deviceTier";
 
-export type Glyphs = "auto" | "mapbox" | "local";
-
-/** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_GLYPHS: Glyphs = "auto";
-
-export const GLYPHS: readonly Glyphs[] = ["auto", "mapbox", "local"];
-
-/** The kept mode, else the default (garbage or blocked storage too). */
-export function storedGlyphs(): Glyphs {
-  try {
-    const raw = localStorage.getItem("ac:glyphs");
-    return (GLYPHS as readonly string[]).includes(raw ?? "") ? (raw as Glyphs) : DEFAULT_GLYPHS;
-  } catch {
-    return DEFAULT_GLYPHS;
-  }
-}
-
-/** This page load's mode. */
-export const glyphs: Glyphs = __TEST_TOOLS__ ? storedGlyphs() : DEFAULT_GLYPHS;
-
-/** Another mode: kept, and the page loaded again with it. */
-export function setGlyphs(mode: Glyphs) {
-  if (!__TEST_TOOLS__ || mode === glyphs) return;
-  try {
-    localStorage.setItem("ac:glyphs", mode);
-  } catch {
-    /* storage blocked (a private window): the choice lasts for this page */
-  }
-  window.location.reload();
-}
-
-/** Whether the labels are drawn on the device, for a mode and a device tier. */
-export function labelsLocal(mode: Glyphs, tier: DeviceTier): boolean {
-  if (mode === "auto") return tier !== "full";
-  return mode === "local";
+/** Whether the labels are drawn on the device, for a device tier. */
+export function labelsLocal(tier: DeviceTier): boolean {
+  return tier !== "full";
 }
 
 // ---- The font the labels are drawn with ---------------------------------------------

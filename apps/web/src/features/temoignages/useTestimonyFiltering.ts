@@ -1,4 +1,4 @@
-import { computed, getCurrentScope, markRaw, onScopeDispose, ref, watch, type Ref } from "vue";
+import { computed, getCurrentScope, markRaw, onScopeDispose, ref, watch } from "vue";
 import { useQuery, type QueryClient } from "@tanstack/vue-query";
 import { AUDITION_THEMES, fold, type PlaceFacets } from "@ac/shared";
 import { buildPlaceTree, topicOptionsOf, useFilters, useServerFilters } from "@/features/filters";
@@ -8,7 +8,6 @@ import {
   FILTERS_IDLE_MS,
   fetchFacets,
   filtersDataWanted,
-  filtersLoad,
   placesKeys,
   retryable,
   retryWait,
@@ -17,7 +16,6 @@ import {
   type UnitTree,
 } from "@/features/geo-nav";
 import type { LocNode } from "@/shared/ui/select/treeNode";
-import type { PlaceTreeMode } from "./placeTreeSwitch";
 
 // ---- Filter state (the page owns it: one filtered set drives BOTH the map
 // pins/counts and the testimonies panel) --------------------------------------
@@ -31,10 +29,8 @@ export function useTestimonyFiltering(input: {
   /** The home page's card rather than the page: no filters. */
   preview: () => boolean;
   queryClient: QueryClient;
-  /** "Arbre des lieux" (DEV): the arrondissements kept in the place picker. */
-  placeTreeMode: Ref<PlaceTreeMode>;
 }) {
-  const { preview, queryClient, placeTreeMode } = input;
+  const { preview, queryClient } = input;
 
   // Every audition on the map (empty=1), by unit and lieu ids. On the lazy
   // path (a tree too big for one answer), a place opened in the picker asks
@@ -46,7 +42,8 @@ export function useTestimonyFiltering(input: {
     const data = t?.emptyData();
     return t && data
       ? buildPlaceTree(data, {
-          arrondissements: placeTreeMode.value === "avec",
+          // Paris, Lyon and Marseille list their arrondissements.
+          arrondissements: true,
           statusOf: (id) => t.emptyStatus(id),
         })
       : [];
@@ -60,8 +57,8 @@ export function useTestimonyFiltering(input: {
   watch(filtersOpen, (open) => {
     if (open) dialogOpened.value = true;
   });
-  /** Under `ac:filters-load` "repos": the idle moment after the page's own
-   *  tree is on screen passed (FILTERS_IDLE_MS, then an idle callback). */
+  /** The idle moment after the page's own tree is on screen passed
+   *  (FILTERS_IDLE_MS, then an idle callback). */
   const filtersIdle = ref(false);
   // Not once the dialog is closing (a node still open as it fades out).
   const loadLocationChildren = (node: LocNode) => {
@@ -88,42 +85,40 @@ export function useTestimonyFiltering(input: {
     (key) => unitTree.request({ key, params: key === EMPTY_KEY ? {} : sf.params.value }),
     { immediate: true },
   );
-  // "repos": the page's own tree on screen, FILTERS_IDLE_MS later the
-  // browser's first idle moment (at most FILTERS_IDLE_CAP_MS more) lets the
-  // dialog's data come.
-  if (filtersLoad === "repos") {
-    let timer = 0;
-    let idle = 0;
-    const stopWatch = watch(
-      () => !preview() && unitTree.shownKey() !== null,
-      (shown) => {
-        if (!shown || timer || filtersIdle.value) return;
-        timer = window.setTimeout(() => {
-          const done = () => (filtersIdle.value = true);
-          if (typeof window.requestIdleCallback === "function")
-            idle = window.requestIdleCallback(done, { timeout: FILTERS_IDLE_CAP_MS });
-          else done();
-        }, FILTERS_IDLE_MS);
-      },
-      { immediate: true },
-    );
-    if (getCurrentScope())
-      onScopeDispose(() => {
-        stopWatch();
-        window.clearTimeout(timer);
-        if (idle) window.cancelIdleCallback(idle);
-      });
-  }
+  // The page's own tree on screen, FILTERS_IDLE_MS later the browser's
+  // first idle moment (at most FILTERS_IDLE_CAP_MS more) lets the dialog's
+  // data come.
+  let timer = 0;
+  let idle = 0;
+  const stopWatch = watch(
+    () => !preview() && unitTree.shownKey() !== null,
+    (shown) => {
+      if (!shown || timer || filtersIdle.value) return;
+      timer = window.setTimeout(() => {
+        const done = () => (filtersIdle.value = true);
+        if (typeof window.requestIdleCallback === "function")
+          idle = window.requestIdleCallback(done, { timeout: FILTERS_IDLE_CAP_MS });
+        else done();
+      }, FILTERS_IDLE_MS);
+    },
+    { immediate: true },
+  );
+  if (getCurrentScope())
+    onScopeDispose(() => {
+      stopWatch();
+      window.clearTimeout(timer);
+      if (idle) window.cancelIdleCallback(idle);
+    });
   // The place picker's tree: asked for once the page's own tree is on
   // screen (the card's is that tree) and the dialog's data is wanted
-  // (`ac:filters-load`, geo-nav/data/bootReadsSwitch: by default at an idle
-  // moment after that, or at the dialog's first opening), so that the
+  // (geo-nav/data/bootReadsSwitch: at an idle moment after that, or at the
+  // dialog's first opening), so that the
   // dialog opens on it, and again at each opening, should it have failed.
   // A place chosen asks for it at once: its chip is named from it.
   watch(
     () =>
       (!preview() &&
-        filtersDataWanted(filtersLoad, {
+        filtersDataWanted({
           opened: dialogOpened.value,
           idle: filtersIdle.value,
           treeShown: unitTree.shownKey() !== null,
@@ -147,17 +142,15 @@ export function useTestimonyFiltering(input: {
   const facetsQuery = useQuery({
     queryKey: placesKeys.facets(),
     queryFn: ({ signal }) => fetchFacets(signal),
-    // The dialog's own data (`ac:filters-load`): from the start under
-    // "demarrage", as the place picker's tree otherwise.
+    // The dialog's own data: as the place picker's tree.
     enabled: computed(
       () =>
         !preview() &&
-        (filtersLoad === "demarrage" ||
-          filtersDataWanted(filtersLoad, {
-            opened: dialogOpened.value,
-            idle: filtersIdle.value,
-            treeShown: unitTree.shownKey() !== null,
-          })),
+        filtersDataWanted({
+          opened: dialogOpened.value,
+          idle: filtersIdle.value,
+          treeShown: unitTree.shownKey() !== null,
+        }),
     ),
     retry: (failures, err) => retryable(err) && failures < RETRIES,
     retryDelay: (failures, err) => retryWait(failures + 1, err),
