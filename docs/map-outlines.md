@@ -348,12 +348,11 @@ manifest that is not the lock's build, a file count off. There is no skip: a
 deploy without the files would draw no outline at all. Nothing builds outlines
 in CI.
 
-The web reads the files under the server source, the only outlines it has
-(`/api/boundaries` is no longer called; the corpus source and the comparer, the
-testing tools' data sources, draw none). A session whose files are not served
-(`root.json` missing, HTML or another build, or a release skew on a later
-file) falls back for that page load: every unit known absent — the box fits,
-the pins, the panel and its lists unchanged, no plateau and no outline line —
+The web reads the files, the only outlines it has (`/api/boundaries` is no
+longer called). A session whose files are not served (`root.json` missing,
+HTML or another build, or a release skew on a later file) falls back for
+that page load: every unit known absent — the box fits, the pins, the panel
+and its lists unchanged, no plateau and no outline line —
 with one console warning in every build, `[outlines] fallback: <reason> <url>`.
 
 A boot (`root.json`, then `k/FR`) still under way 6 s after the explorer asked

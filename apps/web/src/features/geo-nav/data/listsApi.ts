@@ -31,7 +31,7 @@ function pageAsked(): number | null {
   return Number.isInteger(n) && n >= 1 && n <= 100 ? n : null;
 }
 
-/** Results a page: RESULTS_PAGE, as the corpus reveals them. */
+/** Results a page: RESULTS_PAGE, or the testing tools' `?resultsPage=`. */
 export const RESULTS_LIMIT: number = (__TEST_TOOLS__ && pageAsked()) || RESULTS_PAGE;
 
 /** Testimonies a page (design D10). */

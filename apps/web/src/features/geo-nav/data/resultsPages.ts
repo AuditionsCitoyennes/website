@@ -76,11 +76,10 @@ export function setSig(first: PlaceResultsPage): string {
  * The audition a new answer must be read as far as before it goes on screen
  * (results?through=), or null:
  * - the same list as the one on screen (orderSig): as far as its last row,
- *   so that nothing listed goes (the corpus' reveal stays);
+ *   so that nothing listed goes;
  * - else the audition being read, opened from the list on screen (or kept
  *   open there, whether it matched unknown), when the first page does not
- *   hold it: whether it still matches, and where (the corpus' reveal: as far
- *   as it).
+ *   hold it: whether it still matches, and where.
  */
 export function readTarget(
   pages: readonly PlaceResultsPage[],
@@ -130,7 +129,7 @@ export function withThrough(
 }
 
 /** The first page alone (a key or order come back to is read again from its
- *  top, as the corpus' reveal restarts); unchanged when that is all it holds. */
+ *  top); unchanged when that is all it holds. */
 export function firstPageOnly(old: ResultsData | undefined): ResultsData | undefined {
   if (!old || old.pages.length <= 1) return old;
   return { pages: old.pages.slice(0, 1), pageParams: old.pageParams.slice(0, 1) };

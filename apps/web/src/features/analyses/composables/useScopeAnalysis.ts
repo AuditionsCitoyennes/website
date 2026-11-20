@@ -99,9 +99,10 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
   // handed back as it was, so the plates do not re-render.
   const analysisMemo = new Map<string, ScopeAnalysis | null>();
   // Each answer merged is a new index, its units' figures mostly unchanged —
-  // remembered by unit and figures, so a merge re-renders no plate. While a unit's figures are on their way, the last analysis made
-  // stands on it (its figures, the unit's name and plateau), unless "Analyses
-  // en attente" says otherwise (DEV).
+  // remembered by unit and figures, so a merge re-renders no plate. While a
+  // unit's figures are on their way, the last analysis made stands on it
+  // (its figures, the unit's name and plateau), unless "Analyses en attente"
+  // says otherwise (DEV).
   let lastServer: { key: string; analysis: ScopeAnalysis | null } | null = null;
   function serverAnalysis(stats: UnitStatsIndex, unit: GeoUnit): ScopeAnalysis | null {
     if (analysisMemo.size > 200) analysisMemo.clear();

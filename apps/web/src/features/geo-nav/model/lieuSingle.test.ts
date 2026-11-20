@@ -2,7 +2,8 @@
 // auditions from the server's row, and the rule
 // that opens the one audition with a lieu newly opened — never in the
 // « Lister » mode, for the lieu already open, for a lieu of several auditions
-// or of none. Plain objects stand in for the rows. Run with `node --import tsx --test` (root "test:scripts").
+// or of none. Plain objects stand in for the rows. Run with
+// `node --import tsx --test` (root "test:scripts").
 // Pure: no Vue, no DOM.
 
 import assert from "node:assert/strict";
