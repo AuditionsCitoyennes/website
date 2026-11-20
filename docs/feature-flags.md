@@ -16,7 +16,12 @@ testing tools' DEV switches, not for a feature that is not released yet.
 
 The other define of the same kind is `__TEST_TOOLS__` (the outbox, the DEV
 switches, the probes): on with `vite` dev and in a build with
-`VITE_APP_ENV=staging`.
+`VITE_APP_ENV=staging`. The DEV dialog (« Options de test »,
+`features/temoignages/devOptions.ts`) holds testing levers only: the data
+source, the map's forced fallback, what an open lieu does when the map is
+used, the device's tier, the map's pixel ratio, the first flight's frame
+measure and, in a build with `VITE_ANALYSES=on`, the analyses' slabs. A
+production build reads none of their keys.
 
 ## `VITE_ANALYSES`
 
@@ -39,10 +44,16 @@ A build without it:
   « Règles de publication ».
 
 What stays in that build, small and inert: `features/analyses/devSwitch.ts`
-(every unit fit reads `frameFill`), the framing constants of
-`content/plateRoom.ts`, `noScopeAnalysis`, `geo-nav/ring/useAnalysesRing.ts`
-(it also computes the map's view padding) and `usePlaqueFocus.ts`. The API
-still sends every unit's figures with the tree.
+(its refs hold the defaults; its keys are read only with the testing tools),
+the framing constants of `content/plateRoom.ts`, `noScopeAnalysis`,
+`geo-nav/ring/useAnalysesRing.ts` (it also computes the map's view padding),
+`usePlaqueFocus.ts`, and the slabs' code the map wires in whatever the flag
+(`map/composables/usePlateauSlabs.ts`, `useSlabOcclusion.ts`, the slab
+passes of `map/gl/PlateauWallLayer.ts`), which never runs with no slab spec.
+Every unit fit frames with `FRAME_FILL` (`map/lib/slabs/constants.ts`),
+analyses or not. The web asks for the units' figures (`/api/places?…&facts=1`)
+only in a build with the flag; the API still answers `facts=1` in every
+environment and prewarms that read at boot.
 
 Where it is set:
 

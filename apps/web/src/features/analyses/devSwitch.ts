@@ -17,9 +17,6 @@
 // - "Taille": the words right after a fit, as a share of the type scale's
 //   sizes — the slabs drawn that much smaller (map/lib/slabs: TEXT_SCALE, the
 //   default).
-// - "Cadrage": how much of its rectangle a clicked territory fills once
-//   framed, on the axis that limits it (map/lib/slabs: FRAME_FILL, the default) —
-//   every territory's fit, the analyses shown or not.
 // - "Anneau": the themes' ring's band, per px of its outer diameter — "fin"
 //   (the band of before, its hole the larger), "moyen" (analyses/content/ring:
 //   RING_THICK, the default) or "epais". The ring's box stays as it is: no
@@ -32,7 +29,7 @@
 //   figure comes with the tree there.
 import { ref } from "vue";
 import { RING_THICK } from "./content/ring";
-import { FRAME_FILL, TEXT_SCALE } from "@/features/map/lib";
+import { TEXT_SCALE } from "@/features/map/lib";
 
 export type SlabLidMode = "verre" | "opaque" | "carte";
 export type SlabTextMode = "redresse" | "plat";
@@ -45,10 +42,9 @@ const enabled = __TEST_TOOLS__;
 const LID_KEY = "ac:slab-lid-verre";
 const TEXT_KEY = "ac:slab-text";
 const SIZE_KEY = "ac:slab-size";
-const FILL_KEY = "ac:frame-fill";
 const RING_KEY = "ac:ring-band";
 
-/** The shares the switch offers, "Taille" and "Cadrage" alike. */
+/** The shares the switch offers for "Taille". */
 export const SCALE_CHOICES = [0.7, 0.8, 0.9, 1] as const;
 
 /** "Anneau": each band, per px of the ring's outer diameter. */
@@ -86,13 +82,20 @@ function storedShare(key: string, fallback: number): number {
   return Number(pct) / 100;
 }
 
-export const slabLidMode = ref<SlabLidMode>(stored(LID_KEY, ["verre", "opaque", "carte"], "verre"));
-export const slabTextMode = ref<SlabTextMode>(stored(TEXT_KEY, ["redresse", "plat"], "redresse"));
-export const slabTextScale = ref<number>(storedShare(SIZE_KEY, TEXT_SCALE));
-export const frameFill = ref<number>(storedShare(FILL_KEY, FRAME_FILL));
-export const ringBandMode = ref<RingBandMode>(stored(RING_KEY, ["fin", "moyen", "epais"], "moyen"));
 // Read only in the builds with the testing tools: production has neither the
-// key nor the call.
+// keys nor the calls.
+export const slabLidMode = ref<SlabLidMode>(
+  __TEST_TOOLS__ ? stored(LID_KEY, ["verre", "opaque", "carte"], "verre") : "verre",
+);
+export const slabTextMode = ref<SlabTextMode>(
+  __TEST_TOOLS__ ? stored(TEXT_KEY, ["redresse", "plat"], "redresse") : "redresse",
+);
+export const slabTextScale = ref<number>(
+  __TEST_TOOLS__ ? storedShare(SIZE_KEY, TEXT_SCALE) : TEXT_SCALE,
+);
+export const ringBandMode = ref<RingBandMode>(
+  __TEST_TOOLS__ ? stored(RING_KEY, ["fin", "moyen", "epais"], "moyen") : "moyen",
+);
 export const pendingAnalysesMode = ref<PendingAnalysesMode>(
   __TEST_TOOLS__ ? stored("ac:analyses-pending", ["garder", "masquer"], "garder") : "garder",
 );
@@ -113,12 +116,6 @@ export function setSlabTextScale(v: number) {
   if (!enabled || !SCALE_CHOICES.includes(v as (typeof SCALE_CHOICES)[number])) return;
   slabTextScale.value = v;
   store(SIZE_KEY, String(Math.round(v * 100)));
-}
-
-export function setFrameFill(v: number) {
-  if (!enabled || !SCALE_CHOICES.includes(v as (typeof SCALE_CHOICES)[number])) return;
-  frameFill.value = v;
-  store(FILL_KEY, String(Math.round(v * 100)));
 }
 
 export function setRingBandMode(m: RingBandMode) {
