@@ -44,6 +44,8 @@ import { groupOwnAuditions } from "./model/auditions";
 import { usePanelAuditions } from "./model/usePanelAuditions";
 import { useCamera } from "./model/useCamera";
 import { useNavActions } from "./model/useNavActions";
+import { createLieuFollow } from "./model/lieuFollow";
+import { lieuHoldMode } from "./model/lieuHoldSwitch";
 import { useTapPending } from "./model/useTapPending";
 import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
@@ -139,6 +141,15 @@ const {
   openAuditions,
   hoveredPanelId,
 } = nav;
+
+// ---- An open lieu and the map (`ac:lieu-hold`, model/lieuHoldSwitch) ----
+// « Suit la carte » (the default): the visitor's own gesture that really moves
+// the map closes the open lieu, and the panel follows the map live
+// (model/lieuFollow, wired below). « Reste ouvert »: nothing the map does
+// closes it, the wide panel folds aside while the map is used. With filters
+// on, the open audition belongs to the results' list, which does not follow
+// the map: it stays open, the panel folding aside as ever.
+const follows = () => lieuHoldMode.value === "suit" && !listMode.value;
 
 // ---- The viewport (panel/useViewport): a desktop or a phone, the window's size ----
 const asCard = toRef(props, "preview");
@@ -375,6 +386,7 @@ const layout = usePanelLayout({
     dragging: sheet.dragging,
     peekPx: sheetPeekPx,
   },
+  follows,
 });
 const {
   panelWide,
@@ -392,12 +404,58 @@ const {
   onPanelPointerLeave,
   mapPadding,
 } = layout;
-/** A hand on the map: the panel makes way, and the frame the camera gave is
- *  left (useCamera's handMoved). */
+/** A hand on the map: the panel makes way, the frame the camera gave is left
+ *  (useCamera's handMoved), and a gesture that has moved the map far enough
+ *  closes the open lieu (« Suit la carte »). */
 function onUserGesture() {
   engageMap();
   handMoved();
+  lieuFollow.gesture();
 }
+// The panel comes to follow the map while it was folded aside — the switch
+// turned to « Suit la carte », or the filters cleared with the results' lieu
+// still open: it comes back, never to fold again.
+watch(follows, (f) => {
+  if (f) mapEngaged.value = false;
+});
+
+/**
+ * The open lieu closes because the visitor took the map elsewhere (or asked
+ * for the analyses of what is in view): the panel follows the map again —
+ * the scope catches up with the view (the `readingPlace` watch below), the
+ * list and the trail with the scope. A focus in what goes or changes with
+ * the lieu (its text in the list, the trail, whose crumbs follow the scope)
+ * goes to the trail itself, which stays, without scrolling anything; one
+ * elsewhere in the panel (the search, the filters) stays where it is.
+ * Nothing is read out.
+ */
+function closeLieuForMap() {
+  const at = document.activeElement;
+  const trail = panelEl.value?.querySelector<HTMLElement>("nav.crumbs") ?? null;
+  const goes =
+    at instanceof HTMLElement &&
+    at !== trail &&
+    (!!panelListEl.value?.contains(at) || !!trail?.contains(at));
+  if (goes) trail?.focus({ preventScroll: true });
+  selectedPlaceId.value = null;
+  openAuditions.value = new Set();
+  hoveredPanelId.value = null;
+  // The list that follows is read from its top, wherever the lieu's text had
+  // been scrolled to (the list's own scroller; the page does not move).
+  panel.listToTop();
+}
+const lieuFollow = createLieuFollow({
+  cameraNow: () => mapCmp.value?.cameraNow() ?? null,
+  shiftPx: (at) => mapCmp.value?.screenShift(at.lng, at.lat) ?? null,
+  commandKey: () => nav.cameraKey.value,
+  gate: () => ({
+    follows: follows(),
+    lieuOpen: selectedPlaceId.value !== null,
+    listMode: listMode.value,
+    sinceOpenMs: performance.now() - nav.placeOpenedAt.value,
+  }),
+  close: closeLieuForMap,
+});
 // Desktop: how much of the map's right edge the panel covers, which the
 // credit's top-left box (desktop) is kept clear of: the narrow width when
 // folded (the fold leaves it on screen), the wide one when open wide.
@@ -459,8 +517,14 @@ const { pendingUnit, live: tapLive, waitStage } = tap;
 tappedUnit = () => pendingUnit.value?.id ?? "";
 /** GeoDrillMap's `viewChange`: the scope's read of it, then the landing a
  *  pending unit's long-wait sign waits for. */
+/** A frame of the visitor's gesture: once it has moved the map enough, the
+ *  view is reported at once, and closes the lieu (lieuFollow's `due`). */
+function onGestureMove() {
+  if (lieuFollow.due()) mapCmp.value?.reportView();
+}
 function onMapView(view: MapView) {
   onViewChange(view);
+  lieuFollow.view();
   tap.landed();
 }
 /** « Réessayer » pressed. The button goes with the sentence: a focus it held
@@ -538,6 +602,7 @@ const { activate, onUnitClick, drillToCrumb } = useNavActions({
   camera: cam,
   panel,
   engageMap,
+  follows,
   tap,
 });
 
@@ -613,11 +678,12 @@ const { focusPlaqueWhenShown, dropPlaqueFocus } = usePlaqueFocus({
 });
 
 // Turning the analyses on is asking to see the map.
-// - A lieu open: it stays open (nothing on the map closes it), the map is
-//   handed the screen as if the user had taken it — the wide panel folds, the
-//   sheet lowers — and, deep at the lieu where nothing stands, the map pulls
-//   back to the territory around it, which rises with its analyses (exactly
-//   what a click on that territory does). Higher up, the ring's fit frames the
+// - A lieu open: the map is handed the screen as if the user had taken it —
+//   under « Suit la carte » the lieu closes, the panel following the map;
+//   under « Reste ouvert » it stays open, the wide panel folds; the sheet
+//   lowers — and, deep at the lieu where nothing stands, the map pulls back
+//   to the territory around it, which rises with its analyses (exactly what
+//   a click on that territory does). Higher up, the ring's fit frames the
 //   territory already in sight (see applyRing).
 // - Otherwise on a phone the sheet lowers; a desktop moves nothing (the ring's
 //   fit aside).
@@ -638,8 +704,9 @@ watch(analyses, (on) => {
     if (!isDesktop.value) sheetOpen.value = false;
     return;
   }
+  if (follows()) closeLieuForMap();
   if (isDesktop.value) {
-    mapEngaged.value = true;
+    mapEngaged.value = !follows();
     nav.hoverReturnHeld.value = panelEl.value?.matches(":hover") ?? false;
     cancelHoverReturn();
   } else sheetOpen.value = false;
@@ -975,6 +1042,8 @@ function retryAll() {
       @plateau-settled="onPlateauSettled"
       @view-change="onMapView"
       @user-gesture="onUserGesture"
+      @camera-rest="lieuFollow.end()"
+      @gesture-move="onGestureMove"
     />
 
     <!-- The analyses, around the raised territory. Over the map, under the

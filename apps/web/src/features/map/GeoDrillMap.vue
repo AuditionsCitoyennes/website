@@ -156,6 +156,19 @@ const emit = defineEmits<{
    */
   userGesture: [];
   /**
+   * The camera has come to rest (mapbox's `moveend`, the one a camera command
+   * swallows aside), after the view of that moment: a gesture, if one was
+   * going on, is over.
+   */
+  cameraRest: [];
+  /**
+   * A frame of the USER's gesture moved the map (every `move` of it, glide
+   * included, between the throttled views): for a cheap check that cannot
+   * wait for the next view. The listener runs once per frame: keep it to a
+   * few reads; `reportView()` has the view told at once.
+   */
+  gestureMove: [];
+  /**
    * A run of the plateau pipeline has come to its verdict for unit `scopeId`
    * ("" when the map was cleared): see PlateauSettle. Fires inside the block
    * that applies the plateau, before its first rise frame: what a pending
@@ -918,6 +931,7 @@ function mountMap() {
       // move this was (the view emitted says `byUser`); the camera clears it
       // after, and pays a padding owed.
       onCameraSettled();
+      emit("cameraRest");
       camera.onMoveEnd();
     });
     // Pointers down on the map: a finger at rest is a gesture to come.
@@ -955,7 +969,7 @@ function mountMap() {
         // to ignore its first moments.
         if (camera.userHolding()) emit("userGesture");
         view.emitView();
-      }
+      } else if (camera.userHolding()) emit("gestureMove");
     });
     // The frame bus (usePlateauFrames): fired at the end of every frame drawn.
     map.on("render", frames.emitFrame);
@@ -1135,6 +1149,32 @@ defineExpose({
   /** A finger or the mouse is on the map, or it is still gliding from one: a
    *  camera command now would cut that gesture short. */
   inUserHands: camera.inUserHands,
+  /** Where the camera is right now (its padded centre, zoom, bearing and
+   *  pitch), mid-flight included; null without a map. */
+  cameraNow: () => {
+    if (!map) return null;
+    const c = map.getCenter();
+    return {
+      lng: c.lng,
+      lat: c.lat,
+      zoom: map.getZoom(),
+      bearing: map.getBearing(),
+      pitch: map.getPitch(),
+    };
+  },
+  /** Tell the parent what is in sight now, between the throttled views of a
+   *  gesture (see `gestureMove`). Never mid-flight. */
+  reportView: () => {
+    if (map && !camera.programmatic()) view.emitView();
+  },
+  /** How far, in screen pixels, the ground point at (lng, lat) stands from
+   *  the view's padded centre now; null without a map. */
+  screenShift: (lng: number, lat: number) => {
+    if (!map) return null;
+    const at = map.project([lng, lat]);
+    const centre = map.project(map.getCenter());
+    return Math.hypot(at.x - centre.x, at.y - centre.y);
+  },
   /** Where the raised plateau stands on screen, once per frame drawn (see
    *  PlateauFrame); returns the unsubscribe. */
   onFrame: frames.onFrame,

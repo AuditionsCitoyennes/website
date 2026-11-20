@@ -38,13 +38,16 @@ export interface NavActionsInputs {
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
+  /** « Suit la carte » (`ac:lieu-hold`) and no filters on: the panel follows
+   *  the map, an open lieu included. */
+  follows: () => boolean;
   /** The pending state of a tapped territory (useTapPending): a selection is
    *  marked on the map first, then written — at once, or a frame later. */
   tap: Pick<TapPending, "select" | "cancelWaiting">;
 }
 
 export function useNavActions(inputs: NavActionsInputs) {
-  const { nav, index, listMode, camera, panel, engageMap, tap } = inputs;
+  const { nav, index, listMode, camera, panel, engageMap, follows, tap } = inputs;
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, openAuditions, hoveredPanelId } =
     nav;
   const { flyToUnit, spotlightPlace } = camera;
@@ -99,10 +102,14 @@ export function useNavActions(inputs: NavActionsInputs) {
   function onUnitClick(id: string) {
     const u = index.value.get(id);
     if (!u) return;
-    // With a lieu open only another lieu's dot replaces what the panel shows. A
-    // territory is the whole of its surface — clicking it is moving around the
-    // map, like a drag: the map goes there, the text stays.
-    if (selectedPlaceId.value && u.levelKey !== "place") {
+    // A territory is the whole of its surface — clicking it is moving around
+    // the map, like a drag. With a lieu open and the panel following the map
+    // (« Suit la carte »), the lieu closes as a drag closes it and the
+    // territory is selected, as with no lieu open. Under « Reste ouvert » only
+    // another lieu's dot replaces what the panel shows: the map goes there,
+    // the text stays — and so it does with filters on (`follows` is false),
+    // whose open audition belongs to the results' list.
+    if (selectedPlaceId.value && u.levelKey !== "place" && !follows()) {
       selectTimed(u, "map");
       tap.select(u, () => {
         engageMap();

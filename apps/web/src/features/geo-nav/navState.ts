@@ -9,14 +9,21 @@
 // view (zoom → level, centre → which unit). The panel shows the scope's children
 // + a breadcrumb to fly back out. Reaching a lieu opens its testimonies.
 //
-// Reading a lieu vs. using the map: with a lieu open the panel belongs to the
-// reader: NOTHING the map does may replace what it shows (only a crumb, or
-// picking another lieu, leaves it). So the two take turns. While the user's
-// hands are on the map the panel folds out of the way — on a desktop a wide
-// panel slides aside until only a narrow strip of it is left, on a phone the
-// sheet lowers — and the map is explored as if nothing were open. Coming back
-// to the panel (a click, a key, the wheel, or resting the pointer on it)
-// unfolds it exactly as it was: same lieu, same audition, same line.
+// Reading a lieu vs. using the map (`ac:lieu-hold`, model/lieuHoldSwitch):
+// - « Suit la carte » (the default): the panel follows the map, an open lieu
+//   included. The visitor's own gesture that really moves the map closes the
+//   lieu (model/lieuFollow), and the panel shows what is in view again, as
+//   when no lieu is open; the camera's own moves close nothing. A desktop's
+//   panel stays in place; a phone's sheet lowers while the map is used.
+// - « Reste ouvert », and with filters on whatever the switch: the panel
+//   belongs to the reader: NOTHING the map does may replace what it shows
+//   (only a crumb, or picking another lieu, leaves it). So the two take turns.
+//   While the user's hands are on the map the panel folds out of the way — on
+//   a desktop a wide panel slides aside until only a narrow strip of it is
+//   left, on a phone the sheet lowers — and the map is explored as if nothing
+//   were open. Coming back to the panel (a click, a key, the wheel, or resting
+//   the pointer on it) unfolds it exactly as it was: same lieu, same
+//   audition, same line.
 //
 // Beside the refs, `{ value }` boxes for the flags that are NOT reactive
 // (nothing renders from them; they are read inside callbacks) and yet cross
@@ -57,7 +64,8 @@ export interface NavState {
   // near a threshold.
   currentScope: ShallowRef<GeoUnit>;
   selectedPlaceId: Ref<string | null>;
-  /** Desktop: a lieu is open and the user is on the map, not on the panel. */
+  /** Desktop: a lieu is open and the user is on the map, not on the panel
+   *  (« Reste ouvert », or filters on: the wide panel folds aside). */
   mapEngaged: Ref<boolean>;
   /** A phone's sheet is raised (see useBottomSheet / the panel's `.sheet-lowered`). */
   sheetOpen: Ref<boolean>;

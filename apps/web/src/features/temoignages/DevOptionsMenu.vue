@@ -144,6 +144,8 @@ import {
   lieuSingleMode,
   setLieuSingleMode,
   cardsBleed,
+  lieuHoldMode,
+  setLieuHoldMode,
   setCardsBleed,
 } from "@/features/geo-nav";
 import { recover, setRecover } from "@/shared/net/recoverSwitch";
@@ -245,6 +247,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:boundary-halo": bind(() => boundaryHalo.value, setBoundaryHalo),
   "ac:lieu-single": bind(() => lieuSingleMode.value, setLieuSingleMode),
   "ac:cards-bleed": bind(() => cardsBleed.value, setCardsBleed),
+  "ac:lieu-hold": bind(() => lieuHoldMode.value, setLieuHoldMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
