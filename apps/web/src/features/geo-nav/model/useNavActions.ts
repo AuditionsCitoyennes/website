@@ -36,8 +36,7 @@ export interface NavActionsInputs {
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
-  /** « Suit la carte » (`ac:lieu-hold`) and no filters on: the panel follows
-   *  the map, an open lieu included. */
+  /** No filters on: the panel follows the map, an open lieu included. */
   follows: () => boolean;
   /** The pending state of a tapped territory (useTapPending): a selection is
    *  marked on the map first, then written — at once, or a frame later. */
@@ -101,12 +100,11 @@ export function useNavActions(inputs: NavActionsInputs) {
     const u = index.value.get(id);
     if (!u) return;
     // A territory is the whole of its surface — clicking it is moving around
-    // the map, like a drag. With a lieu open and the panel following the map
-    // (« Suit la carte »), the lieu closes as a drag closes it and the
-    // territory is selected, as with no lieu open. Under « Reste ouvert » only
-    // another lieu's dot replaces what the panel shows: the map goes there,
-    // the text stays — and so it does with filters on (`follows` is false),
-    // whose open audition belongs to the results' list.
+    // the map, like a drag. With a lieu open and the panel following the map,
+    // the lieu closes as a drag closes it and the territory is selected, as
+    // with no lieu open. With filters on (`follows` is false), whose open
+    // audition belongs to the results' list, only another lieu's dot replaces
+    // what the panel shows: the map goes there, the text stays.
     if (selectedPlaceId.value && u.levelKey !== "place" && !follows()) {
       selectTimed(u, "map");
       tap.select(u, () => {

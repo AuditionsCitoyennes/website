@@ -17,10 +17,9 @@ testing tools' DEV switches, not for a feature that is not released yet.
 The other define of the same kind is `__TEST_TOOLS__` (the outbox, the DEV
 switches, the probes): on with `vite` dev and in a build with
 `VITE_APP_ENV=staging`. The DEV dialog (« Options de test »,
-`features/temoignages/devOptions.ts`) holds testing levers only: the data
-source, the map's forced fallback, what an open lieu does when the map is
-used, the device's tier, the map's pixel ratio, the first flight's frame
-measure and, in a build with `VITE_ANALYSES=on`, the analyses' slabs. A
+`features/temoignages/devOptions.ts`) holds testing levers only: the map's
+forced fallback, the device's tier, the map's pixel ratio, the first flight's
+frame measure and, in a build with `VITE_ANALYSES=on`, the analyses' slabs. A
 production build reads none of their keys.
 
 ## `VITE_ANALYSES`

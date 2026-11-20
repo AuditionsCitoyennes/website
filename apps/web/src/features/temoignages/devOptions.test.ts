@@ -30,7 +30,6 @@ import {
 const tier = await import("../../shared/device/deviceTier");
 const fallbackSwitch = await import("../map/fallbackSwitch");
 const graphics = await import("../map/graphicsSwitch");
-const lieuHold = await import("../geo-nav/model/lieuHoldSwitch");
 
 const MODULES = {
   relief: "../map/relief/reliefSwitch.ts",
@@ -38,7 +37,6 @@ const MODULES = {
   tier: "../../shared/device/deviceTier.ts",
   fallback: "../map/fallbackSwitch.ts",
   graphics: "../map/graphicsSwitch.ts",
-  lieuHold: "../geo-nav/model/lieuHoldSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -58,7 +56,6 @@ const KEYS: readonly DevKey[] = [
   "ac:map-fallback",
   "ac:dpr",
   "ac:frame-measure",
-  "ac:lieu-hold",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -72,7 +69,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the three sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 10);
+  assert.equal(DEV_OPTIONS.length, 9);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -143,7 +140,6 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:map-fallback": ["fallback", "setMapFallback"],
   "ac:dpr": ["graphics", "setDprChoice"],
   "ac:frame-measure": ["graphics", "setFrameMeasure"],
-  "ac:lieu-hold": ["lieuHold", "setLieuHoldMode"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -191,7 +187,6 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:map-fallback"), [...fallbackSwitch.MAP_FALLBACKS]);
   assert.deepEqual(ids("ac:dpr"), [...graphics.DPR_CHOICES]);
   assert.deepEqual(ids("ac:frame-measure"), [...graphics.FRAME_MEASURES]);
-  assert.deepEqual(ids("ac:lieu-hold"), [...lieuHold.LIEU_HOLD_MODES]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
@@ -212,7 +207,6 @@ test("the default marked in each sentence is the module's", () => {
     "ac:map-fallback": fallbackSwitch.DEFAULT_MAP_FALLBACK,
     "ac:dpr": graphics.DEFAULT_DPR,
     "ac:frame-measure": graphics.DEFAULT_FRAME_MEASURE,
-    "ac:lieu-hold": lieuHold.DEFAULT_LIEU_HOLD,
   };
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
   for (const o of DEV_OPTIONS) {

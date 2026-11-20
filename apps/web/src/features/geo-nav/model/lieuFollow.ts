@@ -1,5 +1,4 @@
-// When the visitor's own gesture on the map closes the open lieu (the
-// « Suit la carte » mode of `ac:lieu-hold`, model/lieuHoldSwitch.ts). No
+// When the visitor's own gesture on the map closes the open lieu. No
 // import: loadable under node (lieuFollow.test.ts).
 //
 // The panel follows the map: once the visitor takes the map somewhere else
@@ -78,8 +77,6 @@ export function gestureMoved(from: CameraAt, to: CameraAt, shiftPx: number): boo
 
 /** What says whether a gesture may close the lieu now. */
 export interface FollowGate {
-  /** The switch says « Suit la carte ». */
-  follows: boolean;
   /** A lieu is open. */
   lieuOpen: boolean;
   /** Filters are on: the results' list. */
@@ -90,7 +87,7 @@ export interface FollowGate {
 
 /** A gesture may close the lieu: see the head of the file. */
 export function gestureCanClose(g: FollowGate): boolean {
-  return g.follows && g.lieuOpen && !g.listMode && g.sinceOpenMs >= OPEN_TAIL_MS;
+  return g.lieuOpen && !g.listMode && g.sinceOpenMs >= OPEN_TAIL_MS;
 }
 
 export interface LieuFollowInputs {

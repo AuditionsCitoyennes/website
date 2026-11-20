@@ -3,12 +3,11 @@
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (map/fallbackSwitch,
-// geo-nav/model/lieuHoldSwitch, analyses/devSwitch, shared/device/deviceTier,
-// map/graphicsSwitch). Under the « Appareil » row
-// the dialog lists what the page knows of the device (`tierFacts`). Testing
-// tools only: imported by DevOptionsMenu.vue alone, so a production build has
-// none of these strings. French typography: a no-break space ( ) after « and
-// before », ;, :, ? and %.
+// analyses/devSwitch, shared/device/deviceTier, map/graphicsSwitch). Under the
+// « Appareil » row the dialog lists what the page knows of the device
+// (`tierFacts`). Testing tools only: imported by DevOptionsMenu.vue alone, so
+// a production build has none of these strings. French typography: a no-break
+// space ( ) after « and before », ;, :, ? and %.
 
 import type {
   DeviceSignals,
@@ -29,8 +28,7 @@ export type DevKey =
   | "ac:tier"
   | "ac:map-fallback"
   | "ac:dpr"
-  | "ac:frame-measure"
-  | "ac:lieu-hold";
+  | "ac:frame-measure";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -66,8 +64,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "carte",
     title: "Carte",
-    intro:
-      "Ce que montre son cadre quand elle ne démarre pas, et un lieu ouvert quand on s'en sert.",
+    intro: "Ce que montre son cadre quand elle ne démarre pas.",
   },
   {
     id: "analyses",
@@ -102,19 +99,6 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Quand la carte ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée), son cadre montre la France en image, en retrait, sous une phrase simple. « Visiteur » (par défaut) démarre la carte comme d'habitude ; « Essai » ne la démarre pas du tout, pour voir ce cadre sur n'importe quel appareil. Le même cadre, avec un bouton « Réessayer », sert quand le fond de carte n'arrive pas malgré les nouveaux essais.",
     reloads: true,
     defaultId: "visiteur",
-  },
-  {
-    key: "ac:lieu-hold",
-    section: "carte",
-    label: "Lieu ouvert et carte",
-    choices: [
-      { id: "suit", label: "Suit la carte" },
-      { id: "reste", label: "Reste ouvert" },
-    ],
-    explain:
-      "Quand un lieu ou une audition est ouvert dans le panneau et qu'on se sert soi-même de la carte : la faire glisser, zoomer à la molette, en pinçant ou d'un double clic, la tourner, la déplacer au clavier. « Suit la carte » (par défaut) : dès que la carte a vraiment bougé (de 30 pixels à l'écran, d'environ un huitième de niveau de zoom, soit un cran de molette, ou de 10 degrés), le lieu se ferme et le panneau suit la carte en direct, sa liste et son fil changeant avec ce qui est en vue, comme quand aucun lieu n'est ouvert ; sur ordinateur le panneau reste en place, sur téléphone il s'abaisse. Un clic sur un territoire de la carte le choisit, et ouvrir les analyses ferme aussi le lieu. Les mouvements que la carte fait d'elle-même (après un clic sur un point ou une ligne) ne ferment rien. « Reste ouvert », comme avant : rien de ce que fait la carte ne ferme le lieu ; sur ordinateur le panneau large se range sur le côté tant qu'on se sert de la carte, puis revient tel quel. Sans effet avec des filtres : l'audition ouverte dans les résultats reste ouverte. Le changement vaut dès le geste suivant, sans recharger la page.",
-    reloads: false,
-    defaultId: "suit",
   },
   {
     key: "ac:analyses-pending",

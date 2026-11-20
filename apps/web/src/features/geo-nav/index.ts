@@ -6,8 +6,6 @@ export { default as GeoNav } from "./GeoNav.vue";
 export { useUnitTree, type TreeRequest, type UnitTree } from "./data/useUnitTree";
 export { EMPTY_KEY, placesKeys } from "./keys";
 export { fetchFacets, retryable, retryWait, RETRIES, type CountsRequest } from "./data/placesApi";
-// What an open lieu does when the map is used (ac:lieu-hold), for the DEV dialog.
-export { lieuHoldMode, setLieuHoldMode } from "./model/lieuHoldSwitch";
 
 // `window.__acOutlines()`: the outline files in the page (testing tools only).
 if (__TEST_TOOLS__) void import("./data/outlinesProbe");

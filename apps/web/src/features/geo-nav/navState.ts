@@ -9,15 +9,15 @@
 // view (zoom → level, centre → which unit). The panel shows the scope's children
 // + a breadcrumb to fly back out. Reaching a lieu opens its testimonies.
 //
-// Reading a lieu vs. using the map (`ac:lieu-hold`, model/lieuHoldSwitch):
-// - « Suit la carte » (the default): the panel follows the map, an open lieu
-//   included. The visitor's own gesture that really moves the map closes the
-//   lieu (model/lieuFollow), and the panel shows what is in view again, as
-//   when no lieu is open; the camera's own moves close nothing. A desktop's
-//   panel stays in place; a phone's sheet lowers while the map is used.
-// - « Reste ouvert », and with filters on whatever the switch: the panel
-//   belongs to the reader: NOTHING the map does may replace what it shows
-//   (only a crumb, or picking another lieu, leaves it). So the two take turns.
+// Reading a lieu vs. using the map:
+// - With no filters on: the panel follows the map, an open lieu included. The
+//   visitor's own gesture that really moves the map closes the lieu
+//   (model/lieuFollow), and the panel shows what is in view again, as when no
+//   lieu is open; the camera's own moves close nothing. A desktop's panel
+//   stays in place; a phone's sheet lowers while the map is used.
+// - With filters on: the panel belongs to the reader (the results' list):
+//   NOTHING the map does may replace what it shows (only a crumb, or picking
+//   another lieu, leaves it). So the two take turns.
 //   While the user's hands are on the map the panel folds out of the way — on
 //   a desktop a wide panel slides aside until only a narrow strip of it is
 //   left, on a phone the sheet lowers — and the map is explored as if nothing
@@ -65,7 +65,7 @@ export interface NavState {
   currentScope: ShallowRef<GeoUnit>;
   selectedPlaceId: Ref<string | null>;
   /** Desktop: a lieu is open and the user is on the map, not on the panel
-   *  (« Reste ouvert », or filters on: the wide panel folds aside). */
+   *  (filters on: the wide panel folds aside). */
   mapEngaged: Ref<boolean>;
   /** A phone's sheet is raised (see useBottomSheet / the panel's `.sheet-lowered`). */
   sheetOpen: Ref<boolean>;

@@ -143,8 +143,8 @@ export function useScope(inputs: ScopeInputs) {
   const panelUnits = computed<GeoUnit[]>(() => currentScope.value.children);
 
   // Lower bound of the micropin zone (see below). It used to be where unzooming
-  // CLOSED the open lieu; the zoom alone closes nothing now (under « Suit la
-  // carte » the visitor's gesture does, wherever it goes: model/lieuFollow).
+  // CLOSED the open lieu; the zoom alone closes nothing now (the visitor's
+  // gesture does, wherever it goes: model/lieuFollow).
   const MICRO_ZONE_EXIT = 14.5;
 
   // Deep-zoom "micropin zone", ALSO reachable by just zooming in (no lieu click):

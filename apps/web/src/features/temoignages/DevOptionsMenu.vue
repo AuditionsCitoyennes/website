@@ -4,8 +4,7 @@
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the map's
-// fallback (map/fallbackSwitch), what an
-// open lieu does when the map is used (geo-nav), the analyses' slabs
+// fallback (map/fallbackSwitch), the analyses' slabs
 // (analyses/devSwitch; their section only in a build with the analyses), the
 // device's tier (shared/device/deviceTier) with what the page knows of the
 // device listed under it, the map's pixel ratio and whether it times its
@@ -48,7 +47,6 @@ import {
   setFrameMeasure,
   setMapFallback,
 } from "@/features/map";
-import { lieuHoldMode, setLieuHoldMode } from "@/features/geo-nav";
 import {
   DEV_CHANGED_MARK,
   DEV_DESCRIPTION,
@@ -86,7 +84,6 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:map-fallback": bind(() => mapFallback, setMapFallback),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
-  "ac:lieu-hold": bind(() => lieuHoldMode.value, setLieuHoldMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
