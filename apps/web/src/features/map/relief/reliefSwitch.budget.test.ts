@@ -2,7 +2,7 @@
 // against a stubbed localStorage, run with `node --import tsx --test` (root
 // "test:scripts"): the defaults, the kept counts with and without the testing
 // tools, garbage and a throwing storage, and the ground arm (the module read
-// again under a fresh query, as reliefSwitch.prefetch.test.ts).
+// again under a fresh query).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

@@ -22,11 +22,11 @@ const CORE = [
   "gl/mesh.ts",
   "gl/meshBuild.ts",
   "gl/meshConcat.ts",
-  // The mesh worker's entry (ac:mesh=worker) and what it loads.
+  // The mesh worker's entry and what it loads.
   "gl/meshWorker.ts",
   "gl/meshCore.ts",
   "gl/meshFlat.ts",
-  // The flat view's grey sheet, cut in the worker too (ac:tint-cut).
+  // The flat view's grey sheet, cut in the worker too.
   "gl/tintSheet.ts",
   // A large tapped unit's pending mark, built in the worker too.
   "gl/pendingMark.ts",

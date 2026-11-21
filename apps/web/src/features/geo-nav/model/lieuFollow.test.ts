@@ -1,6 +1,6 @@
 // When the visitor's gesture closes the open lieu (lieuFollow.ts), run with
 // `node --import tsx --test` (root "test:scripts"): the thresholds, the gate
-// (the switch, filters on, the tail of the opening tap), and the feed — a
+// (a lieu open, filters on, the tail of the opening tap), and the feed — a
 // gesture that moves the view far enough closes, once; a nudge does not, nor
 // do nudges of separate gestures added up; the camera's own moves (no
 // gesture, or a command since the gesture began) never do.
@@ -45,11 +45,10 @@ test("the thresholds: a pan, a zoom or a turn that means it; a nudge does not", 
   assert.equal(gestureMoved(LYON, { ...LYON, pitch: 30 }, 0), true);
 });
 
-const open: FollowGate = { follows: true, lieuOpen: true, listMode: false, sinceOpenMs: 5000 };
+const open: FollowGate = { lieuOpen: true, listMode: false, sinceOpenMs: 5000 };
 
-test("the gate: « Suit la carte », a lieu open, no filters, past the opening tap", () => {
+test("the gate: a lieu open, no filters, past the opening tap", () => {
   assert.equal(gestureCanClose(open), true);
-  assert.equal(gestureCanClose({ ...open, follows: false }), false); // « Reste ouvert »
   assert.equal(gestureCanClose({ ...open, lieuOpen: false }), false);
   assert.equal(gestureCanClose({ ...open, listMode: true }), false); // the results' list
   assert.equal(gestureCanClose({ ...open, sinceOpenMs: OPEN_TAIL_MS - 1 }), false);
@@ -158,7 +157,6 @@ test("each frame of the gesture: due once the threshold is crossed, between view
 
   // Not due while the gate is shut, nor after a camera command.
   for (const change of [
-    (r: ReturnType<typeof rig>) => (r.s.gate.follows = false),
     (r: ReturnType<typeof rig>) => (r.s.gate.listMode = true),
     (r: ReturnType<typeof rig>) => r.s.key++,
   ]) {
@@ -241,8 +239,8 @@ test("the camera's own moves close nothing", () => {
   assert.equal(cmd.s.closed, 1);
 });
 
-test("filters on, « Reste ouvert », no lieu: a gesture closes nothing", () => {
-  for (const gate of [{ listMode: true }, { follows: false }, { lieuOpen: false }]) {
+test("filters on, no lieu: a gesture closes nothing", () => {
+  for (const gate of [{ listMode: true }, { lieuOpen: false }]) {
     const { s, follow } = rig(gate);
     follow.gesture();
     s.cam = east(LYON, 300);

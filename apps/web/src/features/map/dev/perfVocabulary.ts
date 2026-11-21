@@ -34,7 +34,7 @@
 //                     `sourcedata`, any other failure as a map `error`, after
 //                     which mapbox reads the source loaded: errTiles > 0 is
 //                     no ready time)
-//   plateau.globeBuild  ac:mesh=merc: a lazy setGeometry's globe set, built
+//   plateau.globeBuild  a lazy setGeometry's globe set, built
 //                     after the map's idle (PlateauWallLayer; detail: scope;
 //                     worker: the worker's build time, noted on reception,
 //                     `mesh: "worker"`)
@@ -42,28 +42,25 @@
 //                     before that, or by `__acMeshHash({ globe: true })`
 //   dem.key           a selection's version key from the relief worker
 //                     (usePlateau; detail: scope)
-//   plateau.meshBuild ac:mesh=worker: a mesh's build in the worker, its own
+//   plateau.meshBuild a mesh's build in the worker, its own
 //                     time, noted when the reply is received, so the span
 //                     ends there, not at the worker's end (gl/meshClient.ts;
 //                     detail: scope, part, cold — the request sent geometries)
-//   mesh.roundTrip    ac:mesh=worker: a request posted → its reply received,
+//   mesh.roundTrip    a request posted → its reply received,
 //                     both on the page (detail: scope, first, puts, cloneMs —
 //                     the page's tokens, flattening and postMessage)
-//   plateau.meshWait  ac:mesh=worker: how long a run waited for its mesh
+//   plateau.meshWait  how long a run waited for its mesh
 //                     beyond its other gates (the key, the tile wait;
 //                     with the sink: the mesh's time past the sink's end, 0
 //                     if it came first) (usePlateau; detail: scope, path —
 //                     same, quiet, swap —, first)
-//   plateau.outline   ac:late-files=quiet: a note (0 ms) per outline judged
+//   plateau.outline   a note (0 ms) per outline judged
 //                     against what stands (usePlateau.outlineChanged; detail:
 //                     verdict — run, owed, redress, nothing)
-//   plateau.redress   ac:late-files=quiet: the standing plateau's lines
+//   plateau.redress   the standing plateau's lines
 //                     reshaped in place, from the outline to the mesh applied
 //                     (usePlateau.redress; detail: scope, lines)
-//   plateau.coldStart ac:cold-start=early: a note (0 ms) when a run holding
-//                     for an outline starts the sink and the coming unit's
-//                     lid (usePlateau.coldStart; detail: scope, sink)
-//   tint.workerCut    ac:tint-cut: a grey sheet's cut in the worker, its
+//   tint.workerCut    a grey sheet's cut in the worker, its
 //                     own time, noted when the answer is received
 //                     (ScopeTintLayer; detail: vertices); tint.setSelection
 //                     then times only the cuts made on the page
@@ -76,9 +73,8 @@
 //                     that threw, comma-separated)
 // Reserved for the phases to come, so their tables share one vocabulary:
 // outline.fetch, outline.decode, outline.fallback.
-// plateau.setGeometry's detail names the mesh mode that built it (`mesh`:
-// ac:mesh, plateau/meshSwitch.ts) and, with merc, its globe set's mode and
-// what chose it (`globe`, `zCanon`, `zoom`); with worker it times the apply
+// plateau.setGeometry's detail names its globe set's mode and what chose it
+// (`globe`, `zCanon`, `zoom`); from the worker it times the apply
 // alone and adds `part` (merc, both), `start` (the mode the build was asked
 // with) and `via` (worker, main); its output's fingerprint is
 // `__acMeshHash()` (dev/probes.ts), once per call with `__acMeshHashEvery`.

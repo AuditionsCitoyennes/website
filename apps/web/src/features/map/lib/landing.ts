@@ -1,5 +1,5 @@
 // The moment a camera flight has landed (plateau/riseSwitch.ts,
-// `ac:rise-order=after`: the plateau's rise waits for it). Pure: a map-like
+// The plateau's rise waits for it). Pure: a map-like
 // object and a clock, no mapbox import — run with `node --import tsx --test`
 // (root "test:scripts").
 //

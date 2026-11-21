@@ -1,10 +1,10 @@
-// The page's mesh worker (ac:mesh=worker, plateau/meshSwitch.ts): the client
+// The page's mesh worker: the client
 // core (meshClientCore.ts) over a module Worker running meshWorker.ts, the
 // same builder (meshBuild.ts) as its fallback here. One per map: created with
-// the map object (or at its load: ac:boot-workers, bootWorkersSwitch.ts), so
+// the map object, so
 // the worker's first build does not pay its start-up,
 // disposed with the map. It also cuts the flat view's grey sheet
-// (tintCutterOf, ac:tint-cut) and builds a large tapped unit's pending mark
+// (tintCutterOf) and builds a large tapped unit's pending mark
 // (markProviderOf). A Worker that cannot be made leaves the session
 // building here from the start.
 //
@@ -22,7 +22,6 @@ import type { MarkProvider } from "./PendingMarkPass";
 import type { GlobeProvider } from "./PlateauWallLayer";
 import type { TintCutter } from "./ScopeTintLayer";
 import { cacheBudgetNow } from "../cacheBudget";
-import { leanLines } from "../plateau/lineMeshSwitch";
 
 type Knobs = {
   __acMeshCap?: unknown;
@@ -53,9 +52,8 @@ export function warmMeshWorker(): MeshClient {
       const t = setTimeout(fn, ms);
       return () => clearTimeout(t);
     },
-    fallbackBuild: (i, want) =>
-      buildPlateauMesh(i.features, i.heightM, i.focus, i.context, { ...want, concat: true }),
-    leanLines,
+    fallbackBuild: (i, want) => buildPlateauMesh(i.features, i.heightM, i.focus, i.context, want),
+    leanLines: true,
     // MESH_TOKEN_CAP_VERTICES on a device of the "full" tier, fewer on a
     // weak one (../cacheBudget.ts), read at each apply.
     capVertices: () =>
@@ -99,15 +97,15 @@ export function globeProviderOf(client: MeshClient): GlobeProvider {
     build: (inputs) =>
       client.buildGlobe(inputs).then((r) => {
         if (!r) return null;
-        const { gWallPositions, gLidPositions, gLinePositions, gHaloPositions } = r.mesh;
-        if (!gWallPositions || !gLidPositions || !gLinePositions || !gHaloPositions) return null;
-        return { gWallPositions, gLidPositions, gLinePositions, gHaloPositions, ms: r.ms };
+        const { gWallPositions, gLidPositions, gLinePositions } = r.mesh;
+        if (!gWallPositions || !gLidPositions || !gLinePositions) return null;
+        return { gWallPositions, gLidPositions, gLinePositions, ms: r.ms };
       }),
   };
 }
 
 /** The flat view's grey sheet, cut by `client`'s worker while it lives
- *  (ScopeTintLayer.setCutter, ac:tint-cut); lost, the layer cuts it. */
+ *  (ScopeTintLayer.setCutter); lost, the layer cuts it. */
 export function tintCutterOf(client: MeshClient): TintCutter {
   return {
     live: () => client.mode === "worker",

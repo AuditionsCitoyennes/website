@@ -1,7 +1,6 @@
 // The plateau's pure mesh builder (meshBuild.ts): what it returns for a small
-// scope, the equivalences the layer's three modes rest on (concat packing on
-// or off, the mercator-first build and its globe-only pass), the hover fills'
-// records, and its exact field list. No __TEST_TOOLS__ stub on purpose: the
+// scope, the equivalence the deferred globe set rests on (the mercator-first
+// build and its globe-only pass), the hover fills' records, and its exact field list. No __TEST_TOOLS__ stub on purpose: the
 // builder's import closure must not read it (it would throw here). Run with
 // `node --import tsx --test` (root "test:scripts").
 
@@ -43,14 +42,9 @@ function fixture() {
   return { scope, focus, context, heightM: 1500 };
 }
 
-const ALL = { merc: true, globe: true, concat: true };
-const MERC_ARRAYS = ["positions", "lidPositions", "linePositions", "haloPositions"] as const;
-const GLOBE_ARRAYS = [
-  "gWallPositions",
-  "gLidPositions",
-  "gLinePositions",
-  "gHaloPositions",
-] as const;
+const ALL = { merc: true, globe: true };
+const MERC_ARRAYS = ["positions", "lidPositions", "linePositions"] as const;
+const GLOBE_ARRAYS = ["gWallPositions", "gLidPositions", "gLinePositions"] as const;
 const bytes = (a: ArrayBufferView | null) =>
   a ? Buffer.from(a.buffer, a.byteOffset, a.byteLength) : null;
 
@@ -65,7 +59,6 @@ test("a raised scope: counts, origin, lifted and ground line groups", () => {
   assert.equal(m.positions!.length, 24 * 3);
   assert.ok(m.lidVertexCount > 0 && m.lidVertexCount % 3 === 0);
   assert.equal(m.lineVertexCount, 3 * 4 * 6);
-  assert.ok(m.haloVertexCount > 0);
   assert.equal(m.gWallPositions!.length, 24 * 9);
   assert.equal(m.gLinePositions!.length, m.lineVertexCount * 20);
   assert.equal(m.scopeId, "fr:dep:1");
@@ -101,7 +94,7 @@ test("nothing raised: no origin, the halo untouched, no fills", () => {
   assert.equal(m.scopeId, "");
   assert.equal(m.heightM, 0);
   assert.equal(m.rimCount, 0);
-  assert.equal(m.vertexCount + m.lidVertexCount + m.lineVertexCount + m.haloVertexCount, 0);
+  assert.equal(m.vertexCount + m.lidVertexCount + m.lineVertexCount, 0);
 });
 
 test("a world scope (a context outline only): origin from the first line vertex, halo 0", () => {
@@ -115,24 +108,10 @@ test("a world scope (a context outline only): origin from the first line vertex,
   assert.deepEqual(m.lineGroups, [{ width: 0.9, alpha: 0.85, raised: false, start: 0, count: 24 }]);
 });
 
-test("concat on and off: the same bytes in every array", () => {
-  const fx = fixture();
-  const on = buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, ALL);
-  const off = buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, {
-    ...ALL,
-    concat: false,
-  });
-  for (const k of [...MERC_ARRAYS, ...GLOBE_ARRAYS, "rim"] as const) {
-    assert.ok(on[k], k);
-    assert.deepEqual(bytes(on[k]), bytes(off[k]), k);
-  }
-  assert.deepEqual(on.lineGroups, off.lineGroups);
-});
-
 test("mercator first, then the globe pass: each set equal to the eager build's", () => {
   const fx = fixture();
   const run = (merc: boolean, globe: boolean) =>
-    buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, { merc, globe, concat: true });
+    buildPlateauMesh(fx.scope, fx.heightM, fx.focus, fx.context, { merc, globe });
   const eager = run(true, true);
   const first = run(true, false);
   const late = run(false, true);
@@ -199,15 +178,12 @@ test("MeshOut has exactly its fields", () => {
     "positions",
     "lidPositions",
     "linePositions",
-    "haloPositions",
     "gWallPositions",
     "gLidPositions",
     "gLinePositions",
-    "gHaloPositions",
     "vertexCount",
     "lidVertexCount",
     "lineVertexCount",
-    "haloVertexCount",
     "lineLayout",
     "origin",
     "lineGroups",

@@ -1,4 +1,4 @@
-// The Supabase client, downloaded when it is needed (authClientSwitch.ts):
+// The Supabase client, downloaded when it is needed (authPresence.ts):
 // nothing of the page's first files imports shared/api/supabase.ts. The
 // session store (features/auth/store.ts) and apiFetch (client.ts) go through
 // here; the pages that sign in (the sign-in page, the password page, the

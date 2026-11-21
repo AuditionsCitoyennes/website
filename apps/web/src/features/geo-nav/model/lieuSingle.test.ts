@@ -1,7 +1,7 @@
 // A lieu with one audition (lieuSingle.ts): what is known of a lieu's
 // auditions from the server's row, and the rule
-// that opens the one audition with a lieu newly opened — never in the
-// « Lister » mode, for the lieu already open, for a lieu of several auditions
+// that opens the one audition with a lieu newly opened — never for the
+// lieu already open, for a lieu of several auditions
 // or of none. Plain objects stand in for the rows. Run with
 // `node --import tsx --test` (root "test:scripts").
 // Pure: no Vue, no DOM.
@@ -31,14 +31,13 @@ test("knownFromRow: the count, and the embedded list's first, else the newest (t
 });
 
 const one = { count: 1, first: "a1" };
-const opening = { mode: "ouvrir" as const, newLieu: true, known: one };
+const opening = { newLieu: true, known: one };
 
 test("auditionToOpen: a lieu newly opened with one audition opens it", () => {
   assert.equal(auditionToOpen(opening), "a1");
 });
 
-test("auditionToOpen: « Lister », or the lieu already open: its list, as before", () => {
-  assert.equal(auditionToOpen({ ...opening, mode: "lister" }), null);
+test("auditionToOpen: the lieu already open: its list, as before", () => {
   assert.equal(auditionToOpen({ ...opening, newLieu: false }), null);
 });
 

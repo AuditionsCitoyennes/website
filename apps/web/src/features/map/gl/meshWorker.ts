@@ -1,4 +1,4 @@
-// The mesh worker's entry (ac:mesh=worker): wires meshCore.ts to the worker
+// The mesh worker's entry: wires meshCore.ts to the worker
 // scope. Every reply goes with its mesh's buffers transferred (meshBuffers),
 // a grey sheet's with its triangles', a pending mark's with its line and its
 // fill, so the worker keeps none of them. Imports only the pure core: nothing that

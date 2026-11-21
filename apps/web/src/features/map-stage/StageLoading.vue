@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { defineAsyncComponent } from "vue";
-import { curtainPoster, poster } from "@/shared/ui/posterSwitch";
 
 // The stage while the map's code is still coming (MapStage's async explorer):
 // the card reached, opened, or /temoignages landed on before it is in. The
@@ -16,17 +15,14 @@ import { curtainPoster, poster } from "@/shared/ui/posterSwitch";
 defineOptions({ inheritAttrs: false });
 defineProps<{ preview?: boolean }>();
 
-// France behind the spinner, as GeoNav's curtain (`ac:poster`, shared/ui/posterSwitch).
-// Its own small file, asked for only then: this curtain is in every page's code.
-const withPoster = curtainPoster(poster);
-const FrancePoster = withPoster
-  ? defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"))
-  : null;
+// France behind the spinner, as GeoNav's curtain. Its own small file, asked
+// for only then: this curtain is in every page's code.
+const FrancePoster = defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"));
 </script>
 
 <template>
   <div class="stage-loading" aria-hidden="true">
-    <FrancePoster v-if="FrancePoster" class="loading-poster" />
+    <FrancePoster class="loading-poster" />
     <span class="spinner spinner-lg"></span>
     <p>Chargement de la carte…</p>
   </div>

@@ -376,10 +376,7 @@ in place: the plateau pipeline runs once per selection. Each file is asked at
 a fetch priority (high for the one a plateau waits for, low for the others)
 and none is aborted; a plateau whose own file shares the link with the file
 of a unit just left waits once more for it (2.4 s in all, not 1.2 s) and is
-not remembered as slow for the session. `localStorage` `ac:late-files=direct`
-(testing tools; the DEV dialog's « Fichiers tardifs ») restores the behaviour
-before 2026-11-14: every file stored as it lands, each write a new run of the
-pipeline, no fetch priority.
+not remembered as slow for the session.
 
 A French région or département whose own outline is not in memory is not made
 to wait for its `k/` bundle (itself and every child): its `u/` file — the same
@@ -391,8 +388,7 @@ outline and tier, so the bundle's copy of the self adds nothing: no new shape,
 no second run of the pipeline. A bundle that lands within 80 ms of the self
 (a fast link, the HTTP cache) is stored with it, and the plateau rises with
 its children's lines as before. A row hovered in the list prefetches the same
-two files in the same order. `ac:region-self=bundle` (the DEV dialog's
-« Contour seul ») asks the bundle alone, as before 2026-11-14.
+two files in the same order.
 
 A unit the visitor tapped is the exception: its plateau waits for its bundle
 too, so that it rises with its children's boundaries on its lid (the
@@ -400,15 +396,12 @@ départements of a région, the communes of a département), built by the one
 mesh of its commit instead of a reshape after the rise. The bundle is then
 asked at high priority beside the `u/`, stored as it lands, and counted in
 the tap's loading line. The wait has the cap of the unit's own outline
-(`ac:outline-wait`: four seconds for a tapped unit), a timer of its own per
+(four seconds for a tapped unit), a timer of its own per
 visit that is never extended and ends when the unit is left; past it the
 plateau rises without the lines and the bundle is a late file again, for the
 rest of the visit — a bundle that had failed and is asked again later does
 not reopen the wait. A selection nobody tapped (a crumb, a link, a search, a
-pan, the boot) never waits for them, nor does a tap with no pending mark
-(`ac:tap-answer=off`). `ac:tap-lines` (the DEV dialog's « Lignes
-intérieures »): `wait` (the default), `upper` (only a country and a région
-wait), `late` (nothing waits, as before 2026-11-17).
+pan, the boot) never waits for them.
 
 A touch screen has no pointer to hover a row with. There, once the first
 plateau stands (France, on the Témoignages page), its lid has landed and the
@@ -419,15 +412,12 @@ low priority, into the HTTP cache: the one file a tap's plateau waits for
 wire for the two largest régions of the seed). Two units on a device whose
 tier is "full", one on a weaker one; none under Save-Data or on a link the
 browser calls slow-2g, 2g or 3g; none while the map is the home page's card;
-once per page. `ac:outlines-ahead=off` (the DEV dialog's « Contours d'avance »)
-asks nothing ahead on a touch screen, as before 2026-11-14.
+once per page.
 
 How long a plateau waits for its own outline while a coarser outline of the
-same unit is in memory (a région's entry in `k/FR`, a country's `g/`) is
-`ac:outline-wait` (« Attente du contour »): `file` (the default) — a unit
-the visitor tapped waits for its file itself, 4 s at most, its loading line
-following the file as it arrives (any other selection: 1.2 s) — or `1200`
-(1.2 s tapped or not, as before the loading line), `400` or `0` ms. Past it
+same unit is in memory (a région's entry in `k/FR`, a country's `g/`): a
+unit the visitor tapped waits for its file itself, 4 s at most, its loading
+line following the file as it arrives (any other selection: 1.2 s). Past it
 the plateau rises on the coarse shape; the fine one, stored at a still
 moment, replaces it at the plateau's height, with no sink and no rise. A
 tapped unit's loading line measures its own file: once the wait is given up
@@ -435,9 +425,7 @@ the line goes no further and fades where it stands, the violet stays on the
 unit until the plateau is about to rise on the coarse shape, as for any
 tap — the line is never run to the end for a file that has not come. With
 no coarse shape in memory the wait stays 1.2 s. While the map holds for an
-outline, `ac:cold-start=early` (« Avant le contour ») sinks the plateau
-standing and shoots the coming unit's lid over its box at once; `hold` (the
-default) leaves both for the outline's landing, as before.
+outline, the plateau standing stays up until the outline lands.
 
 A unit with no coarse shape in memory (a commune whose département's bundle
 is still on its way) holds for as long as that file takes: up to two 15 s
@@ -455,8 +443,6 @@ again at once, at the same priority, without counting as one of the
 request's two (`OutlineLoader.reask`); with the outline in memory, the
 plateau's own run is made once more unless one is under way. The scope, the
 camera, the lists and the files' chain are left as they are.
-`ac:slow-sign=off` (« Attente longue ») shows neither dots nor sentence, as
-before 2026-11-14.
 
 **Production has no deploy yet** (`apps/web/wrangler.jsonc` is staging only).
 Whoever adds it MUST copy the staging workflow's two steps

@@ -203,7 +203,6 @@ test("the units asked: the most testimonies first, ties in the list's order, non
 
 test("allowed: the switch on, the files, no hovering pointer, no Save-Data, no slow link", () => {
   const ok: PrefetchGuard = {
-    mode: "idle",
     files: true,
     hover: false,
     saveData: false,
@@ -211,7 +210,6 @@ test("allowed: the switch on, the files, no hovering pointer, no Save-Data, no s
   };
   assert.equal(prefetchAllowed(ok), true);
   assert.equal(prefetchAllowed({ ...ok, effectiveType: null }), true); // Safari, Firefox: not said
-  assert.equal(prefetchAllowed({ ...ok, mode: "off" }), false);
   assert.equal(prefetchAllowed({ ...ok, files: false }), false);
   assert.equal(prefetchAllowed({ ...ok, hover: true }), false);
   assert.equal(prefetchAllowed({ ...ok, saveData: true }), false);

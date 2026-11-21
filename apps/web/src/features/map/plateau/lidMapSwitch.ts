@@ -1,11 +1,7 @@
 // When the lid's hidden map (mapSnapshot.ts: a second Mapbox map, drawn off
 // screen, whose picture is the plateau's top) is created, and whether it is
-// at all (`ac:lid-map`, the Témoignages page's DEV dialog, « Carte cachée »):
+// at all:
 //
-// - "boot": at the visible map's load, on Mapbox's default view (the whole
-//   world, zoom 0) and small (512 px): its style, its shaders and its share
-//   of the tile workers are paid then, and so are the world tiles of that
-//   view, which no lid shows.
 // - "first-place": for the first place a plateau will stand on. When that
 //   place is known at the visible map's load (the scope's outline, else the
 //   rectangle the first camera command frames), the hidden map is created on
@@ -16,70 +12,26 @@
 //   view it was moved to are in (`warmupMoment`). With no place known at the
 //   load (the world level, a scope without a boundary), no hidden map until
 //   the first shot, which creates it on its own rectangle.
-// - "none": no hidden map and no lid. The plateau keeps its wall, its lines,
-//   its halo, the grey outside and its rise; its top is the live map, as it
-//   is today before a lid lands: draped at the plateau's height on raised
-//   ground, seen at ground level inside the wall on flat ground
-//   (relief/groundSwitch.ts).
-// - "auto" (the default): "none" on a device whose tier is "minimal"
-//   (shared/device/deviceTier), "first-place" on every other.
+// - "none", on a device whose tier is "minimal" (shared/device/deviceTier):
+//   no hidden map and no lid. The plateau keeps its wall, its lines, the grey
+//   outside and its rise; its top is the live map, as it is before a lid
+//   lands: draped at the plateau's height on raised ground, seen at ground
+//   level inside the wall on flat ground (relief/groundSwitch.ts).
 //
-// The choice is read once per page load (switching reloads: the hidden map is
-// created at the visible map's load). Under "auto" the device's tier is read
-// at the load and again at each selection: a tier that falls to "minimal"
-// during the visit (the first flight's frames) leaves the standing plateau its
-// lid, and the next selection has none — the hidden map is removed then.
-// `ac:lid` (lidSwitch.ts) comes first: "aucun" is "none" whatever this says,
-// and "ancien", the lid as before, is always created as in "boot" unless this
-// says "none". Production has neither key nor switch: DEFAULT_LID_MAP.
+// The device's tier is read at the load and again at each selection: a tier
+// that falls to "minimal" during the visit (the first flight's frames) leaves
+// the standing plateau its lid, and the next selection has none — the hidden
+// map is removed then.
 //
-// No import and nothing run at load but the switch's read: loadable under
-// node (lidMapSwitch.test.ts).
+// No import and nothing run at load: loadable under node
+// (lidMapSwitch.test.ts).
 
-export type LidMap = "auto" | "boot" | "first-place" | "none";
 /** When the hidden map is created, once decided. */
-export type LidMapPlan = Exclude<LidMap, "auto">;
+export type LidMapPlan = "first-place" | "none";
 
-/** The choice of a build without the testing tools, and the switch's default. */
-export const DEFAULT_LID_MAP: LidMap = "auto";
-
-export const LID_MAPS: readonly LidMap[] = ["auto", "boot", "first-place", "none"];
-
-/** The kept choice, else the default (garbage or blocked storage too). */
-export function storedLidMap(): LidMap {
-  try {
-    const raw = localStorage.getItem("ac:lid-map");
-    return (LID_MAPS as readonly string[]).includes(raw ?? "") ? (raw as LidMap) : DEFAULT_LID_MAP;
-  } catch {
-    return DEFAULT_LID_MAP;
-  }
-}
-
-/** This page load's choice. */
-export const lidMap: LidMap = __TEST_TOOLS__ ? storedLidMap() : DEFAULT_LID_MAP;
-
-/** Another choice: kept, and the page loaded again with it. */
-export function setLidMap(choice: LidMap) {
-  if (!__TEST_TOOLS__ || choice === lidMap) return;
-  try {
-    localStorage.setItem("ac:lid-map", choice);
-  } catch {
-    /* storage blocked (a private window): the choice lasts for this page */
-  }
-  window.location.reload();
-}
-
-/** The plan of a choice on a device of this tier, under this lid mode
- *  (`ac:lid`: "ecran", "ancien" or "aucun"). */
-export function lidMapFor(
-  choice: LidMap,
-  tier: "full" | "light" | "minimal",
-  lidMode: "ecran" | "ancien" | "aucun" = "ecran",
-): LidMapPlan {
-  if (lidMode === "aucun") return "none";
-  const plan = choice === "auto" ? (tier === "minimal" ? "none" : "first-place") : choice;
-  if (plan === "none") return "none";
-  return lidMode === "ancien" ? "boot" : plan;
+/** The plan on a device of this tier. */
+export function lidMapFor(tier: "full" | "light" | "minimal"): LidMapPlan {
+  return tier === "minimal" ? "none" : "first-place";
 }
 
 /** A rectangle, in degrees (the geo feature's Bounds, mapSnapshot's SnapshotBounds). */
@@ -100,16 +52,15 @@ export function usablePlace(b: PlaceBounds | null | undefined): b is PlaceBounds
 }
 
 /** What the visible map's load does about the hidden map: nothing (`null`),
- *  or create it — on the world (`place: null`, "boot") or on the first place.
- *  `outline`: the rectangle of the scope's outline, when it is in by then;
- *  `framed`: the rectangle the first camera command frames. */
+ *  or create it on the first place. `outline`: the rectangle of the scope's
+ *  outline, when it is in by then; `framed`: the rectangle the first camera
+ *  command frames. */
 export function warmupAtLoad(
   plan: LidMapPlan,
   outline: PlaceBounds | null | undefined,
   framed: PlaceBounds | null | undefined,
-): { place: PlaceBounds | null } | null {
+): { place: PlaceBounds } | null {
   if (plan === "none") return null;
-  if (plan === "boot") return { place: null };
   const place = usablePlace(outline) ? outline : usablePlace(framed) ? framed : null;
   return place ? { place } : null;
 }
@@ -154,18 +105,13 @@ export function tilesMoved(
   return a === null || a !== tilesInSight(after);
 }
 
-/** When the load's warm-up (`warmupAtLoad`) creates the hidden map.
- *  On the world ("boot"): at the load, whatever the visible map does — no
- *  tile of that view is one the visible map shows. On a place: at the load
- *  when the load's camera command left the visible map on the tiles it had
- *  (Mapbox fires `load` once they are in), and at the visible map's first
+/** When the load's warm-up (`warmupAtLoad`) creates the hidden map: at the
+ *  load when the load's camera command left the visible map on the tiles it
+ *  had (Mapbox fires `load` once they are in), and at the visible map's first
  *  `idle` when the command moved it onto others: those are on their way
  *  then, and a hidden map created beside them could ask for the same ones. */
-export function warmupMoment(
-  warm: { place: PlaceBounds | null },
-  visibleMoved: boolean,
-): "load" | "idle" {
-  return warm.place && visibleMoved ? "idle" : "load";
+export function warmupMoment(visibleMoved: boolean): "load" | "idle" {
+  return visibleMoved ? "idle" : "load";
 }
 
 /** The camera of a top-down mercator map, `cssPx` wide and high, that frames

@@ -5,7 +5,6 @@ import { FiltersDialog, FilterChips } from "@/features/filters";
 import { GeoNav } from "@/features/geo-nav";
 import { useTestimonyFiltering } from "./useTestimonyFiltering";
 import { useAnalysesToggle } from "./useAnalysesToggle";
-import { placeTreeMode } from "./placeTreeSwitch";
 
 // The testimonies map — the page, or (preview) the card on the home page: the
 // same instance moves between the two (see MapStage).
@@ -15,7 +14,6 @@ const props = defineProps<{ preview?: boolean }>();
 const filtering = useTestimonyFiltering({
   preview: () => Boolean(props.preview),
   queryClient: useQueryClient(),
-  placeTreeMode,
 });
 const {
   text,

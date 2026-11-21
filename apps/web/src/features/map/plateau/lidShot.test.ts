@@ -1,8 +1,7 @@
-// The lid shot's end (lidShot.ts settleAndGrab, settleAndGrabPixels) against a
-// fake hidden map: a frame that was never drawn, cleared or lost ends without
-// a lid and without a pixel read under "signaux", a map error since the jump
-// brings the 8×8 readback back, and "pixels" keeps the shot as it was before
-// lid-readback. Run with `node --import tsx --test` (root "test:scripts"). No
+// The lid shot's end (lidShot.ts settleAndGrab) against a fake hidden map: a
+// frame that was never drawn, cleared or lost ends without a lid and without
+// a pixel read, and a map error since the jump brings the 8×8 readback back.
+// Run with `node --import tsx --test` (root "test:scripts"). No
 // DOM, no mapbox-gl: the fake's timers are node's mocked setTimeout and Date.
 
 import assert from "node:assert/strict";
@@ -11,12 +10,10 @@ import {
   READY_TIMEOUT_MS,
   SETTLE_MS,
   settleAndGrab,
-  settleAndGrabPixels,
   uniformSample,
   type Shot,
   type ShotIO,
 } from "./lidShot";
-import type { LidCheck } from "./lidSwitch";
 
 interface Bmp {
   id: number;
@@ -94,12 +91,12 @@ function fakeMap() {
 type Fake = ReturnType<typeof fakeMap>;
 
 /** Start a shot right after its jump; `result()` is undefined while it runs. */
-async function shoot(f: Fake, check: LidCheck, before?: () => void) {
+async function shoot(f: Fake, before?: () => void) {
   const at = { renders: f.io.signals.renders, errors: f.io.signals.errors };
   before?.(); // what happens between the jump and the first poll
   let result: Shot<Bmp> | undefined;
   let error: unknown;
-  const run = check === "signaux" ? settleAndGrab(f.io, at) : settleAndGrabPixels(f.io);
+  const run = settleAndGrab(f.io, at);
   void run.then(
     (r) => (result = r),
     (e: unknown) => (error = e),
@@ -133,9 +130,9 @@ function withTimers(name: string, fn: () => Promise<void>) {
   });
 }
 
-withTimers("signaux: a drawn map is grabbed once after the 60 ms settle, no readback", async () => {
+withTimers("a drawn map is grabbed once after the 60 ms settle, no readback", async () => {
   const f = fakeMap();
-  const s = await shoot(f, "signaux");
+  const s = await shoot(f);
   await advance(SETTLE_MS - 1);
   assert.deepEqual(seen(f, s), [undefined, false, 0, 0, []]);
   await advance(1);
@@ -147,7 +144,7 @@ withTimers("a map whose first capture would be blank is not shown", async () => 
   // loaded() at once, but no frame drawn since the jump: nothing is grabbed.
   const f = fakeMap();
   f.st.drawOnFrame = false;
-  const s = await shoot(f, "signaux");
+  const s = await shoot(f);
   await advance(5_000);
   assert.deepEqual(seen(f, s), [undefined, false, 0, 0, []]);
   f.render();
@@ -157,31 +154,23 @@ withTimers("a map whose first capture would be blank is not shown", async () => 
   // No frame ever: the ready wait times out at its first poll past 12 s.
   const g = fakeMap();
   g.st.drawOnFrame = false;
-  const t = await shoot(g, "signaux");
+  const t = await shoot(g);
   await advance(READY_TIMEOUT_MS);
   assert.equal(t.result(), undefined);
   await advance(40);
   assert.deepEqual(seen(g, t), ["timeout", false, 0, 0, []]);
-
-  // "pixels" grabs that frame and rejects it on its readback: no lid either.
-  const h = fakeMap();
-  h.st.drawOnFrame = false;
-  h.st.nextBlank = true;
-  const u = await shoot(h, "pixels");
-  await advance(SETTLE_MS);
-  assert.deepEqual(seen(h, u), ["blank", false, 1, 1, [1]]);
 });
 
 withTimers("a canvas cleared during the settle ends undrawn, with nothing grabbed", async () => {
   const f = fakeMap();
-  const s = await shoot(f, "signaux");
+  const s = await shoot(f);
   await advance(30);
   f.resize();
   await advance(30);
   assert.deepEqual(seen(f, s), ["undrawn", false, 0, 0, []]);
 
   const g = fakeMap();
-  const t = await shoot(g, "signaux");
+  const t = await shoot(g);
   await advance(30);
   g.resize();
   g.render(); // drawn again after the clear
@@ -194,27 +183,27 @@ withTimers(
   async () => {
     // Lost before ready: never drawn since, so no grab (the wait ends at its timeout).
     const f = fakeMap();
-    const s = await shoot(f, "signaux", () => (f.lose(), f.deliverLost()));
+    const s = await shoot(f, () => (f.lose(), f.deliverLost()));
     await advance(READY_TIMEOUT_MS + 40);
     assert.ok(["timeout", "lost"].includes(s.result()?.end ?? ""), s.result()?.end);
     assert.equal(f.st.grabs, 0);
 
     // Lost during the settle, the event delivered; restored and drawn, the next shot lands.
     const g = fakeMap();
-    const t = await shoot(g, "signaux");
+    const t = await shoot(g);
     await advance(30);
     g.lose();
     g.deliverLost();
     await advance(40);
     assert.deepEqual(seen(g, t), ["lost", false, 0, 0, []]);
     g.restore();
-    const t2 = await shoot(g, "signaux");
+    const t2 = await shoot(g);
     await advance(SETTLE_MS);
     assert.deepEqual(seen(g, t2), ["ok", true, 1, 0, []]);
 
     // Lost during the settle, the canvas's event not delivered yet.
     const h = fakeMap();
-    const u = await shoot(h, "signaux");
+    const u = await shoot(h);
     await advance(30);
     h.lose();
     await advance(40);
@@ -223,118 +212,75 @@ withTimers(
     // Lost between the grab's call and its resolve: the copy is closed.
     const k = fakeMap();
     k.st.onGrab = k.lose;
-    const v = await shoot(k, "signaux");
+    const v = await shoot(k);
     await advance(SETTLE_MS);
     assert.deepEqual(seen(k, v), ["lost", false, 1, 0, [1]]);
 
-    // A grab that rejects: "signaux" ends failed, "pixels" rejects as before.
+    // A grab that rejects ends failed.
     const m = fakeMap();
     m.st.rejectNext = true;
-    const w = await shoot(m, "signaux");
+    const w = await shoot(m);
     await advance(SETTLE_MS);
     assert.deepEqual([...seen(m, w), w.error()], ["failed", false, 1, 0, [], undefined]);
-    const n = fakeMap();
-    n.st.rejectNext = true;
-    const x = await shoot(n, "pixels");
-    await advance(SETTLE_MS);
-    assert.equal(x.result(), undefined);
-    assert.match(String(x.error()), /grab failed/);
   },
 );
 
 withTimers("an error since the jump runs the pixel check once", async () => {
   const f = fakeMap();
   f.st.nextBlank = true;
-  const s = await shoot(f, "signaux", f.error);
+  const s = await shoot(f, f.error);
   await advance(SETTLE_MS);
   assert.deepEqual(seen(f, s), ["blank", false, 1, 1, [1]]);
 
   const g = fakeMap();
-  const t = await shoot(g, "signaux", g.error);
+  const t = await shoot(g, g.error);
   await advance(SETTLE_MS);
   assert.deepEqual(seen(g, t), ["ok", true, 1, 1, []]);
 
   // An error before the jump is already in `at`.
   const h = fakeMap();
   h.error();
-  const u = await shoot(h, "signaux");
+  const u = await shoot(h);
   await advance(SETTLE_MS);
   assert.deepEqual(seen(h, u), ["ok", true, 1, 0, []]);
 });
 
-withTimers("pixels = today: loaded() alone, one readback per grab, in today's order", async () => {
-  // No render since the jump: still grabbed (the ready condition is loaded()).
-  const f = fakeMap();
-  f.st.drawOnFrame = false;
-  f.st.loaded = false;
-  const s = await shoot(f, "pixels");
-  await advance(80);
-  assert.equal(f.st.grabs, 0);
-  f.st.loaded = true;
-  await advance(40 + SETTLE_MS);
-  assert.deepEqual(seen(f, s), ["ok", true, 1, 1, []]);
-  assert.deepEqual(f.st.order, ["frame", "until", `wait ${SETTLE_MS}`, "grab", "blank"]);
-
-  const g = fakeMap();
-  g.st.nextBlank = true;
-  const t = await shoot(g, "pixels");
-  await advance(SETTLE_MS);
-  assert.deepEqual(seen(g, t), ["blank", false, 1, 1, [1]]);
-
-  // "pixels" ignores the signals: a lost flag does not stop it.
-  const h = fakeMap();
-  const u = await shoot(h, "pixels", h.lose);
-  await advance(SETTLE_MS);
-  assert.deepEqual(seen(h, u), ["ok", true, 1, 1, []]);
-});
-
 withTimers("superseded at each await, the grab closed, no readback", async () => {
-  for (const check of ["signaux", "pixels"] as const) {
+  {
     // After the ready wait.
     const f = fakeMap();
     f.st.loaded = false;
-    const s = await shoot(f, check);
+    const s = await shoot(f);
     await advance(40);
     f.st.current = false;
     f.st.loaded = true;
     await advance(40);
-    assert.deepEqual(seen(f, s), ["superseded", false, 0, 0, []], check);
+    assert.deepEqual(seen(f, s), ["superseded", false, 0, 0, []]);
     // After the settle.
     const g = fakeMap();
-    const t = await shoot(g, check);
+    const t = await shoot(g);
     await advance(30);
     g.st.current = false;
     await advance(40);
-    assert.deepEqual(seen(g, t), ["superseded", false, 0, 0, []], check);
+    assert.deepEqual(seen(g, t), ["superseded", false, 0, 0, []]);
     // After the grab.
     const h = fakeMap();
     h.st.onGrab = () => (h.st.current = false);
-    const u = await shoot(h, check);
+    const u = await shoot(h);
     await advance(SETTLE_MS);
-    assert.deepEqual(seen(h, u), ["superseded", false, 1, 0, [1]], check);
+    assert.deepEqual(seen(h, u), ["superseded", false, 1, 0, [1]]);
   }
 });
 
 withTimers("a superseded shot does not poll to the timeout", async () => {
-  // "signaux": ends within one poll of being superseded.
+  // It ends within one poll of being superseded.
   const f = fakeMap();
   f.st.loaded = false;
-  const s = await shoot(f, "signaux");
+  const s = await shoot(f);
   await advance(200);
   f.st.current = false;
   await advance(40);
   assert.equal(s.result()?.end, "superseded");
-  // "pixels" (the map still alive): within one poll of the shared map's next load.
-  const g = fakeMap();
-  g.st.loaded = false;
-  const t = await shoot(g, "pixels");
-  await advance(200);
-  g.st.current = false;
-  await advance(1_000);
-  assert.equal(t.result(), undefined);
-  g.st.loaded = true;
-  await advance(40);
-  assert.deepEqual(seen(g, t), ["superseded", false, 0, 0, []]);
 });
 
 test("uniformSample: a luminance range under 4, alpha ignored", () => {

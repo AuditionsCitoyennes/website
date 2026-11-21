@@ -1,8 +1,7 @@
 // The pending state of a tapped territory (tapPendingCore.ts): when it
 // begins, each way it ends (its plateau commits, the scope moves without a
-// tap, nothing will rise, a newer tap, the safety cap), what the map and the
-// screen reader are told, the frame the mark may get to itself, and the sign
-// of a long wait: when it moves, when the wait turns late, what « Réessayer »
+// tap, nothing will rise, a newer tap), what the map and the screen reader
+// are told, and the sign of a long wait: when it moves, when the wait turns late, what « Réessayer »
 // starts over. Fake map, fake timers. Run with `node --import tsx --test` (root "test:scripts").
 
 import assert from "node:assert/strict";
@@ -10,11 +9,8 @@ import { test } from "node:test";
 import {
   LANDING_CAP_MS,
   LATE_SENTENCE,
-  OWN_FRAME_CAP_MS,
-  PENDING_CAP_MS,
   SLOW_SIGN_FLOOR_MS,
   SLOW_WAIT_MS,
-  createTapFrame,
   createTapPending,
   readySentence,
   type PendingUnit,
@@ -78,7 +74,6 @@ function harness(opts: { off?: boolean; slow?: boolean } = {}) {
     now: clock.now,
     ...(opts.slow
       ? {
-          slowSign: () => true,
           onWait: (stage, unit) => log.push(`wait ${stage}${unit ? ` ${unit.id}` : ""}`),
           reask: (unit) => log.push(`reask ${unit.id}`),
         }
@@ -187,7 +182,7 @@ test("a failure of another unit's run is not this one's", () => {
   assert.equal(s.busy, "fr:dep:69");
 });
 
-test("the mark in a frame of its own: what the map says before the scope is written is ignored", () => {
+test("what the map says before the scope is written is ignored", () => {
   const { core, log, s, writeScope } = harness();
   core.begin(RHONE); // the scope is still the région
   core.settled("fr:reg:84", "rise"); // the unit being left, still landing
@@ -200,14 +195,6 @@ test("the mark in a frame of its own: what the map says before the scope is writ
   assert.equal(log.at(-1), "unmark rise");
 });
 
-test("a selection that will not be written is abandoned: the mark goes", () => {
-  const { core, log, s } = harness();
-  core.begin(RHONE);
-  core.abandon();
-  assert.deepEqual(log.slice(1), ["end fr:dep:69 moved 0", "unmark off"]);
-  assert.equal(s.busy, null);
-});
-
 test("a tap on the unit already in scope is pending from the start", () => {
   const { core, s } = harness();
   s.scope = "fr:dep:69";
@@ -216,28 +203,13 @@ test("a tap on the unit already in scope is pending from the start", () => {
   assert.equal(s.busy, null);
 });
 
-test("no verdict within the cap: the mark goes, nothing is said", () => {
-  const { core, clock, log, s, writeScope } = harness();
-  core.begin(RHONE);
-  writeScope("fr:dep:69");
-  clock.run(PENDING_CAP_MS - 1);
-  assert.equal(s.busy, "fr:dep:69");
-  clock.run(1);
-  assert.deepEqual(log.slice(1), [`end fr:dep:69 timeout ${PENDING_CAP_MS}`, "unmark off"]);
-  assert.equal(s.busy, null);
-  assert.equal(s.said, "");
-  // A verdict after it changes nothing.
-  core.settled("fr:dep:69", "rise");
-  assert.equal(log.length, 3);
-});
-
-test("switched off: no state, no mark, nothing busy — and a mark left by the tap before goes", () => {
+test("no mark to be had: no state, nothing busy — and a mark left by the tap before goes", () => {
   const off = harness({ off: true });
   assert.equal(off.core.begin(RHONE), false);
   assert.deepEqual(off.log, []);
   assert.equal(off.s.busy, null);
   assert.equal(off.clock.live(), 0);
-  // On, a tap; then off (the switch is live), another tap.
+  // A tap; then one with no mark to be had (its plateau stands).
   let on = true;
   const clock = fakeTimers();
   const log: string[] = [];
@@ -279,7 +251,7 @@ test("dispose drops the state and its timer without touching the map", () => {
   assert.equal(core.pending(), null);
 });
 
-// ---- The sign of a long wait (ac:slow-sign) ----
+// ---- The sign of a long wait ----
 
 test("a plateau that commits before the floor shows no sign at all", () => {
   const { core, clock, log, writeScope } = harness({ slow: true });
@@ -323,7 +295,7 @@ test("the sign moves once the flight has landed AND the floor has passed, whiche
 
 test("a view reported before the scope is written is not the flight's landing", () => {
   const { core, clock, writeScope } = harness({ slow: true });
-  core.begin(RHONE); // ac:tap-frame=own: the scope follows a frame later
+  core.begin(RHONE); // The scope follows a frame later
   core.landed(); // the view of the unit being left
   writeScope("fr:dep:69");
   clock.run(SLOW_SIGN_FLOOR_MS);
@@ -344,7 +316,7 @@ test("a landing never reported counts as landed at the cap", () => {
   assert.equal(core.wait(), "late");
 });
 
-test("five seconds with nothing: the mark goes, the list is free, the sentence is said — and no timeout", () => {
+test("five seconds with nothing: the mark goes, the list is free, the sentence is said", () => {
   const { core, clock, log, s, writeScope } = harness({ slow: true });
   core.begin(RHONE);
   writeScope("fr:dep:69");
@@ -360,9 +332,8 @@ test("five seconds with nothing: the mark goes, the list is free, the sentence i
   assert.equal(s.said, LATE_SENTENCE);
   assert.equal(core.pending()?.id, "fr:dep:69"); // still awaited
   assert.equal(clock.live(), 0); // nothing moves, nothing ticks
-  clock.run(PENDING_CAP_MS);
+  clock.run(10_000);
   assert.equal(core.wait(), "late"); // no cap ends it
-  assert.ok(!log.some((l) => l.includes("timeout")));
 });
 
 test("a late wait whose plateau commits after all: the sentence of the unit, no second unmark", () => {
@@ -485,19 +456,6 @@ test("every end is told, a late wait's included, whose mark went when it turned 
   ); // no second unmark
 });
 
-test("the sign off (or not wired): the state before it — the cap, no stage, landings ignored", () => {
-  const { core, clock, log, writeScope } = harness();
-  core.begin(RHONE);
-  writeScope("fr:dep:69");
-  core.landed();
-  clock.run(SLOW_WAIT_MS);
-  assert.equal(core.wait(), "none");
-  assert.deepEqual(log, ["mark fr:dep:69"]);
-  assert.equal(core.retry(), false);
-  clock.run(PENDING_CAP_MS - SLOW_WAIT_MS);
-  assert.equal(log.at(-1), "unmark off");
-});
-
 test("dispose drops a long wait's timers too", () => {
   const { core, clock } = harness({ slow: true });
   core.begin(RHONE);
@@ -516,67 +474,4 @@ test("the sentence: the name, then its testimonies, in French", () => {
     readySentence({ id: "x", label: "Guyane", count: 0 }),
     "Guyane affiché sur la carte : aucun témoignage.",
   );
-});
-
-// ---- the frame the mark gets to itself -----------------------------------------
-
-function frameHarness() {
-  const clock = fakeTimers();
-  const paints: (() => void)[] = [];
-  const frame = createTapFrame({
-    afterPaint: (fn) => paints.push(fn),
-    setTimer: clock.setTimer,
-    clearTimer: clock.clearTimer,
-  });
-  /** A frame is painted: every callback waiting for it runs. */
-  const paint = () => paints.splice(0).forEach((fn) => fn());
-  return { frame, clock, paint };
-}
-
-test("the selection is written once the mark's frame is painted, once", () => {
-  const { frame, clock, paint } = frameHarness();
-  const ran: string[] = [];
-  frame.after(() => ran.push("a"));
-  assert.deepEqual(ran, []);
-  assert.equal(frame.waiting(), true);
-  paint();
-  assert.deepEqual(ran, ["a"]);
-  assert.equal(frame.waiting(), false);
-  assert.equal(clock.live(), 0);
-  clock.run(OWN_FRAME_CAP_MS * 2); // the cap's timer was cleared
-  paint();
-  assert.deepEqual(ran, ["a"]);
-});
-
-test("no frame painted (a hidden tab): written at the cap", () => {
-  const { frame, clock, paint } = frameHarness();
-  const ran: string[] = [];
-  frame.after(() => ran.push("a"));
-  clock.run(OWN_FRAME_CAP_MS - 1);
-  assert.deepEqual(ran, []);
-  clock.run(1);
-  assert.deepEqual(ran, ["a"]);
-  paint(); // the frame comes at last: nothing more
-  assert.deepEqual(ran, ["a"]);
-});
-
-test("the last tap wins: a newer selection replaces the one waiting", () => {
-  const { frame, paint } = frameHarness();
-  const ran: string[] = [];
-  frame.after(() => ran.push("a"));
-  frame.after(() => ran.push("b"));
-  paint();
-  assert.deepEqual(ran, ["b"]);
-});
-
-test("cancelled: the selection waiting is never written", () => {
-  const { frame, clock, paint } = frameHarness();
-  const ran: string[] = [];
-  frame.after(() => ran.push("a"));
-  frame.cancel();
-  assert.equal(frame.waiting(), false);
-  paint();
-  clock.run(OWN_FRAME_CAP_MS);
-  assert.deepEqual(ran, []);
-  assert.equal(clock.live(), 0);
 });

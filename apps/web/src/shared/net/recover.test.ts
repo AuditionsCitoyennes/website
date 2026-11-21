@@ -1,7 +1,6 @@
 // The recovery after a network failure (recoverSwitch.ts, reconnect.ts), run
 // with `node --import tsx --test` (root "test:scripts"): the waits between
-// attempts, the switch read only with the testing tools (garbage and blocked
-// storage read as the default), and the moments the network may be back.
+// attempts, and the moments the network may be back.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -19,29 +18,6 @@ test("the waits: 2, 5, 10, 20 then 30 s, nothing past them", () => {
   );
   assert.equal(sw.recoverDelay(5), null);
   assert.equal(sw.recoverDelay(-1), null);
-});
-
-test("the default is « auto », and a build without the testing tools reads no storage", () => {
-  assert.equal(sw.DEFAULT_RECOVER, "auto");
-  assert.deepEqual(sw.RECOVERS, ["auto", "ancien"]);
-  assert.equal(sw.recover, "auto");
-});
-
-test("the stored mode is read back, garbage and blocked storage as the default", () => {
-  const kept = new Map<string, string>();
-  g.localStorage = { getItem: (k: string) => kept.get(k) ?? null };
-  assert.equal(sw.storedRecover(), "auto");
-  kept.set("ac:recover", "ancien");
-  assert.equal(sw.storedRecover(), "ancien");
-  kept.set("ac:recover", "nope");
-  assert.equal(sw.storedRecover(), "auto");
-  g.localStorage = {
-    getItem: () => {
-      throw new Error("blocked");
-    },
-  };
-  assert.equal(sw.storedRecover(), "auto");
-  delete g.localStorage;
 });
 
 test("onReconnect: the browser online, the page shown again; not hidden; unsubscribed", () => {

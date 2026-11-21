@@ -6,12 +6,7 @@ import { useTheme } from "@/shared/ui/theme/useTheme";
 import { ROUTE } from "@/shared/routes";
 import { useCreateAudition } from "@/features/admin";
 import { useSubmitTestimony } from "@/features/testify";
-import {
-  lastTestimonyAt,
-  nudgeDue,
-  testifyLook,
-  testifyNudge,
-} from "@/shared/testimony/testifyNudge";
+import { lastTestimonyAt, nudgeDue } from "@/shared/testimony/testifyNudge";
 import { DONATION_URL } from "@/features/support";
 import HeaderMobileMenu from "./HeaderMobileMenu.vue";
 import { useHeaderTuck } from "./useHeaderTuck";
@@ -66,11 +61,10 @@ function testify() {
 }
 
 // « Témoigner » invites a little more when this device has sent no testimony
-// for a week (shared/testimony/testifyNudge.ts): a violet glow, ring or dot on
-// the bar's button, and on phones on the menu's tile (the button is in its
-// popup there).
-const nudge = computed(() => nudgeDue(testifyNudge.value, lastTestimonyAt.value, Date.now()));
-const nudgeClass = computed(() => (nudge.value ? ["nudge", `nudge--${testifyLook.value}`] : []));
+// for a week (shared/testimony/testifyNudge.ts): a violet glow on the bar's
+// button, and on phones on the menu's tile (the button is in its popup there).
+const nudge = computed(() => nudgeDue(lastTestimonyAt.value, Date.now()));
+const nudgeClass = computed(() => (nudge.value ? ["nudge"] : []));
 
 // The menu's tile invites only while the menu is shut: open, its « Témoigner »
 // row is in view (and the tile is the close button).
@@ -381,25 +375,13 @@ const joinTo = { path: ROUTE.auth.path, query: { tab: "inscription" } };
    Always the site's violet. */
 .nudge {
   position: relative;
-  /* A ring as wide as tall around a long button and a square tile alike. */
-  --nudge-grow-x: 1.1;
-  --nudge-grow-y: 1.32;
 }
 
-.icon-btn.nudge {
-  --nudge-grow-x: 1.3;
-  --nudge-grow-y: 1.3;
-}
-
-.nudge::before,
+/* A soft glow, breathing three times, then still. */
 .nudge::after {
   content: "";
   position: absolute;
   pointer-events: none;
-}
-
-/* « Lueur »: a soft glow, breathing three times, then still. */
-.nudge--lueur::after {
   inset: -1px;
   border-radius: inherit;
   box-shadow:
@@ -407,41 +389,6 @@ const joinTo = { path: ROUTE.auth.path, query: { tab: "inscription" } };
     0 0 20px 5px hsl(var(--primary) / 0.55);
   opacity: 0.65;
   animation: nudge-breathe 2.4s ease-in-out 0.6s 3 both;
-}
-
-/* « Anneau »: a thin ring, from which a wider one spreads and fades three
-   times. */
-.nudge--anneau::before,
-.nudge--anneau::after {
-  inset: -4px;
-  border-radius: calc(0.5rem + 4px);
-  border: 1.5px solid hsl(var(--primary) / 0.65);
-}
-
-.nudge--anneau::after {
-  border-width: 2px;
-  opacity: 0;
-  animation: nudge-ripple 1.8s cubic-bezier(0.2, 0.6, 0.3, 1) 0.6s 3 both;
-}
-
-/* « Point »: a small dot on the corner, its glow breathing three times. */
-.nudge--point::before,
-.nudge--point::after {
-  top: -4px;
-  right: -4px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.nudge--point::before {
-  box-shadow: 0 0 8px 4px hsl(var(--primary) / 0.7);
-  opacity: 0.65;
-  animation: nudge-glow 2.4s ease-in-out 0.6s 3 both;
-}
-
-.nudge--point::after {
-  background: hsl(var(--accent-foreground));
 }
 
 @keyframes nudge-breathe {
@@ -457,36 +404,8 @@ const joinTo = { path: ROUTE.auth.path, query: { tab: "inscription" } };
   }
 }
 
-@keyframes nudge-glow {
-  0%,
-  100% {
-    opacity: 0.65;
-    transform: scale(1);
-  }
-  25% {
-    opacity: 1;
-    transform: scale(1.7);
-  }
-  75% {
-    opacity: 0.3;
-    transform: scale(1);
-  }
-}
-
-@keyframes nudge-ripple {
-  0% {
-    opacity: 0.9;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(var(--nudge-grow-x), var(--nudge-grow-y));
-  }
-}
-
 /* Less motion asked for: the still look at once. */
 @media (prefers-reduced-motion: reduce) {
-  .nudge::before,
   .nudge::after {
     animation: none;
   }

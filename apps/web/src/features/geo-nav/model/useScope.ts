@@ -7,7 +7,7 @@ import { computed, watch, type ComputedRef, type Ref } from "vue";
 import { ancestorsOf, holdInView, scopeForView, type GeoUnit } from "@/features/geo";
 import { perfOn, perfProbe, perfSpan } from "@/shared/perf/perf";
 import type { Insets, MapView, NavState } from "../navState";
-import { createScopeHold, dragKeepsZone, scopeDragMode } from "./scopeHold";
+import { createScopeHold } from "./scopeHold";
 
 export interface ScopeInputs {
   nav: NavState;
@@ -29,10 +29,9 @@ export function useScope(inputs: ScopeInputs) {
   const { currentScope, selectedPlaceId, mapEngaged, sheetOpen, inMicroZone, mapView } = nav;
 
   // The zone a selection holds (scopeHold.ts), and whether a pan keeps it:
-  // the switch, on the device's main pointer as it is now.
+  // on a touch device, by the device's main pointer as it is now.
   const hold = createScopeHold();
-  const keepsZone = () =>
-    dragKeepsZone(scopeDragMode.value, window.matchMedia?.("(pointer: coarse)").matches ?? false);
+  const keepsZone = () => window.matchMedia?.("(pointer: coarse)").matches ?? false;
   // The testing tools: the derivations, those that changed the scope, and
   // those in which the hold kept the selected zone; the scope now and the
   // view it was read off (a walk steers by them).
@@ -40,7 +39,6 @@ export function useScope(inputs: ScopeInputs) {
   if (perfOn) {
     perfProbe("scope-drag", {
       read: () => ({
-        mode: scopeDragMode.value,
         keeps: keepsZone(),
         zone: hold.id(),
         scope: currentScope.value.id,
@@ -145,8 +143,8 @@ export function useScope(inputs: ScopeInputs) {
   const panelUnits = computed<GeoUnit[]>(() => currentScope.value.children);
 
   // Lower bound of the micropin zone (see below). It used to be where unzooming
-  // CLOSED the open lieu; the zoom alone closes nothing now (under « Suit la
-  // carte » the visitor's gesture does, wherever it goes: model/lieuFollow).
+  // CLOSED the open lieu; the zoom alone closes nothing now (the visitor's
+  // gesture does, wherever it goes: model/lieuFollow).
   const MICRO_ZONE_EXIT = 14.5;
 
   // Deep-zoom "micropin zone", ALSO reachable by just zooming in (no lieu click):

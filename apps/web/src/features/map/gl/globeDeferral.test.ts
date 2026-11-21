@@ -1,4 +1,4 @@
-// The plateau's deferred globe set (globeDeferral.ts, ac:mesh=merc): which
+// The plateau's deferred globe set (globeDeferral.ts): which
 // builds may wait, and the generations that keep a held build from landing
 // over a newer mesh. Run with `node --import tsx --test` (root
 // "test:scripts"). Pure: no DOM, no alias at run time.

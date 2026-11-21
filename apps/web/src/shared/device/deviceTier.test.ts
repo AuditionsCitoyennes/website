@@ -3,8 +3,7 @@
 // weak, the software renderers' names, a flight's frames judged against the
 // audit's four profiles, the kept step's validity, the decision and its two
 // kinds of weak; then the module's own state under stubbed globals (imported
-// under a fresh query each time, its choice being read at load, as
-// meshSwitch.test.ts): the switch read only with the testing tools, a slow
+// under a fresh query each time, its choice being read at load): the switch read only with the testing tools, a slow
 // flight stepping its page load down and noted, the step kept at the second
 // strike (strikeRule), the reset.
 

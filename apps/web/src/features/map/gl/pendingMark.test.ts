@@ -14,9 +14,6 @@ import { baseOf } from "../lib/projection";
 import {
   G_MARK_FILL_FLOATS,
   G_MARK_LINE_FLOATS,
-  MARK_CREEP_FREEZE_MS,
-  MARK_CREEP_LEAD,
-  MARK_CREEP_MAX,
   MARK_FILL_FLOATS,
   MARK_FILL_MAX_EDGE_DEG,
   MARK_LINE_FLOATS,
@@ -34,8 +31,6 @@ import {
   buildMarkFill,
   buildMarkLine,
   buildMarkStandIn,
-  creepLead,
-  creepShown,
   easeStep,
   lineEaseMs,
   lineRun,
@@ -400,33 +395,6 @@ test("the line's ease: from where it is to its step, ease-out, exact at both end
   assert.equal(easeStep(0.2, 0.6, -1), 0.2);
   const mid = easeStep(0.2, 0.6, 0.5);
   assert.ok(mid > 0.4 && mid < 0.6); // past the middle: ease-out
-});
-
-test("the creep: a small lead on top of the real value, frozen after a while, never the end", () => {
-  assert.equal(creepLead(0), 0);
-  assert.equal(creepLead(-5), 0);
-  let last = 0;
-  for (let ms = 0; ms <= 10_000; ms += 250) {
-    const lead = creepLead(ms);
-    assert.ok(lead >= last && lead < MARK_CREEP_LEAD, `${ms}: ${lead}`);
-    last = lead;
-  }
-  assert.equal(creepLead(MARK_CREEP_FREEZE_MS), creepLead(60_000)); // frozen
-  assert.ok(creepLead(MARK_CREEP_FREEZE_MS) > MARK_CREEP_LEAD * 0.9);
-  assert.ok(MARK_CREEP_LEAD <= 0.08); // a few hundredths of the boundary
-  for (const real of [0, 0.164, 0.25, 0.54, 0.8, 0.88, 0.9, 0.95]) {
-    for (let ms = 0; ms <= 10_000; ms += 250) {
-      const v = creepShown(real, ms);
-      // Never under the real value, never more than the lead past it.
-      assert.ok(v >= real && v <= real + MARK_CREEP_LEAD, `${real} at ${ms}: ${v}`);
-      assert.ok(v <= Math.max(real, MARK_CREEP_MAX));
-    }
-    assert.equal(creepShown(real, 0), real);
-  }
-  // The lead is the same whatever the real value: a real step of any length
-  // moves the line by that length.
-  assert.ok(near(creepShown(0.4, 2000) - creepShown(0.164, 2000), 0.4 - 0.164));
-  assert.equal(creepShown(0.95, 4000), 0.95); // past the cap already: no lead at all
 });
 
 test("a fade: 1 until it starts, linear, 0 from its end — and at once without a time", () => {

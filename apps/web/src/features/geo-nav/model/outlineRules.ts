@@ -18,7 +18,7 @@
 // 2b. The plateau of a unit the visitor tapped also waits for the unit's
 //    bundle — its children's boundaries, the lid's lines of rule 3 — while
 //    that wait is armed and its time has not passed (useOutlineFiles'
-//    holdLines: the cap of ac:outline-wait, once per visit), its row
+//    holdLines: the cap of the unit's own outline, once per visit), its row
 //    declares a bundle, and the bundle is neither in nor failed
 //    (`childLinesDue`): it rises with them on its lid, from the one mesh of
 //    its commit. Never a selection nobody tapped.
@@ -38,7 +38,7 @@
 //    country's, its u/ (outlineRoles' prefetchKind). A touch screen, which
 //    no pointer hovers, asks the file of the one or two units holding the
 //    most testimonies under the first plateau, once the map is at rest
-//    (data/idlePrefetch, ac:outlines-ahead).
+//    (data/idlePrefetch).
 // 8. An overseas territory's région reads its département's files (geo's
 //    OutlineStore.filesIdOf).
 import { countryOutline, lngNear, selfFileOf } from "@/features/geo";

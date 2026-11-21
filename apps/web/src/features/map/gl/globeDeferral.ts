@@ -1,13 +1,12 @@
-// When the plateau's globe set is built, with ac:mesh=merc (plateau/meshSwitch.ts):
-// the globe copies of the walls, the lid, the lines and the halo are most of
+// When the plateau's globe set is built: the globe copies of the walls, the
+// lid and the lines are most of
 // the mesh's bytes and time, and are drawn only below zoom 6 (the globe
 // programs' smoothstep(5, 6), gl/program.ts). A plateau that stands well past
 // it gets its mercator set first (PlateauWallLayer.setGeometry, "lazy") and its
 // globe set after the map's next idle, or on the first globe frame drawn
-// before that. With ac:mesh=worker the set is asked of the worker; an ask in
-// flight is told apart (`ask`, `asking`), so a globe frame can wait for its
-// answer instead of building the same set on the page (ac:globe-late,
-// ../threadSwitch.ts). Pure: no DOM, no GL.
+// before that. The set is asked of the worker; an ask in flight is told apart
+// (`ask`, `asking`), so a globe frame can wait for its answer instead of
+// building the same set on the page (../threadSwitch.ts). Pure: no DOM, no GL.
 
 /** A fit at this canonical DEM zoom or past it (usePlateau.canonicalDemZoom:
  *  floor(flat fit zoom + 1), so a flat fit zoom of 7 or more) stands in the

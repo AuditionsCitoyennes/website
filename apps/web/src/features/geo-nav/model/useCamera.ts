@@ -6,7 +6,7 @@
 import { markRaw, onBeforeUnmount, ref, shallowRef, type ComputedRef, type Ref } from "vue";
 import { ancestorsOf, type GeoUnit, lngNear, selfFileOf, SPAN_DESCEND } from "@/features/geo";
 import type { CameraCmd } from "@/features/map";
-import { frameFill } from "@/features/analyses";
+import { FRAME_FILL } from "@/features/map/lib";
 import type { NavState } from "../navState";
 import type { OutlineFiles } from "../data/useOutlineFiles";
 import { filterFrameUnit, stillFramed } from "./filterFrame";
@@ -29,7 +29,7 @@ export interface CameraInputs {
   listMode: ComputedRef<boolean>;
   /** Whether the visitor tapped unit `id` and its plateau is still pending
    *  (model/useTapPending): its bundle is then asked as a file its plateau
-   *  waits for (ac:tap-lines). Absent: never. */
+   *  waits for. Absent: never. */
   tapped?: (id: string) => boolean;
 }
 
@@ -91,7 +91,7 @@ export function useCamera(inputs: CameraInputs) {
   // Fly so a unit becomes the scope: FIT its whole boundary into the visible area, so
   // the boundary is always fully on screen (no over-zoom) and the viewport-containment
   // scope then resolves to that unit. Not edge to edge: its silhouette fills
-  // FRAME_FILL of the rectangle (map/lib/slabs; DEV: "Cadrage"), the map around it
+  // FRAME_FILL of the rectangle (map/lib/slabs), the map around it
   // in sight — its own fill still well over the scope's hold (SPAN_ASCEND).
   // `byBox`: framed by its box alone, whatever outline is in (the boot's first
   // fit from the server's tree: see GeoNav).
@@ -124,10 +124,10 @@ export function useCamera(inputs: CameraInputs) {
           void outlines.ensureSelf(unit.id);
         // Due (its fetch priority) while its self is not in: its plateau
         // waits for this file; with its self in, it brings its children only.
-        // A self its row declares alone in a u/ (ac:region-self "first") is
+        // A self its row declares alone in a u/ is
         // asked from there first, due, and the bundle is then not.
         // A unit the visitor tapped whose plateau waits for its children's
-        // boundaries (ac:tap-lines): the bundle is due all the same — this
+        // boundaries: the bundle is due all the same — this
         // ask is the first one made for it.
         else {
           const due = !outlines.selfOf(unit.id);
@@ -150,7 +150,7 @@ export function useCamera(inputs: CameraInputs) {
       }
       const spans = childSpans(unit);
       if (spans) fillCap = { ...spans, fill: CHILD_FILL_MAX };
-      fill = frameFill.value;
+      fill = FRAME_FILL;
     }
     // Out of the lieu zone as the flight starts (spotlightPlace's mirror): a unit
     // is framed above its hysteresis line (MICRO_ZONE_EXIT), and landing there

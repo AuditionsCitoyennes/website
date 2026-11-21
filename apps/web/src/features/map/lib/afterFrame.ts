@@ -1,7 +1,7 @@
 // A job put off until the next frame has been drawn: `schedule(job)` runs it
 // in a task of its own after that frame's callbacks and its paint, so the
-// frame that answers the visitor's act does not carry it (the pins' rebuild:
-// ac:pins-rebuild, ../threadSwitch.ts).
+// frame that answers the visitor's act does not carry it (the pins' rebuild,
+// composables/useMapPins).
 //
 // - One job at a time: scheduling again replaces the job and keeps the turn
 //   already asked for, so a burst of changes runs the last one once.

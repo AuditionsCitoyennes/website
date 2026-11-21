@@ -19,7 +19,7 @@ import { onPlateauStood, plateauHasStood } from "@/features/map/lib";
 import { perfOn, perfSpan } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
 import type { OutlineFiles } from "../data/useOutlineFiles";
-import { DECOR_CAP_MS, decorOpen, outlinesDecor } from "../data/outlinesDecorSwitch";
+import { DECOR_CAP_MS, decorOpen } from "../data/outlinesDecorSwitch";
 import type { GeoHierarchy } from "./useGeoHierarchy";
 import { bundlesFor, outlineReadyFiles, refinementBatch } from "./outlineRules";
 import { createUrgentProgress } from "./urgentProgress";
@@ -40,8 +40,8 @@ export interface MapFeedInputs {
    *  was not in memory when it was selected. */
   onOutlineProgress?: (scopeId: string, share: number) => void;
   /** Whether the visitor tapped unit `id` and its plateau is still pending
-   *  (model/useTapPending): its outline's file is then waited for longer
-   *  (ac:outline-wait "file"). Absent: never. */
+   *  (model/useTapPending): its outline's file is then waited for longer.
+   *  Absent: never. */
   tapped?: (id: string) => boolean;
 }
 
@@ -98,8 +98,8 @@ export function useMapFeed(inputs: MapFeedInputs) {
   // (style reload, layer re-add) nothing rose again. Rebuilds are cheap now — the
   // per-geometry projection/mesh caches in GeoDrillMap absorb the real cost.
   // The map does not run its pipeline for each of them all the same: it judges
-  // every fresh outline against the plateau that STANDS (ac:late-files "quiet",
-  // map/lib/outlineChange.ts) — the same content does nothing while it stands
+  // every fresh outline against the plateau that STANDS
+  // (map/lib/outlineChange.ts) — the same content does nothing while it stands
   // and raises it again once it does not, which a memoised identity could not.
   const outline = computed<OutlineFC>(() => {
     // Deep in the micropin zone → no plateau, no boundaries: the empty outline
@@ -143,15 +143,6 @@ export function useMapFeed(inputs: MapFeedInputs) {
     return (
       raisedOutlineDue(s) || childLinesDue(s) || (!raisedGeometryFor(s) && !geometryKnownAbsent(s))
     );
-  });
-
-  /** The unit that hold is for, and its box (its row's: the box of the
-   *  outline on its way) — what the map can start before the outline lands
-   *  (the map's ac:cold-start). The same object while the hold lasts. */
-  const coming = computed(() => {
-    if (!scopePending.value) return null;
-    const s = currentScope.value;
-    return { id: s.id, bounds: s.bounds };
   });
 
   /** The outline has every geometry it will get: nothing of the scope's own,
@@ -316,32 +307,28 @@ export function useMapFeed(inputs: MapFeedInputs) {
   const files = outlines;
   const view = outlineView;
   // The decorative batches below (the neighbour countries' selves, the
-  // world outlines) under ac:outlines-decor "after" (the default): once the
-  // map's first plateau stood, or DECOR_CAP_MS after the boot curtain lifted
-  // (data/outlinesDecorSwitch.ts). "boot": as soon as the curtain lifts.
+  // world outlines): once the map's first plateau stood, or DECOR_CAP_MS
+  // after the boot curtain lifted (data/outlinesDecorSwitch.ts).
   const decorStood = shallowRef(plateauHasStood());
   const decorCapPassed = shallowRef(false);
-  if (outlinesDecor === "after") {
-    onScopeDispose(onPlateauStood(() => (decorStood.value = true)));
-    let capTimer: ReturnType<typeof setTimeout> | undefined;
-    onScopeDispose(() => clearTimeout(capTimer));
-    watch(
-      () => !!inputs.booting?.value,
-      (booting) => {
-        if (booting || capTimer !== undefined) return;
-        capTimer = setTimeout(() => (decorCapPassed.value = true), DECOR_CAP_MS);
-      },
-      { immediate: true },
-    );
-  }
+  onScopeDispose(onPlateauStood(() => (decorStood.value = true)));
+  let capTimer: ReturnType<typeof setTimeout> | undefined;
+  onScopeDispose(() => clearTimeout(capTimer));
+  watch(
+    () => !!inputs.booting?.value,
+    (booting) => {
+      if (booting || capTimer !== undefined) return;
+      capTimer = setTimeout(() => (decorCapPassed.value = true), DECOR_CAP_MS);
+    },
+    { immediate: true },
+  );
   const decorGo = (level: string) =>
     decorOpen({
-      mode: outlinesDecor,
       level,
       plateauStood: decorStood.value,
       capPassed: decorCapPassed.value,
     });
-  // The late files' rule (ac:late-files, data/useOutlineFiles): a file is
+  // The late files' rule (data/useOutlineFiles): a file is
   // urgent — stored as it lands, asked at high priority — only while the
   // scope's plateau is pending and the file is on its chain (its bundles,
   // a country's u/, the u/ a région's or a département's self is asked
@@ -410,9 +397,8 @@ export function useMapFeed(inputs: MapFeedInputs) {
   // with its ville's. A newer scope runs its own chain: this one stops at
   // its next step. A self due from the start is waited for OUTLINE_WAIT_MS
   // — or, with a coarser outline of the scope in memory to rise on, for
-  // what ac:outline-wait says (under "file", a unit the visitor tapped:
-  // for its file itself, some seconds at most; at 0: not at all, it rises
-  // on that one in this very flush).
+  // what the map's coldTapSwitch says (a unit the visitor tapped: for its
+  // file itself, some seconds at most).
   watch(
     () => currentScope.value.id,
     async (id, left) => {
@@ -421,16 +407,16 @@ export function useMapFeed(inputs: MapFeedInputs) {
       if (!filesActive()) return;
       const scope = currentScope.value;
       const selfDue = raisedOutlineDue(scope);
-      // The visitor tapped it: its file is waited for longer (ac:outline-wait).
+      // The visitor tapped it: its file is waited for longer.
       const tapped = !!inputs.tapped?.(id);
       if (selfDue) files.holdSelf(id, !!raisedGeometryFor(scope), tapped);
-      // Its children's boundaries too (ac:tap-lines): its plateau rises
+      // Its children's boundaries too: its plateau rises
       // with them, under the same cap.
       if (tapped && files.linesWait(scope.levelKey)) files.holdLines(id);
       const linesDue = childLinesDue(scope);
       // The loading line: what the scope's plateau waits for, from nothing.
       // Its self asked alone (a u/), else the bundles of its chain not in.
-      // Not a self the hold has just given up on (ac:outline-wait "0"):
+      // Not a self the hold has just given up on:
       // nothing is waited for, the plateau rises on what is in memory.
       if (tellProgress) {
         dueFor("");
@@ -467,9 +453,9 @@ export function useMapFeed(inputs: MapFeedInputs) {
           if (currentScope.value.id === id && selfFileOf(files.rowOf(id)) === "u")
             void files.ensureSelf(id, tapped);
         });
-      // A scope whose self is declared alone in a u/ (ac:region-self
-      // "first"): that file first, due — its plateau rises on it, or, risen
-      // on a coarser shape already (ac:outline-wait), is reshaped with it —
+      // A scope whose self is declared alone in a u/: that file first, due —
+      // its plateau rises on it, or, risen on a coarser shape already, is
+      // reshaped with it —
       // and its chain's bundles then bring lines only.
       const ahead = !files.selfOf(id) && files.selfAhead(id);
       if (ahead) void files.ensureSelf(id, tapped);
@@ -569,5 +555,5 @@ export function useMapFeed(inputs: MapFeedInputs) {
     { immediate: true },
   );
 
-  return { outline, scopePending, coming, outlineReady, mapUnits };
+  return { outline, scopePending, outlineReady, mapUnits };
 }

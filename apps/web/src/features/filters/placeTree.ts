@@ -3,8 +3,8 @@
 // from the map's groups — région > département > ville > lieu, weighted by
 // testimonies, the heaviest first — its tokens unit and lieu ids (D2). A
 // country level only when there is more than one country. The arrondissements
-// of Paris, Lyon and Marseille are flattened into their commune, as today,
-// unless asked for ("Arbre des lieux", a DEV switch); an overseas territory is
+// of Paris, Lyon and Marseille are flattened into their commune unless asked
+// for (`arrondissements`: the page's picker keeps them); an overseas territory is
 // one level, its région (@ac/shared frOverseas). On the lazy path (a
 // tree too big for one answer) a unit whose children are not all known yet is
 // `lazy`, with no children: the picker asks for them when it is opened.

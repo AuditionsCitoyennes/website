@@ -1,4 +1,4 @@
-// The page's side of the mesh worker (ac:mesh=worker, gl/meshClient.ts): what
+// The page's side of the mesh worker (gl/meshClient.ts): what
 // was sent, what is asked, what came back. The worker is reached through an
 // injected transport, so the node tests drive this with a fake one.
 //
@@ -29,7 +29,7 @@
 //   a busy page left queued get their turn) end the worker for the
 //   session: every pending request is built here, the worker is terminated,
 //   its late replies ignored, and every later build runs here at once.
-// - The grey sheet (ac:tint-cut, gl/tintSheet.ts). `cutTint()` asks the
+// - The grey sheet (gl/tintSheet.ts). `cutTint()` asks the
 //   worker for the flat view's grey cut around a selection: its geometries
 //   travel under the same tokens as a build's, pinned while it is in flight
 //   and watched by the same watchdog. It supersedes the cuts before it and
@@ -114,8 +114,9 @@ export interface MeshClientDeps {
   schedule(fn: () => void, ms: number): () => void;
   /** The same mesh, built here (gl/meshBuild.ts). */
   fallbackBuild(inputs: MeshInputs, want: MeshWant): MeshOut;
-  /** Every build's boundary lines in the lean layout (ac:line-mesh,
-   *  plateau/lineMeshSwitch.ts): the worker's and the fallback's alike. */
+  /** Every build's boundary lines in the lean layout, the one the map draws:
+   *  the worker's and the fallback's alike (the page sets it; the tests
+   *  build the full layout too). */
   leanLines?: boolean;
   /** Read at every request (the testing tools' override). */
   capVertices?: () => number;

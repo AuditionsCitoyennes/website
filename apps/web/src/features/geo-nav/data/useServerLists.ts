@@ -54,7 +54,7 @@ import {
   type LieuAuditions,
   type TestimoniesPage,
 } from "./listsApi";
-import { prefetch, prefetchCount, type LinkSignals } from "./bootReadsSwitch";
+import { prefetchCount, type LinkSignals } from "./bootReadsSwitch";
 import {
   firstPageOnly,
   orderSig,
@@ -70,12 +70,9 @@ import {
 const STALE_MS = 5 * 60 * 1000;
 /** The open lieu's first auditions (panel order) whose first testimony page
  *  is asked for ahead: each is a miss the visitor pays for (30 per 10 s).
- *  Three, but one on a link the visitor wants spared (`ac:prefetch`,
- *  bootReadsSwitch: data saver, 2g, 3g). */
-const PREFETCH_MAX = prefetchCount(
-  prefetch,
-  (navigator as { connection?: LinkSignals }).connection,
-);
+ *  Three, but one on a link the visitor wants spared (bootReadsSwitch: data
+ *  saver, 2g, 3g). */
+const PREFETCH_MAX = prefetchCount((navigator as { connection?: LinkSignals }).connection);
 
 /** An audition of a list: what the panel's line shows. */
 export interface ListedAudition {

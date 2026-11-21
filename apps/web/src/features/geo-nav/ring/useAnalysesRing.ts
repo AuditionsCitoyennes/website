@@ -52,7 +52,6 @@ import {
   edgeMargin,
   FRAME_MIN_COMPACT,
   FRAME_MIN_WIDE,
-  frameFill,
   slabTextMode,
   slabTextScale,
   type PlateRoom,
@@ -327,10 +326,10 @@ export function useAnalysesRing(inputs: AnalysesRingInputs) {
     applyRing();
   });
 
-  // DEV: the words drawn long or flat, or at another size, take another room,
-  // and another framing frames otherwise: framed again, the ring with it
-  // (setCamera reads it afresh), the slabs sized for the new fit.
-  watch([slabTextMode, slabTextScale, frameFill], () => {
+  // DEV: the words drawn long or flat, or at another size, take another room:
+  // framed again, the ring with it (setCamera reads it afresh), the slabs
+  // sized for the new fit.
+  watch([slabTextMode, slabTextScale], () => {
     if (!ringOn.value || preview.value) return;
     if (listMode.value) camera.scheduleFilterFrame(true);
     else if (!inMicroZone.value) camera.flyToUnit(currentScope.value, true);

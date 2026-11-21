@@ -2,8 +2,8 @@
 // map, plateau/mapSnapshot), its resolution bookkeeping, and the re-capture
 // over the visible slice as the camera closes in (or the whole unit again as
 // it pulls back). The whole-unit pictures are kept by the layer, a few of them
-// (ac:lid-cache, plateau/lidCache.ts): a unit selected again shows its kept
-// picture at once, with no shot.
+// (plateau/lidCache.ts): a unit selected again shows its kept picture at once,
+// with no shot.
 
 import type mapboxgl from "mapbox-gl";
 import type { Bounds } from "@/features/geo";
@@ -12,16 +12,8 @@ import { deviceSignals, deviceTier } from "@/shared/device/deviceTier";
 import type { OutlineFC } from "../types";
 import type { LidKeptMeta, PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { SnapshotManager, type Snapshot } from "../plateau/mapSnapshot";
-import { lidCheck, lidMode } from "../plateau/lidSwitch";
 import { keptAnswers, lidCacheBudget } from "../plateau/lidCache";
-import { lidCacheMode } from "../plateau/lidCacheSwitch";
-import {
-  lidMap,
-  lidMapFor,
-  warmupAtLoad,
-  warmupMoment,
-  type LidMapPlan,
-} from "../plateau/lidMapSwitch";
+import { lidMapFor, warmupAtLoad, warmupMoment, type LidMapPlan } from "../plateau/lidMapSwitch";
 import { cacheBudgetAtCreation } from "../cacheBudget";
 import { boundsOfFeatures, unionBounds } from "../lib/polygon";
 import { whenMapStill } from "../lib/stillMap";
@@ -49,20 +41,13 @@ export function usePlateauLid({
   lidExtra,
 }: PlateauLidInputs) {
   // The hidden map keeps fewer tiles on a weak device (../cacheBudget.ts).
-  const snapshotMgr = new SnapshotManager(
-    lidMode,
-    lidCheck,
-    () => cacheBudgetAtCreation().lidTiles,
-  );
-  // "ancien" (DEV, plateau/lidSwitch): the lid as before, its sizes and its
-  // bookkeeping.
-  const before = lidMode === "ancien";
+  const snapshotMgr = new SnapshotManager(() => cacheBudgetAtCreation().lidTiles);
   // When the hidden map is created, and whether there is one at all
-  // (plateau/lidMapSwitch.ts): "none" — a device whose tier is "minimal", the
-  // switch, or `ac:lid` on "aucun" — is no capture and no hidden map, the
-  // plateau's top being the live map. Read at the map's load and at each
-  // selection, with the device's tier of that moment.
-  const planNow = (): LidMapPlan => lidMapFor(lidMap, deviceTier(), lidMode);
+  // (plateau/lidMapSwitch.ts): "none" — a device whose tier is "minimal" — is
+  // no capture and no hidden map, the plateau's top being the live map. Read
+  // at the map's load and at each selection, with the device's tier of that
+  // moment.
+  const planNow = (): LidMapPlan => lidMapFor(deviceTier());
   // The plan the last selection read (the load's before any): a plateau
   // standing keeps the lid it has until the next selection.
   let plan: LidMapPlan = planNow();
@@ -96,7 +81,7 @@ export function usePlateauLid({
   // at under LID_REFINE_RATIO more px adopts it rather than starting over.
   let inFlightBounds = "";
   let inFlightPx = 0;
-  // A select's whole-unit shot (captureLid) is running ("ecran"). Until it
+  // A select's whole-unit shot (captureLid) is running. Until it
   // lands, the lid showing is the previous unit's, so hasTexture() says no:
   // a same-unit re-run of ensurePlateau then asks again and adopts the shot,
   // instead of bumping the plateau seq past it.
@@ -111,7 +96,7 @@ export function usePlateauLid({
   let lastCapturePx = 0; // backing-store width the last capture asked for
   // What waits for the shot running to end (whenIdle).
   const idleJobs = new Set<() => void>();
-  // ac:lid-cache: the asks a kept picture answered, the shots of a run since
+  // Kept pictures: the asks a kept picture answered, the shots of a run since
   // left that were handed to the layer to keep, and the one of those held
   // until the map is still (its upload is not for the flight or the rise of
   // the unit selected since).
@@ -131,9 +116,8 @@ export function usePlateauLid({
   // it, so the visible plateau must stay inside this or the wall shows through.
   let lidCovered: Bounds | null = null;
   // Diagnostic for __acPlateau(): the lid is coarser than the screen, but the
-  // slice a refine would capture is no finer than the texture showing (in
-  // "ecran" by texel density, in "ancien" by rectangle span), so re-shooting
-  // would not sharpen anything.
+  // slice a refine would capture is no finer than the texture showing (by
+  // texel density), so re-shooting would not sharpen anything.
   let lidRefineBlockedByGain = false;
   const boundsKey = (b: Bounds) =>
     `${b.minLat.toFixed(4)},${b.maxLat.toFixed(4)},${b.minLng.toFixed(4)},${b.maxLng.toFixed(4)}`;
@@ -199,11 +183,10 @@ export function usePlateauLid({
   }
 
   /** What the layer may keep of the lid pictures now (plateau/lidCache.ts),
-   *  handed to it at each ask: the switch and the device's tier can change
-   *  under a page. Nothing under "ancien" (the lid as before). True: it keeps. */
+   *  handed to it at each ask: the device's tier can change under a page.
+   *  True: it keeps. */
   function syncCache(): boolean {
     const budget = lidCacheBudget({
-      on: !before && lidCacheMode.value === "on",
       tier: deviceTier(),
       phone:
         (window.matchMedia?.("(pointer: coarse)").matches ?? false) &&
@@ -261,7 +244,7 @@ export function usePlateauLid({
     // DEV "Carte" shot (`force`) is the standing plateau's: its plan stays.
     if (!force) plan = planNow();
     if (plan === "none") return dropLid();
-    if (force || before) return shootLid(seq, raised, over, force, true, true, !over);
+    if (force) return shootLid(seq, raised, over, force, true, true, !over);
     // A select asks from the outline's watcher, which runs before the camera's
     // (GeoDrillMap): let that flush end, then the flight a list row or a crumb
     // issues is under way. None (the scope followed a pan or a wheel, or the
@@ -273,7 +256,7 @@ export function usePlateauLid({
   /** No lid from now on ("none"): the hidden map removed (its WebGL context,
    *  its style and its tiles freed), the texture showing dropped, the shot
    *  running left to end unapplied (the manager's counter moved on). The
-   *  pictures kept (ac:lid-cache) go too, and the one held for a still map:
+   *  pictures kept go too, and the one held for a still map:
    *  none of them will show. What waited for the running shot's end
    *  (whenIdle) runs now: that end will no longer say so. */
   function dropLid() {
@@ -312,7 +295,7 @@ export function usePlateauLid({
     // "Carte" (DEV): the slabs' lids show the snapshot too.
     const extra = lidExtra();
     const b = extra ? unionBounds(shot, extra) : shot;
-    // ac:lid-cache: a whole-unit picture can be kept, and a kept one shown.
+    // A whole-unit picture can be kept, and a kept one shown.
     // Not the DEV "Carte" shot's wider rectangle, nor a forced re-shoot.
     const keepable = syncCache() && whole && !extra && !force;
     // Resolve the pixel budget HERE so it can go in the identity key below: the
@@ -324,7 +307,7 @@ export function usePlateauLid({
     // and asked for the ceiling. Every other shot (a refine, the widen back, a
     // scope that followed a pan or a wheel) is sized from the camera it is for,
     // between the floor and the ceiling.
-    const wantPx = before || !preFlight ? lidPixelBudget(b) : 0;
+    const wantPx = !preFlight ? lidPixelBudget(b) : 0;
     const px = snapshotMgr.pixelBudget(wantPx, plateauWall.maxTextureSize);
     // Already showing (or fetching) exactly this rectangle at this resolution →
     // don't cancel it to re-shoot the same thing. Fetching it counts too: before
@@ -333,17 +316,13 @@ export function usePlateauLid({
     const rect = boundsKey(b);
     const key = `${rect}@${px}`;
     // The run asking for the rectangle already running adopts the shot: it
-    // lands for that run ("ancien" did not, and dropped it as superseded). At
+    // lands for that run. At
     // more px too, short of LID_REFINE_RATIO: a select's re-run after its
     // flight landed sizes from the camera, and starting over cancelled a shot
     // nearly done for a gain the refresh would not re-shoot for. A real
     // sharpening is left to refreshLidForZoom once it has landed.
     const adopt =
-      !before &&
-      !force &&
-      !!inFlightKey &&
-      inFlightBounds === rect &&
-      px < inFlightPx * LID_REFINE_RATIO;
+      !force && !!inFlightKey && inFlightBounds === rect && px < inFlightPx * LID_REFINE_RATIO;
     if (adopt || (key === lidTargetKey && Number.isFinite(lidMpp))) {
       if (adopt) {
         inFlightSeq = seq;
@@ -400,16 +379,9 @@ export function usePlateauLid({
     inFlightSeq = seq;
     inFlightBounds = rect;
     inFlightPx = px;
-    selectInFlight = select && !before;
+    selectInFlight = select;
     lastCapturePx = px;
     const endCapture = perfOn ? perfSpan("lid.capture", { px, preFlight }) : null;
-    // "ancien" sizes without it, so its span reads the flight as "ecran" does,
-    // once the select's watchers have run: `preFlight` means the same in both.
-    let flightSeen = preFlight;
-    if (endCapture && before)
-      void Promise.resolve().then(() => {
-        flightSeen = !!getMap()?.isEasing();
-      });
     let got = false;
     let applied = false;
     try {
@@ -419,8 +391,8 @@ export function usePlateauLid({
       const meta: LidKeptMeta = { px, width: snap.bitmap.width, mpp: snapshotMpp(snap, b) };
       // The run it lands for: the newest one that asked for it while it ran.
       if ((inFlightId === id ? inFlightSeq : seq) !== plateauSeq()) {
-        // Its run was left. A whole-unit picture is kept for the way back
-        // (ac:lid-cache); any other is of no use.
+        // Its run was left. A whole-unit picture is kept for the way back;
+        // any other is of no use.
         if (keepable) keepStray(snap, rect, meta);
         else snap.bitmap.close();
         return;
@@ -436,9 +408,8 @@ export function usePlateauLid({
       /* no lid → status quo (walls + draped terrain) */
     } finally {
       // `got`: a bitmap came back; `applied`: it is the lid now.
-      if (endCapture) endCapture({ got, applied, preFlight: flightSeen });
-      // "ancien": any capture's end cleared the flag, as before.
-      if (before || inFlightId === id) {
+      if (endCapture) endCapture({ got, applied, preFlight });
+      if (inFlightId === id) {
         inFlightKey = "";
         inFlightId = 0;
         selectInFlight = false;
@@ -512,21 +483,15 @@ export function usePlateauLid({
     // A re-shoot only helps if it is genuinely FINER than the texture showing.
     // Comparing against the screen alone is canvas-dependent — on a wide display
     // the snapshot can never beat it, and every settle would fire a fresh capture
-    // forever. Requiring a real improvement makes this self-limiting. "ecran"
+    // forever. Requiring a real improvement makes this self-limiting. It
     // compares densities (the slice's ground span over the pixels it would get),
     // so a lid taken at the floor can refine to the ceiling over the same
-    // rectangle; "ancien" compared the rectangles' spans alone, as before.
-    const spanOf = (b: Bounds) => {
-      const cos = Math.cos((((b.minLat + b.maxLat) / 2) * Math.PI) / 180) || 1e-6;
-      return Math.max((b.maxLng - b.minLng) * cos, b.maxLat - b.minLat);
-    };
+    // rectangle.
     const gain = !lidCovered
       ? Infinity
-      : before
-        ? spanOf(lidCovered) / Math.max(spanOf(want), 1e-9)
-        : lidMpp /
-          (boundsGroundSpanM(want) /
-            snapshotMgr.pixelBudget(lidPixelBudget(want), plateauWall.maxTextureSize));
+      : lidMpp /
+        (boundsGroundSpanM(want) /
+          snapshotMgr.pixelBudget(lidPixelBudget(want), plateauWall.maxTextureSize));
     const tooCoarse = lidMpp > mpp * LID_REFINE_RATIO;
     const wantsFiner = tooCoarse && gain >= LID_REFINE_RATIO;
     lidRefineBlockedByGain = tooCoarse && !wantsFiner;
@@ -535,7 +500,7 @@ export function usePlateauLid({
     // Uncovered or zoomed back out → the whole unit; otherwise the padded slice.
     const whole = tooFine || !covers;
     // A slice that is the whole unit (all of it in view) is a whole-unit
-    // picture too: kept in place of the coarser one (ac:lid-cache).
+    // picture too: kept in place of the coarser one.
     const wholeUnit = whole || boundsKey(want) === boundsKey(sel);
     void shootLid(plateauSeq(), lidRaised, whole ? sel : want, false, false, false, wholeUnit);
   }
@@ -603,32 +568,28 @@ export function usePlateauLid({
       // smaller, or its pixels already at the ceiling). Separates "the refine
       // never fired" from "the lid is capped at selectionSpan / SNAP_PX".
       lidRefineBlockedByGain,
-      // How the lid is captured (plateau/lidSwitch), what the last capture
-      // asked for, and the hidden map's drawing buffer now (small once parked).
-      lidMode,
+      // What the last capture asked for, and the hidden map's drawing buffer
+      // now (small once parked).
       lidCapturePx: lastCapturePx || null,
       hiddenMapPx: snapshotMgr.hiddenMapPx(),
-      // When the hidden map is created (plateau/lidMapSwitch): the switch, the
-      // plan in force, what created the one there is (null: none), and how
-      // many this page has created.
-      lidMap,
+      // When the hidden map is created (plateau/lidMapSwitch): the plan in
+      // force, what created the one there is (null: none), and how many this
+      // page has created.
       lidMapPlan: plan,
       hiddenMapBy: snapshotMgr.createdBy,
       hiddenMapsCreated: snapshotMgr.created,
-      // How shots are judged, how they ended, and how many read pixels back.
-      lidCheck,
+      // How shots ended, and how many read pixels back.
       lidShotEnds: { ...snapshotMgr.ends },
       lidReadbacks: snapshotMgr.readbacks,
       // Asks the in-flight dedupe skipped, and running shots a re-run adopted.
       lidDedupeSkips: dedupeSkips,
       lidAdopted: adopted,
-      // ac:lid-cache: the switch, the asks a kept picture answered, the shots
+      // Kept pictures: the asks a kept picture answered, the shots
       // of a run since left handed to the layer to keep, the one held for a
       // still map, and the layer's textures — what
       // is kept (the least recently shown first), its bytes and the cap, the
       // key showing, the uploads and the pictures shown again without one.
       lidCache: {
-        mode: lidCacheMode.value,
         hits: cacheHits,
         straysKept,
         strayHeld: strayHeld?.key ?? null,
@@ -645,8 +606,8 @@ export function usePlateauLid({
     scheduleRefresh: scheduleLidRefresh,
     reset,
     /** A texture is showing (or has been): its resolution is known. Not while a
-     *  select's shot runs ("ecran"): the lid showing is the previous unit's.
-     *  Nor, while pictures are kept (ac:lid-cache), when the lid is another
+     *  select's shot runs: the lid showing is the previous unit's.
+     *  Nor, while pictures are kept, when the lid is another
      *  unit's than the plateau standing — a kept lid waiting for a plateau
      *  the visitor left before it stood: the run for the standing unit then
      *  asks for its own again. */
@@ -668,9 +629,9 @@ export function usePlateauLid({
       idleJobs.add(job);
       return () => void idleJobs.delete(job);
     },
-    /** The visible map's load: the hidden map created — on the world
-     *  ("boot"), or on the first place a plateau will stand on, when one is
-     *  known ("first-place": `outline`, the rectangle of the scope's outline,
+    /** The visible map's load: the hidden map created on the first place a
+     *  plateau will stand on, when one is
+     *  known (`outline`, the rectangle of the scope's outline,
      *  else `framed`, the one the first camera command frames) — or not at
      *  all yet (plateau/lidMapSwitch.ts). Created now; on a place, with
      *  `visibleMoved` (the load's camera command moved the visible map onto
@@ -687,10 +648,10 @@ export function usePlateauLid({
         snapshotMgr.warmup(
           style,
           warm.place,
-          warm.place ? snapshotMgr.pixelBudget(0, plateauWall.maxTextureSize) : 0,
+          snapshotMgr.pixelBudget(0, plateauWall.maxTextureSize),
         );
       const m = getMap();
-      if (m && warmupMoment(warm, visibleMoved) === "idle") m.once("idle", create);
+      if (m && warmupMoment(visibleMoved) === "idle") m.once("idle", create);
       else create();
     },
     /** The main map's WebGL context was lost: the layer's lid textures went

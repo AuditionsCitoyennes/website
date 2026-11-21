@@ -15,7 +15,7 @@ export const VIOLET = [0.486, 0.361, 1.0] as const;
 
 /** A globe vertex: absolute mercator (z at FULL altitude; 0 for a wall's foot)
  *  and the ECEF ground/full pair — 9 floats. A null `arr`: no globe set is
- *  built (the plateau's mercator-first build, ac:mesh=merc). */
+ *  built (the plateau's mercator-first build). */
 export function pushGlobeVert(arr: number[] | null, b: PBase, alt: number, bottom = false) {
   if (!arr) return;
   arr.push(b.x, b.y, bottom ? 0 : alt * b.zPerM, b.lo[0], b.lo[1], b.lo[2]);
@@ -26,7 +26,7 @@ export function pushGlobeVert(arr: number[] | null, b: PBase, alt: number, botto
 /** One ring's wall: a quad (two triangles) per edge, ground → `h`, mercator
  *  relative to `origin` (3 floats a vertex) and the globe's (9) — each with
  *  `rgb` after it, when given (the slabs' pieces: 6 and 12). A null sink is
- *  a set not built (the plateau's, ac:mesh=merc; the slabs pass both). */
+ *  a set not built (the plateau's, ; the slabs pass both). */
 export function pushWallRing(
   ring: PBase[],
   origin: [number, number],

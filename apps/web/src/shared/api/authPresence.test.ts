@@ -1,16 +1,11 @@
-// When the Supabase client is downloaded (authPresence.ts, authClientSwitch.ts),
-// run with `node --import tsx --test` (root "test:scripts"): supabase-js's
-// storage keys and nothing else, the returns of Supabase Auth (email links,
-// Google, PKCE, errors) and no ordinary address, then the switch's default
-// and its read.
+// When the Supabase client is downloaded (authPresence.ts), run with
+// `node --import tsx --test` (root "test:scripts"): supabase-js's storage keys
+// and nothing else, the returns of Supabase Auth (email links, Google, PKCE,
+// errors) and no ordinary address.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isAuthReturn, isAuthStorageKey, mayHaveSession } from "./authPresence";
-
-const g = globalThis as unknown as { __TEST_TOOLS__: boolean; localStorage?: unknown };
-g.__TEST_TOOLS__ = false;
-const sw = await import("./authClientSwitch");
 
 test("supabase-js's session and PKCE keys, and no other key", () => {
   for (const k of [
@@ -71,21 +66,4 @@ test("a session may exist with a kept key or with a return, not otherwise", () =
   assert.ok(mayHaveSession(["theme", "sb-127-auth-token"], "", ""));
   assert.ok(mayHaveSession(new Set(["sb-x-auth-token-code-verifier"]), "", ""));
   assert.ok(mayHaveSession([], "", "#access_token=x&type=recovery"));
-});
-
-test("the switch: « demande » by default, read only with the testing tools", () => {
-  assert.equal(sw.DEFAULT_AUTH_CLIENT, "demande");
-  assert.deepEqual([...sw.AUTH_CLIENTS], ["demande", "demarrage"]);
-  assert.equal(sw.authClient, "demande");
-  const store = new Map<string, string>();
-  g.localStorage = { getItem: (k: string) => store.get(k) ?? null };
-  try {
-    assert.equal(sw.storedAuthClient(), "demande");
-    store.set("ac:auth-client", "demarrage");
-    assert.equal(sw.storedAuthClient(), "demarrage");
-    store.set("ac:auth-client", "boot");
-    assert.equal(sw.storedAuthClient(), "demande");
-  } finally {
-    delete g.localStorage;
-  }
 });

@@ -8,7 +8,7 @@
 // (demRaster.ts) → `{ url: <data: PNG> }`, through the frame budget.
 //
 // The worker is created when the map starts (`warmRelief`: with the map
-// object, or at its load under ac:boot-workers=load). Its health: an
+// object). Its health: an
 // `error` or `messageerror` → it is terminated and every pending call
 // replayed on the main thread (`failover`, for the rest of the session); so
 // is a worker that has said nothing at all (not even its `ready`) 10 s after

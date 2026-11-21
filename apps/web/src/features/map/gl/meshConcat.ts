@@ -1,5 +1,5 @@
 // The plateau's boundary line groups (gl/meshBuild.ts buildPlateauMesh), packed
-// into one buffer per regime with ac:mesh=concat (plateau/meshSwitch.ts): one
+// into one buffer per regime (the full layout the mesh tests read): one
 // Float32Array of the total length, each group copied in with one
 // TypedArray.set — no push value by value into a second number[], no third
 // copy at the end. The values are the same float32 roundings as

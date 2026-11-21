@@ -38,8 +38,7 @@
 // starts — a low batch kept together could never be whole otherwise; the
 // flush writes it, and the low batch's own write then finds it stored.
 //
-// Late files (`late`, the page's ac:late-files "quiet"; without it nothing
-// below applies). Each ask says what it is for: "due" — the selected unit's
+// Late files (`late`, the page's; without it nothing below applies). Each ask says what it is for: "due" — the selected unit's
 // plateau waits for this file — goes at high fetch priority; "late" (a
 // unit's children, its neighbours, the world's outlines) and a prefetch go at
 // low priority; the boot (root.json, k/FR) is left as it is. Nothing is ever
@@ -54,8 +53,7 @@
 // "due" ask joins, or one that turned urgent, is written at once. A request
 // only a prefetch made is never kept (it never writes).
 //
-// A self ahead of its bundle (`selfGraceMs`, the page's ac:region-self
-// "first"): the page asks a unit's u/ ("due", ensureSelf) and its bundle
+// A self ahead of its bundle (`selfGraceMs`, the page's): the page asks a unit's u/ ("due", ensureSelf) and its bundle
 // ("late") together. The u/, once in, waits `selfGraceMs` for a bundle still
 // on the network: one that lands in that time is written first — its self is
 // the same object, its children come with it, the plateau rises with their

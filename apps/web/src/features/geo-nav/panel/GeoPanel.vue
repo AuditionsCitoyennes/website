@@ -12,7 +12,6 @@ import { ref, type StyleValue } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { motionNow } from "@/shared/device/motion";
 import PanelBreadcrumb from "./PanelBreadcrumb.vue";
-import { cardsBleed, cardsBleedClass } from "./cardsBleedSwitch";
 
 defineProps<{
   /** An audition is open on a desktop: the panel widens (`.panel.wide`). */
@@ -151,8 +150,7 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
     <div
       ref="listEl"
-      class="panel-list sheet-below"
-      :class="cardsBleedClass(cardsBleed)"
+      class="panel-list sheet-below bleed"
       :inert="sheetHidden || undefined"
       :aria-busy="busy || undefined"
     >
@@ -254,8 +252,8 @@ defineExpose({ el, peekEl, safeEl, listEl });
   }
 }
 
-/* Short motion (shared/device/motion: a weak device, or the DEV dialog's
-   « Mouvement »): the panel widens, narrows and slides aside in one step, as
+/* Short motion (shared/device/motion: a weak device, or reduced motion asked
+   for): the panel widens, narrows and slides aside in one step, as
    under reduced motion. Read at each render, so with the class that changes
    the width. */
 @media (min-width: 900px) {
@@ -339,8 +337,8 @@ defineExpose({ el, peekEl, safeEl, listEl });
   padding: 0.6rem 0.7rem 0.9rem;
 }
 
-/* The cards without a gutter (cardsBleedSwitch, `ac:cards-bleed`): the list
-   runs to the panel's edges; the rows (UnitList, AuditionList) read
+/* The cards without a gutter, on every screen: the list runs to the panel's
+   (the sheet's) edges; the rows (UnitList, AuditionList) read
    --bleed-x for their inner side padding and --row-radius for their corners,
    so a row's hover ground and the lines between rows span the panel while
    its text keeps the head's inset. Without the class they keep their own. */
@@ -484,13 +482,6 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
   .panel-list {
     padding: 0.5rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
-  }
-
-  /* `ac:cards-bleed` « Téléphone »: no gutter below 900 px only. */
-  .panel-list.bleed-phone {
-    padding-inline: 0;
-    --bleed-x: var(--panel-x);
-    --row-radius: 0;
   }
 }
 

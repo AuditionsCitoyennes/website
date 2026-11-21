@@ -62,6 +62,17 @@ export function repointDemSlot(map: DemSlotMap, id: DemSlot, template: string, m
   src.setTiles([template]);
 }
 
+/** What a plateau run does with the spare slot `id`: a spare slot that is
+ *  the terrain is re-pointed (mapbox breaks on a terrain source removed);
+ *  otherwise it is added (a terrain id with no source behind it included:
+ *  there is nothing to remove). */
+export function spareSlotAction(
+  map: Pick<DemSlotMap, "getSource" | "getTerrain">,
+  id: DemSlot,
+): "add" | "repoint" {
+  return map.getSource(id) && map.getTerrain()?.source === id ? "repoint" : "add";
+}
+
 export function createDemSlots<Spec>({ getMap, terrainSrc, onDrop }: DemSlotsInputs<Spec>) {
   // Bumped each time a slot is (re-)added: a drop scheduled for an older
   // generation of that slot is void.

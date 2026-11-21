@@ -156,9 +156,8 @@ test("clear drops every picture; forget drops none", () => {
   assert.equal(t.c.bytes, 0);
 });
 
-test("the budget: nothing with the switch off, less on a weak device, by bytes everywhere", () => {
-  const full = { on: true, tier: "full" as const, phone: false, lowMemory: false };
-  assert.deepEqual(lidCacheBudget({ ...full, on: false }), { bytes: 0, count: 0 });
+test("the budget: less on a weak device, by bytes everywhere", () => {
+  const full = { tier: "full" as const, phone: false, lowMemory: false };
   const desktop = lidCacheBudget(full);
   const phone = lidCacheBudget({ ...full, phone: true });
   const light = lidCacheBudget({ ...full, tier: "light" });

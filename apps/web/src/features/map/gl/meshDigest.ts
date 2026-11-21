@@ -1,6 +1,6 @@
 // A fingerprint of the plateau's mesh (PlateauWallLayer.meshDigest, the
 // testing tools' `__acMeshHash`): FNV-1a 32-bit over the BYTES of each typed
-// array, so two mesh assemblies (ac:mesh, plateau/meshSwitch.ts) can be proven
+// array, so two mesh builds (the page's and the worker's) can be proven
 // to hand the GPU the same bits — `-0` and NaN included, which a comparison of
 // values cannot see. Pure: no DOM, no GL. Only reached under __TEST_TOOLS__,
 // so a production build carries none of it.

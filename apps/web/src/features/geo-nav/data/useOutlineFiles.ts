@@ -18,38 +18,34 @@
 // container: geometry must stay a plain, identity-stable object (the WeakMap
 // caches are keyed on it).
 //
-// Under `ac:recover` "auto" (shared/net/recoverSwitch.ts), a boot failed on
-// the network is not a fallback: the session turns "late" and the boot is
-// asked again after RECOVER_DELAYS_MS, then whenever the browser is back
-// online or the page shown again — which also lets a file failed on the
-// network be asked again by the next move.
+// A boot failed on the network is not a fallback: the session turns "late"
+// and the boot is asked again after RECOVER_DELAYS_MS, then whenever the
+// browser is back online or the page shown again — which also lets a file
+// failed on the network be asked again by the next move.
 //
-// Late files (ac:late-files, map/plateau/lateFilesSwitch.ts; "quiet", the
-// default): a file nothing waits for — what `setUrgent`'s rule says, GeoNav's
-// (model/useMapFeed) — is kept as text by the loader and stored once the map
-// is still (the map's whenMapStill, or LATE_CAP_MS at the latest), every kept
-// file in one write: one bump of `version`, one rebuild. `held` names them
-// meanwhile. "direct": every file stored as it lands, as before.
+// Late files (map/plateau/lateFilesSwitch.ts): a file nothing waits for — what
+// `setUrgent`'s rule says, GeoNav's (model/useMapFeed) — is kept as text by the
+// loader and stored once the map is still (the map's whenMapStill, or
+// LATE_CAP_MS at the latest), every kept file in one write: one bump of
+// `version`, one rebuild. `held` names them meanwhile.
 //
-// A self ahead of its bundle (ac:region-self, the map's coldTapSwitch;
-// "first", the default): a French région's or département's plateau is not
-// made to wait for its bundle (its self and every child) when its row
-// declares the self alone in a u/ file — `selfAhead` says so, and the callers
-// (model/useCamera, model/useMapFeed) then ask that u/ "due" and the bundle
-// "late". The loader stores a bundle that lands within SELF_GRACE_MS of the
-// self with it. "bundle": the bundle alone, as before.
+// A self ahead of its bundle (the map's coldTapSwitch): a French région's or
+// département's plateau is not made to wait for its bundle (its self and every
+// child) when its row declares the self alone in a u/ file — `selfAhead` says
+// so, and the callers (model/useCamera, model/useMapFeed) then ask that u/
+// "due" and the bundle "late". The loader stores a bundle that lands within
+// SELF_GRACE_MS of the self with it.
 //
-// A tapped unit's inner boundaries (ac:tap-lines, the map's coldTapSwitch;
-// "wait", the default): the plateau of a unit the visitor tapped also waits
-// for the unit's bundle — its children's boundaries — so that it rises with
-// them on its lid. `holdLines` arms that wait at the selection, for the
-// visit, under the cap the unit's own outline has (ac:outline-wait) — a
-// timer of its own, never extended, ended when the unit is left
-// (linesHold.ts); `linesHeld` says it is armed and its time has not passed,
-// and the rules (model/outlineRules childLinesDue) then keep the plateau
-// waiting while the bundle is declared and neither in nor failed. Past the
-// cap the unit rises without them and the bundle is a late file like any
-// other — one that had failed and is asked again included.
+// A tapped unit's inner boundaries (the map's coldTapSwitch): the plateau of a
+// unit the visitor tapped also waits for the unit's bundle — its children's
+// boundaries — so that it rises with them on its lid. `holdLines` arms that
+// wait at the selection, for the visit, under the cap the unit's own outline
+// has — a timer of its own, never extended, ended when the unit is left
+// (linesHold.ts); `linesHeld` says it is armed and its time has not passed, and
+// the rules (model/outlineRules childLinesDue) then keep the plateau waiting
+// while the bundle is declared and neither in nor failed. Past the cap the unit
+// rises without them and the bundle is a late file like any other — one that
+// had failed and is asked again included.
 //
 // A session that falls back has no outlines at all (every unit known absent:
 // model/outlineRules.ts), so it says why once, in every build: a bug report's
@@ -69,24 +65,15 @@ import {
   type OutlineRow,
   type OutlineStatus,
 } from "@/features/geo";
-import {
-  LATE_CAP_MS,
-  lateFilesMode,
-  outlineWait,
-  outlineWaitFor,
-  regionSelfMode,
-  SELF_GRACE_MS,
-  tapLinesMode,
-  tapLinesWaitFor,
-} from "@/features/map";
+import { LATE_CAP_MS, outlineWaitFor, SELF_GRACE_MS, tapLinesWaitFor } from "@/features/map";
 import { whenMapStill } from "@/features/map/lib";
 import { absoluteBase } from "@/shared/absoluteUrl";
 import { onReconnect } from "@/shared/net/reconnect";
-import { recover, RECOVER_DELAYS_MS } from "@/shared/net/recoverSwitch";
+import { RECOVER_DELAYS_MS } from "@/shared/net/recoverSwitch";
 import { perfNote, perfOn, perfSpan } from "@/shared/perf/perf";
 import type { BundleState } from "../model/outlineRules";
 import { outlinesBuild } from "./outlinesBuild";
-import { DECOR_PARALLEL, outlinesDecor, stillApply } from "./outlinesDecorSwitch";
+import { DECOR_PARALLEL, stillApply } from "./outlinesDecorSwitch";
 import { createLinesHold } from "./linesHold";
 import { createSelfHold } from "./selfHold";
 
@@ -147,25 +134,24 @@ export interface OutlineFiles {
    *  stored by then, the unit joins `heldOut` for the session. Once per wait.
    *  A wait the file of a unit just left crossed goes on once more, and then
    *  holds the unit out until `leaveSelf` only (data/selfHold.ts). `coarse`:
-   *  a coarser outline of the unit is in memory — the wait is the one
-   *  ac:outline-wait says (the map's coldTapSwitch; `tapped`: the visitor
-   *  tapped the unit, whose wait is then the file's own); at 0 the unit is
-   *  held out before this returns, until `leaveSelf`. */
+   *  a coarser outline of the unit is in memory — the wait is the one the
+   *  map's coldTapSwitch says (`tapped`: the visitor tapped the unit, whose
+   *  wait is then the file's own). */
   holdSelf(id: string, coarse?: boolean, tapped?: boolean): void;
   /** The unit is no longer the selection: a hold-out that was for its visit
    *  ends, and so does its wait for its children's boundaries. */
   leaveSelf(id: string): void;
   /** Whether a tapped unit of level `levelKey` waits for its bundle (its
-   *  children's boundaries: ac:tap-lines, ac:outline-wait). */
+   *  children's boundaries). */
   linesWait(levelKey: string): boolean;
   /** The plateau of unit `id`, which the visitor tapped, waits for the
-   *  unit's bundle from now, for this visit: past the cap (ac:outline-wait,
-   *  a tapped unit's) it stops waiting. Once per visit; whatever the state
+   *  unit's bundle from now, for this visit: past the cap (a tapped unit's
+   *  outline wait) it stops waiting. Once per visit; whatever the state
    *  of the unit's row. */
   holdLines(id: string): void;
   /** That wait is armed for unit `id` and its time has not passed. */
   linesHeld(id: string): boolean;
-  /** Its self is asked ahead of its bundle (ac:region-self "first"): its row
+  /** Its self is asked ahead of its bundle: its row
    *  declares a u/ beside its bundle. The caller asks `ensureSelf` for it,
    *  and its bundle not "due". */
   selfAhead(id: string): boolean;
@@ -194,7 +180,7 @@ export interface OutlineFiles {
   /** `due`: the selected unit's plateau waits for it (its fetch priority). */
   ensureBundle(id: string, due?: boolean): Promise<OutlineFilesStatus>;
   /** `tapped`: the visitor tapped the unit — its file is given up on later
-   *  (ac:outline-wait "file", as `holdSelf`). */
+   *  (as `holdSelf`). */
   ensureSelf(id: string, tapped?: boolean): Promise<OutlineFilesStatus>;
   /** Their g/, and the u/ of `selves` (micro-states), in one write
    *  (`decor`: a decorative batch, see outlinesDecorSwitch.ts). */
@@ -235,7 +221,6 @@ function createOutlineFiles(): OutlineFiles {
    *  of them whose wait ran out. */
   const linesArmed = shallowRef<ReadonlySet<string>>(new Set());
   const linesOut = shallowRef<ReadonlySet<string>>(new Set());
-  const quiet = lateFilesMode === "quiet";
   let urgent: ((key: string) => boolean) | null = null;
   let progress: OutlineLoaderOptions["onProgress"] | null = null;
   // The probe's rawCheck reads them; testing tools only (dev and staging).
@@ -247,9 +232,8 @@ function createOutlineFiles(): OutlineFiles {
   };
   const store = new OutlineStore();
   let conflicts = 0;
-  // ac:outlines-decor "after" (the default): the decorative batches at low
-  // priority, a few at a time, written when the map is still; "boot": as before.
-  const decorLow = outlinesDecor === "after";
+  // The decorative batches at low priority, a few at a time, written when the
+  // map is still (data/outlinesDecorSwitch.ts).
   const loader: OutlineLoader = new OutlineLoader({
     store,
     fetchFn: (url, init) => fetch(url, init),
@@ -294,38 +278,34 @@ function createOutlineFiles(): OutlineFiles {
     onProgress: (key, phase, received, total) => progress?.(key, phase, received, total),
     bootMs: BOOT_MS,
     bootCap: __TEST_TOOLS__ ? storedBootCap() : "late",
-    bootRetryMs: recover === "auto" ? RECOVER_DELAYS_MS : undefined,
-    lowParallel: decorLow ? DECOR_PARALLEL : undefined,
-    applyLow: decorLow
-      ? stillApply({
-          whenStill: whenMapStill,
-          setTimer: (fn, ms) => window.setTimeout(fn, ms),
-          clearTimer: (timer) => window.clearTimeout(timer as number),
-        })
-      : undefined,
+    bootRetryMs: RECOVER_DELAYS_MS,
+    lowParallel: DECOR_PARALLEL,
+    applyLow: stillApply({
+      whenStill: whenMapStill,
+      setTimer: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimer: (timer) => window.clearTimeout(timer as number),
+    }),
     selfGraceMs: SELF_GRACE_MS,
-    late: quiet
-      ? {
-          urgent: (key) => !!urgent?.(key),
-          // The map's still moment — or LATE_CAP_MS, by a timer of its own: the
-          // scheduler drops its jobs when the map is unmounted.
-          whenStill(job) {
-            let ran = false;
-            const run = () => {
-              if (ran) return;
-              ran = true;
-              window.clearTimeout(cap);
-              cancel();
-              job();
-            };
-            const cancel = whenMapStill(run);
-            const cap = window.setTimeout(run, LATE_CAP_MS);
-          },
-          onHeld() {
-            held.value = loader.held;
-          },
-        }
-      : undefined,
+    late: {
+      urgent: (key) => !!urgent?.(key),
+      // The map's still moment — or LATE_CAP_MS, by a timer of its own: the
+      // scheduler drops its jobs when the map is unmounted.
+      whenStill(job) {
+        let ran = false;
+        const run = () => {
+          if (ran) return;
+          ran = true;
+          window.clearTimeout(cap);
+          cancel();
+          job();
+        };
+        const cancel = whenMapStill(run);
+        const cap = window.setTimeout(run, LATE_CAP_MS);
+      },
+      onHeld() {
+        held.value = loader.held;
+      },
+    },
   });
   const selfStored = (id: string) => {
     const fid = store.filesIdOf(id); // an overseas région's self is its département's
@@ -361,7 +341,7 @@ function createOutlineFiles(): OutlineFiles {
   });
 
   // For the page's life: the loader is the page's, not a mount's.
-  if (recover === "auto") onReconnect(() => loader.reconnect());
+  onReconnect(() => loader.reconnect());
 
   // Reads version first: a computed calling an accessor tracks the store.
   const read = <T>(fn: (s: OutlineStore) => T): T => {
@@ -411,7 +391,7 @@ function createOutlineFiles(): OutlineFiles {
     pin: (ids) => store.pin(ids),
     holdSelf: (id, coarse = false, tapped = false) => {
       if (heldOut.value.has(id)) return;
-      selfHold.hold(id, outlineWaitFor(outlineWait.value, coarse, OUTLINE_WAIT_MS, tapped));
+      selfHold.hold(id, outlineWaitFor(coarse, OUTLINE_WAIT_MS, tapped));
     },
     leaveSelf: (id) => {
       linesHold.leave(id);
@@ -426,19 +406,17 @@ function createOutlineFiles(): OutlineFiles {
       next.delete(id);
       heldOut.value = next;
     },
-    linesWait: (levelKey) => tapLinesWaitFor(tapLinesMode.value, outlineWait.value, levelKey),
+    linesWait: (levelKey) => tapLinesWaitFor(levelKey),
     holdLines: (id) => {
       if (linesArmed.value.has(id)) return;
       linesArmed.value = new Set(linesArmed.value).add(id);
-      linesHold.hold(id, outlineWaitFor(outlineWait.value, true, OUTLINE_WAIT_MS, true));
+      linesHold.hold(id, outlineWaitFor(true, OUTLINE_WAIT_MS, true));
     },
     // `over` is not reactive, and need not be: when a wait runs its time
     // with the bundle in or failed nothing is waiting, and it only keeps a
     // later re-ask of a failed bundle from reopening the wait.
     linesHeld: (id) => linesArmed.value.has(id) && !linesOut.value.has(id) && !linesHold.over(id),
-    selfAhead: (id) =>
-      regionSelfMode.value === "first" &&
-      read((s) => selfAheadOf(s.rowOf(s.filesIdOf(id)))) !== null,
+    selfAhead: (id) => read((s) => selfAheadOf(s.rowOf(s.filesIdOf(id)))) !== null,
     isHeld: (kind, id) => held.value.has(fileKey(kind, store.filesIdOf(id))),
     keyOf: (kind, id) => fileKey(kind, store.filesIdOf(id)),
     setUrgent: (rule) => {
@@ -455,13 +433,11 @@ function createOutlineFiles(): OutlineFiles {
     ensureSelf: (id, tapped = false) =>
       loader.ensureSelf(
         id,
-        // Never shorter than the loader's own wait: the page's hold
-        // (holdSelf) is what a shorter ac:outline-wait cuts.
-        Math.max(OUTLINE_WAIT_MS, outlineWaitFor(outlineWait.value, true, OUTLINE_WAIT_MS, tapped)),
+        // Never shorter than the loader's own wait.
+        Math.max(OUTLINE_WAIT_MS, outlineWaitFor(true, OUTLINE_WAIT_MS, tapped)),
       ),
-    ensureGlobe: (ids, selves = [], decor = false) =>
-      loader.ensureGlobe(ids, selves, decor && decorLow),
-    batchSelf: (ids, decor = false) => loader.batchSelf(ids, decor && decorLow),
+    ensureGlobe: (ids, selves = [], decor = false) => loader.ensureGlobe(ids, selves, decor),
+    batchSelf: (ids, decor = false) => loader.batchSelf(ids, decor),
     prefetch: (kind, id) => loader.prefetch(kind, id),
     stats: () => read((s) => s.stats()),
     loadedKeys: () => read((s) => s.loadedKeys()),

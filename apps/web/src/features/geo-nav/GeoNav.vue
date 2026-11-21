@@ -22,19 +22,17 @@ import {
   useScopeAnalysis,
 } from "@/features/analyses";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
-import { curtainPoster, poster } from "@/shared/ui/posterSwitch";
 import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
 import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
 import { slowWaitPlace } from "./model/retryNotice";
 import { createNavState, type MapView } from "./navState";
-import { bootCurtainCover, bootList } from "./bootListSwitch";
+import { bootCurtainCover } from "./bootListSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
 import { idlePrefetch, pickPrefetch, prefetchAllowed, prefetchUnits } from "./data/idlePrefetch";
-import { prefetchMode } from "./data/prefetchSwitch";
 import { liftCheck } from "./model/outlineCheck";
 import { useGeoHierarchy } from "./model/useGeoHierarchy";
 import { useScope } from "./model/useScope";
@@ -43,7 +41,6 @@ import { usePanelAuditions } from "./model/usePanelAuditions";
 import { useCamera } from "./model/useCamera";
 import { useNavActions } from "./model/useNavActions";
 import { createLieuFollow } from "./model/lieuFollow";
-import { lieuHoldMode } from "./model/lieuHoldSwitch";
 import { useTapPending } from "./model/useTapPending";
 import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
@@ -124,14 +121,13 @@ const {
   hoveredPanelId,
 } = nav;
 
-// ---- An open lieu and the map (`ac:lieu-hold`, model/lieuHoldSwitch) ----
-// « Suit la carte » (the default): the visitor's own gesture that really moves
-// the map closes the open lieu, and the panel follows the map live
-// (model/lieuFollow, wired below). « Reste ouvert »: nothing the map does
-// closes it, the wide panel folds aside while the map is used. With filters
-// on, the open audition belongs to the results' list, which does not follow
-// the map: it stays open, the panel folding aside as ever.
-const follows = () => lieuHoldMode.value === "suit" && !listMode.value;
+// ---- An open lieu and the map ----
+// The visitor's own gesture that really moves the map closes the open lieu,
+// and the panel follows the map live (model/lieuFollow, wired below). With
+// filters on, the open audition belongs to the results' list, which does not
+// follow the map: it stays open, the wide panel folding aside while the map
+// is used.
+const follows = () => !listMode.value;
 
 // ---- The viewport (panel/useViewport): a desktop or a phone, the window's size ----
 const asCard = toRef(props, "preview");
@@ -181,12 +177,12 @@ watch(
 const bootCap = window.setTimeout(() => (booting.value = false), 10_000);
 onBeforeUnmount(() => clearTimeout(bootCap));
 // What the curtain covers: the map's box alone, the panel usable over it as
-// soon as its rows are in (`ac:boot-list`, bootListSwitch), or the whole page.
-const bootCover = computed(() => bootCurtainCover(bootList, props.preview));
-/** France under the curtain's spinner (`ac:poster`, shared/ui/posterSwitch). */
-const FrancePoster = curtainPoster(poster)
-  ? defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"))
-  : null;
+// soon as its rows are in (bootListSwitch), or the whole card on the home page.
+const bootCover = computed(() => bootCurtainCover(props.preview));
+/** France under the curtain's spinner: metropolitan France and its régions,
+ *  muted, a picture in the map's box at the first paint, until the live map
+ *  lifts the curtain (its own small file). */
+const FrancePoster = defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"));
 
 // Direction of the level swap, from how deep the new scope sits in the
 // hierarchy: going deeper brings the new list in from the right, stepping back
@@ -222,7 +218,7 @@ watch(panelUnits, (units) => {
 function prefetchUnit(id: string): Promise<void> {
   const kind = prefetchKind(outlines.rowOf(id));
   if (!kind) return Promise.resolve();
-  // A self the click will ask ahead of its bundle (ac:region-self): the
+  // A self the click will ask ahead of its bundle: the
   // same two files, in the same order.
   if (kind === "k" && outlines.selfAhead(id))
     return outlines.prefetch("u", id).then(() => outlines.prefetch("k", id));
@@ -284,7 +280,7 @@ const cam = useCamera({
   outlines,
   mapCmp,
   listMode,
-  // A tapped unit's plateau waits for its children's boundaries (ac:tap-lines).
+  // A tapped unit's plateau waits for its children's boundaries.
   tapped: (id) => tappedUnit() === id,
 });
 const { camera, framedFit, flyToUnit, spotlightPlace, scheduleFilterFrame, handMoved } = cam;
@@ -317,7 +313,7 @@ const {
 } = panel;
 
 // ---- What the map is handed (model/useMapFeed): outline, pending hold, pins ----
-const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
+const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
   nav,
   geo,
   panelUnits,
@@ -327,7 +323,7 @@ const { outline, scopePending, coming, outlineReady, mapUnits } = useMapFeed({
   // The share of a selected unit's outline file that has arrived: a real
   // step of the tapped unit's loading line on the map.
   onOutlineProgress: (id, share) => mapCmp.value?.pendingStep(id, { t: "outline", frac: share }),
-  // A tapped unit waits for its own outline file (ac:outline-wait "file").
+  // A tapped unit waits for its own outline file.
   tapped: (id) => tappedUnit() === id,
 });
 
@@ -381,15 +377,15 @@ const {
 } = layout;
 /** A hand on the map: the panel makes way, the frame the camera gave is left
  *  (useCamera's handMoved), and a gesture that has moved the map far enough
- *  closes the open lieu (« Suit la carte »). */
+ *  closes the open lieu (unless filters are on). */
 function onUserGesture() {
   engageMap();
   handMoved();
   lieuFollow.gesture();
 }
-// The panel comes to follow the map while it was folded aside — the switch
-// turned to « Suit la carte », or the filters cleared with the results' lieu
-// still open: it comes back, never to fold again.
+// The panel comes to follow the map while it was folded aside — the filters
+// cleared with the results' lieu still open: it comes back, never to fold
+// again.
 watch(follows, (f) => {
   if (f) mapEngaged.value = false;
 });
@@ -424,7 +420,6 @@ const lieuFollow = createLieuFollow({
   shiftPx: (at) => mapCmp.value?.screenShift(at.lng, at.lat) ?? null,
   commandKey: () => nav.cameraKey.value,
   gate: () => ({
-    follows: follows(),
     lieuOpen: selectedPlaceId.value !== null,
     listMode: listMode.value,
     sinceOpenMs: performance.now() - nav.placeOpenedAt.value,
@@ -476,7 +471,7 @@ const {
 const tap = useTapPending({
   nav,
   mapCmp,
-  // « Réessayer » (ac:slow-sign, the wait late): only the piece the plateau
+  // « Réessayer » (the wait late): only the piece the plateau
   // still misses is asked again, never the selection (the scope, the camera,
   // the lists, the files' chain are as they were). While the map holds for
   // the unit's outline, that is its file: the attempts on the network the
@@ -513,12 +508,12 @@ function onRetryWait() {
   void nextTick(() => panelEl.value?.querySelector<HTMLElement>(".crumb.current")?.focus());
 }
 
-// ---- The files asked ahead on a touch screen (data/idlePrefetch, ac:outlines-ahead):
+// ---- The files asked ahead on a touch screen (data/idlePrefetch):
 // no pointer hovers a row there. Once the first plateau stands, its lid has
 // landed and the map is at rest, the one or two units under it that hold the
 // most testimonies have a file asked, one per rest: France's top régions.
 // The ONE file a tap's plateau waits for — the self alone where it goes ahead
-// of its bundle (ac:region-self), a third of the bytes; the bundle follows
+// of its bundle, a third of the bytes; the bundle follows
 // the tap, as for any unit. Not under Save-Data, not on a link the browser
 // calls slow, never while the map moves or a finger is on it; one unit on a
 // weak device.
@@ -526,7 +521,6 @@ const ahead = idlePrefetch({
   allowed: () => {
     const signals = deviceSignals();
     return prefetchAllowed({
-      mode: prefetchMode.value,
       files: outlines.mode.value === "fichiers",
       hover: window.matchMedia("(hover: hover)").matches,
       saveData: signals.saveData,
@@ -644,12 +638,12 @@ const { focusPlaqueWhenShown, dropPlaqueFocus } = usePlaqueFocus({
 
 // Turning the analyses on is asking to see the map.
 // - A lieu open: the map is handed the screen as if the user had taken it —
-//   under « Suit la carte » the lieu closes, the panel following the map;
-//   under « Reste ouvert » it stays open, the wide panel folds; the sheet
-//   lowers — and, deep at the lieu where nothing stands, the map pulls back
-//   to the territory around it, which rises with its analyses (exactly what
-//   a click on that territory does). Higher up, the ring's fit frames the
-//   territory already in sight (see applyRing).
+//   the lieu closes, the panel following the map (with filters on it stays
+//   open and the wide panel folds); the sheet lowers — and, deep at the lieu
+//   where nothing stands, the map pulls back to the territory around it,
+//   which rises with its analyses (exactly what a click on that territory
+//   does). Higher up, the ring's fit frames the territory already in sight
+//   (see applyRing).
 // - Otherwise on a phone the sheet lowers; a desktop moves nothing (the ring's
 //   fit aside).
 // Turned on from the keyboard, the focus then goes to the plaque (below).
@@ -919,12 +913,8 @@ const listsLoading = computed(() => lists.resultsLoading.value);
 /** The results could not be had. */
 const listsFailed = computed(() => lists.resultsFailed.value);
 /** After a network failure, what the panel could not have is asked again by
- *  itself (`ac:recover`, data/usePanelRecovery). */
-const {
-  on: recoverOn,
-  offline: netOffline,
-  retryNow,
-} = usePanelRecovery({
+ *  itself (data/usePanelRecovery). */
+const { offline: netOffline, retryNow } = usePanelRecovery({
   state: () =>
     props.isError || scopeFailed.value || listsFailed.value || placeFailed.value
       ? "failed"
@@ -945,7 +935,6 @@ function retryPanel() {
  *  template's branch below). */
 const panelFailureUp = computed(
   () =>
-    recoverOn &&
     !(props.loading || listsLoading.value) &&
     (props.isError || scopeFailed.value || listsFailed.value),
 );
@@ -990,7 +979,6 @@ function retryAll() {
       :padding="mapPadding"
       :view-padding="mapViewPadding"
       :scope-pending="scopePending"
-      :coming="coming"
       :stable-outline="outlines.mode.value === 'fichiers'"
       :attribution="attribution"
       :credit-corner="isDesktop ? 'top-left' : 'bottom-right'"
@@ -1027,7 +1015,7 @@ function retryAll() {
     <p class="analyses-live" aria-live="polite">
       {{ waitStage === "late" && slowWaitAt === "none" ? "" : tapLive }}
     </p>
-    <!-- …long enough for the page to say so (ac:slow-sign). On a phone whose
+    <!-- …long enough for the page to say so. On a phone whose
          sheet is lowered the panel's notice slot is off screen (only the trail
          row shows): said over the map. -->
     <SlowWaitNotice v-if="slowWaitAt === 'floating'" floating @retry="onRetryWait" />
@@ -1048,7 +1036,7 @@ function retryAll() {
         role="status"
         aria-live="polite"
       >
-        <FrancePoster v-if="FrancePoster" class="boot-poster" />
+        <FrancePoster class="boot-poster" />
         <span class="spinner spinner-lg" aria-hidden="true"></span>
         <p>Chargement de la carte…</p>
       </div>
@@ -1098,12 +1086,12 @@ function retryAll() {
 
         <div v-if="loading || listsLoading" class="state">
           <LoadingDots label="Chargement des témoignages…" />
-          <p v-if="recoverOn && netOffline" class="state-note" role="status">
+          <p v-if="netOffline" class="state-note" role="status">
             Pas de connexion à internet pour le moment. Les témoignages s'afficheront dès son
             retour.
           </p>
         </div>
-        <div v-else-if="(isError || scopeFailed || listsFailed) && recoverOn" class="state">
+        <div v-else-if="isError || scopeFailed || listsFailed" class="state">
           <p role="status">
             <template v-if="netOffline">
               Pas de connexion à internet pour le moment. Les témoignages s'afficheront dès son
@@ -1121,9 +1109,6 @@ function retryAll() {
           >
             Réessayer
           </button>
-        </div>
-        <div v-else-if="isError || scopeFailed || listsFailed" class="state">
-          Impossible de charger les témoignages.
         </div>
 
         <!-- The auditions being listed, each unfolding its testimonies: those of
@@ -1211,7 +1196,7 @@ function retryAll() {
   padding-bottom: var(--sheet-peek, 0px);
 }
 
-/* France under the spinner and its words (`ac:poster`), in the part of the
+/* France under the spinner and its words, in the part of the
    map the panel leaves free. */
 .boot-poster {
   position: absolute;

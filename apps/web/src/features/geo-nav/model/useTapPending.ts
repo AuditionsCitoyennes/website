@@ -2,19 +2,15 @@
 // tapPendingCore.ts): the map's mark through GeoDrillMap (`markPending`,
 // `endPending`, `pendingEnded`: a flat fill and a loading line, the same
 // whatever tapped), the unit pending as a ref (the panel list's aria-busy),
-// the polite sentence said once its plateau stands, the frame the mark may
-// get to itself before the selection is written (`ac:tap-frame`), and the
-// sign of a long wait (`ac:slow-sign`, slowSignSwitch.ts): its stage as a
-// ref (the breadcrumb's dots, the panel's sentence and its « Réessayer »),
+// the polite sentence said once its plateau stands, and the sign of a long
+// wait: its stage as a ref (the breadcrumb's dots, the panel's sentence and its « Réessayer »),
 // and the landing the sign waits for.
 import { onScopeDispose, ref, watch, type Ref } from "vue";
-import { tapAnswerMode, tapFrameMode, tapMarkFor, type TapMark } from "@/features/map";
+import { TAP_MARK, type TapMark } from "@/features/map";
 import type { GeoUnit } from "@/features/geo";
 import { perfNote, perfOn, perfProbe } from "@/shared/perf/perf";
 import type { NavState } from "../navState";
-import { slowSignMode } from "./slowSignSwitch";
 import {
-  createTapFrame,
   createTapPending,
   type PendingEnd,
   type PendingUnit,
@@ -75,8 +71,7 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
   const core = createTapPending({
     mark: (unit, again) => {
       // The same mark whatever tapped: a mouse, a finger, a pen, a key.
-      const mark = tapMarkFor(tapAnswerMode.value);
-      if (!mark.line && !mark.fill) return false;
+      const mark = TAP_MARK;
       // Pending whether or not the map could draw it (a row of a unit with no
       // outline in memory): the list is busy and the sentence is said alike.
       // Not when no verdict would end it: the unit's plateau stands, or
@@ -102,7 +97,6 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
       perfNote("tap.pending", heldMs, { id: unit.id, end });
     },
     now: () => performance.now(),
-    slowSign: () => slowSignMode.value === "on",
     onWait: (stage) => {
       waitStage.value = stage;
       if (perfOn && stage !== "none") waits[stage] = (waits[stage] ?? 0) + 1;
@@ -113,20 +107,6 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
     },
   });
 
-  const frame = createTapFrame({
-    afterPaint: (fn) =>
-      requestAnimationFrame(() => {
-        const channel = new MessageChannel();
-        channel.port1.onmessage = () => {
-          channel.port1.close();
-          fn();
-        };
-        channel.port2.postMessage(0);
-      }),
-    setTimer: (fn, ms) => window.setTimeout(fn, ms),
-    clearTimer: (timer) => window.clearTimeout(timer as number),
-  });
-
   // Every write of the scope, at the write itself: a verdict of the map's is
   // read against the scope as it is when it comes.
   watch(
@@ -134,22 +114,16 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
     (id) => core.scopeChanged(id),
     { flush: "sync" },
   );
-  onScopeDispose(() => {
-    frame.cancel();
-    core.dispose();
-  });
+  onScopeDispose(() => core.dispose());
 
   /**
    * A tap selects `unit`: it is marked pending now, then `write` (the
-   * selection itself: the scope, the camera) runs — in this same task, or,
-   * with `ac:tap-frame=own`, right after the frame that shows the mark. The
-   * last tap wins: a selection still waiting for its frame is dropped.
+   * selection itself: the scope, the camera) runs, in this same task: the
+   * mark shows in the first frame of the flight.
    */
   function select(unit: GeoUnit, write: () => void) {
-    frame.cancel();
-    const marked = core.begin({ id: unit.id, label: unit.label, count: unit.count });
-    if (marked && tapFrameMode.value === "own") frame.after(write);
-    else write();
+    core.begin({ id: unit.id, label: unit.label, count: unit.count });
+    write();
   }
 
   return {
@@ -163,13 +137,6 @@ export function useTapPending({ nav, mapCmp, reask }: TapPendingInputs) {
     /** « Réessayer », under the late sentence: the wait starts over and the
      *  missing piece is asked again. False: there was nothing to try again. */
     retry: () => core.retry(),
-    /** Another action took over (a crumb, a lieu): a selection still waiting
-     *  for its frame is dropped, and its mark with it. */
-    cancelWaiting: () => {
-      if (!frame.waiting()) return;
-      frame.cancel();
-      core.abandon();
-    },
     /** GeoDrillMap's `plateauSettled`. */
     settled: (scopeId: string, how: SettleHow) => core.settled(scopeId, how),
   };

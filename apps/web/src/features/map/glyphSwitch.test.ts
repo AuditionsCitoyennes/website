@@ -1,7 +1,7 @@
-// The labels' letters switch (glyphSwitch.ts): which devices draw them with
+// The labels' letters (glyphSwitch.ts): which devices draw them with
 // the site's font, the plan and the map options each case gives, the wait for
-// the font and the tile requests held for it, the kept mode read back from
-// storage, and the face's ranges against the site's own stylesheet. Run with `node --import tsx --test`
+// the font and the tile requests held for it, and the face's ranges against
+// the site's own stylesheet. Run with `node --import tsx --test`
 // (root "test:scripts"). Pure: no Vue component, no DOM.
 
 import assert from "node:assert/strict";
@@ -11,8 +11,6 @@ import { test } from "node:test";
 
 (globalThis as unknown as { __TEST_TOOLS__: boolean }).__TEST_TOOLS__ = false;
 const {
-  DEFAULT_GLYPHS,
-  GLYPHS,
   LABEL_FACE,
   LABEL_FAMILIES,
   LABEL_FONT_WAIT_MS,
@@ -21,61 +19,16 @@ const {
   TILE_REQUEST,
   fontHoldMs,
   glyphMapOptions,
-  glyphs,
   labelFontPlan,
   labelsLocal,
   settleWithin,
-  storedGlyphs,
   tilesAfterFont,
 } = await import("./glyphSwitch");
 
-/** A localStorage stand-in for one test, removed after it. */
-function withStorage(storage: unknown, run: () => void) {
-  const g = globalThis as { localStorage?: unknown };
-  const had = Object.prototype.hasOwnProperty.call(g, "localStorage");
-  const before = g.localStorage;
-  Object.defineProperty(g, "localStorage", { value: storage, configurable: true });
-  try {
-    run();
-  } finally {
-    if (had) Object.defineProperty(g, "localStorage", { value: before, configurable: true });
-    else delete g.localStorage;
-  }
-}
-const kept = (value: string | null) => ({
-  getItem: (k: string) => (k === "ac:glyphs" ? value : null),
-});
-
-test("the default is auto, and a build without the testing tools reads no storage", () => {
-  assert.equal(DEFAULT_GLYPHS, "auto");
-  assert.deepEqual([...GLYPHS], ["auto", "mapbox", "local"]);
-  assert.equal(glyphs, "auto");
-});
-
-test("the kept mode is read back; garbage, none or a blocked storage give the default", () => {
-  for (const m of GLYPHS) withStorage(kept(m), () => assert.equal(storedGlyphs(), m));
-  for (const v of [null, "", "server", "LOCAL", "style"]) {
-    withStorage(kept(v), () => assert.equal(storedGlyphs(), "auto"));
-  }
-  withStorage(
-    {
-      getItem: () => {
-        throw new Error("blocked");
-      },
-    },
-    () => assert.equal(storedGlyphs(), "auto"),
-  );
-  withStorage(undefined, () => assert.equal(storedGlyphs(), "auto"));
-});
-
-test("auto draws locally on the weak tiers only; the two others force their way", () => {
-  assert.equal(labelsLocal("auto", "full"), false);
-  assert.equal(labelsLocal("auto", "light"), true);
-  assert.equal(labelsLocal("auto", "minimal"), true);
-  for (const tier of ["full", "light", "minimal"] as const) {
-    assert.equal(labelsLocal("mapbox", tier), false, tier);
-    assert.equal(labelsLocal("local", tier), true, tier);
-  }
+test("the labels are drawn locally on the weak tiers only", () => {
+  assert.equal(labelsLocal("full"), false);
+  assert.equal(labelsLocal("light"), true);
+  assert.equal(labelsLocal("minimal"), true);
 });
 
 test("the plan and the map options: today's for mapbox, the site's face or the system's", () => {

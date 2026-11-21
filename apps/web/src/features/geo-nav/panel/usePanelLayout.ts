@@ -1,8 +1,7 @@
 // The panel's layout and who has it: wide with an audition open, folded aside
-// while the map is used (« Reste ouvert », `ac:lieu-hold`), flush with the
-// page's bottom edge; the hand-overs between the map and the panel
-// (engageMap / returnToPanel and the panel's handlers); and the camera padding
-// that keeps the map clear of it.
+// while the map is used with filters on, flush with the page's bottom edge;
+// the hand-overs between the map and the panel (engageMap / returnToPanel and
+// the panel's handlers); and the camera padding that keeps the map clear of it.
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import type { NavState } from "../navState";
@@ -32,9 +31,9 @@ export interface PanelLayoutInputs {
     dragging: () => boolean;
     peekPx: Ref<number>;
   };
-  /** « Suit la carte » (`ac:lieu-hold`, model/lieuHoldSwitch) and no filters
-   *  on: a gesture that moves the map closes the lieu (model/lieuFollow) — a
-   *  desktop's panel stays where it is meanwhile, never folded. */
+  /** No filters on: a gesture that moves the map closes the lieu
+   *  (model/lieuFollow) — a desktop's panel stays where it is meanwhile,
+   *  never folded. */
   follows: () => boolean;
 }
 
@@ -91,8 +90,8 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
 
   // The user has started moving the map (GeoDrillMap's `userGesture`; it repeats,
   // hence the cheap exits). With a lieu open, the panel gets out of the way: a
-  // phone's sheet lowers; a desktop's wide panel folds aside, unless the panel
-  // follows the map (« Suit la carte »): it stays in place, and the gesture
+  // phone's sheet lowers; with filters on a desktop's wide panel folds aside.
+  // With none, the panel follows the map: it stays in place, and the gesture
   // that really moves the map closes the lieu instead (model/lieuFollow).
   function engageMap() {
     nav.hoverReturnHeld.value = false; // the hand is on the map now (see onPanelPointerMove)

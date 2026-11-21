@@ -77,10 +77,10 @@ export function markLineWidth(spanDeg: number, zoom: number): number {
  *  a hovered zone has, on every device. */
 export const MARK_FILL_SHARE = 1;
 
-/** The line's shortest run from one real step to the next, ms (and, under
- *  `ac:tap-fast=show`, the length of its ease). */
+/** The line's shortest run from one real step to the next, ms (and, with
+ *  no constant speed, the length of its ease). */
 export const MARK_STEP_MS = 100;
-/** `ac:tap-fast=hide`: the line is not drawn until this long after the
+/** The line is not drawn until this long after the
  *  first frame that drew the mark, ms — and never when the data is all in
  *  before that: a wait too short to be read shows no line at all. */
 export const MARK_LINE_SHOW_MS = 200;
@@ -114,7 +114,7 @@ export const MARK_WHOLE_UNSEEN_MS = 100;
  *  the plateau rises. */
 export const MARK_REDUCED_HOLD_MS = 50;
 export const MARK_REDUCED_GAP_MS = 34;
-/** The fade of a line that rides the rising lid (`ac:tap-end=together`, or
+/** The fade of a line that rides the rising lid (no verdict told, or
  *  a mark with no fill), of a mark whose wait turned late, and of a line
  *  whose file was given up, ms. */
 export const MARK_FADE_MS = 117;
@@ -145,40 +145,12 @@ export const MARK_FILL_MAX_EDGE_DEG = 2;
  *  thinned to about this many boundary vertices. */
 export const MARK_STANDIN_VERTICES = 1500;
 
-/** `ac:tap-steps=creep`: over the first seconds after the tap the line also
- *  slides ahead of what has arrived — by MARK_CREEP_LEAD of the boundary at
- *  most, with this time constant, frozen MARK_CREEP_FREEZE_MS after the tap.
- *  The lead rides on top of the real value: a real step always moves the
- *  line by its own length. A repaint is asked at most every
- *  MARK_CREEP_TICK_MS while the lead grows — less often under short motion
- *  (a weak device's), and none while the map draws frames of its own. */
-export const MARK_CREEP_LEAD = 0.06;
-export const MARK_CREEP_TAU_MS = 1500;
-export const MARK_CREEP_FREEZE_MS = 4000;
-export const MARK_CREEP_TICK_MS = 100;
-export const MARK_CREEP_TICK_SHORT_MS = 250;
-/** The lead never takes the line past this before the data is all in (a
- *  real value past it is shown as it is). */
-export const MARK_CREEP_MAX = 0.9;
-
 /** The line's value `t` (0..1) of the way through an ease from `from` to
  *  `to` (ease-out cubic). */
 export function easeStep(from: number, to: number, t: number): number {
   if (t >= 1) return to;
   if (t <= 0) return from;
   return from + (to - from) * (1 - Math.pow(1 - t, 3));
-}
-
-/** How far ahead of the real value the creeping line is, `ms` after the tap. */
-export function creepLead(ms: number): number {
-  const t = Math.min(Math.max(0, ms), MARK_CREEP_FREEZE_MS);
-  return MARK_CREEP_LEAD * (1 - Math.exp(-t / MARK_CREEP_TAU_MS));
-}
-
-/** The creeping line's value `ms` after the tap, the real value being `real`. */
-export function creepShown(real: number, ms: number): number {
-  if (real >= MARK_CREEP_MAX) return real;
-  return Math.min(MARK_CREEP_MAX, real + creepLead(ms));
 }
 
 /** A linear fade's opacity `now`: 1 until `t0`, 0 from `t0 + ms` (`t0` 0:

@@ -194,7 +194,7 @@ export function useScopeMask({
     return geoms;
   }
 
-  /** ac:tint-cut: a plateau is about to stand for these features —
+  /** A plateau is about to stand for these features —
    *  the flat view's grey around them is asked of the worker now, so the
    *  applyMask that follows its mesh lays it in that same block. */
   function prepareMask(features: OutlineFC["features"]) {
@@ -207,9 +207,9 @@ export function useScopeMask({
    * Keyed on `plateauActive` (and held as-is while the next scope's boundary is
    * still loading). The hole is what keeps the selection clear, so this needs
    * nothing from the lid: in the flat view the sheet is re-cut right here,
-   * synchronously, and clicking a zone colours it in that frame — or, with
-   * ac:tint-cut (../threadSwitch.ts), it is cut by the mesh worker
-   * and laid when it answers, a frame or two after the click.
+   * synchronously, and clicking a zone colours it in that frame — or, on a
+   * weak device (../threadSwitch.ts), it is cut by the mesh worker and laid
+   * when it answers, a frame or two after the click.
    */
   function applyMask() {
     const src = getMap()?.getSource(MASK_SOURCE) as mapboxgl.GeoJSONSource | undefined;
@@ -433,7 +433,7 @@ export function useScopeMask({
     applyOutline,
     applyMask,
     prepareMask,
-    /** ac:tint-cut: who cuts the flat view's grey off the page (null: nobody). */
+    /** Who cuts the flat view's grey off the page (null: nobody). */
     setTintCutter: (c: TintCutter | null) => scopeTint.setCutter(c),
     /** The testing tools' fingerprint of the grey sheet laid (`__acTintHash`). */
     tintDigest: () => scopeTint.digest(),

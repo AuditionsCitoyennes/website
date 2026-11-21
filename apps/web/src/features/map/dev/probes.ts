@@ -24,7 +24,7 @@ import type { useContextRestore } from "../composables/useContextRestore";
 import { stillMap, whenMapStill } from "../lib/stillMap";
 import { installMotionProbes } from "./motionProbes";
 import { installPerfVocabulary } from "./perfVocabulary";
-import { cacheBudgetNow, mapCaches } from "../cacheBudget";
+import { cacheBudgetNow } from "../cacheBudget";
 
 type Probes = {
   __acMap?: mapboxgl.Map;
@@ -135,7 +135,7 @@ export function installProbes({
       pendingMark: pendingMark(),
       // What the map keeps in memory (../cacheBudget.ts): the switch, and
       // the sizes in force now (the tiles' are read when a map is created).
-      caches: { choice: mapCaches, ...cacheBudgetNow() },
+      caches: { ...cacheBudgetNow() },
       // The WebGL context's losses and restores (lib/contextWatch.ts).
       ...(context ? { context: context.probe() } : {}),
     };
