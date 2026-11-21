@@ -180,13 +180,22 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
     // beside it, and folding the panel aside moves nothing at all.
     if (isDesktop.value)
       return { top: 60, bottom: 60, left: 60, right: PANEL_BASE_PX + PANEL_GAP_PX };
-    // Phone. Raised over a lieu, the sheet leaves only a strip of map at the top:
-    // park the place there, where its pin stays in sight above the text.
+    // Phone. Raised over a lieu, the place is parked in the strip at the top of
+    // the map, where its pin stays in sight above the text: under a full sheet
+    // (« Plein », an audition open, a long lieu) that strip is all the map
+    // that shows. A short fitted sheet (« Ajusté », a lieu of a few
+    // auditions) leaves more map below the pin, empty; the pin stays in the
+    // top strip all the same, on purpose: the padding is the same whatever
+    // the sheet's height, so the map does not move as the sheet refits
+    // (opening an audition makes it full).
     const h = viewportH.value;
     if (selectedPlace.value && sheetOpen.value)
       return { top: 24, bottom: Math.max(0, h - 70), left: 30, right: 30 };
     // Otherwise frame for the LOWERED sheet — the only state in which the map is
-    // really on screen. Raising the sheet over a list therefore moves nothing.
+    // sure to be on screen. Raising the sheet over a list therefore moves
+    // nothing. Neither reads the raised sheet's height (« Ajusté »,
+    // useBottomSheet: as tall as its content), on purpose: the map never moves
+    // as the sheet refits, the map shown above a short sheet is extra room only.
     return { top: 30, bottom: sheet.peekPx.value + 20, left: 36, right: 36 };
   });
 
