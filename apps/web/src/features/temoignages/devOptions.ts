@@ -3,7 +3,8 @@
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (map/fallbackSwitch,
-// analyses/devSwitch, shared/device/deviceTier, map/graphicsSwitch). Under the
+// geo-nav/panel/sheetFitSwitch, analyses/devSwitch, shared/device/deviceTier,
+// map/graphicsSwitch). Under the
 // « Appareil » row the dialog lists what the page knows of the device
 // (`tierFacts`). Testing tools only: imported by DevOptionsMenu.vue alone, so
 // a production build has none of these strings. French typography: a no-break
@@ -17,7 +18,7 @@ import type {
   TierVerdict,
 } from "@/shared/device/deviceTier";
 
-export type DevSection = "carte" | "analyses" | "appareil";
+export type DevSection = "carte" | "panneau" | "analyses" | "appareil";
 
 export type DevKey =
   | "ac:analyses-pending"
@@ -27,6 +28,7 @@ export type DevKey =
   | "ac:ring-band"
   | "ac:tier"
   | "ac:map-fallback"
+  | "ac:sheet-fit"
   | "ac:dpr"
   | "ac:frame-measure";
 
@@ -67,6 +69,11 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
     intro: "Ce que montre son cadre quand elle ne démarre pas.",
   },
   {
+    id: "panneau",
+    title: "Panneau",
+    intro: "Ce que fait le panneau des témoignages sur un téléphone.",
+  },
+  {
     id: "analyses",
     title: "Analyses",
     intro: "Ce qui s'affiche quand le bouton Analyses est activé.",
@@ -99,6 +106,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Quand la carte ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée), son cadre montre la France en image, en retrait, sous une phrase simple. « Visiteur » (par défaut) démarre la carte comme d'habitude ; « Essai » ne la démarre pas du tout, pour voir ce cadre sur n'importe quel appareil. Le même cadre, avec un bouton « Réessayer », sert quand le fond de carte n'arrive pas malgré les nouveaux essais.",
     reloads: true,
     defaultId: "visiteur",
+  },
+  {
+    key: "ac:sheet-fit",
+    section: "panneau",
+    label: "Hauteur",
+    choices: [
+      { id: "ajuste", label: "Ajusté" },
+      { id: "plein", label: "Plein" },
+    ],
+    explain:
+      "Sur un téléphone, la hauteur du panneau des témoignages quand il est remonté. « Ajusté » (par défaut) le fait aussi haut que ce qu'il montre : deux villes, et la carte reste visible au-dessus ; une longue liste, et il monte jusqu'en haut. « Plein » le monte toujours jusqu'en haut, comme avant. Rien ne change sur un ordinateur.",
+    reloads: false,
+    defaultId: "ajuste",
   },
   {
     key: "ac:analyses-pending",

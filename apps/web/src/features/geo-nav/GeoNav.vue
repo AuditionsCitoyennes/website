@@ -45,6 +45,8 @@ import { useTapPending } from "./model/useTapPending";
 import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
+import { sheetFitMode } from "./panel/sheetFitSwitch";
+import { testimoniesOf } from "./model/auditions";
 import { PANEL_BASE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
 import { usePlaqueFocus } from "./ring/usePlaqueFocus";
@@ -264,6 +266,7 @@ const panelEl = computed(() => panelCmp.value?.el ?? null);
 const sheetPeekEl = computed(() => panelCmp.value?.peekEl ?? null);
 const sheetSafeEl = computed(() => panelCmp.value?.safeEl ?? null);
 const panelListEl = computed(() => panelCmp.value?.listEl ?? null);
+const panelBodyEl = computed(() => panelCmp.value?.bodyEl ?? null);
 const moreEl = computed(() => auditionsCmp.value?.moreEl ?? null);
 const moreTestimoniesEl = computed(() => auditionsCmp.value?.moreTestimoniesEl ?? null);
 
@@ -331,11 +334,26 @@ const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
 const pageEl = ref<HTMLElement | null>(null);
 
 // ---- The phone's sheet (panel/useBottomSheet), the panel's layout (panel/usePanelLayout) ----
-const sheet = useBottomSheet({ nav, isDesktop, panelEl, peekEl: sheetPeekEl, safeEl: sheetSafeEl });
+// A raised sheet as tall as its content (« Ajusté »), held while what it
+// shows loads (`sheetFitHold`, made further down: read at a measure, never
+// before the page is set up).
+const sheet = useBottomSheet({
+  nav,
+  isDesktop,
+  panelEl,
+  peekEl: sheetPeekEl,
+  safeEl: sheetSafeEl,
+  listEl: panelListEl,
+  bodyEl: panelBodyEl,
+  fitMode: () => sheetFitMode.value,
+  hold: () => sheetFitHold.value,
+});
 const {
   sheetPeekPx,
   sheetDragPx,
   sheetLowered,
+  sheetFitted,
+  sheetRefit,
   sheetHidden,
   sheetStyle,
   measureSheet,
@@ -912,6 +930,42 @@ if (__TEST_TOOLS__) {
 const listsLoading = computed(() => lists.resultsLoading.value);
 /** The results could not be had. */
 const listsFailed = computed(() => lists.resultsFailed.value);
+/** Something the phone's raised sheet shows is still on its way — the
+ *  testimonies, the results, the scope's children, the lieu's auditions, an
+ *  open audition's testimonies: the sheet may grow meanwhile, not shrink, so
+ *  that it never shrinks to the wait dots and grows back (useBottomSheet). */
+const sheetFitHold = computed(
+  () =>
+    props.loading ||
+    listsLoading.value ||
+    scopeChildrenPending.value ||
+    placeLoading.value ||
+    ((listMode.value || !!selectedPlace.value) &&
+      panelAuditions.value.some((a) => openAuditions.value.has(a.id) && testimoniesOf(a) === null)),
+);
+if (__TEST_TOOLS__) {
+  // `window.__acSheet()`: the phone's sheet as measured last — raised or not,
+  // the fit's mode, the box, the content, the raised and lowered offsets,
+  // the hold (px; desktops have no sheet), and the camera's padding.
+  const probe = () => ({
+    open: sheetOpen.value,
+    mode: sheetFitMode.value,
+    fullPx: sheet.sheetFullPx.value,
+    contentPx: sheet.sheetContentPx.value,
+    raisedPx: sheet.sheetRaisedPx.value,
+    loweredPx: sheet.sheetLoweredPx.value,
+    peekPx: sheetPeekPx.value,
+    fitted: sheetFitted.value,
+    hold: sheetFitHold.value,
+    // What the camera is told to keep clear: never the raised sheet's height.
+    mapPadding: { ...mapPadding.value },
+  });
+  const w = window as unknown as { __acSheet?: () => unknown };
+  w.__acSheet = probe;
+  onBeforeUnmount(() => {
+    if (w.__acSheet === probe) delete w.__acSheet;
+  });
+}
 /** After a network failure, what the panel could not have is asked again by
  *  itself (data/usePanelRecovery). */
 const { offline: netOffline, retryNow } = usePanelRecovery({
@@ -1055,6 +1109,8 @@ function retryAll() {
         :flush="panelFlush"
         :sheet-lowered="sheetLowered"
         :sheet-dragging="sheetDragPx !== null"
+        :sheet-fitted="sheetFitted"
+        :sheet-refit="sheetRefit"
         :sheet-style="sheetStyle"
         :sheet-open="sheetOpen"
         :sheet-hidden="sheetHidden"

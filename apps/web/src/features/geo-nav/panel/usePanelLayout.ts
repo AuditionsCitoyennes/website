@@ -187,6 +187,9 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
       return { top: 24, bottom: Math.max(0, h - 70), left: 30, right: 30 };
     // Otherwise frame for the LOWERED sheet — the only state in which the map is
     // really on screen. Raising the sheet over a list therefore moves nothing.
+    // Neither reads the raised sheet's height (« Ajusté », useBottomSheet: as
+    // tall as its content), on purpose: the map never moves as the sheet
+    // refits, the map shown above a short sheet is extra room only.
     return { top: 30, bottom: sheet.peekPx.value + 20, left: 36, right: 36 };
   });
 
