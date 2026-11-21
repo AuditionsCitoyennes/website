@@ -2,37 +2,27 @@
 // — filters on — every audition that matches, a page at a time as the reader
 // scrolls; the single-open accordion; the list's scroll kept where the
 // reader's eye is while an audition opens or the results change. From the
-// corpus (the map's groups and every testimony), or from the server's lists
-// (map phase 1, PR K: data/useServerLists).
+// server's lists (map phase 1, PR K: data/useServerLists).
 import { computed, nextTick, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from "vue";
-import type { LocationGroup } from "@ac/shared";
 import { formatDateShort } from "@/shared/format/dates";
 import { placeLabel, type GeoUnit } from "@/features/geo";
 import type { NavState } from "../navState";
 import type { ServerLists } from "../data/useServerLists";
 import {
   bySort,
-  RESULTS_PAGE,
   serverPanelAudition,
   testimoniesOf,
-  toPanelAudition,
-  type AuditionGroup,
   type AuditionSort,
   type PanelAudition,
 } from "./auditions";
-import { knownFromGroups, type LieuAuditionsKnown } from "./lieuSingle";
+import type { LieuAuditionsKnown } from "./lieuSingle";
 
 export interface PanelAuditionsInputs {
   nav: NavState;
-  groups: Ref<LocationGroup[]>;
   sort: Ref<AuditionSort | undefined>;
   /** Filters are on: the panel lists EVERY audition that matches, in one list. */
   listMode: ComputedRef<boolean>;
-  /** The association's own testimonies, grouped by audition (keyed by its id). */
-  ownAuditions: ComputedRef<Map<string, AuditionGroup>>;
   selectedPlace: ComputedRef<GeoUnit | null>;
-  /** A lieu's unit id by its canonical name (the same Map while the ids are). */
-  placeIdByCanonical: ComputedRef<Map<string, string>>;
   /** Every unit by id: an audition's lieu is found by its id (placeId). */
   index: ComputedRef<Map<string, GeoUnit>>;
   /** The list's scroller (`.panel-list`, GeoPanel's). */
@@ -46,93 +36,62 @@ export interface PanelAuditionsInputs {
    *  changing (the camera's). */
   scheduleFilterFrame: () => void;
   /** The end of the open audition's testimonies (AuditionList's): the next
-   *  page comes as it nears the bottom (the server's lists). */
+   *  page comes as it nears the bottom. */
   moreTestimoniesEl?: Ref<HTMLElement | null>;
-  /** The server's lists: the panel lists from them, not from `groups` and
-   *  `ownAuditions` (map phase 1, PR K). */
-  server?: ServerLists | null;
+  /** The server's lists: the panel lists from them (map phase 1, PR K). */
+  server: ServerLists;
 }
 
 export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   const {
     nav,
-    groups,
     sort,
     listMode,
-    ownAuditions,
     selectedPlace,
-    placeIdByCanonical,
     index,
     panelListEl,
     moreEl,
     spotlightPlace,
     scheduleFilterFrame,
+    server,
   } = inputs;
-  const server = inputs.server ?? null;
   const { selectedPlaceId, openAuditions, mapEngaged } = nav;
 
-  /** The panel's line for an audition of a group, with its testimonies (all
-   *  loaded with the page) once they are here. */
-  function panelAudition(g: LocationGroup, a: LocationGroup["auditions"][number]): PanelAudition {
-    return toPanelAudition(g, a, ownAuditions.value, placeIdByCanonical.value);
-  }
-
   // The open lieu's auditions: listed at once from what the map already knows of
-  // them (title, date, how many testimonies) — nothing is fetched to open a lieu
-  // (the server's: its row's own list, embedded; on the lazy path, asked for).
+  // them (title, date, how many testimonies) — its row's own list, embedded; on
+  // the lazy path, asked for.
   const placeAuditions = computed<PanelAudition[]>(() => {
-    if (server) {
-      const place = selectedPlace.value;
-      if (!place) return [];
-      const lieu = { id: place.id, canonical: place.canonical ?? place.label };
-      return server.placeList.value.rows
-        .map((a) => serverPanelAudition(a, lieu, server.testimoniesFor(a.id)))
-        .sort((a, b) => bySort(a, b, sort.value));
-    }
-    const canonical = selectedPlace.value?.canonical;
-    if (!canonical) return [];
-    const rows: PanelAudition[] = [];
-    for (const g of groups.value) {
-      if (g.canonicalName !== canonical) continue;
-      for (const a of g.auditions) rows.push(panelAudition(g, a));
-    }
-    return rows.sort((a, b) => bySort(a, b, sort.value));
+    const place = selectedPlace.value;
+    if (!place) return [];
+    const lieu = { id: place.id, canonical: place.canonical ?? place.label };
+    return server.placeList.value.rows
+      .map((a) => serverPanelAudition(a, lieu, server.testimoniesFor(a.id)))
+      .sort((a, b) => bySort(a, b, sort.value));
   });
 
   /** What is known of a lieu's auditions the moment it is opened, before its
-   *  list is on screen (model/lieuSingle): the server's tree row, or the
-   *  corpus' groups. */
+   *  list is on screen (model/lieuSingle): the server's tree row. */
   function lieuAuditionsOf(unit: GeoUnit): LieuAuditionsKnown | null {
-    if (server) return server.lieuAuditionsKnown(unit.id);
-    return unit.canonical ? knownFromGroups(groups.value, unit.canonical) : null;
+    return server.lieuAuditionsKnown(unit.id);
   }
 
+  // The server's, in its order: the pages loaded.
   const resultAuditions = computed<PanelAudition[]>(() => {
     if (!listMode.value) return [];
-    // The server's, in its order: the pages loaded.
-    if (server) {
-      return server.resultRows.value.map((a) =>
-        serverPanelAudition(
-          a,
-          { id: a.lieu.id, canonical: a.lieu.key, lieu: a.lieu },
-          server.testimoniesFor(a.id),
-        ),
-      );
-    }
-    const out: PanelAudition[] = [];
-    for (const g of groups.value) for (const a of g.auditions) out.push(panelAudition(g, a));
-    return out.sort((a, b) => bySort(a, b, sort.value));
+    return server.resultRows.value.map((a) =>
+      serverPanelAudition(
+        a,
+        { id: a.lieu.id, canonical: a.lieu.key, lieu: a.lieu },
+        server.testimoniesFor(a.id),
+      ),
+    );
   });
 
   // Many auditions can match a wide filter: the list is filled a page at a time
-  // as the reader scrolls down it (the server's: a page asked for at a time).
-  const shownCount = ref(RESULTS_PAGE);
-  const moreResults = computed(() =>
-    server ? server.moreResults.value : resultAuditions.value.length > shownCount.value,
-  );
+  // as the reader scrolls down it, a page asked for at a time.
+  const moreResults = computed(() => server.moreResults.value);
   function showMoreResults() {
-    if (server) server.loadMoreResults();
-    else shownCount.value += RESULTS_PAGE;
+    server.loadMoreResults();
   }
   let moreObserver: IntersectionObserver | null = null;
   watch(moreEl, (el) => {
@@ -156,32 +115,24 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     observer.unobserve(el);
     observer.observe(el);
   }
-  if (server) {
-    watch(
-      () => server.resultRows.value.length,
-      () => void nextTick(() => lookAgain(moreObserver, moreEl.value)),
-    );
-  }
+  watch(
+    () => server.resultRows.value.length,
+    () => void nextTick(() => lookAgain(moreObserver, moreEl.value)),
+  );
 
   /** The auditions the panel shows: the results, or the open lieu's own. */
   const panelAuditions = computed<PanelAudition[]>(() =>
-    listMode.value
-      ? server
-        ? resultAuditions.value
-        : resultAuditions.value.slice(0, shownCount.value)
-      : placeAuditions.value,
+    listMode.value ? resultAuditions.value : placeAuditions.value,
   );
 
   /** How many auditions match (the results' heading): the server's total. */
-  const resultCount = computed(() =>
-    server ? (server.resultsTotal.value?.auditions ?? 0) : resultAuditions.value.length,
-  );
+  const resultCount = computed(() => server.resultsTotal.value?.auditions ?? 0);
 
   /** An audition's lieu in the tree on screen, by its id. A result's lieu the
    *  tree does not hold yet (the server's lazy path) is put in it then. */
   function lieuUnitOf(a: PanelAudition): GeoUnit | undefined {
     const known = a.placeId ? index.value.get(a.placeId) : undefined;
-    if (known || !server || !a.lieu) return known;
+    if (known || !a.lieu) return known;
     return server.addStub(a.lieu) ? index.value.get(a.lieu.id) : undefined;
   }
 
@@ -195,23 +146,12 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     return [a.date ? formatDateShort(a.date) : "", place].filter(Boolean).join(" · ");
   }
 
-  // A new list of results (the server's: a new key, order or first page —
-  // never a page appended) is read from its top; a new SET of results frames
-  // the visitor's country again.
-  const resultsSig = computed(() => {
-    if (!listMode.value) return "";
-    if (server) return server.resultsSig.value;
-    return resultAuditions.value.map((a) => a.id).join("|");
-  });
+  // A new list of results (a new key, order or first page — never a page
+  // appended) is read from its top; a new SET of results frames the visitor's
+  // country again.
+  const resultsSig = computed(() => (listMode.value ? server.resultsSig.value : ""));
   /** Which auditions match, whatever their order: sorting is not a new answer. */
-  const resultSetSig = computed(() => {
-    if (!listMode.value) return "";
-    if (server) return server.resultSetSig.value;
-    return resultAuditions.value
-      .map((a) => a.id)
-      .sort()
-      .join("|");
-  });
+  const resultSetSig = computed(() => (listMode.value ? server.resultSetSig.value : ""));
   watch(listMode, (on) => {
     // The results replace whatever lieu was open: they are a list of their own.
     if (on) {
@@ -223,7 +163,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     if (!listMode.value) return;
     const open = [...openAuditions.value][0];
     const at = open ? resultAuditions.value.findIndex((a) => a.id === open) : -1;
-    if (server && open && at !== -1) {
+    if (open && at !== -1) {
       // Still read (the server's answer was read as far as it before it came
       // on screen), its lieu stays the open one: the lazy path's new tree may
       // not hold it yet.
@@ -233,13 +173,10 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     // The audition being read no longer matches the filters — unless the
     // server could not say (its read failed): it stays open, rather than
     // closed on a guess.
-    if (open && at === -1 && server?.unknownOpen() !== open) {
+    if (open && at === -1 && server.unknownOpen() !== open) {
       openAuditions.value.clear();
       selectedPlaceId.value = null;
     }
-    // Back to the first page — or as far as the audition being read (the
-    // server's: its answer was read so far).
-    if (!server) shownCount.value = Math.max(RESULTS_PAGE, at + 1);
     // A new list is read from its top; the audition being read stays in sight
     // wherever the new order has put it.
     if (at === -1) {
@@ -410,9 +347,9 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   }
 
   // The open audition's next testimonies, as the end of its text nears the
-  // bottom of the panel (the server's lists only).
+  // bottom of the panel.
   const moreTestimoniesEl = inputs.moreTestimoniesEl;
-  if (server && moreTestimoniesEl) {
+  if (moreTestimoniesEl) {
     let observer: IntersectionObserver | null = null;
     watch(moreTestimoniesEl, (el) => {
       observer?.disconnect();
@@ -433,15 +370,13 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     onBeforeUnmount(() => observer?.disconnect());
   }
   function showMoreTestimonies() {
-    server?.loadMoreTestimonies();
+    server.loadMoreTestimonies();
   }
 
   /** The open lieu's auditions are on their way (the server's lazy path). */
-  const placeLoading = computed(
-    () => !!server && !listMode.value && server.placeList.value.loading,
-  );
+  const placeLoading = computed(() => !listMode.value && server.placeList.value.loading);
   /** The open lieu's auditions could not be had (the same). */
-  const placeFailed = computed(() => !!server && !listMode.value && server.placeList.value.failed);
+  const placeFailed = computed(() => !listMode.value && server.placeList.value.failed);
 
   /**
    * Where a lieu's first audition sits in the results, asked of the server
@@ -450,7 +385,6 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
    * could not say, or the results changed meanwhile.
    */
   async function findResultFurther(unit: GeoUnit): Promise<number> {
-    if (!server) return -1;
     const sig = server.resultsSig.value;
     const first = await server.firstAuditionAt(unit.id);
     if (!first || !listMode.value || server.resultsSig.value !== sig) return -1;
@@ -462,13 +396,12 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
   return {
     resultAuditions,
     resultCount,
-    shownCount,
     moreResults,
     showMoreResults,
     showMoreTestimonies,
     placeLoading,
     placeFailed,
-    findResultFurther: server ? findResultFurther : null,
+    findResultFurther,
     panelAuditions,
     auditionMeta,
     isAudOpen,

@@ -1,6 +1,6 @@
 // The boundary credits (attribution.ts): Etalab's once the files are in,
 // « Pays » only with the country files, nothing whenever no boundary is
-// drawn (no files read, a session still loading or fallen back), and HTML
+// drawn (a session still loading or fallen back), and HTML
 // that Mapbox keeps as written (https anchors, no other markup). Run with
 // `node --import tsx --test` (root "test:scripts"). Pure: no Vue, no DOM.
 
@@ -11,10 +11,10 @@ import { boundaryAttribution, type OutlineSession } from "./attribution";
 const files = boundaryAttribution({ session: "ok", countries: false });
 const world = boundaryAttribution({ session: "ok", countries: true });
 
-test("no credit until the files are in, after a fallback, or with no files read", () => {
-  const none = boundaryAttribution({ session: null, countries: false });
+test("no credit until the files are in, or after a fallback", () => {
+  const none = boundaryAttribution({ session: "loading", countries: false });
   assert.deepEqual(none, []);
-  const sessions: OutlineSession[] = [null, "loading", "late", "fallback"];
+  const sessions: OutlineSession[] = ["loading", "late", "fallback"];
   for (const session of sessions) {
     for (const countries of [false, true]) {
       assert.equal(boundaryAttribution({ session, countries }), none);

@@ -99,13 +99,6 @@ function geoRefOf(b: Builder, insee: string | undefined): GeoRef | undefined {
   return code === undefined ? { country: "FR", level, nom } : { country: "FR", level, code, nom };
 }
 
-/** The ids of every unit a group belongs to, root first: ["France",
- *  "France/r:…", "…/d:…", "…/v:…", ("…/a:…"), "…/p:<canonical>"]; null when it
- *  has no région. The same ids as buildGeoHierarchy's units. */
-export function unitChainOf(g: ChainArea): string[] | null {
-  return chainSteps(g)?.map((s) => s.id) ?? null;
-}
-
 /**
  * Build the full hierarchy from the geocoded map groups. Groups with no région
  * (admin-less / generic locations) are skipped — they carry no place on the map.

@@ -8,10 +8,9 @@
 // Known at once, so the audition opens in the same tick as the lieu — one
 // camera command, aimed with the panel already as wide as an open audition
 // makes it:
-// - the server's tree: the lieu's row says how many auditions it holds
-//   (`auditions`) and which is the newest (`tie`, or its embedded list's
-//   first) — the one, when there is one;
-// - the corpus: the map's groups hold every audition, by the lieu's name.
+// the server's tree: the lieu's row says how many auditions it holds
+// (`auditions`) and which is the newest (`tie`, or its embedded list's first)
+// — the one, when there is one.
 
 /** What is known of a lieu's auditions when it is opened. */
 export interface LieuAuditionsKnown {
@@ -28,23 +27,6 @@ export function knownFromRow(row: {
   list?: readonly (readonly [string, ...unknown[]])[];
 }): LieuAuditionsKnown {
   return { count: row.auditions, first: row.list?.[0]?.[0] ?? row.tie ?? null };
-}
-
-/** From the corpus' groups: every audition held under the lieu's name. */
-export function knownFromGroups(
-  groups: readonly { canonicalName: string; auditions: readonly { id: string }[] }[],
-  canonical: string,
-): LieuAuditionsKnown {
-  let count = 0;
-  let first: string | null = null;
-  for (const g of groups) {
-    if (g.canonicalName !== canonical) continue;
-    for (const a of g.auditions) {
-      count++;
-      first ??= a.id;
-    }
-  }
-  return { count, first };
 }
 
 /**

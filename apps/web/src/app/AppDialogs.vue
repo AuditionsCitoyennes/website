@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/vue-query";
 import { useAuthStore } from "@/features/auth";
 import { loadCreateAuditionDialog, useCreateAudition } from "@/features/admin";
 import { loadSubmitTestimonyDialog, useSubmitTestimony } from "@/features/testify";
-import { reloadPlaces, testimoniesKeys } from "@/features/temoignages";
+import { reloadPlaces } from "@/features/temoignages";
 import { useLazyDialog } from "./useLazyDialog";
 
 const auth = useAuthStore();
@@ -33,11 +33,8 @@ const { component: SubmitTestimonyDialog } = useLazyDialog({
 function onAuditionCreated() {
   createAudition.notifyCreated();
   // The public pages show what they loaded a moment ago: the new audition
-  // belongs on them now, wherever it was created from — the place reads too
-  // (the Témoignages map and the home card reload their tree, useUnitTree).
-  for (const key of [testimoniesKeys.list, testimoniesKeys.map]) {
-    void queryClient.invalidateQueries({ queryKey: key });
-  }
+  // belongs on them now, wherever it was created from (the Témoignages map
+  // and the home card reload their tree, useUnitTree).
   reloadPlaces(queryClient);
 }
 

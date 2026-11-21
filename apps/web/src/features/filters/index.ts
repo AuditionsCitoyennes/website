@@ -13,7 +13,6 @@ export {
   type TestimonyContent,
 } from "./filters";
 export {
-  passesPlaceIds,
   placeIdsOf,
   TEXT_DEBOUNCE_MS,
   useServerFilters,

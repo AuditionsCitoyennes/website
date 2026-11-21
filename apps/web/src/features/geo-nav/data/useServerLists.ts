@@ -9,8 +9,8 @@
 //   readTarget: the audition being read, or the rows of the same list on
 //   screen). Its first page gives the heading's total (and the results'
 //   frame, which only the probe reads). A key or order come back to is read
-//   again from its first page, as the corpus' reveal restarts. Failed for
-//   good, the panel's error line shows, and the next scope change asks again.
+//   again from its first page. Failed for good, the panel's error line
+//   shows, and the next scope change asks again.
 // - The open lieu's auditions: its row's own list when the tree's answer
 //   embedded it (a complete answer: production's case, nothing is fetched);
 //   else /api/places/lieu, LoadingDots meanwhile (D13).
@@ -176,10 +176,9 @@ export function useServerLists(inputs: ServerListsInputs) {
   /** The results on screen (null: none yet, or failed). */
   const settled = shallowRef<ShownResults | null>(null);
 
-  // A key or order come back to is read from its first page again (the
-  // corpus' reveal restarts at a new list): the pages kept beyond it are
-  // dropped before the query is pointed at it — a stale one is then read
-  // again as one page, not as many as were loaded.
+  // A key or order come back to is read from its first page again: the pages
+  // kept beyond it are dropped before the query is pointed at it — a stale
+  // one is then read again as one page, not as many as were loaded.
   watch(
     [resultsAsked, sortNow],
     ([key, s]) => {

@@ -71,17 +71,6 @@ export function placeIdsOf(tokens: readonly string[]): { units: string[]; lieux:
   };
 }
 
-/** Whether an audition's place (its unit path and lieu id, as /api/map's
- *  groups carry them) is among the places picked — none picked: all are. */
-export function passesPlaceIds(
-  place: { unitPath?: readonly string[] | null; lieuId?: string | null } | null,
-  picked: readonly string[],
-): boolean {
-  if (!picked.length) return true;
-  if (!place) return false;
-  return picked.some((id) => id === place.lieuId || (place.unitPath?.includes(id) ?? false));
-}
-
 /**
  * The filters as the server takes them, from the page's state. `minChars`:
  * the shortest text applied (SEARCH_MIN_CHARS, the API's default unless an

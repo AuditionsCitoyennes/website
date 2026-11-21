@@ -37,9 +37,9 @@ const reloadListeners = new Set<() => void>();
 /**
  * The place reads are read again (an audition was created): every one is
  * invalidated — those on screen are asked again by their observers — and the
- * server's trees (useUnitTree) and the comparer are told directly: the query
- * cache sends no invalidate event for a query already invalidated (its last
- * read failed, or an earlier reload's is still on its way).
+ * server's trees (useUnitTree) are told directly: the query cache sends no
+ * invalidate event for a query already invalidated (its last read failed, or
+ * an earlier reload's is still on its way).
  */
 export function reloadPlaces(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: placesKeys.all });

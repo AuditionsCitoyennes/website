@@ -23,8 +23,8 @@ export interface CameraInputs {
   index: ComputedRef<Map<string, GeoUnit>>;
   raisedGeometryFor: (u: GeoUnit) => unknown;
   containsPoint: (u: GeoUnit, lat: number, lng: number) => boolean;
-  /** The outline files (GeoNav: under the server's tree); null: none read. */
-  outlines: OutlineFiles | null;
+  /** The outline files. */
+  outlines: OutlineFiles;
   mapCmp: Ref<MapHandle | null>;
   listMode: ComputedRef<boolean>;
   /** Whether the visitor tapped unit `id` and its plateau is still pending
@@ -119,7 +119,7 @@ export function useCamera(inputs: CameraInputs) {
       // already in; the same request as the scope's chain will make — a
       // country with no bundle, its u/ (geo's outlineRoles). Nothing without
       // the files, or once the session fell back.
-      if (outlines?.mode.value === "fichiers") {
+      if (outlines.mode.value === "fichiers") {
         if (unit.levelKey === "country" && selfFileOf(outlines.rowOf(unit.id)) === "u")
           void outlines.ensureSelf(unit.id);
         // Due (its fetch priority) while its self is not in: its plateau

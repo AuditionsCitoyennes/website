@@ -3,8 +3,8 @@
 // button over the map's bottom-right corner (GeoNav's `map-tools` slot: on a
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
-// « Options de test », a row for each switch of devOptions.ts — the data
-// source and the place tree (dataSource.ts), the plateau's lid, its check, its
+// « Options de test », a row for each switch of devOptions.ts — the place
+// tree (placeTreeSwitch.ts), the plateau's lid, its check, its
 // hidden map, the pictures of it that are kept, its mesh, its lines' layout,
 // its ground, its rise, the relief's prefetch and the answer to a tap
 // (map), what the map keeps in memory (map/cacheBudget),
@@ -21,10 +21,8 @@
 // that is not its switch's default is marked: a count on the button,
 // « modifié » on its row, and at the top of the dialog the count again with
 // « Tout remettre par défaut », which removes the stored keys (and the device
-// tier's kept measure) and loads the page again. In comparer mode a badge
-// counting the differences (compare.ts: window.__acCompare, the tree's, and
-// window.__acCompareLists, the lists'). The testing tools only: the explorer
-// loads it behind `__TEST_TOOLS__`.
+// tier's kept measure) and loads the page again. The testing tools only: the
+// explorer loads it behind `__TEST_TOOLS__`.
 import { computed, nextTick, ref, useId } from "vue";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
 import {
@@ -155,8 +153,7 @@ import {
   testifyLook,
   testifyNudge,
 } from "@/shared/testimony/testifyNudge";
-import { dataSource, placeTreeMode, setDataSource, setPlaceTreeMode } from "./dataSource";
-import { compareState } from "./compare";
+import { placeTreeMode, setPlaceTreeMode } from "./placeTreeSwitch";
 import {
   DEV_CHANGED_MARK,
   DEV_DESCRIPTION,
@@ -185,7 +182,6 @@ const share = (now: () => number, set: (v: number) => void): Binding => ({
 });
 
 const BINDINGS: Record<DevKey, Binding> = {
-  "ac:data-source": bind(() => dataSource, setDataSource),
   "ac:place-tree": bind(() => placeTreeMode.value, setPlaceTreeMode),
   "ac:lid": bind(() => lidMode, setLidMode),
   "ac:lid-check": bind(() => lidCheck, setLidCheck),
@@ -260,7 +256,7 @@ const rowsOf = (section: string) => DEV_OPTIONS.filter((o) => o.section === sect
 const changed = computed(() => changedOptions(now));
 const buttonLabel = computed(
   () =>
-    `Options de test (DEV · ${dataSource})` +
+    "Options de test (DEV)" +
     (changed.value.length ? `, ${changedCount(changed.value.length)}` : ""),
 );
 
@@ -301,15 +297,6 @@ function close() {
   open.value = false;
   void nextTick(() => btn.value?.focus({ preventScroll: true }));
 }
-
-function diffCount() {
-  return compareState.count === null ? "…" : compareState.count + (compareState.lists ?? 0);
-}
-
-function showReport() {
-  const w = window as unknown as { __acCompare?: unknown; __acCompareLists?: unknown };
-  console.info(w.__acCompare ?? null, w.__acCompareLists ?? null);
-}
 </script>
 
 <template>
@@ -324,8 +311,7 @@ function showReport() {
       :title="buttonLabel"
       @click="open = true"
     >
-      DEV · {{ dataSource }}
-      <span v-if="dataSource === 'comparer'" class="diff-count">Δ {{ diffCount() }}</span>
+      DEV
       <span v-if="changed.length" class="changed-count">{{ changed.length }}</span>
     </button>
 
@@ -366,16 +352,6 @@ function showReport() {
             <span class="opt-name">{{ o.label }}</span>
             <span v-if="changed.includes(o)" class="opt-changed">{{ DEV_CHANGED_MARK }}</span>
             <span v-if="o.reloads" class="opt-reload">↻ recharge la page</span>
-            <button
-              v-if="o.key === 'ac:data-source' && dataSource === 'comparer'"
-              type="button"
-              class="diff-badge"
-              :class="{ clean: compareState.count === 0 && !compareState.lists }"
-              :title="`Différences (hors D1) — arbre : ${compareState.count ?? '…'}, listes : ${compareState.lists ?? '…'} — D1 : ${compareState.d1}`"
-              @click.prevent="showReport"
-            >
-              Δ {{ diffCount() }}
-            </button>
           </div>
           <div class="seg">
             <button
@@ -446,11 +422,6 @@ function showReport() {
   cursor: pointer;
 }
 
-.diff-count {
-  color: hsl(var(--primary));
-  font-weight: 700;
-}
-
 /* A choice off its default: the button's count, the row's « modifié », the top line. */
 .changed-count,
 .opt-changed {
@@ -487,21 +458,6 @@ function showReport() {
   background: hsl(38 92% 50% / 0.18);
   color: hsl(var(--foreground));
   font-weight: 600;
-}
-
-.diff-badge {
-  padding: 0 0.4rem;
-  border: none;
-  border-radius: 999px;
-  background: hsl(var(--destructive));
-  color: white;
-  font-size: var(--text-caption);
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.diff-badge.clean {
-  background: hsl(142 60% 36%);
 }
 
 .dev-section + .dev-section {

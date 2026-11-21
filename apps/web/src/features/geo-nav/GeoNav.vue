@@ -10,7 +10,6 @@ import {
   watch,
 } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
-import type { LocationGroup, PublicTestimony } from "@ac/shared";
 import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
@@ -40,7 +39,6 @@ import { liftCheck } from "./model/outlineCheck";
 import { useGeoHierarchy } from "./model/useGeoHierarchy";
 import { useScope } from "./model/useScope";
 import { useMapFeed } from "./model/useMapFeed";
-import { groupOwnAuditions } from "./model/auditions";
 import { usePanelAuditions } from "./model/usePanelAuditions";
 import { useCamera } from "./model/useCamera";
 import { useNavActions } from "./model/useNavActions";
@@ -58,8 +56,6 @@ import { useServerLists } from "./data/useServerLists";
 import { usePanelRecovery } from "./data/usePanelRecovery";
 
 const props = defineProps<{
-  groups: LocationGroup[];
-  testimonies: PublicTestimony[];
   loading: boolean;
   isError: boolean;
   /** Free-text query — highlighted inside each testimony (TestimonyCard). */
@@ -80,55 +76,41 @@ const props = defineProps<{
    *  counted cites one, so the analyses do not rank them. */
   themeFilter?: string[];
   /**
-   * The server's tree (map phase 1, the "Données" DEV switch): the map, the
-   * panel's units, their counts and the analyses come from it, and the
-   * auditions' lists from the server's lists beside it (PR K); `groups` and
-   * `testimonies` (the corpus) are not read. Set once: the source does not
-   * change under a mounted page.
+   * The server's tree (map phase 1): the map, the panel's units, their counts
+   * and the analyses come from it, and the auditions' lists from the server's
+   * lists beside it (PR K). Set once: it does not change under a mounted page.
    */
-  unitTree?: UnitTree | null;
-  /** The comparer is on (testing tools): the outline files are not read, as
-   *  under the corpus (every unit known absent). */
-  comparing?: boolean;
+  unitTree: UnitTree;
 }>();
 
-/** The server's tree, when it is the source (fixed for this instance). */
-const unitTree = props.unitTree ?? null;
+/** The server's tree (fixed for this instance). */
+const unitTree = props.unitTree;
 
 /** The analyses of the raised territory, drawn on the map around it. The page
  *  owns the toggle; the plates' own close button turns it off from here. */
 const analyses = defineModel<boolean>("analyses", { default: false });
 
 // ---- Data: the static outline files (data/useOutlineFiles) ----
-// Under the server's tree only, whose unit ids are the files' (the corpus'
-// are paths; the comparer reads none either): null there, every unit known
-// absent. A session that falls back — at boot (root.json, k/FR), or on a
-// release skew of any later file — is known absent from then on
-// (model/outlineRules). A boot past the loader's 6 s cap goes on without the
-// curtain (`ready` "late"): the plateau rises when its files land.
-const outlines = unitTree && !props.comparing ? useOutlineFiles() : null;
-if (outlines) void outlines.ensureRoot();
+// The server's tree's unit ids are the files'. A session that falls back — at
+// boot (root.json, k/FR), or on a release skew of any later file — is known
+// absent from then on (model/outlineRules). A boot past the loader's 6 s cap
+// goes on without the curtain (`ready` "late"): the plateau rises when its
+// files land.
+const outlines = useOutlineFiles();
+void outlines.ensureRoot();
 // The boundaries' credits (data/attribution), after the data actually drawn:
 // the files' only once their session is "ok". « Pays » once a country's file
 // is in (a g/, or a u/ other than France's units': the tree holds a country).
 const attribution = computed(() =>
   boundaryAttribution({
-    session: outlines ? outlines.ready.value : null,
-    countries: !!outlines?.loadedKeys().some((k) => /^(g\/|u\/(?!fr_))/.test(k)),
+    session: outlines.ready.value,
+    countries: outlines.loadedKeys().some((k) => /^(g\/|u\/(?!fr_))/.test(k)),
   }),
 );
 
 // ---- One hierarchy, both nav models read from it (model/useGeoHierarchy) ----
-const geo = useGeoHierarchy({
-  groups: toRef(props, "groups"),
-  unitTree,
-  outlines,
-});
-const { root, index, raisedGeometryFor, containsPoint, placeByCanonical, placeIdByCanonical } = geo;
-
-// The association's own testimonies (all loaded with the page), grouped by
-// audition (model/auditions).
-const ownAuditions = computed(() => groupOwnAuditions(props.testimonies));
+const geo = useGeoHierarchy({ unitTree, outlines });
+const { root, index, raisedGeometryFor, containsPoint } = geo;
 
 // ---- Nav state (navState.ts): the one record every piece reads and writes ----
 const nav = createNavState(root.value);
@@ -184,7 +166,7 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 const mapPresentable = ref(false);
 const booting = ref(true);
 watch(
-  () => !mapPresentable.value || props.loading || outlines?.ready.value === "loading",
+  () => !mapPresentable.value || props.loading || outlines.ready.value === "loading",
   (busy) => {
     if (!busy) booting.value = false;
   },
@@ -238,27 +220,25 @@ watch(panelUnits, (units) => {
 // The map's own hover is not emitted: a pin gets none.
 /** The files a tap on unit `id` will ask, asked ahead (the HTTP cache only). */
 function prefetchUnit(id: string): Promise<void> {
-  const kind = outlines ? prefetchKind(outlines.rowOf(id)) : null;
-  if (!outlines || !kind) return Promise.resolve();
+  const kind = prefetchKind(outlines.rowOf(id));
+  if (!kind) return Promise.resolve();
   // A self the click will ask ahead of its bundle (ac:region-self): the
   // same two files, in the same order.
   if (kind === "k" && outlines.selfAhead(id))
     return outlines.prefetch("u", id).then(() => outlines.prefetch("k", id));
   return outlines.prefetch(kind, id);
 }
-if (outlines) {
-  const rowHover = hoverPrefetch({
-    prefetch: prefetchUnit,
-    allowed: () =>
-      outlines.mode.value === "fichiers" &&
-      window.matchMedia("(hover: hover)").matches &&
-      !(navigator as { connection?: { saveData?: boolean } }).connection?.saveData,
-    setTimer: (fn, ms) => window.setTimeout(fn, ms),
-    clearTimer: (timer) => window.clearTimeout(timer as number),
-  });
-  watch(hoveredPanelId, (id) => rowHover.hover(id));
-  onBeforeUnmount(rowHover.stop);
-}
+const rowHover = hoverPrefetch({
+  prefetch: prefetchUnit,
+  allowed: () =>
+    outlines.mode.value === "fichiers" &&
+    window.matchMedia("(hover: hover)").matches &&
+    !(navigator as { connection?: { saveData?: boolean } }).connection?.saveData,
+  setTimer: (fn, ms) => window.setTimeout(fn, ms),
+  clearTimer: (timer) => window.clearTimeout(timer as number),
+});
+watch(hoveredPanelId, (id) => rowHover.hover(id));
+onBeforeUnmount(rowHover.stop);
 
 // ---- Filtered: every matching audition in ONE list ---------------------------
 // With filters on, what the reader wants is the answer to them — not a drill
@@ -270,16 +250,14 @@ const listMode = computed(() => Boolean(props.filtered));
 
 // ---- The server's lists (data/useServerLists, map phase 1): the results, the
 // open lieu's auditions, the open audition's testimonies ----
-const lists = unitTree
-  ? useServerLists({
-      queryClient: useQueryClient(),
-      tree: unitTree,
-      sort: toRef(props, "sort"),
-      listMode,
-      nav,
-      selectedPlace,
-    })
-  : null;
+const lists = useServerLists({
+  queryClient: useQueryClient(),
+  tree: unitTree,
+  sort: toRef(props, "sort"),
+  listMode,
+  nav,
+  selectedPlace,
+});
 
 // ---- The panel's parts (panel/GeoPanel, AuditionList): what the composables measure ----
 const panelCmp = ref<InstanceType<typeof GeoPanel> | null>(null);
@@ -314,12 +292,9 @@ const { camera, framedFit, flyToUnit, spotlightPlace, scheduleFilterFrame, handM
 // ---- The panel's auditions (model/usePanelAuditions): a lieu's own, or the results ----
 const panel = usePanelAuditions({
   nav,
-  groups: toRef(props, "groups"),
   sort: toRef(props, "sort"),
   listMode,
-  ownAuditions,
   selectedPlace,
-  placeIdByCanonical,
   index,
   panelListEl,
   moreEl,
@@ -509,7 +484,7 @@ const tap = useTapPending({
   // memory, it is the plateau's own run: made once more from that outline,
   // unless one is under way.
   reask: (unit) => {
-    if (scopePending.value) outlines?.reaskWaited();
+    if (scopePending.value) outlines.reaskWaited();
     else mapCmp.value?.retryPlateau(unit.id);
   },
 });
@@ -547,33 +522,31 @@ function onRetryWait() {
 // the tap, as for any unit. Not under Save-Data, not on a link the browser
 // calls slow, never while the map moves or a finger is on it; one unit on a
 // weak device.
-const ahead = outlines
-  ? idlePrefetch({
-      allowed: () => {
-        const signals = deviceSignals();
-        return prefetchAllowed({
-          mode: prefetchMode.value,
-          files: outlines.mode.value === "fichiers",
-          hover: window.matchMedia("(hover: hover)").matches,
-          saveData: signals.saveData,
-          effectiveType: signals.effectiveType,
-        });
-      },
-      targets: (scopeId) =>
-        pickPrefetch(
-          index.value.get(scopeId)?.children ?? [],
-          prefetchUnits(deviceTier()),
-          (id) => prefetchKind(outlines.rowOf(id)) !== null,
-        ),
-      prefetch: (id) => {
-        const kind = prefetchKind(outlines.rowOf(id));
-        if (!kind) return Promise.resolve();
-        return outlines.prefetch(kind === "k" && outlines.selfAhead(id) ? "u" : kind, id);
-      },
-      whenAtRest: (job) => mapCmp.value?.whenAtRest(job) ?? (() => {}),
-    })
-  : null;
-if (ahead) onBeforeUnmount(ahead.stop);
+const ahead = idlePrefetch({
+  allowed: () => {
+    const signals = deviceSignals();
+    return prefetchAllowed({
+      mode: prefetchMode.value,
+      files: outlines.mode.value === "fichiers",
+      hover: window.matchMedia("(hover: hover)").matches,
+      saveData: signals.saveData,
+      effectiveType: signals.effectiveType,
+    });
+  },
+  targets: (scopeId) =>
+    pickPrefetch(
+      index.value.get(scopeId)?.children ?? [],
+      prefetchUnits(deviceTier()),
+      (id) => prefetchKind(outlines.rowOf(id)) !== null,
+    ),
+  prefetch: (id) => {
+    const kind = prefetchKind(outlines.rowOf(id));
+    if (!kind) return Promise.resolve();
+    return outlines.prefetch(kind === "k" && outlines.selfAhead(id) ? "u" : kind, id);
+  },
+  whenAtRest: (job) => mapCmp.value?.whenAtRest(job) ?? (() => {}),
+});
+onBeforeUnmount(ahead.stop);
 // Shown as a card (the home page) the map is only looked at: nothing is
 // asked ahead until the card is opened into the page — then for the unit
 // standing by then.
@@ -583,16 +556,14 @@ let standing = "";
 function onPlateauSettled(scopeId: string, how: SettleHow) {
   tap.settled(scopeId, how);
   standing = how === "cleared" || how === "failed" ? "" : scopeId;
-  if (!props.preview) ahead?.settled(scopeId, how);
+  if (!props.preview) ahead.settled(scopeId, how);
 }
-if (ahead) {
-  watch(
-    () => props.preview,
-    (card) => {
-      if (!card && standing) ahead.settled(standing, "same");
-    },
-  );
-}
+watch(
+  () => props.preview,
+  (card) => {
+    if (!card && standing) ahead.settled(standing, "same");
+  },
+);
 
 // ---- Actions (model/useNavActions): pins, rows, breadcrumb all fly the map ----
 const { activate, onUnitClick, drillToCrumb } = useNavActions({
@@ -635,8 +606,7 @@ const filterThemes = computed(() => props.themeFilter ?? NO_THEMES);
 
 // The server's figures: indexed once per key and store version (the facts
 // come with the tree, so turning the analyses on asks for nothing).
-const factsIndex =
-  __ANALYSES__ && unitTree ? computed(() => markRaw(buildFactsIndex(unitTree.facts()))) : null;
+const factsIndex = __ANALYSES__ ? computed(() => markRaw(buildFactsIndex(unitTree.facts()))) : null;
 
 const { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLoaded } =
   !__ANALYSES__
@@ -644,10 +614,7 @@ const { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLo
     : useScopeAnalysis({
         analyses,
         preview: toRef(props, "preview"),
-        groups: toRef(props, "groups"),
-        ownAuditions,
         currentScope,
-        placeByCanonical,
         booting,
         inMicroZone,
         readingPlace,
@@ -657,12 +624,10 @@ const { scopeAnalysis, analysesVisible, slabSizesNow, slabSpec, roomNow, fontsLo
         listMode,
         themeFilter: filterThemes,
         framedFit,
-        server: factsIndex
-          ? {
-              stats: () => factsIndex.value,
-              placeLabel: (lieu) => placeLabel(lieu.key, lieu.city),
-            }
-          : undefined,
+        server: {
+          stats: () => factsIndex!.value,
+          placeLabel: (lieu) => placeLabel(lieu.key, lieu.city),
+        },
       });
 // The room the plates need, bound late for the camera (navState's roomNow box):
 // setCamera reads it at each command, the resize watch above as the width changes.
@@ -818,7 +783,7 @@ if (__TEST_TOOLS__) {
       return lift;
     };
     return {
-      writes: outlines?.version.value ?? null,
+      writes: outlines.version.value,
       vertices,
       finest: (lat: number, lng: number) => geo.finestAt(lat, lng)?.id ?? null,
       get offLid() {
@@ -873,10 +838,9 @@ watch(
 );
 
 // Nudge the camera onto France once the hierarchy has data (the map starts wide;
-// this puts the régions in the visible area beside the panel). The corpus' map
-// groups come in before the métropole's outline, as a rule, so France is
-// framed by its box; the server's tree comes after it, so it is framed by its
-// box on purpose — the same first view, whatever arrives first.
+// this puts the régions in the visible area beside the panel). The server's
+// tree comes after the métropole's outline, so France is framed by its box on
+// purpose — the same first view, whatever arrives first.
 let framed = false;
 watch(
   root,
@@ -884,7 +848,7 @@ watch(
     if (framed || !r.children.length) return;
     framed = true;
     const country = r.children.find((c) => c.levelKey === "country") ?? r.children[0];
-    flyToUnit(country, false, false, unitTree !== null);
+    flyToUnit(country, false, false, true);
   },
   { immediate: true },
 );
@@ -900,64 +864,60 @@ watch(
 const scopeChildrenPending = computed(() => currentScope.value.childrenPending === true);
 /** The scope's answer (or the filter's) could not be had: the error line. */
 const scopeFailed = computed(() => {
-  if (!unitTree) return false;
   // A folded territory's children are its département's answer.
   const s = currentScope.value;
   return unitTree.failed(s.id) || (!!s.foldedDep && unitTree.failed(s.foldedDep));
 });
-if (unitTree) {
-  const tree = unitTree;
-  watch(
-    () => currentScope.value.id,
-    () => tree.setScope(currentScope.value),
-    { immediate: true },
-  );
-  watch(
-    () => {
-      const s = currentScope.value;
-      const deep = s.children.some((c) => c.levelKey !== "place" && c.childrenPending);
-      // The communes around: the scope's siblings (and at an arrondissement,
-      // the cities around its ville), as useMapFeed shows them.
-      const parent = s.parentId ? index.value.get(s.parentId) : undefined;
-      const around = [...(parent?.children ?? [])];
-      const grand = s.levelKey === "arr" && parent?.parentId;
-      if (grand) around.push(...(index.value.get(grand)?.children ?? []));
-      const communes = new Set(
-        [s, ...panelUnits.value, ...around]
-          .filter((u) => (u.levelKey === "city" || u.levelKey === "arr") && u.childrenPending)
-          .map((u) => u.id),
-      );
-      // An overseas territory's children are its département's: asked by it
-      // (its région, loaded from France's answer, holds them only by name).
-      const folded = [s, ...s.children]
-        .filter((u) => u.foldedDep && u.childrenPending)
-        .map((u) => u.foldedDep!);
-      return `${deep ? s.id : ""}\n${[...communes].sort().join(",")}\n${folded.join(",")}`;
-    },
-    (wanted) => {
-      const [deep, communes, folded] = wanted.split("\n");
-      if (deep) tree.ensure([deep], true);
-      if (communes) tree.ensure(communes.split(","));
-      if (folded) tree.ensure(folded.split(","));
-    },
-    { immediate: true },
-  );
-  if (__TEST_TOOLS__) {
-    const w = window as unknown as { __acUnitTree?: () => unknown; __acLists?: () => unknown };
-    const probe = () => tree.stats();
-    w.__acUnitTree = probe;
-    const listsProbe = () => lists?.stats() ?? null;
-    w.__acLists = listsProbe;
-    onBeforeUnmount(() => {
-      if (w.__acUnitTree === probe) delete w.__acUnitTree;
-      if (w.__acLists === listsProbe) delete w.__acLists;
-    });
-  }
+watch(
+  () => currentScope.value.id,
+  () => unitTree.setScope(currentScope.value),
+  { immediate: true },
+);
+watch(
+  () => {
+    const s = currentScope.value;
+    const deep = s.children.some((c) => c.levelKey !== "place" && c.childrenPending);
+    // The communes around: the scope's siblings (and at an arrondissement,
+    // the cities around its ville), as useMapFeed shows them.
+    const parent = s.parentId ? index.value.get(s.parentId) : undefined;
+    const around = [...(parent?.children ?? [])];
+    const grand = s.levelKey === "arr" && parent?.parentId;
+    if (grand) around.push(...(index.value.get(grand)?.children ?? []));
+    const communes = new Set(
+      [s, ...panelUnits.value, ...around]
+        .filter((u) => (u.levelKey === "city" || u.levelKey === "arr") && u.childrenPending)
+        .map((u) => u.id),
+    );
+    // An overseas territory's children are its département's: asked by it
+    // (its région, loaded from France's answer, holds them only by name).
+    const folded = [s, ...s.children]
+      .filter((u) => u.foldedDep && u.childrenPending)
+      .map((u) => u.foldedDep!);
+    return `${deep ? s.id : ""}\n${[...communes].sort().join(",")}\n${folded.join(",")}`;
+  },
+  (wanted) => {
+    const [deep, communes, folded] = wanted.split("\n");
+    if (deep) unitTree.ensure([deep], true);
+    if (communes) unitTree.ensure(communes.split(","));
+    if (folded) unitTree.ensure(folded.split(","));
+  },
+  { immediate: true },
+);
+if (__TEST_TOOLS__) {
+  const w = window as unknown as { __acUnitTree?: () => unknown; __acLists?: () => unknown };
+  const probe = () => unitTree.stats();
+  w.__acUnitTree = probe;
+  const listsProbe = () => lists.stats();
+  w.__acLists = listsProbe;
+  onBeforeUnmount(() => {
+    if (w.__acUnitTree === probe) delete w.__acUnitTree;
+    if (w.__acLists === listsProbe) delete w.__acLists;
+  });
 }
 /** Filters on, the server's results not on screen yet (the panel's dots). */
-const listsLoading = computed(() => lists?.resultsLoading.value ?? false);
+const listsLoading = computed(() => lists.resultsLoading.value);
 /** The results could not be had. */
-const listsFailed = computed(() => lists?.resultsFailed.value ?? false);
+const listsFailed = computed(() => lists.resultsFailed.value);
 /** After a network failure, what the panel could not have is asked again by
  *  itself (`ac:recover`, data/usePanelRecovery). */
 const {
@@ -972,13 +932,13 @@ const {
         ? "busy"
         : "ok",
   retry: () => {
-    unitTree?.retryFailed();
-    lists?.retryFailed();
+    unitTree.retryFailed();
+    lists.retryFailed();
   },
 });
 /** The panel's reads asked again, and the outline files' start if it waits. */
 function retryPanel() {
-  outlines?.reconnect();
+  outlines.reconnect();
   retryNow();
 }
 /** The panel's body shows its failure message and its « Réessayer » (the
@@ -1031,7 +991,7 @@ function retryAll() {
       :view-padding="mapViewPadding"
       :scope-pending="scopePending"
       :coming="coming"
-      :stable-outline="outlines?.mode.value === 'fichiers'"
+      :stable-outline="outlines.mode.value === 'fichiers'"
       :attribution="attribution"
       :credit-corner="isDesktop ? 'top-left' : 'bottom-right'"
       :hovered-id="hoveredPanelId"

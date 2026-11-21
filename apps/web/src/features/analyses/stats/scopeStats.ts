@@ -2,23 +2,11 @@
 // the association heard there (its own testimonies, auditions, lieux, themes).
 // A Grand Débat report is never a témoignage and never adds to them.
 //
-// The figures of every unit are gathered in ONE pass over the groups, keyed by
-// the units' path ids (unitChainOf): those stay the same when the hierarchy is
-// rebuilt around the same data (commune contours arriving), so nothing here has
-// to be recomputed then.
+// Every unit's figures come with the server's tree (its facts, factsStats):
+// what a scope's analysis is made of.
 
-import {
-  AUDITION_THEMES,
-  auditionCohort,
-  isPlaceholderAuditionDate,
-  themesApproximate,
-  themesOf,
-  type AuditionCohort,
-  type AuditionTheme,
-  type LocationGroup,
-  type PublicTestimony,
-} from "@ac/shared";
-import { unitChainOf, type GeoUnit, type LevelKey } from "@/features/geo";
+import { AUDITION_THEMES, type AuditionTheme } from "@ac/shared";
+import type { GeoUnit, LevelKey } from "@/features/geo";
 
 export type Reliability = "solide" | "indicatif" | "chips" | "trop-peu";
 
@@ -39,8 +27,8 @@ export interface ScopeAnalysis {
   reliabilityReason: string | null; // short French reason when not "solide"
 }
 
-/** A unit's figures — what its analysis is made of: summed by buildUnitStats
- *  from the corpus, or read from the database's facts (factsStats). */
+/** A unit's figures — what its analysis is made of: read from the database's
+ *  facts (factsStats). */
 export interface UnitFigures {
   testimonies: number;
   auditions: number;
@@ -62,57 +50,15 @@ export interface UnitFigures {
   largest: { n: number; key: string; city: string | null } | null;
 }
 
-/** Opaque to callers: built once per data load (buildUnitStats, or
- *  buildFactsIndex from the server's facts). */
+/** Opaque to callers: built once per data load (buildFactsIndex from the
+ *  server's facts). */
 export interface UnitStatsIndex {
   readonly kind: "unit-stats";
   /** A unit's figures; undefined: none known (yet). */
   figuresOf(id: string): UnitFigures | undefined;
 }
 
-/** One of the association's own auditions, with its (filtered) testimonies
- *  (keyed by its id). */
-export interface OwnAudition {
-  title: string;
-  date: string | null;
-  location: string;
-  testimonies: PublicTestimony[];
-}
-
 const THEME_COUNT = AUDITION_THEMES.length;
-const THEME_INDEX = new Map<AuditionTheme, number>(AUDITION_THEMES.map((t, i) => [t, i]));
-
-/** An own audition, read once: what every unit it sits in adds up. */
-interface AuditionFacts {
-  canonical: string;
-  /** Its group's ville (the lieu's label drops it). */
-  city: string | null;
-  /** Its date when real; null for a placeholder (or none). */
-  realDate: string | null;
-  cohort: AuditionCohort;
-  testimonies: PublicTestimony[];
-  themes: Int32Array;
-  base: number;
-  untagged: number;
-  approx: number;
-}
-
-interface UnitStats {
-  own: number;
-  members: AuditionFacts[];
-  lieux: Set<string>;
-  communes: Set<string>;
-  cohorts: { terrain: number; cahier2019: number; archive: number };
-  themes: Int32Array;
-  themeAuditions: Int32Array;
-  themeBase: number;
-  untagged: number;
-  approx: number;
-  /** Its real audition dates' span (the reliability's "2025-26"). */
-  first: string | null;
-  last: string | null;
-  largest: AuditionFacts | null;
-}
 
 /** What a scope's analysis owes to its figures alone, kept per scope id. */
 interface ScopeCore {
@@ -147,154 +93,6 @@ export const NO_FIGURES: UnitFigures = Object.freeze({
 export function statsIndex(figuresOf: (id: string) => UnitFigures | undefined): UnitStatsIndex {
   const index: IndexImpl = { kind: "unit-stats", figuresOf, cores: new Map() };
   return index;
-}
-
-function emptyStats(): UnitStats {
-  return {
-    own: 0,
-    members: [],
-    lieux: new Set(),
-    communes: new Set(),
-    cohorts: { terrain: 0, cahier2019: 0, archive: 0 },
-    themes: new Int32Array(THEME_COUNT),
-    themeAuditions: new Int32Array(THEME_COUNT),
-    themeBase: 0,
-    untagged: 0,
-    approx: 0,
-    first: null,
-    last: null,
-    largest: null,
-  };
-}
-
-function readAudition(a: OwnAudition, canonical: string, city: string | null): AuditionFacts {
-  const themes = new Int32Array(THEME_COUNT);
-  let base = 0;
-  let untagged = 0;
-  let approx = 0;
-  for (const t of a.testimonies) {
-    if (!t.topics?.length) untagged += 1;
-    const list = themesOf(t.topics);
-    if (!list.length) continue;
-    base += 1;
-    if (themesApproximate(t.topics)) approx += 1;
-    for (const theme of list) themes[THEME_INDEX.get(theme)!] += 1;
-  }
-  return {
-    canonical,
-    city,
-    realDate: isPlaceholderAuditionDate(a) ? null : a.date,
-    cohort: auditionCohort(a),
-    testimonies: a.testimonies,
-    themes,
-    base,
-    untagged,
-    approx,
-  };
-}
-
-function addAudition(s: UnitStats, f: AuditionFacts, commune: string | null): void {
-  const n = f.testimonies.length;
-  s.own += n;
-  s.members.push(f);
-  s.lieux.add(f.canonical);
-  if (commune) s.communes.add(commune);
-  s.cohorts[f.cohort] += n;
-  for (let i = 0; i < THEME_COUNT; i++) {
-    s.themes[i] += f.themes[i];
-    if (f.themes[i] > 0) s.themeAuditions[i] += 1;
-  }
-  s.themeBase += f.base;
-  s.untagged += f.untagged;
-  s.approx += f.approx;
-  if (!s.largest || n > s.largest.testimonies.length) s.largest = f;
-  const d = f.realDate;
-  if (d) {
-    if (!s.first || d < s.first) s.first = d;
-    if (!s.last || d > s.last) s.last = d;
-  }
-}
-
-// The commune of a chain: the entry whose own segment (after its parent's id)
-// is a ville. Read from the parent's length, as a lieu's name may hold a "/".
-function communeOf(chain: string[]): string | null {
-  for (let i = 1; i < chain.length - 1; i++) {
-    if (chain[i].startsWith("v:", chain[i - 1].length + 1)) return chain[i];
-  }
-  return null;
-}
-
-/**
- * Every unit's figures, in one pass. `ownAuditions` is the association's own
- * testimonies grouped by audition (as GeoNav holds them): an audition of a group
- * that is not in it is a Grand Débat report, left out. So is an own audition on
- * no unit (the archive, which has no lieu; a lieu not on the map yet).
- */
-export function buildUnitStats(
-  groups: LocationGroup[],
-  ownAuditions: Map<string, OwnAudition>,
-): UnitStatsIndex {
-  const units = new Map<string, UnitStats>();
-  const statsOf = (id: string) => {
-    let s = units.get(id);
-    if (!s) {
-      s = emptyStats();
-      units.set(id, s);
-    }
-    return s;
-  };
-  const placed = new Set<string>();
-  for (const g of groups) {
-    const chain = unitChainOf(g);
-    if (!chain) continue;
-    // Only a unit with an own audition in it gets figures (a Grand Débat group none).
-    let at: UnitStats[] | undefined;
-    let commune: string | null = null;
-    for (const a of g.auditions) {
-      const own = ownAuditions.get(a.id);
-      if (!own) continue;
-      // An audition is one lieu: counted once even if a snapshot lists it twice.
-      if (placed.has(a.id)) continue;
-      placed.add(a.id);
-      if (!at) {
-        at = chain.map(statsOf);
-        commune = communeOf(chain);
-      }
-      const facts = readAudition(own, g.canonicalName, g.city ?? null);
-      for (const s of at) addAudition(s, facts, commune);
-    }
-  }
-  const figures = new Map<string, UnitFigures>();
-  return statsIndex((id) => {
-    let f = figures.get(id);
-    if (!f) {
-      const s = units.get(id);
-      f = s ? figuresOfStats(s) : NO_FIGURES;
-      figures.set(id, f);
-    }
-    return f;
-  });
-}
-
-/** The corpus' sums as figures. */
-function figuresOfStats(s: UnitStats): UnitFigures {
-  return {
-    testimonies: s.own,
-    auditions: s.members.length,
-    lieux: s.lieux.size,
-    communes: s.communes.size,
-    cohorts: s.cohorts,
-    themes: s.themes,
-    themeAuditions: s.themeAuditions,
-    themeBase: s.themeBase,
-    untagged: s.untagged,
-    approx: s.approx,
-    first: s.first,
-    last: s.last,
-    largest: s.largest
-      ? { n: s.largest.testimonies.length, key: s.largest.canonical, city: s.largest.city }
-      : null,
-  };
 }
 
 const LEVEL_NAME: Record<LevelKey, string> = {

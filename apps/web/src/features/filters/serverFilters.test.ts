@@ -10,7 +10,7 @@ import type { LocationGroup, PlaceLieuRow, PlaceUnitRow } from "@ac/shared";
 import { buildLocationTree } from "./filters";
 import type { LocNode } from "@/shared/ui/select/treeNode";
 import { buildPlaceTree, type PlaceTreeData } from "./placeTree";
-import { passesPlaceIds, placeIdsOf, useServerFilters } from "./serverFilters";
+import { placeIdsOf, useServerFilters } from "./serverFilters";
 
 function state() {
   return {
@@ -205,17 +205,11 @@ test("more than 50 places: the first 50 picked, every other filter kept", async 
   scope.stop();
 });
 
-test("places: ids split, an audition's path or lieu matches", () => {
+test("places: ids split into units and lieux", () => {
   assert.deepEqual(placeIdsOf(["fr:com:69123", "l:0123456789abcdef", "v:Lyon"]), {
     units: ["fr:com:69123"],
     lieux: ["l:0123456789abcdef"],
   });
-  const g = { unitPath: ["FR", "fr:reg:84", "fr:dep:69"], lieuId: "l:0123456789abcdef" };
-  assert.equal(passesPlaceIds(g, []), true);
-  assert.equal(passesPlaceIds(g, ["fr:reg:84"]), true);
-  assert.equal(passesPlaceIds(g, ["l:0123456789abcdef"]), true);
-  assert.equal(passesPlaceIds(g, ["fr:dep:38"]), false);
-  assert.equal(passesPlaceIds(null, ["fr:dep:38"]), false);
 });
 
 // ---- The place picker's tree ----------------------------------------------------

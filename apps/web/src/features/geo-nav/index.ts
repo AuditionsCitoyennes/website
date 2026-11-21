@@ -1,14 +1,11 @@
 // The Témoignages experience minus WebGL: the scope, the side panel, the
 // camera commands and the analyses ring — one component for now — and the
-// server's tree it can be built from (map phase 1): the store, the place
-// reads, and what the comparer matches with (testing tools): the trees, the
-// panel's orders and the results' frame.
+// server's tree it is built from (map phase 1): the store and the place
+// reads.
 export { default as GeoNav } from "./GeoNav.vue";
 export { useUnitTree, type TreeRequest, type UnitTree } from "./data/useUnitTree";
-export { EMPTY_KEY, onPlacesReload, placesKeys } from "./keys";
+export { EMPTY_KEY, placesKeys } from "./keys";
 export { fetchFacets, retryable, retryWait, RETRIES, type CountsRequest } from "./data/placesApi";
-export { bySort, groupOwnAuditions, resultBounds } from "./model/auditions";
-export { compareTrees, type TreeComparison, type TreeDiff } from "./data/compareTrees";
 // What a pan does to the selected zone (ac:scope-drag), for the DEV dialog.
 export { scopeDragMode, setScopeDragMode } from "./model/scopeHold";
 // Whether a touch screen asks outline files ahead (ac:outlines-ahead), for the DEV dialog.
@@ -21,8 +18,6 @@ export { lieuSingleMode, setLieuSingleMode } from "./model/lieuSingleSwitch";
 export { cardsBleed, setCardsBleed } from "./panel/cardsBleedSwitch";
 // What an open lieu does when the map is used (ac:lieu-hold), for the DEV dialog.
 export { lieuHoldMode, setLieuHoldMode } from "./model/lieuHoldSwitch";
-// A lieu's label as the tree gives it (the comparer names the server's lieux so).
-export { placeLabel } from "@/features/geo";
 
 // `window.__acOutlines()`: the outline files in the page (testing tools only).
 if (__TEST_TOOLS__) void import("./data/outlinesProbe");

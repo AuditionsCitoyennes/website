@@ -13,14 +13,11 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
-import type { LocationGroup } from "@ac/shared";
 import type { GeoUnit } from "@/features/geo";
 import type { SlabSpec } from "@/features/map/types";
 import {
   analyseScope,
   analysisOn,
-  buildUnitStats,
-  type OwnAudition,
   type ScopeAnalysis,
   type UnitStatsIndex,
 } from "../stats/scopeStats";
@@ -41,13 +38,8 @@ export interface ScopeAnalysisInputs {
   analyses: Ref<boolean>;
   /** The map is a card (the home page): nothing is analysed there. */
   preview: Ref<boolean | undefined>;
-  groups: Ref<LocationGroup[]>;
-  /** The association's own testimonies, grouped by audition (keyed by its id). */
-  ownAuditions: ComputedRef<Map<string, OwnAudition>>;
   /** The unit the viewport is "inside". */
   currentScope: ShallowRef<GeoUnit>;
-  /** A lieu's unit by its canonical name (its label, for the concentration). */
-  placeByCanonical: ComputedRef<Map<string, GeoUnit>>;
   /** The boot curtain is up. */
   booting: Ref<boolean>;
   /** Deep among the lieux: nothing stands. */
@@ -67,12 +59,11 @@ export interface ScopeAnalysisInputs {
    *  it lands on. */
   framedFit: ShallowRef<{ key: number; unitId: string } | null>;
   /**
-   * The server's tree is on screen (map phase 1): every unit's figures come
-   * from the database (stats/factsStats), not from `groups` and
-   * `ownAuditions` — the index for the key and store version on screen, and
-   * how its lieux are named. Absent: the corpus' (buildUnitStats).
+   * The server's tree (map phase 1): every unit's figures come from the
+   * database (stats/factsStats) — the index for the key and store version on
+   * screen, and how its lieux are named.
    */
-  server?: {
+  server: {
     stats: () => UnitStatsIndex;
     placeLabel: (lieu: { key: string; city: string | null }) => string;
   };
@@ -82,10 +73,7 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
   const {
     analyses,
     preview,
-    groups,
-    ownAuditions,
     currentScope,
-    placeByCanonical,
     booting,
     inMicroZone,
     readingPlace,
@@ -98,25 +86,23 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
     server,
   } = inputs;
 
-  // Every unit's figures, gathered once per data load. Keyed on the data itself,
-  // not on the hierarchy, which is rebuilt each time commune contours arrive.
-  // The server's: the index the caller builds once per key and store version.
+  // Every unit's figures: the index the caller builds once per key and store
+  // version. Not on the hierarchy, which is rebuilt each time commune
+  // contours arrive.
   const unitStats = computed<UnitStatsIndex | null>(() => {
     if (!analyses.value || preview.value) return null;
-    if (server) return server.stats();
-    return markRaw(buildUnitStats(groups.value, ownAuditions.value));
+    return server.stats();
   });
 
   // The scope is re-derived as the map moves and its unit object replaced at each
   // rebuild of the hierarchy: an analysis already made for the same territory is
   // handed back as it was, so the plates do not re-render.
   const analysisMemo = new Map<string, ScopeAnalysis | null>();
-  let analysisMemoOf: UnitStatsIndex | null = null;
-  // The server's tree: each answer merged is a new index, its units' figures
-  // mostly unchanged — remembered by unit and figures, so a merge re-renders
-  // no plate. While a unit's figures are on their way, the last analysis made
-  // stands on it (its figures, the unit's name and plateau), unless "Analyses
-  // en attente" says otherwise (DEV).
+  // Each answer merged is a new index, its units' figures mostly unchanged —
+  // remembered by unit and figures, so a merge re-renders no plate. While a
+  // unit's figures are on their way, the last analysis made stands on it
+  // (its figures, the unit's name and plateau), unless "Analyses en attente"
+  // says otherwise (DEV).
   let lastServer: { key: string; analysis: ScopeAnalysis | null } | null = null;
   function serverAnalysis(stats: UnitStatsIndex, unit: GeoUnit): ScopeAnalysis | null {
     if (analysisMemo.size > 200) analysisMemo.clear();
@@ -135,7 +121,7 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
     const key = `${unit.id}#${figuresHash(figures)}`;
     let analysis = analysisMemo.get(key);
     if (analysis === undefined) {
-      analysis = analyseScope(unit, stats, { placeLabel: server!.placeLabel });
+      analysis = analyseScope(unit, stats, { placeLabel: server.placeLabel });
       analysisMemo.set(key, analysis);
     }
     lastServer = { key, analysis };
@@ -146,18 +132,7 @@ export function useScopeAnalysis(inputs: ScopeAnalysisInputs) {
     const unit = currentScope.value;
     if (!stats) lastServer = null;
     if (!stats || unit.levelKey === "world") return null;
-    if (server) return serverAnalysis(stats, unit);
-    if (stats !== analysisMemoOf || analysisMemo.size > 200) {
-      analysisMemo.clear();
-      analysisMemoOf = stats;
-    }
-    if (analysisMemo.has(unit.id)) return analysisMemo.get(unit.id) ?? null;
-    const labels = placeByCanonical.value;
-    const analysis = analyseScope(unit, stats, {
-      placeLabel: (lieu) => labels.get(lieu.key)?.label ?? lieu.key,
-    });
-    analysisMemo.set(unit.id, analysis);
-    return analysis;
+    return serverAnalysis(stats, unit);
   });
 
   // On screen only while the map is what is being looked at: not on the card,

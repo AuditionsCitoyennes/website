@@ -6,7 +6,7 @@
 /** [min lat, min lng, max lat, max lng] */
 export type PlaceBBox = [number, number, number, number];
 
-/** A unit's analyses figures (scopeStats' buildUnitStats, from the database). */
+/** A unit's analyses figures, from the database. */
 export interface PlaceFacts {
   testimonies: number;
   auditions: number;

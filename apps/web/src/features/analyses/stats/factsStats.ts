@@ -1,8 +1,8 @@
 // The analyses' figures as the database sums them (map phase 1, design E1):
 // every unit of the server's tree comes with its facts (place_counts'
-// `facts`: the same sums buildUnitStats makes of the corpus). The index is
-// built once per filter key and store version; a unit whose facts have not
-// come yet has none (figuresOf: undefined), and the analyses wait for them.
+// `facts`). The index is built once per filter key and store version; a unit
+// whose facts have not come yet has none (figuresOf: undefined), and the
+// analyses wait for them.
 
 import type { PlaceFacts } from "@ac/shared";
 import { statsIndex, type UnitFigures, type UnitStatsIndex } from "./scopeStats";

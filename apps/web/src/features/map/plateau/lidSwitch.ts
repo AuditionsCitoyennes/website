@@ -1,7 +1,7 @@
 // How the plateau's lid is captured, compared live in the builds with the
 // testing tools — the dev server and staging (__TEST_TOOLS__, vite.config),
-// kept in localStorage like the Témoignages page's data source
-// (temoignages/dataSource.ts) and drawn as its DEV switch's "Couvercle" row:
+// kept in localStorage like the Témoignages page's place tree
+// (temoignages/placeTreeSwitch.ts) and drawn as its DEV switch's "Couvercle" row:
 //
 // - "ecran" (the default): the budget from the screen (lidTier.ts) — a select
 //   that flies the camera shot at the floor, every other shot sized from the
