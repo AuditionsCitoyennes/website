@@ -30,6 +30,7 @@ import {
 const tier = await import("../../shared/device/deviceTier");
 const fallbackSwitch = await import("../map/fallbackSwitch");
 const graphics = await import("../map/graphicsSwitch");
+const sheetFit = await import("../geo-nav/panel/sheetFit");
 
 const MODULES = {
   relief: "../map/relief/reliefSwitch.ts",
@@ -194,7 +195,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
   assert.deepEqual(ids("ac:analyses-pending"), storedCall("slabs", '"ac:analyses-pending"').ids);
-  assert.deepEqual(ids("ac:sheet-fit"), storedCall("sheetFit", "SHEET_FIT_KEY").ids);
+  assert.deepEqual(ids("ac:sheet-fit"), [...sheetFit.SHEET_FIT_MODES]);
   const shares = /export const SCALE_CHOICES = \[([^\]]*)\]/.exec(code("slabs"))![1];
   const scale = shares.split(",").map((v) => pct(Number(v)));
   assert.deepEqual(ids("ac:slab-size"), scale);
@@ -209,11 +210,16 @@ test("the default marked in each sentence is the module's", () => {
     "ac:ring-band": storedCall("slabs", "RING_KEY").fallback,
     "ac:tier": tier.DEFAULT_TIER_CHOICE,
     "ac:map-fallback": fallbackSwitch.DEFAULT_MAP_FALLBACK,
-    "ac:sheet-fit": storedCall("sheetFit", "SHEET_FIT_KEY").fallback,
+    "ac:sheet-fit": sheetFit.DEFAULT_SHEET_FIT,
     "ac:dpr": graphics.DEFAULT_DPR,
     "ac:frame-measure": graphics.DEFAULT_FRAME_MEASURE,
   };
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
+  // The stored choice's fallback and a production build's mode are the one constant.
+  assert.match(
+    code("sheetFit"),
+    /\?\s*stored\(SHEET_FIT_KEY, SHEET_FIT_MODES, DEFAULT_SHEET_FIT\)\s*:\s*DEFAULT_SHEET_FIT/,
+  );
   for (const o of DEV_OPTIONS) {
     assert.equal(o.defaultId, defaults[o.key], o.key);
     const parts = o.explain.split("par défaut");

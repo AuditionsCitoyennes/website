@@ -8,7 +8,7 @@
 // ref never leaves there (no switch is drawn). Desktops have no sheet: the
 // switch changes nothing there.
 import { ref } from "vue";
-import type { SheetFitMode } from "./sheetFit";
+import { DEFAULT_SHEET_FIT, SHEET_FIT_MODES, type SheetFitMode } from "./sheetFit";
 
 export type { SheetFitMode } from "./sheetFit";
 
@@ -28,7 +28,7 @@ function stored<T extends string>(key: string, allowed: readonly T[], fallback: 
 // Read only in the builds with the testing tools: production has neither the
 // key nor the call.
 export const sheetFitMode = ref<SheetFitMode>(
-  __TEST_TOOLS__ ? stored(SHEET_FIT_KEY, ["ajuste", "plein"], "ajuste") : "ajuste",
+  __TEST_TOOLS__ ? stored(SHEET_FIT_KEY, SHEET_FIT_MODES, DEFAULT_SHEET_FIT) : DEFAULT_SHEET_FIT,
 );
 
 export function setSheetFitMode(m: SheetFitMode) {

@@ -7,8 +7,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  DEFAULT_SHEET_FIT,
   FOLLOW_MS,
   FOLLOW_PX,
+  SHEET_FIT_MODES,
   SNAP_FULL_PX,
   raisedOffset,
   refitMotion,
@@ -51,8 +53,28 @@ test("while loading the sheet may grow, not shrink", () => {
   assert.equal(raisedOffset({ ...base, contentPx: 210, heldOffset: 0 }), 0);
 });
 
+test("an open audition's text on its way: the sheet stands full, whatever the rest", () => {
+  assert.equal(raisedOffset({ ...base, contentPx: 300, expectFull: true }), 0);
+  assert.equal(raisedOffset({ ...base, contentPx: 300, heldOffset: 375, expectFull: true }), 0);
+  // Once the text is in (no longer expected), a short one fits again.
+  assert.equal(raisedOffset({ ...base, contentPx: 300, expectFull: false }), 375);
+  // « Plein » is full anyway.
+  assert.equal(raisedOffset({ ...base, mode: "plein", contentPx: 300, expectFull: true }), 0);
+});
+
+test("the switch's default is one of its choices, the first", () => {
+  assert.equal(DEFAULT_SHEET_FIT, "ajuste");
+  assert.deepEqual([...SHEET_FIT_MODES], ["ajuste", "plein"]);
+});
+
 test("a refit snaps on a weak device, on a box change and while following a tween", () => {
-  const anim = { deltaPx: 200, sinceLastMs: 1000, fullChanged: false, short: false };
+  const anim = {
+    deltaPx: 200,
+    sinceLastMs: 1000,
+    fullChanged: false,
+    short: false,
+    easing: false,
+  };
   assert.equal(refitMotion(anim), "animate");
   assert.equal(refitMotion({ ...anim, short: true }), "snap");
   assert.equal(refitMotion({ ...anim, fullChanged: true }), "snap");
@@ -63,6 +85,21 @@ test("a refit snaps on a weak device, on a box change and while following a twee
   // A small step long after the last one, or a big one right after it: eased.
   assert.equal(refitMotion({ ...anim, deltaPx: FOLLOW_PX - 1, sinceLastMs: FOLLOW_MS }), "animate");
   assert.equal(refitMotion({ ...anim, deltaPx: FOLLOW_PX, sinceLastMs: 10 }), "animate");
+});
+
+test("a small step while an ease runs retargets that ease instead of cutting it short", () => {
+  const step = {
+    deltaPx: -(FOLLOW_PX - 1),
+    sinceLastMs: FOLLOW_MS - 1,
+    fullChanged: false,
+    short: false,
+    easing: true,
+  };
+  assert.equal(refitMotion(step), "animate");
+  assert.equal(refitMotion({ ...step, deltaPx: 20, sinceLastMs: 40 }), "animate");
+  // A weak device or a change of the box still steps.
+  assert.equal(refitMotion({ ...step, short: true }), "snap");
+  assert.equal(refitMotion({ ...step, fullChanged: true }), "snap");
 });
 
 test("a released drag settles on the nearer rest unless flicked", () => {

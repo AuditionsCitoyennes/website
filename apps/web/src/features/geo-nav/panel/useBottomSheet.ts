@@ -10,9 +10,13 @@
 // that box slid down (`--sheet-raised`, a transform like the lowered one), so
 // the scroller, the lowered offset and the drag's numbers stay those of the
 // full box. Its content is measured whenever it changes (its own observer on
-// the list and its body), and while something loads (`hold`) it may only
-// grow. A refit eases like a raise, or snaps (`sheetRefit`) on a weak device,
-// on a change of the box itself and while following an unfolding audition.
+// the list and its body), an audition unfolding or folding at the height its
+// tween goes to (ExpandTransition's `data-height-tween`); while something
+// loads (`hold`) it may only grow, and while an open audition's text is on
+// its way (`expectFull`) it stands full. A refit eases like a raise and
+// retargets an ease still running; it snaps (`sheetRefit`) on a weak device,
+// on a change of the box itself, and to follow a block growing by itself
+// frame after frame while no ease runs.
 // Desktop ignores all of this: the classes it drives only exist inside the
 // mobile media query.
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
@@ -46,6 +50,9 @@ export interface BottomSheetInputs {
   /** Something the sheet shows is loading: a raised sheet may grow, not shrink.
    *  Read at a measure and watched from the mount on, never before. */
   hold: () => boolean;
+  /** An open audition's testimonies are on their way: the sheet stands full
+   *  (sheetFit's `expectFull`). Read and watched as `hold`. */
+  expectFull: () => boolean;
 }
 
 export function useBottomSheet(inputs: BottomSheetInputs) {
@@ -114,11 +121,19 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
       content =
         list.offsetTop +
         (parseFloat(cs.paddingTop) || 0) +
-        body.offsetHeight +
+        body.getBoundingClientRect().height +
         (parseFloat(cs.paddingBottom) || 0);
+      // A block tweening its height (an audition unfolding or folding) counts
+      // at the height it goes to: one refit for the whole tween, from its
+      // first frame — not a step per frame behind it.
+      for (const el of body.querySelectorAll<HTMLElement>("[data-height-tween]")) {
+        const to = parseFloat(el.style.height);
+        if (Number.isFinite(to)) content += to - el.getBoundingClientRect().height;
+      }
     }
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const open = sheetOpen.value;
+    const raising = open && !wasOpen;
     const held = open && wasOpen && inputs.hold();
     const next = raisedOffset({
       mode: inputs.fitMode(),
@@ -126,6 +141,7 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
       contentPx: content,
       minPx: sheetPeekPx.value + MIN_BODY_REM * rem,
       heldOffset: held ? sheetRaisedPx.value : null,
+      expectFull: open && inputs.expectFull(),
     });
     sheetFullPx.value = full;
     sheetContentPx.value = Math.round(content);
@@ -143,18 +159,37 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
         sinceLastMs: now - lastRefitAt,
         fullChanged,
         short: motionNow() === "short",
+        // A raise measured as it starts, or any ease of the sheet still on
+        // its way: a step in one go would cut it short.
+        easing: raising || transformEasing(panel),
       });
       lastRefitAt = now;
+      cancelAnimationFrame(refitFrame);
+      refitFrame = 0;
       if (how === "snap") {
         sheetRefit.value = true;
-        cancelAnimationFrame(refitFrame);
         // Two frames: the offset is painted without a transition first.
         refitFrame = requestAnimationFrame(() => {
           refitFrame = requestAnimationFrame(() => (sheetRefit.value = false));
         });
+      } else {
+        // Eased: never under a step's `transition: none` still in place.
+        sheetRefit.value = false;
       }
     }
     sheetRaisedPx.value = next;
+  }
+
+  /** The sheet's transform is being eased (a raise, a lower, an eased refit). */
+  function transformEasing(panel: HTMLElement): boolean {
+    if (typeof panel.getAnimations !== "function") return false;
+    return panel
+      .getAnimations()
+      .some(
+        (a) =>
+          a.playState === "running" &&
+          (a as Animation & { transitionProperty?: string }).transitionProperty === "transform",
+      );
   }
 
   // The content and the head change without the panel's box changing: the
@@ -190,7 +225,9 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
   // The hold is read once the page is set up (the caller may make it later).
   let stopHold: (() => void) | null = null;
   onMounted(() => {
-    stopHold = watch(() => inputs.hold(), measureSoon, { flush: "post" });
+    stopHold = watch([() => inputs.hold(), () => inputs.expectFull()], measureSoon, {
+      flush: "post",
+    });
   });
   onBeforeUnmount(() => {
     stopHold?.();

@@ -242,10 +242,25 @@ function close() {
 
 @media (max-width: 899px) {
   /* Clear of the lowered sheet and of the map's controls above it (the zoom
-     buttons and the logo at the left, the attribution button at the right). */
+     buttons and the logo at the left, the attribution button at the right);
+     over a raised sheet that leaves the map room above it, clear of that
+     sheet's top and of the controls gone up with it (GeoNav's
+     `--sheet-tools`, unset otherwise). */
   .dev-options {
     right: 12px;
-    bottom: calc(11.5rem + env(safe-area-inset-bottom));
+    bottom: max(
+      calc(11.5rem + env(safe-area-inset-bottom)),
+      calc(var(--sheet-tools, -100vh) + 7rem)
+    );
+    transition:
+      right 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+      bottom 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (max-width: 899px) and (prefers-reduced-motion: reduce) {
+  .dev-options {
+    transition: none;
   }
 }
 
