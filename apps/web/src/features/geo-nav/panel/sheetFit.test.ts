@@ -1,5 +1,6 @@
 // A phone's raised sheet as tall as its content (sheetFit.ts): the offset
-// from the full box, the minimum, the snap to full, the hold while loading,
+// from the full box, the minimum, the snaps to full (a sliver of map, no
+// room for the map's controls), the hold while loading,
 // how a refit moves and where a released drag settles. Run with
 // `node --import tsx --test` (root "test:scripts"). Pure: no Vue component,
 // no DOM.
@@ -8,8 +9,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   DEFAULT_SHEET_FIT,
-  FOLLOW_MS,
-  FOLLOW_PX,
   SHEET_FIT_MODES,
   SNAP_FULL_PX,
   raisedOffset,
@@ -36,6 +35,16 @@ test("short content slides the sheet down to its height, long content keeps it f
 test("a sliver of map left above the sheet goes full", () => {
   assert.equal(raisedOffset({ ...base, contentPx: 675 - SNAP_FULL_PX + 1 }), 0);
   assert.equal(raisedOffset({ ...base, contentPx: 675 - SNAP_FULL_PX }), SNAP_FULL_PX);
+});
+
+test("a fit that leaves the map's controls no room above it goes full", () => {
+  // The controls need 111 px (a 103 px corner and its margin): 92 px of map
+  // left (Hautes-Alpes on a 360×740 phone) goes full, 111 fits.
+  assert.equal(raisedOffset({ ...base, contentPx: 583, minOffsetPx: 111 }), 0);
+  assert.equal(raisedOffset({ ...base, contentPx: 564, minOffsetPx: 111 }), 111);
+  assert.equal(raisedOffset({ ...base, contentPx: 300, minOffsetPx: 111 }), 375);
+  // Never below the sliver's own threshold.
+  assert.equal(raisedOffset({ ...base, contentPx: 675 - 40, minOffsetPx: 10 }), 0);
 });
 
 test("the sheet never stands lower than its minimum, nor above the full box", () => {
@@ -67,39 +76,21 @@ test("the switch's default is one of its choices, the first", () => {
   assert.deepEqual([...SHEET_FIT_MODES], ["ajuste", "plein"]);
 });
 
-test("a refit snaps on a weak device, on a box change and while following a tween", () => {
-  const anim = {
-    deltaPx: 200,
-    sinceLastMs: 1000,
-    fullChanged: false,
-    short: false,
-    easing: false,
-  };
-  assert.equal(refitMotion(anim), "animate");
-  assert.equal(refitMotion({ ...anim, short: true }), "snap");
-  assert.equal(refitMotion({ ...anim, fullChanged: true }), "snap");
-  assert.equal(
-    refitMotion({ ...anim, deltaPx: -(FOLLOW_PX - 1), sinceLastMs: FOLLOW_MS - 1 }),
-    "snap",
-  );
-  // A small step long after the last one, or a big one right after it: eased.
-  assert.equal(refitMotion({ ...anim, deltaPx: FOLLOW_PX - 1, sinceLastMs: FOLLOW_MS }), "animate");
-  assert.equal(refitMotion({ ...anim, deltaPx: FOLLOW_PX, sinceLastMs: 10 }), "animate");
+test("a sheet at rest refits in one step on a weak device and on a box change", () => {
+  const rest = { fullChanged: false, short: false, easing: false };
+  assert.equal(refitMotion(rest), "animate");
+  assert.equal(refitMotion({ ...rest, short: true }), "snap");
+  assert.equal(refitMotion({ ...rest, fullChanged: true }), "snap");
 });
 
-test("a small step while an ease runs retargets that ease instead of cutting it short", () => {
-  const step = {
-    deltaPx: -(FOLLOW_PX - 1),
-    sinceLastMs: FOLLOW_MS - 1,
-    fullChanged: false,
-    short: false,
-    easing: true,
-  };
-  assert.equal(refitMotion(step), "animate");
-  assert.equal(refitMotion({ ...step, deltaPx: 20, sinceLastMs: 40 }), "animate");
-  // A weak device or a change of the box still steps.
-  assert.equal(refitMotion({ ...step, short: true }), "snap");
-  assert.equal(refitMotion({ ...step, fullChanged: true }), "snap");
+test("an ease still running carries the refit, on a weak device too", () => {
+  // A pin's tap on a weak phone: the list changes as the sheet rises; the
+  // raise eases on, retargeted, instead of jumping to its end.
+  const ease = { fullChanged: false, short: false, easing: true };
+  assert.equal(refitMotion(ease), "animate");
+  assert.equal(refitMotion({ ...ease, short: true }), "animate");
+  assert.equal(refitMotion({ ...ease, fullChanged: true }), "animate");
+  assert.equal(refitMotion({ ...ease, short: true, fullChanged: true }), "animate");
 });
 
 test("a released drag settles on the nearer rest unless flicked", () => {

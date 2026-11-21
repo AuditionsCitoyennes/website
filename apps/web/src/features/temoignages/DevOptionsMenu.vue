@@ -245,7 +245,8 @@ function close() {
      buttons and the logo at the left, the attribution button at the right);
      over a raised sheet that leaves the map room above it, clear of that
      sheet's top and of the controls gone up with it (GeoNav's
-     `--sheet-tools`, unset otherwise). */
+     `--sheet-tools`, unset otherwise), in one step under a short motion
+     (`--sheet-follow`, set by GeoNav). */
   .dev-options {
     right: 12px;
     bottom: max(
@@ -254,7 +255,7 @@ function close() {
     );
     transition:
       right 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-      bottom 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+      bottom var(--sheet-follow, 0.35s) cubic-bezier(0.22, 1, 0.36, 1);
   }
 }
 

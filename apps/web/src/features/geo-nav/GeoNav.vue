@@ -14,6 +14,7 @@ import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
 import { deviceSignals, deviceTier } from "@/shared/device/deviceTier";
+import { motionNow } from "@/shared/device/motion";
 import {
   analysisSummary,
   buildFactsIndex,
@@ -349,7 +350,19 @@ const sheet = useBottomSheet({
   fitMode: () => sheetFitMode.value,
   hold: () => sheetFitHold.value,
   expectFull: () => sheetExpectFull.value,
+  mapControlsPx: () => mapControlsPx(),
 });
+/** The taller of mapbox's two bottom corners (the zoom buttons over its logo
+ *  at the left, the credit at the right), which go up above a fitted sheet
+ *  (`--sheet-shown`); 0 before the map has them. */
+function mapControlsPx(): number {
+  let h = 0;
+  for (const el of pageEl.value?.querySelectorAll<HTMLElement>(
+    ".mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right",
+  ) ?? [])
+    h = Math.max(h, el.offsetHeight);
+  return h;
+}
 const {
   sheetPeekPx,
   sheetDragPx,
@@ -388,16 +401,23 @@ const sheetToolsPx = computed(() =>
 if (__TEST_TOOLS__) {
   // The test emails' button is the app's, outside this page: told on the
   // document (`--ac-sheet-tools`, features/outbox OutboxLauncher).
+  // It follows in one step under a short motion, as the sheet's refit does
+  // (`--ac-sheet-tools-follow`, read at the same change).
   const root = document.documentElement.style;
   watch(
     sheetToolsPx,
     (px) => {
+      if (motionNow() === "short") root.setProperty("--ac-sheet-tools-follow", "0s");
+      else root.removeProperty("--ac-sheet-tools-follow");
       if (px === null) root.removeProperty("--ac-sheet-tools");
       else root.setProperty("--ac-sheet-tools", `${px}px`);
     },
     { immediate: true },
   );
-  onBeforeUnmount(() => root.removeProperty("--ac-sheet-tools"));
+  onBeforeUnmount(() => {
+    root.removeProperty("--ac-sheet-tools");
+    root.removeProperty("--ac-sheet-tools-follow");
+  });
 }
 const layout = usePanelLayout({
   nav,
@@ -1072,6 +1092,7 @@ function retryAll() {
       '--sheet-peek': `${sheetPeekPx}px`,
       '--sheet-shown': `${sheetShownPx}px`,
       '--sheet-tools': sheetToolsPx === null ? undefined : `${sheetToolsPx}px`,
+      '--sheet-follow': motionNow() === 'short' ? '0s' : undefined,
       '--panel-cover': `${panelCover}px`,
     }"
   >
@@ -1467,14 +1488,16 @@ function retryAll() {
   /* The lowered sheet covers the map's bottom edge, which is where mapbox puts
      the zoom buttons, its logo and the attribution — lift them clear of it;
      over a raised sheet shorter than the screen, clear of that sheet's top
-     (`--sheet-shown`), moving with it as it rises, refits and lowers. */
+     (`--sheet-shown`), moving with it as it rises, refits and lowers — in one
+     step under a short motion (`--sheet-follow`, read at the same render: a
+     weak device, reduced motion asked), as the sheet's own refit. */
   .geo-map :deep(.mapboxgl-ctrl-bottom-left),
   .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
     bottom: var(--sheet-peek, 4.5rem);
     transform: translateY(
       calc(var(--sheet-peek, 4.5rem) - var(--sheet-shown, var(--sheet-peek, 4.5rem)))
     );
-    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform var(--sheet-follow, 0.35s) cubic-bezier(0.22, 1, 0.36, 1);
   }
 }
 

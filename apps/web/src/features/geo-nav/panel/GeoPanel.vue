@@ -408,8 +408,8 @@ defineExpose({ el, peekEl, safeEl, listEl, bodyEl });
   }
 
   /* Under the finger the sheet follows 1:1 (inline transform) — no easing; a
-     refit made in one step (a weak device, a change of the box, an audition
-     unfolding followed frame by frame) neither. */
+     refit made in one step (a sheet at rest on a weak device, a change of the
+     box itself: useBottomSheet) neither. */
   .panel.sheet-dragging,
   .panel.sheet-refit {
     transition: none;

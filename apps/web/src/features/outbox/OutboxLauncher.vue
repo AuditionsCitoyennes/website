@@ -331,12 +331,13 @@ onBeforeUnmount(() => {
   left: 1rem;
   /* Above the Témoignages page's phone sheet when it stands short and leaves
      the map room (`--ac-sheet-tools`, set by geo-nav GeoNav: its top), over
-     the zoom buttons gone up there with it; low on the screen otherwise. */
+     the zoom buttons gone up there with it; low on the screen otherwise. In
+     one step under a short motion (`--ac-sheet-tools-follow`, set with it). */
   bottom: max(
     calc(2.5rem + env(safe-area-inset-bottom, 0px)),
     calc(var(--ac-sheet-tools, -100vh) + 7.5rem)
   );
-  transition: bottom 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: bottom var(--ac-sheet-tools-follow, 0.35s) cubic-bezier(0.22, 1, 0.36, 1);
   z-index: 1400;
   display: inline-flex;
   align-items: center;

@@ -13,16 +13,15 @@
  *  button, or about two rows. */
 export const MIN_BODY_REM = 8;
 /** Less map than this (px) left above a fitted sheet reads as a glitch: the
- *  sheet goes full instead. */
+ *  sheet goes full instead. The least the caller may ask for (`minOffsetPx`). */
 export const SNAP_FULL_PX = 48;
-/** A refit this small (px)… */
-export const FOLLOW_PX = 48;
-/** …this soon (ms) after the previous one, with no eased move running,
- *  follows the content in one step: a block growing by itself frame after
- *  frame is followed, not chased by an ease of its own. (An audition
- *  unfolding or folding is measured at the height its tween goes to,
- *  useBottomSheet: it makes one refit, not one a frame.) */
-export const FOLLOW_MS = 120;
+/** The room (rem) kept between the map's controls, gone up above a fitted
+ *  sheet, and the header's tiles over the map's top (useBottomSheet's
+ *  `minOffsetPx`). */
+export const MAP_ROOM_MARGIN_REM = 0.5;
+/** The height (rem) of the map's controls stacked in a corner (the zoom
+ *  buttons over mapbox's logo) when they cannot be measured yet. */
+export const MAP_CONTROLS_FALLBACK_REM = 6.5;
 
 export type SheetFitMode = "ajuste" | "plein";
 
@@ -40,6 +39,11 @@ export interface RaisedOffsetInputs {
   contentPx: number;
   /** The least the raised sheet shows (its lowered strip plus MIN_BODY_REM). */
   minPx: number;
+  /** A fitted sheet slid down less than this (px) goes full: the map left
+   *  above it must hold the map's controls, which go up there with it, clear
+   *  of the header's tiles (useBottomSheet). Never below SNAP_FULL_PX;
+   *  SNAP_FULL_PX when left out. */
+  minOffsetPx?: number;
   /** While something loads, the offset now: the sheet may grow, not shrink
    *  (no shrink-then-grow bounce). null: no hold. */
   heldOffset: number | null;
@@ -56,16 +60,12 @@ export function raisedOffset(i: RaisedOffsetInputs): number {
   if (i.mode === "plein" || !(i.fullPx > 0) || i.expectFull) return 0;
   const fit = Math.min(i.fullPx, Math.max(i.contentPx, i.minPx));
   let off = i.fullPx - fit;
-  if (off < SNAP_FULL_PX) off = 0;
+  if (off < Math.max(SNAP_FULL_PX, i.minOffsetPx ?? 0)) off = 0;
   if (i.heldOffset !== null) off = Math.min(off, Math.max(0, i.heldOffset));
   return Math.round(off);
 }
 
 export interface RefitMotionInputs {
-  /** The change of the offset (px). */
-  deltaPx: number;
-  /** Since the previous refit (ms). */
-  sinceLastMs: number;
   /** The box itself changed in the same measure (the address bar, a rotation). */
   fullChanged: boolean;
   /** shared/device/motion says "short" (a weak device, reduced motion asked). */
@@ -75,11 +75,14 @@ export interface RefitMotionInputs {
   easing: boolean;
 }
 
-/** A raised sheet refitting to new content: eased like a raise, or in one step. */
+/** A raised sheet refitting to new content: eased like a raise, or in one
+ *  step. An ease still running carries the new offset, whatever the device (a
+ *  raise eases on a weak device too, and a pin's tap swaps the list as the
+ *  sheet rises); a sheet at rest steps on a weak device and on a change of
+ *  the box itself. */
 export function refitMotion(i: RefitMotionInputs): "animate" | "snap" {
-  if (i.short || i.fullChanged) return "snap";
   if (i.easing) return "animate";
-  if (Math.abs(i.deltaPx) < FOLLOW_PX && i.sinceLastMs < FOLLOW_MS) return "snap";
+  if (i.short || i.fullChanged) return "snap";
   return "animate";
 }
 
