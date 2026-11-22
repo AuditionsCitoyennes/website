@@ -4,10 +4,13 @@
 // vite.config): "ajuste" (the default) — as tall as its head and its content
 // need, up to the full panel (sheetFit.ts) —, "centre": the same, and an open
 // lieu's pin aimed into the map left above a short sheet (sheetFit
-// lieuAimPx, usePanelLayout's camera padding) — or "plein": always the full
-// panel, as before. Read by useBottomSheet at each measure and by the camera's
-// padding, so a choice applies at once, with no reload. Production keeps the default, which this
-// ref never leaves there (no switch is drawn). Desktops have no sheet: the
+// lieuAimPx, usePanelLayout's camera padding), the raised territory in scope
+// centred and fitted there otherwise (sheetFit sheetBandInsets, useSheetBand,
+// the camera's padding with each fit) — or "plein": always the full
+// panel, as before. Read by useBottomSheet at each measure, by the camera's
+// padding and by the band, so a choice applies at once, with no reload.
+// Production keeps the default, which this ref never leaves there (no switch
+// is drawn). Desktops have no sheet: the
 // switch changes nothing there.
 import { ref } from "vue";
 import { DEFAULT_SHEET_FIT, SHEET_FIT_MODES, type SheetFitMode } from "./sheetFit";

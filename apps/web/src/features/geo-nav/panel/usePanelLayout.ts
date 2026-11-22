@@ -4,7 +4,7 @@
 // the panel's handlers); and the camera padding that keeps the map clear of it.
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from "vue";
 import type { GeoUnit } from "@/features/geo";
-import type { NavState } from "../navState";
+import type { Insets, NavState } from "../navState";
 
 // Panel geometry. MUST stay in sync with `.panel` / `.panel.wide` in GeoNav's
 // <style> — the camera padding is what keeps the map clear of the panel, and
@@ -12,6 +12,8 @@ import type { NavState } from "../navState";
 export const PANEL_BASE_PX = 480; // 30rem
 export const PANEL_WIDE_RATIO = 0.75; // 75%
 export const PANEL_GAP_PX = 40;
+/** A phone's camera keeps this much room (px) from the screen's sides. */
+export const PHONE_SIDE_PX = 36;
 
 export interface PanelLayoutInputs {
   nav: NavState;
@@ -26,13 +28,16 @@ export interface PanelLayoutInputs {
   /** The phone's sheet: its strip (measured with the panel), its measure, whether
    *  a finger is on it, the height it leaves showing when lowered, and how much
    *  of the screen's bottom an open lieu's pin is kept clear of under
-   *  « Ajusté, centré » (null: the top strip; sheetFit lieuAimPx). */
+   *  « Ajusté, centré » (null: the top strip; sheetFit lieuAimPx) — and,
+   *  under that option, the map left above a short sheet raised over a
+   *  territory, the camera framed in it (null: none; panel/useSheetBand). */
   sheet: {
     peekEl: Ref<HTMLElement | null>;
     measure: () => void;
     dragging: () => boolean;
     peekPx: Ref<number>;
     aimPx?: Ref<number | null>;
+    band?: Ref<Insets | null>;
   };
   /** No filters on: a gesture that moves the map closes the lieu
    *  (model/lieuFollow) — a desktop's panel stays where it is meanwhile,
@@ -203,13 +208,28 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
         left: 30,
         right: 30,
       };
+    // « Ajusté, centré », a short sheet raised over a territory: the map left
+    // above it (useSheetBand), the territory centred and fitted there. Changed
+    // only together with a fit of the scope (the band's own rules), so the
+    // map moves once, as the camera is told to frame; the camera's centre —
+    // where mapbox rests it on the terrain — stands in the middle of what is
+    // seen, as under the lowered sheet: aimed from the lowered frame's centre
+    // instead (an offset), the terrain under that point, past the plateau's
+    // near edge, moved the territory by tens of px.
+    const band = sheet.band?.value;
+    if (band) return { ...band };
     // Otherwise frame for the LOWERED sheet — the only state in which the map is
     // sure to be on screen. Raising the sheet over a list therefore moves
     // nothing. Neither reads the raised sheet's height (« Ajusté »,
     // useBottomSheet: as tall as its content), on purpose: the map never moves
     // as the sheet refits over a list, the map shown above a short sheet is
     // extra room only.
-    return { top: 30, bottom: sheet.peekPx.value + 20, left: 36, right: 36 };
+    return {
+      top: 30,
+      bottom: sheet.peekPx.value + 20,
+      left: PHONE_SIDE_PX,
+      right: PHONE_SIDE_PX,
+    };
   });
 
   // What is really clear of the panel while it is open wide: less than the

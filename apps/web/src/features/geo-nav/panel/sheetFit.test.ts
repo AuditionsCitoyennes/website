@@ -1,14 +1,21 @@
 // A phone's raised sheet as tall as its content (sheetFit.ts): the offset
 // from the full box, the minimum, the snaps to full (a sliver of map, no
 // room for the map's controls), the hold while loading, the camera's aim
-// under « Ajusté, centré », how a refit moves and where a released drag settles. Run with
+// under « Ajusté, centré » (an open lieu's pin; the band a territory is
+// framed in above a short sheet and when a new band frames it again), how a
+// refit moves and where a released drag settles. Run with
 // `node --import tsx --test` (root "test:scripts"). Pure: no Vue component,
 // no DOM.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  BAND_MARGIN_PX,
   DEFAULT_SHEET_FIT,
+  MIN_BAND_REM,
+  bandMoved,
+  bandReframe,
+  sheetBandInsets,
   SHEET_FIT_MODES,
   SNAP_FULL_PX,
   lieuAimPx,
@@ -138,4 +145,110 @@ test("a released drag settles on the nearer rest unless flicked", () => {
   assert.equal(sheetSettle({ at: 600, v: -0.5, raisedPx: 375, loweredPx: 610, flick }), true);
   assert.equal(sheetSettle({ at: 380, v: 0.5, raisedPx: 375, loweredPx: 610, flick }), false);
   assert.equal(sheetSettle({ at: 380, v: 0.3, raisedPx: 375, loweredPx: 610, flick }), true);
+});
+
+// « Ajusté, centré »: the band a territory in scope is framed in above a short
+// sheet. A 360×740 phone, the header's tiles 51 px down, the camera's 36 px
+// beside, a sheet of 5 rows covering 316 px of the screen's bottom.
+const band = {
+  mode: "centre" as const,
+  phone: true,
+  raised: true,
+  fitted: true,
+  lieuOpen: false,
+  shownPx: 316,
+  viewportH: 740,
+  headerClearPx: 51,
+  sidePx: 36,
+  remPx: 16,
+};
+
+test("the band is the map between the header's tiles and the short sheet, a margin inside", () => {
+  assert.deepEqual(sheetBandInsets(band), {
+    top: 51 + BAND_MARGIN_PX,
+    bottom: 316 + BAND_MARGIN_PX,
+    left: 36,
+    right: 36,
+  });
+  // Rounded to whole pixels.
+  assert.deepEqual(sheetBandInsets({ ...band, shownPx: 316.4, headerClearPx: 50.6 }), {
+    top: 63,
+    bottom: 328,
+    left: 36,
+    right: 36,
+  });
+});
+
+test("no band but under « Ajusté, centré », on a phone, over a raised short sheet, no lieu open", () => {
+  assert.equal(sheetBandInsets({ ...band, mode: "ajuste" }), null);
+  assert.equal(sheetBandInsets({ ...band, mode: "plein" }), null);
+  assert.equal(sheetBandInsets({ ...band, phone: false }), null);
+  assert.equal(sheetBandInsets({ ...band, raised: false }), null);
+  // A full sheet (a long list, an opening audition): framed as today.
+  assert.equal(sheetBandInsets({ ...band, fitted: false }), null);
+  // A lieu's pin is aimed by the camera's padding (lieuAimPx).
+  assert.equal(sheetBandInsets({ ...band, lieuOpen: true }), null);
+  // Nothing measured yet.
+  assert.equal(sheetBandInsets({ ...band, shownPx: 0 }), null);
+  assert.equal(sheetBandInsets({ ...band, viewportH: 0 }), null);
+});
+
+test("a band too short to frame a territory in is none", () => {
+  const min = MIN_BAND_REM * 16;
+  // 740 − 63 − (shown + 12) = min: just enough.
+  const shownFits = 740 - 63 - 12 - min;
+  assert.notEqual(sheetBandInsets({ ...band, shownPx: shownFits }), null);
+  assert.equal(sheetBandInsets({ ...band, shownPx: shownFits + 1 }), null);
+});
+
+test("the band reads the sheet's rest alone: the same rest, the same band", () => {
+  // The caller hands the rest target (GeoNav's sheetShownPx), never a drag's
+  // offset: a finger on the sheet gives nothing else to read.
+  assert.deepEqual(sheetBandInsets(band), sheetBandInsets({ ...band }));
+});
+
+test("a band moves past its tolerance, and always to or from none", () => {
+  const a = { top: 63, bottom: 328, left: 36, right: 36 };
+  assert.equal(bandMoved(a, { ...a, bottom: 344 }), false);
+  assert.equal(bandMoved(a, { ...a, bottom: 345 }), true);
+  assert.equal(bandMoved(a, { ...a, top: 47 }), false);
+  assert.equal(bandMoved(a, { ...a, left: 53 }), true);
+  assert.equal(bandMoved(a, { ...a, bottom: 334 }, 4), true);
+  assert.equal(bandMoved(a, null), true);
+  assert.equal(bandMoved(null, a), true);
+  assert.equal(bandMoved(null, null), false);
+});
+
+test("a new band frames the scope again only where the scope may move with it", () => {
+  const rest = {
+    inFlight: false,
+    hold: false,
+    readingPlace: false,
+    microZone: false,
+    listMode: false,
+    inHands: false,
+    movedSinceCommand: false,
+    short: false,
+  };
+  const table: [Partial<typeof rest>, string][] = [
+    [{}, "fit"],
+    [{ short: true }, "instant"],
+    [{ inFlight: true }, "retarget"],
+    [{ inFlight: true, short: true }, "retarget"],
+    [{ inFlight: true, hold: true }, "retarget"],
+    [{ hold: true }, "wait"],
+    [{ hold: true, short: true }, "wait"],
+    [{ movedSinceCommand: true }, "keep"],
+    [{ movedSinceCommand: true, inFlight: true }, "keep"],
+    [{ inHands: true }, "later"],
+    [{ inHands: true, movedSinceCommand: true }, "later"],
+    [{ listMode: true }, "filter"],
+    [{ listMode: true, inHands: true }, "filter"],
+    [{ readingPlace: true }, "hold"],
+    [{ microZone: true }, "hold"],
+    [{ microZone: true, listMode: true, inFlight: true }, "hold"],
+  ];
+  for (const [over, want] of table) {
+    assert.equal(bandReframe({ ...rest, ...over }), want, JSON.stringify(over));
+  }
 });

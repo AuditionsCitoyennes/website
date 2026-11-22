@@ -117,7 +117,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "plein", label: "Plein" },
     ],
     explain:
-      "Sur un téléphone, la hauteur du panneau des témoignages quand il est remonté. « Ajusté » (par défaut) le fait aussi haut que ce qu'il montre : deux villes, et la carte reste visible au-dessus ; une longue liste, et il monte jusqu'en haut ; un lieu ouvert reste en haut de la carte. « Ajusté, centré » fait de même mais place le lieu ouvert au milieu de la carte visible au-dessus du panneau : la carte suit alors sa hauteur. « Plein » le monte toujours jusqu'en haut, comme avant. Rien ne change sur un ordinateur.",
+      "Sur un téléphone, la hauteur du panneau des témoignages quand il est remonté. « Ajusté » (par défaut) le fait aussi haut que ce qu'il montre : deux villes, et la carte reste visible au-dessus ; une longue liste, et il monte jusqu'en haut ; un lieu ouvert reste en haut de la carte. « Ajusté, centré » fait de même mais place le territoire en relief, ou le lieu ouvert, au milieu de la carte visible au-dessus du panneau : la carte suit alors sa hauteur. « Plein » le monte toujours jusqu'en haut, comme avant. Rien ne change sur un ordinateur.",
     reloads: false,
     defaultId: "ajuste",
   },
