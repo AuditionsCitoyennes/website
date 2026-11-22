@@ -45,6 +45,9 @@ import { useTapPending } from "./model/useTapPending";
 import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
+import { lieuAimPx } from "./panel/sheetFit";
+import { sheetFitMode } from "./panel/sheetFitSwitch";
+import { testimoniesOf } from "./model/auditions";
 import { PANEL_BASE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
 import { usePlaqueFocus } from "./ring/usePlaqueFocus";
@@ -264,6 +267,7 @@ const panelEl = computed(() => panelCmp.value?.el ?? null);
 const sheetPeekEl = computed(() => panelCmp.value?.peekEl ?? null);
 const sheetSafeEl = computed(() => panelCmp.value?.safeEl ?? null);
 const panelListEl = computed(() => panelCmp.value?.listEl ?? null);
+const panelBodyEl = computed(() => panelCmp.value?.bodyEl ?? null);
 const moreEl = computed(() => auditionsCmp.value?.moreEl ?? null);
 const moreTestimoniesEl = computed(() => auditionsCmp.value?.moreTestimoniesEl ?? null);
 
@@ -331,11 +335,40 @@ const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
 const pageEl = ref<HTMLElement | null>(null);
 
 // ---- The phone's sheet (panel/useBottomSheet), the panel's layout (panel/usePanelLayout) ----
-const sheet = useBottomSheet({ nav, isDesktop, panelEl, peekEl: sheetPeekEl, safeEl: sheetSafeEl });
+// A raised sheet as tall as its content (« Ajusté »), held while what it
+// shows loads and full while an open audition's text is on its way
+// (`sheetFitHold`, `sheetExpectFull`, made further down: read at a measure,
+// never before the page is set up).
+const sheet = useBottomSheet({
+  nav,
+  isDesktop,
+  panelEl,
+  peekEl: sheetPeekEl,
+  safeEl: sheetSafeEl,
+  listEl: panelListEl,
+  bodyEl: panelBodyEl,
+  fitMode: () => sheetFitMode.value,
+  hold: () => sheetFitHold.value,
+  expectFull: () => sheetExpectFull.value,
+  mapControlsPx: () => mapControlsPx(),
+});
+/** The taller of mapbox's two bottom corners (the zoom buttons over its logo
+ *  at the left, the credit at the right), which go up above a fitted sheet
+ *  (`--sheet-shown`); 0 before the map has them. */
+function mapControlsPx(): number {
+  let h = 0;
+  for (const el of pageEl.value?.querySelectorAll<HTMLElement>(
+    ".mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right",
+  ) ?? [])
+    h = Math.max(h, el.offsetHeight);
+  return h;
+}
 const {
   sheetPeekPx,
   sheetDragPx,
   sheetLowered,
+  sheetFitted,
+  sheetRefit,
   sheetHidden,
   sheetStyle,
   measureSheet,
@@ -343,6 +376,54 @@ const {
   onSheetPointerMove,
   onSheetPointerUp,
 } = sheet;
+/** How much of the screen's bottom a raised fitted sheet covers (px); else
+ *  the lowered strip's: a short sheet leaves the map in sight above it, and
+ *  the map's own controls (mapbox's logo, its credit, the zoom) go up there
+ *  with it (`--sheet-shown`). A full sheet hides them as it always has. Not
+ *  moved by a drag (no restyle of the page as a finger takes the sheet): they
+ *  follow where it comes to rest. */
+const sheetShownPx = computed(() =>
+  sheetFitted.value
+    ? Math.max(sheetPeekPx.value, sheet.sheetFullPx.value - sheet.sheetRaisedPx.value)
+    : sheetPeekPx.value,
+);
+/** The testing tools' buttons (the DEV options, the test emails) go up above
+ *  a fitted sheet only when it leaves them this much more map (px): over a
+ *  thin strip they stay where they were, low over the sheet. */
+const SHEET_TOOLS_ROOM_PX = 192;
+/** Where the testing tools' buttons sit above (`--sheet-tools`), or null:
+ *  where they always were. */
+const sheetToolsPx = computed(() =>
+  sheetShownPx.value > sheetPeekPx.value && sheet.sheetRaisedPx.value >= SHEET_TOOLS_ROOM_PX
+    ? sheetShownPx.value
+    : null,
+);
+if (__TEST_TOOLS__) {
+  // The test emails' button is the app's, outside this page: told on the
+  // document (`--ac-sheet-tools`, features/outbox OutboxLauncher).
+  // It moves as the sheet does: in one step when the sheet's refit is made in
+  // one (`--ac-sheet-tools-follow`, read at the same change), eased with the
+  // sheet's raise, lower or eased refit otherwise.
+  const root = document.documentElement.style;
+  watch(
+    sheetToolsPx,
+    (px) => {
+      if (sheetRefit.value) root.setProperty("--ac-sheet-tools-follow", "0s");
+      else root.removeProperty("--ac-sheet-tools-follow");
+      if (px === null) root.removeProperty("--ac-sheet-tools");
+      else root.setProperty("--ac-sheet-tools", `${px}px`);
+    },
+    { immediate: true },
+  );
+  onBeforeUnmount(() => {
+    root.removeProperty("--ac-sheet-tools");
+    root.removeProperty("--ac-sheet-tools-follow");
+  });
+}
+/** « Ajusté, centré »: how much of the screen's bottom the camera keeps clear
+ *  of an open lieu's pin (px), the sheet's rest top under a short sheet; null
+ *  otherwise (sheetFit lieuAimPx, set further down, once the hold is made). */
+const sheetAimPx = ref<number | null>(null);
 const layout = usePanelLayout({
   nav,
   isDesktop,
@@ -356,6 +437,7 @@ const layout = usePanelLayout({
     measure: measureSheet,
     dragging: sheet.dragging,
     peekPx: sheetPeekPx,
+    aimPx: sheetAimPx,
   },
   follows,
 });
@@ -912,6 +994,71 @@ if (__TEST_TOOLS__) {
 const listsLoading = computed(() => lists.resultsLoading.value);
 /** The results could not be had. */
 const listsFailed = computed(() => lists.resultsFailed.value);
+/** Something the phone's raised sheet shows is still on its way — the
+ *  testimonies, the results, the scope's children, the lieu's auditions: the
+ *  sheet may grow meanwhile, not shrink, so that it never shrinks to the wait
+ *  dots and grows back (useBottomSheet). */
+const sheetFitHold = computed(
+  () => props.loading || listsLoading.value || scopeChildrenPending.value || placeLoading.value,
+);
+/** An open audition's text is on its way — its testimonies, or the lieu's
+ *  list its line is in (a lieu of one audition opens with it open,
+ *  model/lieuSingle): the phone's raised sheet stands full at once, as the
+ *  text will most often make it, rather than fitting the line and the wait
+ *  dots and rising again once the text is in. An audition without testimony
+ *  has nothing to unfold. */
+const sheetExpectFull = computed(() => {
+  if (!listMode.value && !selectedPlace.value) return false;
+  for (const id of openAuditions.value) {
+    const a = panelAuditions.value.find((x) => x.id === id);
+    if (!a) {
+      if (placeLoading.value || listsLoading.value) return true;
+    } else if (testimoniesOf(a) === null && a.count !== 0) return true;
+  }
+  return false;
+});
+watch(
+  () =>
+    lieuAimPx({
+      mode: sheetFitMode.value,
+      lieuRaised: !isDesktop.value && Boolean(selectedPlace.value) && sheetOpen.value,
+      fitted: sheetFitted.value,
+      shownPx: sheetShownPx.value,
+      hold: sheetFitHold.value,
+      expectFull: sheetExpectFull.value,
+      // The aim decided last: a hold keeps it (re-reading it after a change
+      // gives the same aim back).
+      prev: sheetAimPx.value,
+    }),
+  (px) => (sheetAimPx.value = px),
+  { immediate: true },
+);
+if (__TEST_TOOLS__) {
+  // `window.__acSheet()`: the phone's sheet as measured last — raised or not,
+  // the fit's mode, the box, the content, the raised and lowered offsets,
+  // the hold (px; desktops have no sheet), and the camera's padding.
+  const probe = () => ({
+    open: sheetOpen.value,
+    mode: sheetFitMode.value,
+    fullPx: sheet.sheetFullPx.value,
+    contentPx: sheet.sheetContentPx.value,
+    raisedPx: sheet.sheetRaisedPx.value,
+    loweredPx: sheet.sheetLoweredPx.value,
+    peekPx: sheetPeekPx.value,
+    fitted: sheetFitted.value,
+    hold: sheetFitHold.value,
+    expectFull: sheetExpectFull.value,
+    aimPx: sheetAimPx.value,
+    // What the camera is told to keep clear: the raised sheet's height only
+    // under « Ajusté, centré », for an open lieu (`aimPx`).
+    mapPadding: { ...mapPadding.value },
+  });
+  const w = window as unknown as { __acSheet?: () => unknown };
+  w.__acSheet = probe;
+  onBeforeUnmount(() => {
+    if (w.__acSheet === probe) delete w.__acSheet;
+  });
+}
 /** After a network failure, what the panel could not have is asked again by
  *  itself (data/usePanelRecovery). */
 const { offline: netOffline, retryNow } = usePanelRecovery({
@@ -965,7 +1112,13 @@ function retryAll() {
     class="geo-page"
     :class="{ preview }"
     :inert="preview || undefined"
-    :style="{ '--sheet-peek': `${sheetPeekPx}px`, '--panel-cover': `${panelCover}px` }"
+    :style="{
+      '--sheet-peek': `${sheetPeekPx}px`,
+      '--sheet-shown': `${sheetShownPx}px`,
+      '--sheet-tools': sheetToolsPx === null ? undefined : `${sheetToolsPx}px`,
+      '--sheet-follow': sheetRefit ? '0s' : undefined,
+      '--panel-cover': `${panelCover}px`,
+    }"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the
          keyboard goes from the header straight to the usable panel. -->
@@ -1055,6 +1208,8 @@ function retryAll() {
         :flush="panelFlush"
         :sheet-lowered="sheetLowered"
         :sheet-dragging="sheetDragPx !== null"
+        :sheet-fitted="sheetFitted"
+        :sheet-refit="sheetRefit"
         :sheet-style="sheetStyle"
         :sheet-open="sheetOpen"
         :sheet-hidden="sheetHidden"
@@ -1355,10 +1510,26 @@ function retryAll() {
 
 @media (max-width: 899px) {
   /* The lowered sheet covers the map's bottom edge, which is where mapbox puts
-     the zoom buttons, its logo and the attribution — lift them clear of it. */
+     the zoom buttons, its logo and the attribution — lift them clear of it;
+     over a raised sheet shorter than the screen, clear of that sheet's top
+     (`--sheet-shown`), moving with it as it rises, refits and lowers: eased
+     on the sheet's own curve, in one step when the sheet's refit is made in
+     one (`--sheet-follow`, the sheet's `sheetRefit`, read at the same
+     render). */
   .geo-map :deep(.mapboxgl-ctrl-bottom-left),
   .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
     bottom: var(--sheet-peek, 4.5rem);
+    transform: translateY(
+      calc(var(--sheet-peek, 4.5rem) - var(--sheet-shown, var(--sheet-peek, 4.5rem)))
+    );
+    transition: transform var(--sheet-follow, 0.35s) cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (max-width: 899px) and (prefers-reduced-motion: reduce) {
+  .geo-map :deep(.mapboxgl-ctrl-bottom-left),
+  .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
+    transition: none;
   }
 }
 </style>

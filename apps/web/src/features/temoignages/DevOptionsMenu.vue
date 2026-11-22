@@ -4,7 +4,8 @@
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the map's
-// fallback (map/fallbackSwitch), the analyses' slabs
+// fallback (map/fallbackSwitch), the height of a phone's raised sheet
+// (geo-nav/panel/sheetFitSwitch), the analyses' slabs
 // (analyses/devSwitch; their section only in a build with the analyses), the
 // device's tier (shared/device/deviceTier) with what the page knows of the
 // device listed under it, the map's pixel ratio and whether it times its
@@ -39,6 +40,7 @@ import {
   slabTextMode,
   slabTextScale,
 } from "@/features/analyses";
+import { setSheetFitMode, sheetFitMode } from "@/features/geo-nav";
 import {
   dprChoice,
   frameMeasure,
@@ -82,6 +84,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
   "ac:map-fallback": bind(() => mapFallback, setMapFallback),
+  "ac:sheet-fit": bind(() => sheetFitMode.value, setSheetFitMode),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
 };
@@ -239,10 +242,27 @@ function close() {
 
 @media (max-width: 899px) {
   /* Clear of the lowered sheet and of the map's controls above it (the zoom
-     buttons and the logo at the left, the attribution button at the right). */
+     buttons and the logo at the left, the attribution button at the right);
+     over a raised sheet that leaves the map room above it, clear of that
+     sheet's top and of the controls gone up with it (GeoNav's
+     `--sheet-tools`, unset otherwise), moving as the sheet does: in one step
+     when the sheet's refit is made in one (`--sheet-follow`, set by GeoNav),
+     eased otherwise. */
   .dev-options {
     right: 12px;
-    bottom: calc(11.5rem + env(safe-area-inset-bottom));
+    bottom: max(
+      calc(11.5rem + env(safe-area-inset-bottom)),
+      calc(var(--sheet-tools, -100vh) + 7rem)
+    );
+    transition:
+      right 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+      bottom var(--sheet-follow, 0.35s) cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (max-width: 899px) and (prefers-reduced-motion: reduce) {
+  .dev-options {
+    transition: none;
   }
 }
 

@@ -12,6 +12,11 @@
 // Under short motion (shared/device/motion: the system asks for reduced
 // motion, or a weak device) there is no tween: the block is open or closed
 // in one step, so no frame lays out a body thousands of pixels tall.
+//
+// While it tweens, the block carries `data-height-tween` and its inline
+// height is where it goes (HEIGHT_TWEEN_ATTR): what measures the content
+// around it (a phone's sheet, geo-nav useBottomSheet) reads the height it
+// will have, not each frame's.
 import { motionNow } from "@/shared/device/motion";
 
 const props = withDefaults(
@@ -29,6 +34,8 @@ const props = withDefaults(
 );
 
 const DURATION = 460;
+/** On the block while it tweens; its inline `height` is the tween's end. */
+const HEIGHT_TWEEN_ATTR = "data-height-tween";
 
 const cleanups = new WeakMap<HTMLElement, () => void>();
 
@@ -54,6 +61,7 @@ function animate(
   void node.offsetHeight; // commit the start value
   node.style.transition = `height ${DURATION}ms ease`;
   node.style.height = to;
+  node.setAttribute(HEIGHT_TWEEN_ATTR, "");
 
   let finished = false;
   const finish = () => {
@@ -62,6 +70,7 @@ function animate(
     node.removeEventListener("transitionend", onEnd);
     clearTimeout(timer);
     cleanups.delete(node);
+    node.removeAttribute(HEIGHT_TWEEN_ATTR);
     if (resetHeight) {
       node.style.height = "";
       node.style.overflow = "";
@@ -79,6 +88,7 @@ function animate(
   cleanups.set(node, () => {
     node.removeEventListener("transitionend", onEnd);
     clearTimeout(timer);
+    node.removeAttribute(HEIGHT_TWEEN_ATTR);
     node.style.height = "";
     node.style.overflow = "";
     node.style.transition = "";

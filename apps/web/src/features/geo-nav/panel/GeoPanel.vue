@@ -5,7 +5,8 @@
 // phone the breadcrumb IS the title row (no « Témoignages » heading on show):
 // the trail, then the page's buttons, the one line a lowered sheet shows. Its
 // state comes in as props; what the layout and the sheet measure (the aside,
-// the strip, the safe-area probe, the list's scroller) is exposed. The aside's
+// the strip, the safe-area probe, the list's scroller and its content) is
+// exposed. The aside's
 // own listeners (a click, a key, the wheel, the pointer resting on it) are
 // GeoNav's, attached to the root as fallthrough attributes.
 import { ref, type StyleValue } from "vue";
@@ -24,7 +25,11 @@ defineProps<{
   sheetLowered: boolean;
   /** The sheet under a finger (`.panel.sheet-dragging`). */
   sheetDragging: boolean;
-  /** The sheet's own translate and lowered offset (useBottomSheet's sheetStyle). */
+  /** Raised, and only as tall as its content (`.panel.sheet-fitted`). */
+  sheetFitted?: boolean;
+  /** A refit made in one step: no transition this render (`.panel.sheet-refit`). */
+  sheetRefit?: boolean;
+  /** The sheet's own translate, its lowered and raised offsets (useBottomSheet's sheetStyle). */
   sheetStyle?: StyleValue;
   /** The sheet is raised. */
   sheetOpen: boolean;
@@ -62,7 +67,10 @@ const peekEl = ref<HTMLElement | null>(null);
 const safeEl = ref<HTMLElement | null>(null);
 /** The list's scroller (`.panel-list`). */
 const listEl = ref<HTMLElement | null>(null);
-defineExpose({ el, peekEl, safeEl, listEl });
+/** The list's content (`.panel-list-body`): its height is the content's,
+ *  whatever the scroller shows (a phone's sheet fits it). */
+const bodyEl = ref<HTMLElement | null>(null);
+defineExpose({ el, peekEl, safeEl, listEl, bodyEl });
 </script>
 
 <template>
@@ -76,6 +84,8 @@ defineExpose({ el, peekEl, safeEl, listEl });
       snap: motionNow() === 'short',
       'sheet-lowered': sheetLowered,
       'sheet-dragging': sheetDragging,
+      'sheet-fitted': sheetFitted,
+      'sheet-refit': sheetRefit,
     }"
     :style="sheetStyle"
   >
@@ -154,7 +164,11 @@ defineExpose({ el, peekEl, safeEl, listEl });
       :inert="sheetHidden || undefined"
       :aria-busy="busy || undefined"
     >
-      <slot />
+      <!-- The only wrapper of the content: what it measures is the content's
+           height (a phone's sheet is as tall as it). -->
+      <div ref="bodyEl" class="panel-list-body">
+        <slot />
+      </div>
     </div>
   </aside>
 </template>
@@ -368,9 +382,12 @@ defineExpose({ el, peekEl, safeEl, listEl });
 }
 
 @media (max-width: 899px) {
-  /* A bottom sheet. Its box is the RAISED position; lowered, it is slid down
-     until only the grip + title strip is left on screen (`--sheet-lowered` is
-     measured in script — the fallback only covers the first frame). */
+  /* A bottom sheet. Its box is the FULL raised position; lowered, it is slid
+     down until only the grip + title strip is left on screen
+     (`--sheet-lowered` is measured in script — the fallback only covers the
+     first frame). Raised over content shorter than the box, it is slid down
+     until only that content shows (`--sheet-raised`, useBottomSheet: the box
+     itself never changes, so neither does its list's scroller). */
   .panel {
     top: 4.05rem;
     left: 0.4rem;
@@ -386,8 +403,15 @@ defineExpose({ el, peekEl, safeEl, listEl });
     transform: translateY(var(--sheet-lowered, calc(100% - 4.5rem)));
   }
 
-  /* Under the finger the sheet follows 1:1 (inline transform) — no easing. */
-  .panel.sheet-dragging {
+  .panel.sheet-fitted {
+    transform: translateY(var(--sheet-raised, 0px));
+  }
+
+  /* Under the finger the sheet follows 1:1 (inline transform) — no easing; a
+     refit made in one step (a sheet at rest on a weak device, a change of the
+     box itself: useBottomSheet) neither. */
+  .panel.sheet-dragging,
+  .panel.sheet-refit {
     transition: none;
   }
 
@@ -482,6 +506,12 @@ defineExpose({ el, peekEl, safeEl, listEl });
 
   .panel-list {
     padding: 0.5rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* The content's own block formatting context: its children's margins stay
+     inside it, so its height is all the content's (the sheet fits it). */
+  .panel-list-body {
+    display: flow-root;
   }
 }
 

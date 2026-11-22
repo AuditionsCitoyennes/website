@@ -14,7 +14,12 @@
 // - an audition unfolding in the panel: at once, with no height tween
 //   (shared/ui/transition/ExpandTransition.vue);
 // - the panel widening, narrowing or sliding aside on a desktop: at once
-//   (features/geo-nav GeoPanel.vue, `.panel.snap`).
+//   (features/geo-nav GeoPanel.vue, `.panel.snap`);
+// - a phone's raised sheet refitting to its content while at rest: in one
+//   step (features/geo-nav panel/sheetFit refitMotion). A raise or a lower
+//   still eases. The map's controls and the testing tools' buttons that stand
+//   on its top follow the sheet's own motion, stepping when it steps
+//   (GeoNav's `--sheet-follow`).
 // Everything else moves as in "full": a selection's flight, the padding ease,
 // the pins, the hover sweep.
 //
