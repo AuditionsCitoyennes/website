@@ -1276,7 +1276,9 @@ function retryAll() {
          its own and before the panel in the page, so it lies under the panel,
          which is held out of sight meanwhile (`panelHeld`; under the DEV
          switch's « Tout de suite », usable as soon as its rows are in); its
-         words centred in the part of the map the panel leaves free. Over map
+         words centred in the part of the map the panel leaves free (in the
+         whole box while the panel is held: `.boot.held`; as the curtain
+         leaves it keeps that class, so its fade carries the change). Over map
          AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
@@ -1284,7 +1286,7 @@ function retryAll() {
       <div
         v-if="booting"
         class="boot"
-        :class="{ 'boot-map': bootCover === 'map', sheet: !isDesktop }"
+        :class="{ 'boot-map': bootCover === 'map', sheet: !isDesktop, held: panelHeld }"
         role="status"
         aria-live="polite"
       >
@@ -1470,6 +1472,18 @@ function retryAll() {
 .boot.boot-map.sheet .boot-poster {
   width: 80%;
   height: calc(80% - var(--sheet-peek, 0px));
+}
+
+/* The panel held out of sight meanwhile (panelBoot): nothing beside the
+   curtain, whose words and poster are centred in the whole box, as the
+   home card's own loading screen (map-stage StageLoading) is. */
+.boot.boot-map.held {
+  padding: 0;
+}
+
+.boot.boot-map.held .boot-poster {
+  width: 80%;
+  height: 80%;
 }
 
 .boot > :not(.boot-poster) {

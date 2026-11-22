@@ -4,9 +4,11 @@
 // placeholder shows; it comes in as the curtain leaves, whatever made it
 // leave (GeoNav's `booting`: the map ready, ready "late", the map
 // unavailable, the testimonies failing, or the curtain's 10 s cap). Held, it
-// keeps its box (`visibility: hidden`, never `display: none`): the sheet's
-// measures, the camera's padding and the curtain's poster stay where they
-// will be once it shows, and nothing moves when it does.
+// keeps its box (transparent and inert, never `display: none`): the sheet's
+// measures and the camera's padding stay what they will be once it shows,
+// and the map does not move when it does. The curtain's words and poster,
+// with no panel on show beside them, are centred in the whole map box
+// meanwhile (GeoNav `.boot.held`).
 //
 // The home page's card has no panel on show: nothing to hold. A page whose
 // map was already up (back from the home page, the map kept alive in its

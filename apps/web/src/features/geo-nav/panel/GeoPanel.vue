@@ -18,7 +18,7 @@ import PanelBreadcrumb from "./PanelBreadcrumb.vue";
 
 const props = defineProps<{
   /** Held out of sight under the page's boot curtain (GeoNav `panelHeld`,
-   *  panelBoot.ts): hidden but laid out (`.panel.held`), inert, so that the
+   *  panelBoot.ts): transparent but laid out (`.panel.held`), inert, so that the
    *  sheet's measures and the camera's padding run as once it shows. */
   held?: boolean;
   /** The lowered sheet's strip on screen (px): how far it rises from as the
@@ -225,9 +225,14 @@ watch(
 }
 
 /* Held under the page's boot curtain: out of sight, its box kept (never
-   `display: none`, which the sheet's measures cannot read). */
+   `display: none`, which the sheet's measures cannot read). Transparent, not
+   `visibility: hidden`: an inherited visibility would be transitioned by
+   descendants that transition `all` (the head's .ac-btn buttons), which then
+   showed up after the panel. It is inert meanwhile: no focus, no pointer, out
+   of the accessibility tree. */
 .panel.held {
-  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .panel.panel-arrive-leave-active {
