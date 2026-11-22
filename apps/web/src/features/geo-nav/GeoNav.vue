@@ -1219,7 +1219,9 @@ function retryAll() {
     }"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the
-         keyboard goes from the header straight to the usable panel. -->
+         keyboard skips it. The panel is usable at once under the DEV switch's
+         « Tout de suite »; by default it is held (inert) until the curtain
+         leaves (`panelHeld`). -->
     <GeoDrillMap
       ref="mapCmp"
       class="geo-map"
@@ -1276,9 +1278,9 @@ function retryAll() {
          its own and before the panel in the page, so it lies under the panel,
          which is held out of sight meanwhile (`panelHeld`; under the DEV
          switch's « Tout de suite », usable as soon as its rows are in); its
-         words centred in the part of the map the panel leaves free (in the
-         whole box while the panel is held: `.boot.held`; as the curtain
-         leaves it keeps that class, so its fade carries the change). Over map
+         words centred in the part of the map the panel leaves free, where
+         the camera frames France (a phone's held sheet: words in the whole
+         box, `.boot.held`; as the curtain leaves it keeps that class). Over map
          AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
@@ -1474,16 +1476,14 @@ function retryAll() {
   height: calc(80% - var(--sheet-peek, 0px));
 }
 
-/* The panel held out of sight meanwhile (panelBoot): nothing beside the
-   curtain, whose words and poster are centred in the whole box, as the
-   home card's own loading screen (map-stage StageLoading) is. */
-.boot.boot-map.held {
-  padding: 0;
-}
-
-.boot.boot-map.held .boot-poster {
-  width: 80%;
-  height: 80%;
+/* The phone's sheet held out of sight meanwhile (panelBoot): its words are
+   centred in the whole box, with no strip under them. The poster keeps the
+   box above the strip, where the camera frames France (its padding counts
+   the strip from the start), so the curtain fades onto the same France. On
+   a desktop the whole curtain keeps the camera's framing: the side panel
+   arrives into the part it leaves free. */
+.boot.boot-map.sheet.held {
+  padding-bottom: 0;
 }
 
 .boot > :not(.boot-poster) {
