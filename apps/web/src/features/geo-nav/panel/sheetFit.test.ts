@@ -326,8 +326,10 @@ test("a new band frames the scope again only where the scope may move with it", 
     [{ hold: true, toNone: true }, "fit"],
     [{ hold: true, toNone: true, short: true }, "instant"],
     [{ hold: true, toNone: true, afterHold: true }, "fit"],
-    // Raised short after a hand moved the map: the band comes alone.
-    [{ movedSinceCommand: true, fromNone: true }, "lift"],
+    // Raised short after a hand moved the map: the map and the camera's
+    // padding stay as the visitor left them (no band alone: the scope could
+    // descend at rest in the smaller rectangle).
+    [{ movedSinceCommand: true, fromNone: true }, "keep"],
     [{ movedSinceCommand: true, fromNone: true, inHands: true }, "later"],
     [{ movedSinceCommand: true, fromNone: true, microZone: true }, "hold"],
     // Filters on: a late list in sight stays (« Rester »), and at the world a

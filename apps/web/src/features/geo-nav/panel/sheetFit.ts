@@ -311,7 +311,9 @@ export interface BandReframeInputs {
  *  read, the lieu zone: nothing raised to frame); "filter" — the filters'
  *  frame owed; "later" — asked again once the map is let go; "keep" — the
  *  map left where the visitor put it, the band as applied (the sheet still
- *  raised); "drop" — no fit may come and the band wanted is none (the sheet
+ *  raised; none when raised short again after a lowering: a band eased in
+ *  alone would shrink the rectangle the scope is read off, and a child
+ *  would become the scope at rest), until the next command; "drop" — no fit may come and the band wanted is none (the sheet
  *  lowered after the visitor moved the map, or in the lieu zone): the band
  *  goes alone, the map easing to the lowered frame's padding as it eases
  *  for any padding (what the visitor centred above the sheet comes to the
@@ -328,7 +330,6 @@ export type BandReframe =
   | "later"
   | "keep"
   | "drop"
-  | "lift"
   | "wait"
   | "retarget"
   | "stay"
@@ -343,7 +344,7 @@ export function bandReframe(i: BandReframeInputs): BandReframe {
     (i.grewOnly || i.clearsBand) && i.afterHold && i.late === "rester" && !i.inFlight && !i.hold;
   if (i.listMode) return lateStays || (i.world && i.grewOnly && !i.inFlight) ? "stay" : "filter";
   if (i.inHands) return "later";
-  if (i.movedSinceCommand) return i.toNone ? "drop" : i.fromNone ? "lift" : "keep";
+  if (i.movedSinceCommand) return i.toNone ? "drop" : "keep";
   if (i.inFlight) return "retarget";
   if (i.hold && !i.toNone) return "wait";
   if (lateStays) return "stay";

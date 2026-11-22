@@ -5,8 +5,10 @@
 // flight has landed makes one move under « Rester » (a tap from a full list
 // too, when the plateau already clears the sheet's new top) and a second,
 // single one under « Recentrer »; a sheet lowered while something loads takes
-// the band off at once; raised again after a hand moved the map, the band
-// comes alone; the filters' dialog holds everything until it closes.
+// the band off at once; raised again after a hand moved the map, nothing
+// changes until the next command; a late list's « Rester » steers only that
+// list, not a later raise by hand; the filters' dialog holds everything
+// until it closes.
 // Run with `node --import tsx --test` (root "test:scripts"): the one app
 // import with code (shared/device/motion) is mapped to a stub, the page's
 // globals are the least the composable reads.
@@ -243,21 +245,24 @@ test("lowered after a hand moved the map: the band goes alone, with no command",
   assert.equal(t.applied.value, null);
   assert.equal(t.band.last.value, "drop");
   assert.deepEqual(t.changes.at(-1), { inHook: false, to: null });
-  // Raised again, the map still where the hand left it: the band comes
-  // alone, with no command either.
+  const changed = t.changes.length;
+  // Raised again, the map still where the hand left it: no command, and the
+  // camera's padding stays the lowered frame's (a band alone would shrink
+  // the rectangle the scope is read off: the scope could descend at rest).
   t.sheetOpen.value = true;
   await t.settle();
   assert.deepEqual(t.cmds, []);
-  assert.deepEqual(t.applied.value, { top: 63, bottom: 328, left: 36, right: 36 });
-  assert.equal(t.band.last.value, "lift");
-  assert.deepEqual(t.changes.at(-1), { inHook: false, to: t.applied.value });
+  assert.equal(t.applied.value, null);
+  assert.equal(t.band.last.value, "keep");
   // A refit after that, the map still the visitor's: nothing.
   t.shownPx.value = 200;
   await t.settle();
   assert.deepEqual(t.cmds, []);
   assert.equal(t.band.last.value, "keep");
-  // (Read afresh: the asserts above narrowed it.)
-  assert.equal((t.applied.value as Insets | null)?.bottom, 328);
+  assert.equal(t.changes.length, changed);
+  // The next command takes the band of its moment.
+  t.command("tap");
+  assert.equal((t.applied.value as Insets | null)?.bottom, 212);
   t.done();
 });
 
@@ -337,6 +342,27 @@ test("a late list after a tap from a full list: framed again unless the plateau 
     assert.deepEqual(t.cmds, ["tap", "fit"]);
     t.done();
   }
+});
+
+test("a late list left by « Rester » steers nothing after the sheet is lowered and raised by hand", async () => {
+  const t = setup();
+  t.box.value = { minX: 40, minY: 120, maxX: 320, maxY: 400, w: 360, h: 740 };
+  await fromFull(t);
+  assert.deepEqual(t.cmds, ["tap"]);
+  assert.equal(t.band.last.value, "stay");
+  // Lowered by hand: no band was applied, nothing to take off.
+  t.sheetOpen.value = false;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap"]);
+  assert.equal(t.applied.value, null);
+  // Raised short again, the map not moved: the plateau is framed in the band.
+  t.sheetOpen.value = true;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap", "fit"]);
+  assert.equal(t.band.last.value, "fit");
+  assert.deepEqual(t.applied.value, { top: 63, bottom: 262, left: 36, right: 36 });
+  assert.ok(t.changes.every((c) => c.inHook));
+  t.done();
 });
 
 test("the filters' dialog: nothing while it is open, one fit once it closes", async () => {

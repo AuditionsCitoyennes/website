@@ -36,9 +36,11 @@
 //   above the sheet comes to the middle of the map now seen — never the
 //   band's padding under a lowered sheet, where the analyses' ring would
 //   stand under the header's tiles and the zoom buttons zoom about a point
-//   high on the map. Raised short again, the band comes alone the same way
-//   ("lift"): what stood in the middle of the lowered map comes to the
-//   middle of the map above the sheet;
+//   high on the map. Raised short again, the map stays the visitor's and
+//   the band does not come ("keep", as under « Ajusté »): a band eased in
+//   alone would shrink the rectangle the scope is read off, and a child
+//   filling most of the lowered map would become the scope at rest, the
+//   list swapping under the visitor's finger; the next command takes it;
 // - a lowered (or full) sheet takes the band off at once, whatever is still
 //   on its way: no band padding under it, no move by itself seconds later;
 // - a hand on the map waits to be let go; with filters on, the filters'
@@ -144,8 +146,11 @@ export function useSheetBand(inputs: SheetBandInputs) {
   let stayed = false;
   let stayedFor: Insets | null = null;
   /** Something the sheet shows was on its way since the last command: a band
-   *  changed since came with what was late. */
+   *  changed since came with what was late. Only the tap's own late content:
+   *  cleared once its band is decided (left, or framed by a command), and
+   *  when the visitor raises or lowers the sheet, whose band is theirs. */
   let heldSinceCommand = false;
+  watch(sheetOpen, () => (heldSinceCommand = inputs.hold()), { flush: "sync" });
 
   /** Takes the band wanted now: only ever with a command (see the hook). */
   function apply() {
@@ -193,14 +198,14 @@ export function useSheetBand(inputs: SheetBandInputs) {
       case "dialog": // its closing runs this again
         return;
       case "drop":
-      case "lift":
-        // No fit may come: the band goes, or comes, alone, the padding eased
+        // No fit may come: the band goes alone, the padding eased
         // (useMapCamera's onPaddingChange), owed under a hand.
         applied.value = want;
         return;
       case "stay":
         stayed = true;
         stayedFor = want;
+        heldSinceCommand = inputs.hold(); // the late content's band is decided
         return;
       case "filter":
         camera.scheduleFilterFrame(true); // its command takes the band
