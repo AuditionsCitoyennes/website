@@ -37,11 +37,13 @@ export const SHEET_FIT_MODES: readonly SheetFitMode[] = ["ajuste", "centre", "pl
 export const DEFAULT_SHEET_FIT: SheetFitMode = "ajuste";
 
 /** « Ajusté, centré », the sheet's height changing once a tap's flight has
- *  landed (its list came in late) so that the map left above it only grew:
- *  "rester" — the territory, still all in sight, stays where the flight put
- *  it (one move per tap); "recentrer" — it is centred in the new band by a
- *  second, eased move (useSheetBand). A band that shrank always frames again:
- *  the sheet would cover the territory. */
+ *  landed (its list came in late), the raised territory still all in sight
+ *  above the sheet's new top (the map left there only grew, or the plateau
+ *  as drawn last already clears it — a tap from a full list, say):
+ *  "rester" — the territory stays where the flight put it (one move per
+ *  tap); "recentrer" — it is centred in the new band by a second, eased move
+ *  (useSheetBand). A territory the sheet's new top would cover is framed
+ *  again whatever the switch says. */
 export type SheetLateMode = "rester" | "recentrer";
 
 /** The switch's choices, in the DEV dialog's order (sheetFitSwitch). */
@@ -218,6 +220,35 @@ export function bandHolds(a: BandInsets | null, b: BandInsets | null, tolPx = 16
   );
 }
 
+/** Where the raised plateau stands on screen (its silhouette's box, px from
+ *  the map's top left corner), and the map's size. */
+export interface PlateauBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  w: number;
+  h: number;
+}
+
+/** Whether the plateau at `box` already stands inside band `b` (each side
+ *  past the band's edge by less than `tolPx`: the band's own margin), so that
+ *  the sheet's top and the header's tiles leave it all in sight. Never
+ *  without a box or a band. */
+export function boxInBand(
+  box: PlateauBox | null,
+  b: BandInsets | null,
+  tolPx = BAND_MARGIN_PX,
+): boolean {
+  if (!box || !b || !(box.w > 0) || !(box.h > 0)) return false;
+  return (
+    box.minY >= b.top - tolPx &&
+    box.maxY <= box.h - b.bottom + tolPx &&
+    box.minX >= b.left - tolPx &&
+    box.maxX <= box.w - b.right + tolPx
+  );
+}
+
 /** Whether the band moved enough to frame again: null against a band always
  *  does; otherwise an edge moving more than `tolPx`. */
 export function bandMoved(a: BandInsets | null, b: BandInsets | null, tolPx = 16): boolean {
@@ -237,9 +268,18 @@ export interface BandReframeInputs {
   /** The band wanted now is none (the sheet lowered, or full): the camera's
    *  padding must not stay the band's. */
   toNone: boolean;
+  /** No band is applied and one is wanted (the sheet raised short, or come
+   *  down from full). */
+  fromNone: boolean;
   /** The band wanted holds the one applied (`bandHolds`): the map left above
    *  the sheet only grew, the territory framed in it is still all in sight. */
   grewOnly: boolean;
+  /** The raised plateau, as drawn last, already stands inside the band
+   *  wanted (`boxInBand`): all in sight above the sheet's new top. */
+  clearsBand: boolean;
+  /** The scope is the world: with filters on, the map moves there only when
+   *  the sheet would cover it (useCamera's filter frame never moves it). */
+  world: boolean;
   /** Something the sheet shows was on its way since the last command (its
    *  list came in late): a band that only grew is then the late content's. */
   afterHold: boolean;
@@ -288,6 +328,7 @@ export type BandReframe =
   | "later"
   | "keep"
   | "drop"
+  | "lift"
   | "wait"
   | "retarget"
   | "stay"
@@ -297,11 +338,14 @@ export type BandReframe =
 export function bandReframe(i: BandReframeInputs): BandReframe {
   if (i.dialog) return "dialog";
   if (i.readingPlace || i.microZone) return i.toNone ? "drop" : "hold";
-  if (i.listMode) return "filter";
+  // A late list in, the flight landed, the territory still all in sight.
+  const lateStays =
+    (i.grewOnly || i.clearsBand) && i.afterHold && i.late === "rester" && !i.inFlight && !i.hold;
+  if (i.listMode) return lateStays || (i.world && i.grewOnly && !i.inFlight) ? "stay" : "filter";
   if (i.inHands) return "later";
-  if (i.movedSinceCommand) return i.toNone ? "drop" : "keep";
+  if (i.movedSinceCommand) return i.toNone ? "drop" : i.fromNone ? "lift" : "keep";
   if (i.inFlight) return "retarget";
-  if (i.hold) return "wait";
-  if (i.grewOnly && i.afterHold && i.late === "rester") return "stay";
+  if (i.hold && !i.toNone) return "wait";
+  if (lateStays) return "stay";
   return i.short ? "instant" : "fit";
 }

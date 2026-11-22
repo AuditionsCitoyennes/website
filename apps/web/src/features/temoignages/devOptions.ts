@@ -131,7 +131,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "recentrer", label: "Recentrer" },
     ],
     explain:
-      "Avec « Ajusté, centré » seulement, sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé, encore tout entier visible, en un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau monte au point de le cacher, la carte le recadre dans les deux cas.",
+      "Avec « Ajusté, centré » seulement, sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé s'il reste tout entier visible au-dessus du panneau : un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau en cache une partie (souvent après un toucher depuis une longue liste, le panneau en haut, sur un territoire haut comme le Bénin), la carte le recadre dans les deux cas.",
     reloads: false,
     defaultId: "rester",
   },

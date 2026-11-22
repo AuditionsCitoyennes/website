@@ -46,7 +46,7 @@ import { useTapPending } from "./model/useTapPending";
 import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
-import { lieuAimPx } from "./panel/sheetFit";
+import { lieuAimPx, type PlateauBox } from "./panel/sheetFit";
 import { useSheetBand } from "./panel/useSheetBand";
 import { sheetFitMode, sheetLateMode } from "./panel/sheetFitSwitch";
 import { testimoniesOf } from "./model/auditions";
@@ -1050,6 +1050,41 @@ watch(
 // sheet (panel/useSheetBand) ----
 // The testing tools only: the switch never leaves « Ajusté » in a production
 // build, whose band is always none (the module is left out of it).
+/** Where the raised plateau stood on screen at the last frame drawn (the
+ *  map's frame bus), its unit's id with it ('' when none stands at full
+ *  height): a late list that brings the sheet down leaves a territory that
+ *  already clears the sheet's new top where it is (useSheetBand). Listened to
+ *  only under « Ajusté, centré » on a phone. One object, rewritten in place. */
+const plateauSeen = { id: "", minX: 0, minY: 0, maxX: 0, maxY: 0, w: 0, h: 0 };
+if (__TEST_TOOLS__) {
+  watch(
+    () =>
+      sheetFitMode.value === "centre" && !isDesktop.value && !asCard.value ? mapCmp.value : null,
+    (m, _old, onCleanup) => {
+      plateauSeen.id = "";
+      if (!m) return;
+      onCleanup(
+        m.onFrame((f) => {
+          const b = f.box;
+          plateauSeen.id = b && f.rise >= 0.99 ? f.scopeId : "";
+          if (!b) return;
+          plateauSeen.minX = b.minX;
+          plateauSeen.minY = b.minY;
+          plateauSeen.maxX = b.maxX;
+          plateauSeen.maxY = b.maxY;
+          plateauSeen.w = f.w;
+          plateauSeen.h = f.h;
+        }),
+      );
+    },
+    { immediate: true },
+  );
+}
+function plateauBox(): PlateauBox | null {
+  return plateauSeen.id !== "" && plateauSeen.id === nav.currentScope.value.id
+    ? { ...plateauSeen }
+    : null;
+}
 const band = __TEST_TOOLS__
   ? useSheetBand({
       nav,
@@ -1065,6 +1100,7 @@ const band = __TEST_TOOLS__
       sidePx: () => PHONE_SIDE_PX,
       hold: () => sheetFitHold.value,
       readingPlace,
+      plateauBox,
       listMode,
       mapCmp,
       applied: sheetBand,
@@ -1098,6 +1134,7 @@ if (__TEST_TOOLS__) {
       applied: band.applied.value,
       last: band.last.value,
       late: sheetLateMode.value,
+      plateauBox: plateauBox(),
     },
   });
   const w = window as unknown as { __acSheet?: () => unknown };

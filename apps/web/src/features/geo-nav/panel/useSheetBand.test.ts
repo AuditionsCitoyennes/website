@@ -2,8 +2,11 @@
 // the band applied changes only inside a command's hook or, when no command
 // may come, alone as the sheet is lowered after a hand moved the map; a
 // refit under the tolerance moves nothing; a list that comes in after the
-// flight has landed makes one move under « Rester » and a second, single one
-// under « Recentrer »; the filters' dialog holds everything until it closes.
+// flight has landed makes one move under « Rester » (a tap from a full list
+// too, when the plateau already clears the sheet's new top) and a second,
+// single one under « Recentrer »; a sheet lowered while something loads takes
+// the band off at once; raised again after a hand moved the map, the band
+// comes alone; the filters' dialog holds everything until it closes.
 // Run with `node --import tsx --test` (root "test:scripts"): the one app
 // import with code (shared/device/motion) is mapped to a stub, the page's
 // globals are the least the composable reads.
@@ -41,6 +44,15 @@ function setup(late: "rester" | "recentrer" = "rester") {
   const hold = ref(false);
   const dialog = ref(false);
   const moved = ref(false);
+  const fitted = ref(true);
+  const box = shallowRef<{
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    w: number;
+    h: number;
+  } | null>(null);
   const hooks: (() => void)[] = [];
   const cmds: string[] = [];
   let inHook = false;
@@ -70,13 +82,14 @@ function setup(late: "rester" | "recentrer" = "rester") {
       dialogOpen: () => dialog.value,
       isDesktop: ref(false),
       preview: ref(false),
-      fitted: ref(true),
+      fitted,
       shownPx,
       viewportH: ref(740),
       headerClearPx: ref(51),
       sidePx: () => 36,
       hold: () => hold.value,
       readingPlace: () => false,
+      plateauBox: () => box.value,
       listMode: ref(false),
       mapCmp: ref({ inUserHands: () => false }) as unknown as Inputs["mapCmp"],
       applied,
@@ -105,6 +118,8 @@ function setup(late: "rester" | "recentrer" = "rester") {
     hold,
     dialog,
     moved,
+    fitted,
+    box,
     cmds,
     changes,
     command,
@@ -228,13 +243,100 @@ test("lowered after a hand moved the map: the band goes alone, with no command",
   assert.equal(t.applied.value, null);
   assert.equal(t.band.last.value, "drop");
   assert.deepEqual(t.changes.at(-1), { inHook: false, to: null });
-  // Raised again, the map still where the hand left it: nothing.
+  // Raised again, the map still where the hand left it: the band comes
+  // alone, with no command either.
   t.sheetOpen.value = true;
   await t.settle();
   assert.deepEqual(t.cmds, []);
-  assert.equal(t.applied.value, null);
+  assert.deepEqual(t.applied.value, { top: 63, bottom: 328, left: 36, right: 36 });
+  assert.equal(t.band.last.value, "lift");
+  assert.deepEqual(t.changes.at(-1), { inHook: false, to: t.applied.value });
+  // A refit after that, the map still the visitor's: nothing.
+  t.shownPx.value = 200;
+  await t.settle();
+  assert.deepEqual(t.cmds, []);
   assert.equal(t.band.last.value, "keep");
+  // (Read afresh: the asserts above narrowed it.)
+  assert.equal((t.applied.value as Insets | null)?.bottom, 328);
   t.done();
+});
+
+test("lowered while something is still on its way: the band goes at once, nothing moves later", async () => {
+  const t = setup();
+  await raised(t);
+  t.hold.value = true;
+  t.command("tap");
+  await t.settle();
+  t.land();
+  await t.settle();
+  t.sheetOpen.value = false;
+  t.fitted.value = false;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap", "fit"]);
+  assert.equal(t.applied.value, null);
+  // What was on its way comes in: no move by itself.
+  t.hold.value = false;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap", "fit"]);
+  t.done();
+});
+
+/** Raised over a full list (no band), a row tapped whose list is on its way,
+ *  the flight landed; then the short list comes in and the sheet comes down. */
+async function fromFull(t: ReturnType<typeof setup>) {
+  t.fitted.value = false;
+  t.shownPx.value = 675;
+  t.sheetOpen.value = true;
+  await t.settle();
+  assert.equal(t.applied.value, null);
+  t.cmds.length = 0;
+  t.hold.value = true;
+  t.command("tap");
+  await t.settle();
+  t.land();
+  await t.settle();
+  t.hold.value = false;
+  t.fitted.value = true;
+  t.shownPx.value = 250;
+  await t.settle();
+}
+
+test("a late list after a tap from a full list: framed again unless the plateau already clears the sheet", async () => {
+  // The plateau framed in the lowered frame reaches under the new sheet's
+  // top (a tall country, say): one more move, whatever the switch.
+  for (const late of ["rester", "recentrer"] as const) {
+    const t = setup(late);
+    t.box.value = { minX: 80, minY: 60, maxX: 280, maxY: 640, w: 360, h: 740 };
+    await fromFull(t);
+    assert.deepEqual(t.cmds, ["tap", "fit"], late);
+    assert.deepEqual(t.applied.value, { top: 63, bottom: 262, left: 36, right: 36 });
+    t.done();
+  }
+  // None in sight (not raised yet): framed again.
+  {
+    const t = setup();
+    await fromFull(t);
+    assert.deepEqual(t.cmds, ["tap", "fit"]);
+    t.done();
+  }
+  // Already clear of it (a wide, flat one): left where it is under « Rester »…
+  {
+    const t = setup();
+    t.box.value = { minX: 40, minY: 120, maxX: 320, maxY: 400, w: 360, h: 740 };
+    await fromFull(t);
+    assert.deepEqual(t.cmds, ["tap"]);
+    assert.equal(t.band.last.value, "stay");
+    assert.equal(t.applied.value, null);
+    t.done();
+  }
+  // …centred under « Recentrer ».
+  {
+    const t = setup("recentrer");
+    t.box.value = { minX: 40, minY: 120, maxX: 320, maxY: 400, w: 360, h: 740 };
+    await fromFull(t);
+    assert.deepEqual(t.cmds, ["tap", "fit"]);
+    t.done();
+  }
 });
 
 test("the filters' dialog: nothing while it is open, one fit once it closes", async () => {

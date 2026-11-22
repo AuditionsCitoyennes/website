@@ -18,6 +18,7 @@ import {
   bandHolds,
   bandMoved,
   bandReframe,
+  boxInBand,
   sheetBandInsets,
   SHEET_FIT_MODES,
   SNAP_FULL_PX,
@@ -230,11 +231,31 @@ test("a band moves past its tolerance, and always to or from none", () => {
   assert.equal(bandMoved(null, null), false);
 });
 
+test("a plateau clears a band when it stands inside it, the band's margin allowed", () => {
+  const band = { top: 63, bottom: 262, left: 36, right: 36 };
+  const box = { minX: 60, minY: 80, maxX: 300, maxY: 460, w: 360, h: 740 };
+  assert.equal(boxInBand(box, band), true);
+  // The band's own edges, a margin past them: still clear.
+  assert.equal(boxInBand({ ...box, minY: 51, maxY: 490, minX: 24, maxX: 336 }, band), true);
+  // Past it: under the header's tiles, under the sheet's top, off a side.
+  assert.equal(boxInBand({ ...box, minY: 50 }, band), false);
+  assert.equal(boxInBand({ ...box, maxY: 491 }, band), false);
+  assert.equal(boxInBand({ ...box, minX: 23 }, band), false);
+  assert.equal(boxInBand({ ...box, maxX: 337 }, band), false);
+  // Nothing to say without a box, a band or a map size.
+  assert.equal(boxInBand(null, band), false);
+  assert.equal(boxInBand(box, null), false);
+  assert.equal(boxInBand({ ...box, h: 0 }, band), false);
+});
+
 test("a new band frames the scope again only where the scope may move with it", () => {
   const rest = {
     dialog: false,
     toNone: false,
+    fromNone: false,
     grewOnly: false,
+    clearsBand: false,
+    world: false,
     afterHold: false,
     late: "rester" as "rester" | "recentrer",
     inFlight: false,
@@ -290,6 +311,35 @@ test("a new band frames the scope again only where the scope may move with it", 
     [{ grewOnly: true, afterHold: true, inFlight: true }, "retarget"],
     [{ grewOnly: true, afterHold: true, hold: true }, "wait"],
     [{ grewOnly: true, afterHold: true, movedSinceCommand: true }, "keep"],
+    // A late list after a tap from a full list (no band applied, one wanted):
+    // left where the flight put it when the plateau already clears the new
+    // sheet's top, framed again otherwise or under « Recentrer ».
+    [{ fromNone: true, clearsBand: true, afterHold: true }, "stay"],
+    [{ fromNone: true, afterHold: true }, "fit"],
+    [{ fromNone: true, clearsBand: true, afterHold: true, late: "recentrer" }, "fit"],
+    [{ fromNone: true, clearsBand: true }, "fit"],
+    // A band that shrank with the plateau still clear of it: left too.
+    [{ clearsBand: true, afterHold: true }, "stay"],
+    [{ clearsBand: true, afterHold: true, inFlight: true }, "retarget"],
+    // A sheet lowered (or gone full) while something is still on its way:
+    // the band goes at once, never left under the lowered sheet.
+    [{ hold: true, toNone: true }, "fit"],
+    [{ hold: true, toNone: true, short: true }, "instant"],
+    [{ hold: true, toNone: true, afterHold: true }, "fit"],
+    // Raised short after a hand moved the map: the band comes alone.
+    [{ movedSinceCommand: true, fromNone: true }, "lift"],
+    [{ movedSinceCommand: true, fromNone: true, inHands: true }, "later"],
+    [{ movedSinceCommand: true, fromNone: true, microZone: true }, "hold"],
+    // Filters on: a late list in sight stays (« Rester »), and at the world a
+    // band that only grew never moves the globe; a band that shrank does.
+    [{ listMode: true, grewOnly: true, afterHold: true }, "stay"],
+    [{ listMode: true, grewOnly: true, afterHold: true, late: "recentrer" }, "filter"],
+    [{ listMode: true, grewOnly: true, afterHold: true, inFlight: true }, "filter"],
+    [{ listMode: true, grewOnly: true, afterHold: true, hold: true }, "filter"],
+    [{ listMode: true, world: true, grewOnly: true }, "stay"],
+    [{ listMode: true, world: true, grewOnly: true, late: "recentrer" }, "stay"],
+    [{ listMode: true, world: true }, "filter"],
+    [{ listMode: true, grewOnly: true }, "filter"],
   ];
   for (const [over, want] of table) {
     assert.equal(bandReframe({ ...rest, ...over }), want, JSON.stringify(over));

@@ -21,11 +21,13 @@
 //   lowered by hand) frames the scope again: a flight still in the air is
 //   retargeted (the same move, aimed anew as the list it was tapped for comes
 //   in), a map at rest is eased there (in one step under short motion);
-// - a new band once the tap's flight has landed (its list came in late) that
-//   only leaves more map above the sheet keeps the territory where the
-//   flight put it, still all in sight: one move per tap (« Recadrage
-//   tardif » = « Rester », the default; « Recentrer » frames it again); a
-//   band that shrank frames again whatever the switch says;
+// - a new band once the tap's flight has landed (its list came in late) with
+//   the raised territory still all in sight above the sheet's new top — the
+//   map left there only grew, or the plateau as drawn last (`plateauBox`)
+//   already clears it, as after a tap from a full list — keeps the territory
+//   where the flight put it: one move per tap (« Recadrage tardif » =
+//   « Rester », the default; « Recentrer » frames it again); a territory the
+//   new top would cover is framed again whatever the switch says;
 // - a map the visitor has moved since the last command is left where they
 //   put it, the band with it, while the sheet stays raised; so it is in the
 //   lieu zone, where nothing is raised. Lowered (or gone full) there, the
@@ -34,11 +36,17 @@
 //   above the sheet comes to the middle of the map now seen — never the
 //   band's padding under a lowered sheet, where the analyses' ring would
 //   stand under the header's tiles and the zoom buttons zoom about a point
-//   high on the map;
+//   high on the map. Raised short again, the band comes alone the same way
+//   ("lift"): what stood in the middle of the lowered map comes to the
+//   middle of the map above the sheet;
+// - a lowered (or full) sheet takes the band off at once, whatever is still
+//   on its way: no band padding under it, no move by itself seconds later;
 // - a hand on the map waits to be let go; with filters on, the filters'
-//   frame is owed; the filters' dialog open over the page waits for it to
-//   close (a chip typed in grows the sheet's head behind it: the filters'
-//   own frame, when it comes, takes the band of its moment).
+//   frame is owed (not at the world for a band that only grew: filters never
+//   move the globe by themselves), and a late list in view stays as above;
+//   the filters' dialog open over the page waits for it to close (a chip
+//   typed in grows the sheet's head behind it: the filters' own frame, when
+//   it comes, takes the band of its moment).
 // A finger on the sheet changes nothing: only its rest counts (`shownPx`).
 import { computed, onScopeDispose, shallowRef, watch, type Ref, type ShallowRef } from "vue";
 import { motionNow } from "@/shared/device/motion";
@@ -49,7 +57,9 @@ import {
   bandHolds,
   bandMoved,
   bandReframe,
+  boxInBand,
   sheetBandInsets,
+  type PlateauBox,
   type SheetFitMode,
   type SheetLateMode,
 } from "./sheetFit";
@@ -77,6 +87,10 @@ export interface SheetBandInputs {
   hold: () => boolean;
   /** A lieu is open and the reader is on the panel (useScope). */
   readingPlace: () => boolean;
+  /** Where the scope's raised plateau stood on screen at the last frame
+   *  drawn, standing at full height; null: none in sight (GeoNav, from the
+   *  map's frame bus). */
+  plateauBox: () => PlateauBox | null;
   listMode: Ref<boolean>;
   mapCmp: Ref<MapHandle | null>;
   /** The band applied: GeoNav's, the phone camera's padding while set
@@ -159,7 +173,10 @@ export function useSheetBand(inputs: SheetBandInputs) {
     const how = bandReframe({
       dialog: inputs.dialogOpen(),
       toNone: want === null,
+      fromNone: applied.value === null && want !== null,
       grewOnly: bandHolds(applied.value, want),
+      clearsBand: want !== null && boxInBand(inputs.plateauBox(), want),
+      world: currentScope.value.levelKey === "world",
       afterHold: heldSinceCommand,
       late: inputs.late(),
       inFlight: nav.scopePinned.value,
@@ -176,9 +193,10 @@ export function useSheetBand(inputs: SheetBandInputs) {
       case "dialog": // its closing runs this again
         return;
       case "drop":
-        // No fit may come: the band goes alone, the padding eased
+      case "lift":
+        // No fit may come: the band goes, or comes, alone, the padding eased
         // (useMapCamera's onPaddingChange), owed under a hand.
-        applied.value = null;
+        applied.value = want;
         return;
       case "stay":
         stayed = true;
