@@ -1,0 +1,254 @@
+// The band above a short phone sheet (useSheetBand) against a fake camera:
+// the band applied changes only inside a command's hook or, when no command
+// may come, alone as the sheet is lowered after a hand moved the map; a
+// refit under the tolerance moves nothing; a list that comes in after the
+// flight has landed makes one move under « Rester » and a second, single one
+// under « Recentrer »; the filters' dialog holds everything until it closes.
+// Run with `node --import tsx --test` (root "test:scripts"): the one app
+// import with code (shared/device/motion) is mapped to a stub, the page's
+// globals are the least the composable reads.
+
+import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
+import { test } from "node:test";
+import { effectScope, nextTick, ref, shallowRef, watch } from "vue";
+
+const MOTION_STUB = `data:text/javascript,${encodeURIComponent(
+  `export const motionNow = () => globalThis.__motion ?? "full";`,
+)}`;
+registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier === "@/shared/device/motion") return { url: MOTION_STUB, shortCircuit: true };
+    return next(specifier, context);
+  },
+});
+const g = globalThis as unknown as Record<string, unknown>;
+g.window = globalThis;
+g.document = { documentElement: {} };
+g.getComputedStyle = () => ({ fontSize: "16px" });
+
+const { useSheetBand } = await import("./useSheetBand");
+type Inputs = Parameters<typeof useSheetBand>[0];
+type Insets = { top: number; bottom: number; left: number; right: number };
+
+/** A 360×740 phone under « Ajusté, centré », the sheet lowered, the map at
+ *  rest; `cmds` counts the camera's commands, `inHook` is on while one runs
+ *  its hooks (the only place the band may change with a command). */
+function setup(late: "rester" | "recentrer" = "rester") {
+  const sheetOpen = ref(false);
+  const scopePinned = ref(false);
+  const shownPx = ref(316);
+  const hold = ref(false);
+  const dialog = ref(false);
+  const moved = ref(false);
+  const hooks: (() => void)[] = [];
+  const cmds: string[] = [];
+  let inHook = false;
+  const applied = shallowRef<Insets | null>(null);
+  const changes: { inHook: boolean; to: Insets | null }[] = [];
+  const command = (what: string) => {
+    cmds.push(what);
+    scopePinned.value = true; // useCamera's setCamera: pinned until it lands
+    moved.value = false;
+    inHook = true;
+    for (const h of hooks) h();
+    inHook = false;
+  };
+  const scope = effectScope();
+  const band = scope.run(() => {
+    const nav = {
+      currentScope: ref({ id: "fr:reg:84" }),
+      selectedPlaceId: ref<string | null>(null),
+      sheetOpen,
+      inMicroZone: ref(false),
+      scopePinned,
+    } as unknown as Inputs["nav"];
+    const b = useSheetBand({
+      nav,
+      mode: () => "centre",
+      late: () => late,
+      dialogOpen: () => dialog.value,
+      isDesktop: ref(false),
+      preview: ref(false),
+      fitted: ref(true),
+      shownPx,
+      viewportH: ref(740),
+      headerClearPx: ref(51),
+      sidePx: () => 36,
+      hold: () => hold.value,
+      readingPlace: () => false,
+      listMode: ref(false),
+      mapCmp: ref({ inUserHands: () => false }) as unknown as Inputs["mapCmp"],
+      applied,
+      camera: {
+        onBeforeCommand: (h) => hooks.push(h),
+        flyToUnit: (_u, animate) => command(animate ? "fit" : "instant"),
+        scheduleFilterFrame: () => command("filter"),
+        movedSinceCommand: () => moved.value,
+      },
+    });
+    return b;
+  })!;
+  // Every change of the band applied, and whether a command's hook made it.
+  scope.run(() => watch(applied, (to) => changes.push({ inHook, to }), { flush: "sync" }));
+  const land = () => (scopePinned.value = false);
+  const settle = async () => {
+    await nextTick();
+    await nextTick();
+  };
+  const done = () => scope.stop();
+  return {
+    band,
+    applied,
+    sheetOpen,
+    shownPx,
+    hold,
+    dialog,
+    moved,
+    cmds,
+    changes,
+    command,
+    land,
+    settle,
+    done,
+  };
+}
+
+/** Raised over the scope, framed once in the band and landed. */
+async function raised(t: ReturnType<typeof setup>) {
+  t.sheetOpen.value = true;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["fit"]);
+  assert.deepEqual(t.applied.value, { top: 63, bottom: 328, left: 36, right: 36 });
+  t.land();
+  t.cmds.length = 0;
+}
+
+test("the band applied changes only inside a command's hook; under the tolerance nothing moves", async () => {
+  const t = setup();
+  // Built with no band applied and none asked for: nothing.
+  await t.settle();
+  assert.deepEqual(t.cmds, []);
+  await raised(t);
+  // A refit of 10 px: no move, no band.
+  t.shownPx.value = 326;
+  await t.settle();
+  assert.deepEqual(t.cmds, []);
+  assert.equal(t.applied.value!.bottom, 328);
+  // A new list in flight: the flight retargeted, the band with it.
+  t.command("tap");
+  t.shownPx.value = 200;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap", "fit"]);
+  assert.equal(t.applied.value!.bottom, 212);
+  // The sheet lowered over a map at rest: framed again, the band gone with it.
+  t.land();
+  t.sheetOpen.value = false;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap", "fit", "fit"]);
+  assert.equal(t.applied.value, null);
+  // The raise, the tap, its retarget, the lowering: each inside its command.
+  assert.equal(t.changes.length, 4);
+  assert.ok(t.changes.every((c) => c.inHook));
+  t.done();
+});
+
+test("a list that comes in after the landing: one move under « Rester »", async () => {
+  const t = setup("rester");
+  await raised(t);
+  // A row tap whose children are on their way: the sheet is held.
+  t.hold.value = true;
+  t.command("tap");
+  await t.settle();
+  t.land();
+  await t.settle();
+  // They come in: the sheet comes down, more map above it.
+  t.hold.value = false;
+  t.shownPx.value = 200;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap"]);
+  assert.equal(t.band.last.value, "stay");
+  // Asked again with nothing new (another hold coming and going): it stays.
+  t.hold.value = true;
+  await t.settle();
+  t.hold.value = false;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap"]);
+  assert.equal(t.applied.value!.bottom, 328);
+  // The next command takes the band of its moment.
+  t.command("tap");
+  assert.equal(t.applied.value!.bottom, 212);
+  t.done();
+});
+
+test("a list that comes in after the landing: exactly one more move under « Recentrer »", async () => {
+  const t = setup("recentrer");
+  await raised(t);
+  t.hold.value = true;
+  t.command("tap");
+  await t.settle();
+  t.land();
+  await t.settle();
+  t.hold.value = false;
+  t.shownPx.value = 200;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap", "fit"]);
+  t.land();
+  t.hold.value = true;
+  await t.settle();
+  t.hold.value = false;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap", "fit"]);
+  t.done();
+});
+
+test("a late list that makes the sheet taller frames again whatever the switch", async () => {
+  for (const late of ["rester", "recentrer"] as const) {
+    const t = setup(late);
+    await raised(t);
+    t.hold.value = true;
+    t.command("tap");
+    t.land();
+    await t.settle();
+    t.hold.value = false;
+    t.shownPx.value = 420;
+    await t.settle();
+    assert.deepEqual(t.cmds, ["tap", "fit"], late);
+    t.done();
+  }
+});
+
+test("lowered after a hand moved the map: the band goes alone, with no command", async () => {
+  const t = setup();
+  await raised(t);
+  t.moved.value = true;
+  t.sheetOpen.value = false;
+  await t.settle();
+  assert.deepEqual(t.cmds, []);
+  assert.equal(t.applied.value, null);
+  assert.equal(t.band.last.value, "drop");
+  assert.deepEqual(t.changes.at(-1), { inHook: false, to: null });
+  // Raised again, the map still where the hand left it: nothing.
+  t.sheetOpen.value = true;
+  await t.settle();
+  assert.deepEqual(t.cmds, []);
+  assert.equal(t.applied.value, null);
+  assert.equal(t.band.last.value, "keep");
+  t.done();
+});
+
+test("the filters' dialog: nothing while it is open, one fit once it closes", async () => {
+  const t = setup();
+  await raised(t);
+  t.dialog.value = true;
+  await t.settle();
+  // A chip typed in grows the sheet's head behind the dialog.
+  t.shownPx.value = 352;
+  await t.settle();
+  assert.deepEqual(t.cmds, []);
+  assert.equal(t.band.last.value, "dialog");
+  t.dialog.value = false;
+  await t.settle();
+  assert.deepEqual(t.cmds, ["fit"]);
+  t.done();
+});

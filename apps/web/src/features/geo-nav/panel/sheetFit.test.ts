@@ -13,6 +13,9 @@ import {
   BAND_MARGIN_PX,
   DEFAULT_SHEET_FIT,
   MIN_BAND_REM,
+  DEFAULT_SHEET_LATE,
+  SHEET_LATE_MODES,
+  bandHolds,
   bandMoved,
   bandReframe,
   sheetBandInsets,
@@ -201,10 +204,18 @@ test("a band too short to frame a territory in is none", () => {
   assert.equal(sheetBandInsets({ ...band, shownPx: shownFits + 1 }), null);
 });
 
-test("the band reads the sheet's rest alone: the same rest, the same band", () => {
-  // The caller hands the rest target (GeoNav's sheetShownPx), never a drag's
-  // offset: a finger on the sheet gives nothing else to read.
-  assert.deepEqual(sheetBandInsets(band), sheetBandInsets({ ...band }));
+test("a band holds another that it reaches past on every edge, within the tolerance", () => {
+  const a = { top: 63, bottom: 328, left: 36, right: 36 };
+  // The sheet came down: more map above it.
+  assert.equal(bandHolds(a, { ...a, bottom: 210 }), true);
+  assert.equal(bandHolds(a, a), true);
+  assert.equal(bandHolds(a, { ...a, bottom: 344 }), true);
+  // The sheet went up past the tolerance: the territory may be under it.
+  assert.equal(bandHolds(a, { ...a, bottom: 345 }), false);
+  assert.equal(bandHolds(a, { ...a, top: 80, bottom: 200 }), false);
+  assert.equal(bandHolds(a, { ...a, bottom: 334 }, 4), false);
+  assert.equal(bandHolds(a, null), false);
+  assert.equal(bandHolds(null, a), false);
 });
 
 test("a band moves past its tolerance, and always to or from none", () => {
@@ -221,6 +232,11 @@ test("a band moves past its tolerance, and always to or from none", () => {
 
 test("a new band frames the scope again only where the scope may move with it", () => {
   const rest = {
+    dialog: false,
+    toNone: false,
+    grewOnly: false,
+    afterHold: false,
+    late: "rester" as "rester" | "recentrer",
     inFlight: false,
     hold: false,
     readingPlace: false,
@@ -247,8 +263,40 @@ test("a new band frames the scope again only where the scope may move with it", 
     [{ readingPlace: true }, "hold"],
     [{ microZone: true }, "hold"],
     [{ microZone: true, listMode: true, inFlight: true }, "hold"],
+    // The filters' dialog over the page: nothing until it closes.
+    [{ dialog: true }, "dialog"],
+    [{ dialog: true, listMode: true, inFlight: true }, "dialog"],
+    // No fit may come and the band wanted is none (lowered after a hand
+    // moved the map, or in the lieu zone): the band goes alone.
+    [{ movedSinceCommand: true, toNone: true }, "drop"],
+    [{ microZone: true, toNone: true }, "drop"],
+    [{ readingPlace: true, toNone: true }, "drop"],
+    [{ inHands: true, movedSinceCommand: true, toNone: true }, "later"],
+    [{ listMode: true, toNone: true }, "filter"],
+    // A fit may come: lowered, the map is framed again with the band gone.
+    [{ toNone: true }, "fit"],
+    [{ toNone: true, inFlight: true }, "retarget"],
+    // A late list (a hold since the tap) leaving more map above the sheet
+    // once the flight has landed: left where it is under « Rester »…
+    [{ grewOnly: true, afterHold: true }, "stay"],
+    [{ grewOnly: true, afterHold: true, short: true }, "stay"],
+    // …framed again under « Recentrer », or when the map only grew without a
+    // hold (no late list), or when the band shrank (the sheet went up).
+    [{ grewOnly: true, afterHold: true, late: "recentrer" }, "fit"],
+    [{ grewOnly: true }, "fit"],
+    [{ afterHold: true }, "fit"],
+    [{ afterHold: true, short: true }, "instant"],
+    // Still in the air, or still on its way: as before.
+    [{ grewOnly: true, afterHold: true, inFlight: true }, "retarget"],
+    [{ grewOnly: true, afterHold: true, hold: true }, "wait"],
+    [{ grewOnly: true, afterHold: true, movedSinceCommand: true }, "keep"],
   ];
   for (const [over, want] of table) {
     assert.equal(bandReframe({ ...rest, ...over }), want, JSON.stringify(over));
   }
+});
+
+test("« Recadrage tardif »: « Rester » first and by default", () => {
+  assert.deepEqual([...SHEET_LATE_MODES], ["rester", "recentrer"]);
+  assert.equal(DEFAULT_SHEET_LATE, "rester");
 });

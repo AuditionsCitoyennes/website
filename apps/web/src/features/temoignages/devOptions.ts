@@ -29,6 +29,7 @@ export type DevKey =
   | "ac:tier"
   | "ac:map-fallback"
   | "ac:sheet-fit"
+  | "ac:sheet-late"
   | "ac:dpr"
   | "ac:frame-measure";
 
@@ -120,6 +121,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Sur un téléphone, la hauteur du panneau des témoignages quand il est remonté. « Ajusté » (par défaut) le fait aussi haut que ce qu'il montre : deux villes, et la carte reste visible au-dessus ; une longue liste, et il monte jusqu'en haut ; un lieu ouvert reste en haut de la carte. « Ajusté, centré » fait de même mais place le territoire en relief, ou le lieu ouvert, au milieu de la carte visible au-dessus du panneau : la carte suit alors sa hauteur. « Plein » le monte toujours jusqu'en haut, comme avant. Rien ne change sur un ordinateur.",
     reloads: false,
     defaultId: "ajuste",
+  },
+  {
+    key: "ac:sheet-late",
+    section: "panneau",
+    label: "Recadrage tardif",
+    choices: [
+      { id: "rester", label: "Rester" },
+      { id: "recentrer", label: "Recentrer" },
+    ],
+    explain:
+      "Avec « Ajusté, centré » seulement, sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé, encore tout entier visible, en un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau monte au point de le cacher, la carte le recadre dans les deux cas.",
+    reloads: false,
+    defaultId: "rester",
   },
   {
     key: "ac:analyses-pending",

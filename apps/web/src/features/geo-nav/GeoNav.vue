@@ -48,7 +48,7 @@ import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
 import { lieuAimPx } from "./panel/sheetFit";
 import { useSheetBand } from "./panel/useSheetBand";
-import { sheetFitMode } from "./panel/sheetFitSwitch";
+import { sheetFitMode, sheetLateMode } from "./panel/sheetFitSwitch";
 import { testimoniesOf } from "./model/auditions";
 import { PANEL_BASE_PX, PHONE_SIDE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
@@ -77,6 +77,9 @@ const props = defineProps<{
   /** The themes picked in the filters (canonical names): every testimony
    *  counted cites one, so the analyses do not rank them. */
   themeFilter?: string[];
+  /** The filters' dialog stands over the page: the map behind it does not
+   *  frame again for what it changes in the sheet (panel/useSheetBand). */
+  filtersOpen?: boolean;
   /**
    * The server's tree (map phase 1): the map, the panel's units, their counts
    * and the analyses come from it, and the auditions' lists from the server's
@@ -1045,23 +1048,29 @@ watch(
 );
 // ---- « Ajusté, centré »: the territory framed in the map left above a short
 // sheet (panel/useSheetBand) ----
-const band = useSheetBand({
-  nav,
-  mode: () => sheetFitMode.value,
-  isDesktop,
-  preview: asCard,
-  fitted: sheetFitted,
-  shownPx: sheetShownPx,
-  viewportH,
-  headerClearPx,
-  sidePx: () => PHONE_SIDE_PX,
-  hold: () => sheetFitHold.value,
-  readingPlace,
-  listMode,
-  mapCmp,
-  applied: sheetBand,
-  camera: cam,
-});
+// The testing tools only: the switch never leaves « Ajusté » in a production
+// build, whose band is always none (the module is left out of it).
+const band = __TEST_TOOLS__
+  ? useSheetBand({
+      nav,
+      mode: () => sheetFitMode.value,
+      late: () => sheetLateMode.value,
+      dialogOpen: () => Boolean(props.filtersOpen),
+      isDesktop,
+      preview: asCard,
+      fitted: sheetFitted,
+      shownPx: sheetShownPx,
+      viewportH,
+      headerClearPx,
+      sidePx: () => PHONE_SIDE_PX,
+      hold: () => sheetFitHold.value,
+      readingPlace,
+      listMode,
+      mapCmp,
+      applied: sheetBand,
+      camera: cam,
+    })
+  : null;
 if (__TEST_TOOLS__) {
   // `window.__acSheet()`: the phone's sheet as measured last — raised or not,
   // the fit's mode, the box, the content, the raised and lowered offsets,
@@ -1084,10 +1093,11 @@ if (__TEST_TOOLS__) {
     mapPadding: { ...mapPadding.value },
     // « Ajusté, centré »: the band above a short sheet asked for and the one
     // the camera frames in (useSheetBand), and the last decision made.
-    band: {
+    band: band && {
       wanted: band.wanted.value,
       applied: band.applied.value,
       last: band.last.value,
+      late: sheetLateMode.value,
     },
   });
   const w = window as unknown as { __acSheet?: () => unknown };

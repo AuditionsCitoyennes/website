@@ -80,6 +80,7 @@ watch(
       :sort="sort"
       :filtered="listFiltered"
       :theme-filter="topics"
+      :filters-open="filtersOpen"
       :preview="preview"
       :unit-tree="unitTree"
     >

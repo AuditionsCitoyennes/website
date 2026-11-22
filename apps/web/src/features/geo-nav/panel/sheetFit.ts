@@ -36,6 +36,20 @@ export const SHEET_FIT_MODES: readonly SheetFitMode[] = ["ajuste", "centre", "pl
 /** The mode of a build without the testing tools, and the switch's default. */
 export const DEFAULT_SHEET_FIT: SheetFitMode = "ajuste";
 
+/** « Ajusté, centré », the sheet's height changing once a tap's flight has
+ *  landed (its list came in late) so that the map left above it only grew:
+ *  "rester" — the territory, still all in sight, stays where the flight put
+ *  it (one move per tap); "recentrer" — it is centred in the new band by a
+ *  second, eased move (useSheetBand). A band that shrank always frames again:
+ *  the sheet would cover the territory. */
+export type SheetLateMode = "rester" | "recentrer";
+
+/** The switch's choices, in the DEV dialog's order (sheetFitSwitch). */
+export const SHEET_LATE_MODES: readonly SheetLateMode[] = ["rester", "recentrer"];
+
+/** The rule of a build without the testing tools, and the switch's default. */
+export const DEFAULT_SHEET_LATE: SheetLateMode = "rester";
+
 export interface RaisedOffsetInputs {
   mode: SheetFitMode;
   /** The panel's box: today's raised (full) sheet. */
@@ -192,6 +206,18 @@ export function sheetBandInsets(i: SheetBandInputs): BandInsets | null {
   return { top, bottom, left: Math.round(i.sidePx), right: Math.round(i.sidePx) };
 }
 
+/** Whether band `b` holds band `a` (each edge of `b` as far out as `a`'s, or
+ *  less than `tolPx` in): a map that only grew. Never with none. */
+export function bandHolds(a: BandInsets | null, b: BandInsets | null, tolPx = 16): boolean {
+  if (a === null || b === null) return false;
+  return (
+    b.top <= a.top + tolPx &&
+    b.bottom <= a.bottom + tolPx &&
+    b.left <= a.left + tolPx &&
+    b.right <= a.right + tolPx
+  );
+}
+
 /** Whether the band moved enough to frame again: null against a band always
  *  does; otherwise an edge moving more than `tolPx`. */
 export function bandMoved(a: BandInsets | null, b: BandInsets | null, tolPx = 16): boolean {
@@ -205,6 +231,20 @@ export function bandMoved(a: BandInsets | null, b: BandInsets | null, tolPx = 16
 }
 
 export interface BandReframeInputs {
+  /** The filters' dialog stands over the page: the map behind it waits for
+   *  it to close (what the filters change is framed by their own frame). */
+  dialog: boolean;
+  /** The band wanted now is none (the sheet lowered, or full): the camera's
+   *  padding must not stay the band's. */
+  toNone: boolean;
+  /** The band wanted holds the one applied (`bandHolds`): the map left above
+   *  the sheet only grew, the territory framed in it is still all in sight. */
+  grewOnly: boolean;
+  /** Something the sheet shows was on its way since the last command (its
+   *  list came in late): a band that only grew is then the late content's. */
+  afterHold: boolean;
+  /** What such a band does under a landed map (SheetLateMode). */
+  late: SheetLateMode;
   /** A camera command's flight is still in the air. */
   inFlight: boolean;
   /** Something the sheet shows is on its way (useBottomSheet's hold): its
@@ -225,23 +265,43 @@ export interface BandReframeInputs {
 }
 
 /** What a new band asks of the camera (useSheetBand), the band applied
- *  changing only with a fit of the scope in the same tick: "hold" — left for
- *  the next command where the scope holds still (the lieu read, the lieu
- *  zone: nothing raised to frame); "filter"
- *  — the filters' frame owed; "later" — asked again once the map is let go;
- *  "keep" — the map left where the visitor put it, the band as applied;
- *  "wait" — the sheet's content is on its way, framed once it is in;
- *  "retarget" — the flight in the air framed anew; "fit" / "instant" — the
- *  map at rest framed again, eased or in one step. */
+ *  changing only with a fit of the scope in the same tick, or alone when no
+ *  fit may come: "dialog" — asked again once the filters' dialog closes;
+ *  "hold" — left for the next command where the scope holds still (the lieu
+ *  read, the lieu zone: nothing raised to frame); "filter" — the filters'
+ *  frame owed; "later" — asked again once the map is let go; "keep" — the
+ *  map left where the visitor put it, the band as applied (the sheet still
+ *  raised); "drop" — no fit may come and the band wanted is none (the sheet
+ *  lowered after the visitor moved the map, or in the lieu zone): the band
+ *  goes alone, the map easing to the lowered frame's padding as it eases
+ *  for any padding (what the visitor centred above the sheet comes to the
+ *  middle of the map they now see, the analyses' ring and the zoom's centre
+ *  with it); "wait" — the sheet's content is on its way, framed once it is
+ *  in; "retarget" — the flight in the air framed anew; "stay" — a landed map
+ *  whose band only grew as the sheet's late content came in, left as it is
+ *  under « Rester » (the band as applied); "fit" / "instant" — the map at
+ *  rest framed again, eased or in one step. */
 export type BandReframe =
-  "hold" | "filter" | "later" | "keep" | "wait" | "retarget" | "fit" | "instant";
+  | "dialog"
+  | "hold"
+  | "filter"
+  | "later"
+  | "keep"
+  | "drop"
+  | "wait"
+  | "retarget"
+  | "stay"
+  | "fit"
+  | "instant";
 
 export function bandReframe(i: BandReframeInputs): BandReframe {
-  if (i.readingPlace || i.microZone) return "hold";
+  if (i.dialog) return "dialog";
+  if (i.readingPlace || i.microZone) return i.toNone ? "drop" : "hold";
   if (i.listMode) return "filter";
   if (i.inHands) return "later";
-  if (i.movedSinceCommand) return "keep";
+  if (i.movedSinceCommand) return i.toNone ? "drop" : "keep";
   if (i.inFlight) return "retarget";
   if (i.hold) return "wait";
+  if (i.grewOnly && i.afterHold && i.late === "rester") return "stay";
   return i.short ? "instant" : "fit";
 }

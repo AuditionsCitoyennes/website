@@ -21,21 +21,46 @@
 //   lowered by hand) frames the scope again: a flight still in the air is
 //   retargeted (the same move, aimed anew as the list it was tapped for comes
 //   in), a map at rest is eased there (in one step under short motion);
+// - a new band once the tap's flight has landed (its list came in late) that
+//   only leaves more map above the sheet keeps the territory where the
+//   flight put it, still all in sight: one move per tap (« Recadrage
+//   tardif » = « Rester », the default; « Recentrer » frames it again); a
+//   band that shrank frames again whatever the switch says;
 // - a map the visitor has moved since the last command is left where they
-//   put it, the band with it, until the next command; so it is in the lieu
-//   zone, where nothing is raised; a hand on the map waits to be let go; with
-//   filters on, the filters' frame is owed.
+//   put it, the band with it, while the sheet stays raised; so it is in the
+//   lieu zone, where nothing is raised. Lowered (or gone full) there, the
+//   band goes alone ("drop"): the camera's padding eases back to the lowered
+//   frame's, as it eases for any padding, and what the visitor had centred
+//   above the sheet comes to the middle of the map now seen — never the
+//   band's padding under a lowered sheet, where the analyses' ring would
+//   stand under the header's tiles and the zoom buttons zoom about a point
+//   high on the map;
+// - a hand on the map waits to be let go; with filters on, the filters'
+//   frame is owed; the filters' dialog open over the page waits for it to
+//   close (a chip typed in grows the sheet's head behind it: the filters'
+//   own frame, when it comes, takes the band of its moment).
 // A finger on the sheet changes nothing: only its rest counts (`shownPx`).
-import { computed, onBeforeUnmount, shallowRef, watch, type Ref, type ShallowRef } from "vue";
+import { computed, onScopeDispose, shallowRef, watch, type Ref, type ShallowRef } from "vue";
 import { motionNow } from "@/shared/device/motion";
 import type { GeoUnit } from "@/features/geo";
 import type { Insets, NavState } from "../navState";
 import type { MapHandle } from "../model/useCamera";
-import { bandMoved, bandReframe, sheetBandInsets, type SheetFitMode } from "./sheetFit";
+import {
+  bandHolds,
+  bandMoved,
+  bandReframe,
+  sheetBandInsets,
+  type SheetFitMode,
+  type SheetLateMode,
+} from "./sheetFit";
 
 export interface SheetBandInputs {
   nav: NavState;
   mode: () => SheetFitMode;
+  /** A band that only grew under a landed map: left, or framed again. */
+  late: () => SheetLateMode;
+  /** The filters' dialog stands over the page. */
+  dialogOpen: () => boolean;
   isDesktop: Ref<boolean>;
   /** The map is a card (the home page): no sheet over it. */
   preview: Ref<boolean | undefined>;
@@ -98,12 +123,22 @@ export function useSheetBand(inputs: SheetBandInputs) {
   const last = shallowRef<string>("");
 
   let laterTimer = 0;
-  onBeforeUnmount(() => window.clearTimeout(laterTimer));
+  onScopeDispose(() => window.clearTimeout(laterTimer));
+
+  /** A band left as applied (« Rester »: "stay"), and the one it was left
+   *  for: asked again with nothing new (the hold ending, say), it stays. */
+  let stayed = false;
+  let stayedFor: Insets | null = null;
+  /** Something the sheet shows was on its way since the last command: a band
+   *  changed since came with what was late. */
+  let heldSinceCommand = false;
 
   /** Takes the band wanted now: only ever with a command (see the hook). */
   function apply() {
     window.clearTimeout(laterTimer);
     laterTimer = 0;
+    stayed = false;
+    heldSinceCommand = inputs.hold();
     applied.value = wanted.value;
   }
   camera.onBeforeCommand(apply);
@@ -113,8 +148,20 @@ export function useSheetBand(inputs: SheetBandInputs) {
   function follow() {
     window.clearTimeout(laterTimer);
     laterTimer = 0;
-    if (!bandMoved(applied.value, wanted.value)) return;
+    if (inputs.hold()) heldSinceCommand = true;
+    const want = wanted.value;
+    if (!bandMoved(applied.value, want)) {
+      stayed = false;
+      return;
+    }
+    if (stayed && !bandMoved(stayedFor, want)) return;
+    stayed = false;
     const how = bandReframe({
+      dialog: inputs.dialogOpen(),
+      toNone: want === null,
+      grewOnly: bandHolds(applied.value, want),
+      afterHold: heldSinceCommand,
+      late: inputs.late(),
       inFlight: nav.scopePinned.value,
       hold: inputs.hold(),
       readingPlace: inputs.readingPlace(),
@@ -126,6 +173,17 @@ export function useSheetBand(inputs: SheetBandInputs) {
     });
     last.value = how;
     switch (how) {
+      case "dialog": // its closing runs this again
+        return;
+      case "drop":
+        // No fit may come: the band goes alone, the padding eased
+        // (useMapCamera's onPaddingChange), owed under a hand.
+        applied.value = null;
+        return;
+      case "stay":
+        stayed = true;
+        stayedFor = want;
+        return;
       case "filter":
         camera.scheduleFilterFrame(true); // its command takes the band
         return;
@@ -145,7 +203,7 @@ export function useSheetBand(inputs: SheetBandInputs) {
         return;
     }
   }
-  watch([wanted, () => inputs.hold()], follow, { flush: "post" });
+  watch([wanted, () => inputs.hold(), () => inputs.dialogOpen()], follow, { flush: "post" });
 
   return { wanted, applied, last, apply };
 }
