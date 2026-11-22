@@ -1,9 +1,11 @@
 // The Témoignages page's panel while the page loads (panelBootSwitch): held
 // out of sight under the boot curtain, on a phone (the lowered sheet's strip)
 // and on a desktop (the side panel) alike, so that only the loading
-// placeholder shows; it comes in as the curtain leaves, whatever made it
-// leave (GeoNav's `booting`: the map ready, ready "late", the map
-// unavailable, the testimonies failing, or the curtain's 10 s cap). Held, it
+// placeholder shows; it comes in as the curtain's fade starts, whatever made
+// it leave (GeoNav's `booting`: the map ready, ready "late", the map
+// unavailable, the testimonies failing, or the curtain's 10 s cap). Not when
+// it is told to leave: on a heavy first map frame the curtain can stay opaque
+// a while after that, and the panel would be in already, over it. Held, it
 // keeps its box (transparent and inert, never `display: none`): the sheet's
 // measures and the camera's padding stay what they will be once it shows,
 // and the map does not move when it does. The curtain's words and poster,
@@ -29,15 +31,25 @@ export const PANEL_BOOT_MODES: readonly PanelBootMode[] = ["apres", "tout-de-sui
 export const DEFAULT_PANEL_BOOT: PanelBootMode = "apres";
 
 /** The panel is held out of sight now: under « Après le chargement », while
- *  the curtain is up, on the page (not the home page's card). `booting` is
- *  GeoNav's latch, so a hold never comes back once lifted. */
+ *  the curtain is up or leaving but not fading yet (`awaitingFade`), on the
+ *  page (not the home page's card). `booting` is GeoNav's latch and the wait
+ *  only ever ends, so a hold never comes back once lifted. */
 export function panelHeldAtBoot(o: {
   mode: PanelBootMode;
   booting: boolean;
+  awaitingFade: boolean;
   preview: boolean;
 }): boolean {
-  return o.mode === "apres" && o.booting && !o.preview;
+  return o.mode === "apres" && (o.booting || o.awaitingFade) && !o.preview;
 }
+
+/** How long (ms) after the curtain is told to leave the panel waits at most
+ *  for its fade to start (GeoNav `awaitingFade`), should neither the fade nor
+ *  its end ever be seen. A belt: Vue's own timer ends the leave. Longer than
+ *  the stall between the leave and its fade on a heavy first map frame
+ *  (measured up to 1.4 s headless), so that it does not end the wait inside
+ *  one. */
+export const CURTAIN_FADE_BELT_MS = 2_000;
 
 /** One part of the panel's entrance (Web Animations, GeoPanel): each runs
  *  on its own property, with its own time and easing. */

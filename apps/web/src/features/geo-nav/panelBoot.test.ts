@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  CURTAIN_FADE_BELT_MS,
   DEFAULT_PANEL_BOOT,
   ENTRANCE_DESK_REM,
   ENTRANCE_FADE_MS,
@@ -20,19 +21,37 @@ test("the modes, the default first", () => {
   assert.equal(DEFAULT_PANEL_BOOT, "apres");
 });
 
-test("held only while the curtain is up, on the page, under « Après le chargement »", () => {
-  assert.equal(panelHeldAtBoot({ mode: "apres", booting: true, preview: false }), true);
-  // The curtain gone, for whatever reason (ready, late, unavailable, the cap):
-  // the panel shows.
-  assert.equal(panelHeldAtBoot({ mode: "apres", booting: false, preview: false }), false);
+test("held only while the curtain is up or not fading yet, on the page, under « Après le chargement »", () => {
+  const held = (booting: boolean, awaitingFade: boolean, preview = false) =>
+    panelHeldAtBoot({ mode: "apres", booting, awaitingFade, preview });
+  assert.equal(held(true, false), true);
+  // Told to leave, its fade not started yet (a heavy first map frame): still held.
+  assert.equal(held(false, true), true);
+  // The curtain fading or gone, for whatever reason (ready, late, unavailable,
+  // the cap, the belt): the panel shows.
+  assert.equal(held(false, false), false);
   // The home page's card shows no panel: nothing held.
-  assert.equal(panelHeldAtBoot({ mode: "apres", booting: true, preview: true }), false);
-  // « Tout de suite »: never held, as before.
   for (const booting of [true, false]) {
-    for (const preview of [true, false]) {
-      assert.equal(panelHeldAtBoot({ mode: "tout-de-suite", booting, preview }), false);
+    for (const awaitingFade of [true, false]) {
+      assert.equal(held(booting, awaitingFade, true), false);
     }
   }
+  // « Tout de suite »: never held, as before.
+  for (const booting of [true, false]) {
+    for (const awaitingFade of [true, false]) {
+      for (const preview of [true, false]) {
+        assert.equal(
+          panelHeldAtBoot({ mode: "tout-de-suite", booting, awaitingFade, preview }),
+          false,
+        );
+      }
+    }
+  }
+});
+
+test("the fade belt outlasts the measured leave stall and stays short", () => {
+  assert.ok(CURTAIN_FADE_BELT_MS > 1_400);
+  assert.ok(CURTAIN_FADE_BELT_MS <= 3_000);
 });
 
 test("no entrance under reduced motion, whatever the device", () => {

@@ -81,7 +81,8 @@ const listEl = ref<HTMLElement | null>(null);
 const bodyEl = ref<HTMLElement | null>(null);
 defineExpose({ el, peekEl, safeEl, listEl, bodyEl });
 
-// The hold lifted (the curtain leaving): the panel comes in — on a phone the
+// The hold lifted (the curtain starting to fade, GeoNav `awaitingFade`): the
+// panel comes in, crossing the curtain's fade — on a phone the
 // strip rising from the screen's edge, on a desktop the panel sliding in from
 // the right, a short fade on a weak device, at once under reduced motion
 // (panelEntrance). Started after the render that showed it, before its first

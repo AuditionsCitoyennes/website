@@ -30,7 +30,7 @@ import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
 import { slowWaitPlace } from "./model/retryNotice";
 import { createNavState, type Insets, type MapView } from "./navState";
 import { bootCurtainCover } from "./bootListSwitch";
-import { panelHeldAtBoot } from "./panelBoot";
+import { CURTAIN_FADE_BELT_MS, panelHeldAtBoot } from "./panelBoot";
 import { panelBootMode } from "./panelBootSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
@@ -191,13 +191,53 @@ onBeforeUnmount(() => clearTimeout(bootCap));
 const bootCover = computed(() => bootCurtainCover(props.preview));
 // Under that curtain the panel is held out of sight (panelBoot, the DEV
 // switch's « Après le chargement »), so that only the loading placeholder
-// shows, and comes in as the curtain leaves: the same latch, so whatever
-// lifts the curtain (the map ready or unavailable, the outlines late, the
-// testimonies failing, the cap) shows the panel, and it never stays hidden.
-// Held, it keeps its box: the sheet's measures and the camera's padding run as
-// once it shows (GeoPanel `held`).
+// shows, and comes in as the curtain's fade starts: the same latch, so
+// whatever lifts the curtain (the map ready or unavailable, the outlines late,
+// the testimonies failing, the cap) shows the panel, and it never stays
+// hidden. Held, it keeps its box: the sheet's measures and the camera's
+// padding run as once it shows (GeoPanel `held`).
+//
+// Told to leave, the curtain only starts fading two frames later (Vue's
+// leave-to), and a heavy first map frame can stretch that to a second or more:
+// the panel waits for the fade itself (`awaitingFade`), so the two cross
+// rather than the panel arriving over an opaque curtain. The wait ends on the
+// fade's start (`transitionrun`), on the leave's end (Vue's own timer, should
+// the fade go unseen), or on a belt (CURTAIN_FADE_BELT_MS); never set when the
+// curtain was not on screen (a warm map), so that panel shows at once.
+const bootEl = ref<HTMLElement | null>(null);
+const awaitingFade = ref(false);
+let fadeBelt = 0;
+function endFadeWait() {
+  awaitingFade.value = false;
+  clearTimeout(fadeBelt);
+}
+watch(
+  booting,
+  (now, was) => {
+    if (now || !was || !bootEl.value) return;
+    awaitingFade.value = true;
+    fadeBelt = window.setTimeout(endFadeWait, CURTAIN_FADE_BELT_MS);
+  },
+  // Sync: set in the same tick as `booting`, so no render sees the curtain
+  // gone and the wait not started (the panel would flash in for a frame).
+  { flush: "sync" },
+);
+onBeforeUnmount(() => clearTimeout(fadeBelt));
+/** The leaving curtain (the boot Transition's `leave`): the wait ends as its
+ *  own opacity transition runs. One parameter: Vue still runs the CSS leave. */
+function onCurtainLeave(el: Element) {
+  el.addEventListener("transitionrun", (e) => {
+    const t = e as TransitionEvent;
+    if (t.target === el && t.propertyName === "opacity") endFadeWait();
+  });
+}
 const panelHeld = computed(() =>
-  panelHeldAtBoot({ mode: panelBootMode, booting: booting.value, preview: !!props.preview }),
+  panelHeldAtBoot({
+    mode: panelBootMode,
+    booting: booting.value,
+    awaitingFade: awaitingFade.value,
+    preview: !!props.preview,
+  }),
 );
 /** France under the curtain's spinner: metropolitan France and its régions,
  *  muted, a picture in the map's box at the first paint, until the live map
@@ -1284,9 +1324,10 @@ function retryAll() {
          AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
-    <Transition name="boot">
+    <Transition name="boot" @leave="onCurtainLeave" @after-leave="endFadeWait">
       <div
         v-if="booting"
+        ref="bootEl"
         class="boot"
         :class="{ 'boot-map': bootCover === 'map', sheet: !isDesktop, held: panelHeld }"
         role="status"
