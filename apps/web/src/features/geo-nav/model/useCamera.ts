@@ -1,8 +1,9 @@
 // The camera commands GeoDrillMap is handed: a unit framed so that it becomes
 // the scope, a lieu spotlighted, the visitor's country framed once the filters'
 // answer has stopped changing. Every command pins the optimistic scope until
-// the flight lands and runs the ring's hook first (ring/useAnalysesRing
-// registers it; neither imports the other).
+// the flight lands and runs the hooks registered on it first — the analyses'
+// ring (ring/useAnalysesRing) and the band above a short phone sheet
+// (panel/useSheetBand); neither imports the other.
 import { markRaw, onBeforeUnmount, ref, shallowRef, type ComputedRef, type Ref } from "vue";
 import { ancestorsOf, type GeoUnit, lngNear, selfFileOf, SPAN_DESCEND } from "@/features/geo";
 import type { CameraCmd } from "@/features/map";
@@ -42,15 +43,16 @@ export function useCamera(inputs: CameraInputs) {
   /** The last command that framed a unit (flyToUnit): the analyses' slabs of
    *  that unit are sized for the camera it lands on (GeoDrillMap's SlabSpec). */
   const framedFit = shallowRef<{ key: number; unitId: string } | null>(null);
-  /** Run before every command, in the same tick: the ring brings itself in line
-   *  with the analyses there (see useAnalysesRing). */
-  let beforeCommand: (() => void) | null = null;
+  /** Run before every command, in the same tick, in the order registered: the
+   *  ring brings itself in line with the analyses there (see useAnalysesRing),
+   *  the band above a short sheet with the sheet (see useSheetBand). */
+  const beforeCommand: (() => void)[] = [];
   function onBeforeCommand(hook: () => void) {
-    beforeCommand = hook;
+    beforeCommand.push(hook);
   }
   function setCamera(cmd: Omit<CameraCmd, "key">) {
     nav.scopePinned.value = true; // hold the optimistic scope until the flight lands
-    beforeCommand?.();
+    for (const hook of beforeCommand) hook();
     camera.value = { key: ++nav.cameraKey.value, ...cmd };
   }
   // Closest a unit is framed: just short of the lieu zone (MICRO_ZONE_ENTER, in
@@ -229,6 +231,10 @@ export function useCamera(inputs: CameraInputs) {
   function handMoved() {
     movedAtKey = nav.cameraKey.value;
   }
+  /** A hand has moved the map since the last command: its frame is left. */
+  function movedSinceCommand(): boolean {
+    return movedAtKey === nav.cameraKey.value;
+  }
   function scheduleFilterFrame(owed = false) {
     frameOwed ||= owed;
     window.clearTimeout(fitTimer);
@@ -265,6 +271,7 @@ export function useCamera(inputs: CameraInputs) {
     spotlightPlace,
     scheduleFilterFrame,
     handMoved,
+    movedSinceCommand,
   };
 }
 

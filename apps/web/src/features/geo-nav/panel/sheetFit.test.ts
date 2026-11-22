@@ -1,14 +1,25 @@
 // A phone's raised sheet as tall as its content (sheetFit.ts): the offset
 // from the full box, the minimum, the snaps to full (a sliver of map, no
 // room for the map's controls), the hold while loading, the camera's aim
-// under « Ajusté, centré », how a refit moves and where a released drag settles. Run with
+// under « Ajusté, centré » (an open lieu's pin; the band a territory is
+// framed in above a short sheet and when a new band frames it again), how a
+// refit moves and where a released drag settles. Run with
 // `node --import tsx --test` (root "test:scripts"). Pure: no Vue component,
 // no DOM.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  BAND_MARGIN_PX,
   DEFAULT_SHEET_FIT,
+  MIN_BAND_REM,
+  DEFAULT_SHEET_LATE,
+  SHEET_LATE_MODES,
+  bandHolds,
+  bandMoved,
+  bandReframe,
+  boxInBand,
+  sheetBandInsets,
   SHEET_FIT_MODES,
   SNAP_FULL_PX,
   lieuAimPx,
@@ -138,4 +149,206 @@ test("a released drag settles on the nearer rest unless flicked", () => {
   assert.equal(sheetSettle({ at: 600, v: -0.5, raisedPx: 375, loweredPx: 610, flick }), true);
   assert.equal(sheetSettle({ at: 380, v: 0.5, raisedPx: 375, loweredPx: 610, flick }), false);
   assert.equal(sheetSettle({ at: 380, v: 0.3, raisedPx: 375, loweredPx: 610, flick }), true);
+});
+
+// « Ajusté, centré »: the band a territory in scope is framed in above a short
+// sheet. A 360×740 phone, the header's tiles 51 px down, the camera's 36 px
+// beside, a sheet of 5 rows covering 316 px of the screen's bottom.
+const band = {
+  mode: "centre" as const,
+  phone: true,
+  raised: true,
+  fitted: true,
+  lieuOpen: false,
+  shownPx: 316,
+  viewportH: 740,
+  headerClearPx: 51,
+  sidePx: 36,
+  remPx: 16,
+};
+
+test("the band is the map between the header's tiles and the short sheet, a margin inside", () => {
+  assert.deepEqual(sheetBandInsets(band), {
+    top: 51 + BAND_MARGIN_PX,
+    bottom: 316 + BAND_MARGIN_PX,
+    left: 36,
+    right: 36,
+  });
+  // Rounded to whole pixels.
+  assert.deepEqual(sheetBandInsets({ ...band, shownPx: 316.4, headerClearPx: 50.6 }), {
+    top: 63,
+    bottom: 328,
+    left: 36,
+    right: 36,
+  });
+});
+
+test("no band but under « Ajusté, centré », on a phone, over a raised short sheet, no lieu open", () => {
+  assert.equal(sheetBandInsets({ ...band, mode: "ajuste" }), null);
+  assert.equal(sheetBandInsets({ ...band, mode: "plein" }), null);
+  assert.equal(sheetBandInsets({ ...band, phone: false }), null);
+  assert.equal(sheetBandInsets({ ...band, raised: false }), null);
+  // A full sheet (a long list, an opening audition): framed as today.
+  assert.equal(sheetBandInsets({ ...band, fitted: false }), null);
+  // A lieu's pin is aimed by the camera's padding (lieuAimPx).
+  assert.equal(sheetBandInsets({ ...band, lieuOpen: true }), null);
+  // Nothing measured yet.
+  assert.equal(sheetBandInsets({ ...band, shownPx: 0 }), null);
+  assert.equal(sheetBandInsets({ ...band, viewportH: 0 }), null);
+});
+
+test("a band too short to frame a territory in is none", () => {
+  const min = MIN_BAND_REM * 16;
+  // 740 − 63 − (shown + 12) = min: just enough.
+  const shownFits = 740 - 63 - 12 - min;
+  assert.notEqual(sheetBandInsets({ ...band, shownPx: shownFits }), null);
+  assert.equal(sheetBandInsets({ ...band, shownPx: shownFits + 1 }), null);
+});
+
+test("a band holds another that it reaches past on every edge, within the tolerance", () => {
+  const a = { top: 63, bottom: 328, left: 36, right: 36 };
+  // The sheet came down: more map above it.
+  assert.equal(bandHolds(a, { ...a, bottom: 210 }), true);
+  assert.equal(bandHolds(a, a), true);
+  assert.equal(bandHolds(a, { ...a, bottom: 344 }), true);
+  // The sheet went up past the tolerance: the territory may be under it.
+  assert.equal(bandHolds(a, { ...a, bottom: 345 }), false);
+  assert.equal(bandHolds(a, { ...a, top: 80, bottom: 200 }), false);
+  assert.equal(bandHolds(a, { ...a, bottom: 334 }, 4), false);
+  assert.equal(bandHolds(a, null), false);
+  assert.equal(bandHolds(null, a), false);
+});
+
+test("a band moves past its tolerance, and always to or from none", () => {
+  const a = { top: 63, bottom: 328, left: 36, right: 36 };
+  assert.equal(bandMoved(a, { ...a, bottom: 344 }), false);
+  assert.equal(bandMoved(a, { ...a, bottom: 345 }), true);
+  assert.equal(bandMoved(a, { ...a, top: 47 }), false);
+  assert.equal(bandMoved(a, { ...a, left: 53 }), true);
+  assert.equal(bandMoved(a, { ...a, bottom: 334 }, 4), true);
+  assert.equal(bandMoved(a, null), true);
+  assert.equal(bandMoved(null, a), true);
+  assert.equal(bandMoved(null, null), false);
+});
+
+test("a plateau clears a band when it stands inside it, the band's margin allowed", () => {
+  const band = { top: 63, bottom: 262, left: 36, right: 36 };
+  const box = { minX: 60, minY: 80, maxX: 300, maxY: 460, w: 360, h: 740 };
+  assert.equal(boxInBand(box, band), true);
+  // The band's own edges, a margin past them: still clear.
+  assert.equal(boxInBand({ ...box, minY: 51, maxY: 490, minX: 24, maxX: 336 }, band), true);
+  // Past it: under the header's tiles, under the sheet's top, off a side.
+  assert.equal(boxInBand({ ...box, minY: 50 }, band), false);
+  assert.equal(boxInBand({ ...box, maxY: 491 }, band), false);
+  assert.equal(boxInBand({ ...box, minX: 23 }, band), false);
+  assert.equal(boxInBand({ ...box, maxX: 337 }, band), false);
+  // Nothing to say without a box, a band or a map size.
+  assert.equal(boxInBand(null, band), false);
+  assert.equal(boxInBand(box, null), false);
+  assert.equal(boxInBand({ ...box, h: 0 }, band), false);
+});
+
+test("a new band frames the scope again only where the scope may move with it", () => {
+  const rest = {
+    dialog: false,
+    toNone: false,
+    fromNone: false,
+    grewOnly: false,
+    clearsBand: false,
+    world: false,
+    afterHold: false,
+    late: "rester" as "rester" | "recentrer",
+    inFlight: false,
+    hold: false,
+    readingPlace: false,
+    microZone: false,
+    listMode: false,
+    inHands: false,
+    movedSinceCommand: false,
+    short: false,
+  };
+  const table: [Partial<typeof rest>, string][] = [
+    [{}, "fit"],
+    [{ short: true }, "instant"],
+    [{ inFlight: true }, "retarget"],
+    [{ inFlight: true, short: true }, "retarget"],
+    [{ inFlight: true, hold: true }, "retarget"],
+    [{ hold: true }, "wait"],
+    [{ hold: true, short: true }, "wait"],
+    [{ movedSinceCommand: true }, "keep"],
+    [{ movedSinceCommand: true, inFlight: true }, "keep"],
+    [{ inHands: true }, "later"],
+    [{ inHands: true, movedSinceCommand: true }, "later"],
+    [{ listMode: true }, "filter"],
+    [{ listMode: true, inHands: true }, "filter"],
+    [{ readingPlace: true }, "hold"],
+    [{ microZone: true }, "hold"],
+    [{ microZone: true, listMode: true, inFlight: true }, "hold"],
+    // The filters' dialog over the page: nothing until it closes.
+    [{ dialog: true }, "dialog"],
+    [{ dialog: true, listMode: true, inFlight: true }, "dialog"],
+    // No fit may come and the band wanted is none (lowered after a hand
+    // moved the map, or in the lieu zone): the band goes alone.
+    [{ movedSinceCommand: true, toNone: true }, "drop"],
+    [{ microZone: true, toNone: true }, "drop"],
+    [{ readingPlace: true, toNone: true }, "drop"],
+    [{ inHands: true, movedSinceCommand: true, toNone: true }, "later"],
+    [{ listMode: true, toNone: true }, "filter"],
+    // A fit may come: lowered, the map is framed again with the band gone.
+    [{ toNone: true }, "fit"],
+    [{ toNone: true, inFlight: true }, "retarget"],
+    // A late list (a hold since the tap) leaving more map above the sheet
+    // once the flight has landed: left where it is under « Rester »…
+    [{ grewOnly: true, afterHold: true }, "stay"],
+    [{ grewOnly: true, afterHold: true, short: true }, "stay"],
+    // …framed again under « Recentrer », or when the map only grew without a
+    // hold (no late list), or when the band shrank (the sheet went up).
+    [{ grewOnly: true, afterHold: true, late: "recentrer" }, "fit"],
+    [{ grewOnly: true }, "fit"],
+    [{ afterHold: true }, "fit"],
+    [{ afterHold: true, short: true }, "instant"],
+    // Still in the air, or still on its way: as before.
+    [{ grewOnly: true, afterHold: true, inFlight: true }, "retarget"],
+    [{ grewOnly: true, afterHold: true, hold: true }, "wait"],
+    [{ grewOnly: true, afterHold: true, movedSinceCommand: true }, "keep"],
+    // A late list after a tap from a full list (no band applied, one wanted):
+    // left where the flight put it when the plateau already clears the new
+    // sheet's top, framed again otherwise or under « Recentrer ».
+    [{ fromNone: true, clearsBand: true, afterHold: true }, "stay"],
+    [{ fromNone: true, afterHold: true }, "fit"],
+    [{ fromNone: true, clearsBand: true, afterHold: true, late: "recentrer" }, "fit"],
+    [{ fromNone: true, clearsBand: true }, "fit"],
+    // A band that shrank with the plateau still clear of it: left too.
+    [{ clearsBand: true, afterHold: true }, "stay"],
+    [{ clearsBand: true, afterHold: true, inFlight: true }, "retarget"],
+    // A sheet lowered (or gone full) while something is still on its way:
+    // the band goes at once, never left under the lowered sheet.
+    [{ hold: true, toNone: true }, "fit"],
+    [{ hold: true, toNone: true, short: true }, "instant"],
+    [{ hold: true, toNone: true, afterHold: true }, "fit"],
+    // Raised short after a hand moved the map: the map and the camera's
+    // padding stay as the visitor left them (no band alone: the scope could
+    // descend at rest in the smaller rectangle).
+    [{ movedSinceCommand: true, fromNone: true }, "keep"],
+    [{ movedSinceCommand: true, fromNone: true, inHands: true }, "later"],
+    [{ movedSinceCommand: true, fromNone: true, microZone: true }, "hold"],
+    // Filters on: a late list in sight stays (« Rester »), and at the world a
+    // band that only grew never moves the globe; a band that shrank does.
+    [{ listMode: true, grewOnly: true, afterHold: true }, "stay"],
+    [{ listMode: true, grewOnly: true, afterHold: true, late: "recentrer" }, "filter"],
+    [{ listMode: true, grewOnly: true, afterHold: true, inFlight: true }, "filter"],
+    [{ listMode: true, grewOnly: true, afterHold: true, hold: true }, "filter"],
+    [{ listMode: true, world: true, grewOnly: true }, "stay"],
+    [{ listMode: true, world: true, grewOnly: true, late: "recentrer" }, "stay"],
+    [{ listMode: true, world: true }, "filter"],
+    [{ listMode: true, grewOnly: true }, "filter"],
+  ];
+  for (const [over, want] of table) {
+    assert.equal(bandReframe({ ...rest, ...over }), want, JSON.stringify(over));
+  }
+});
+
+test("« Recadrage tardif »: « Rester » first and by default", () => {
+  assert.deepEqual([...SHEET_LATE_MODES], ["rester", "recentrer"]);
+  assert.equal(DEFAULT_SHEET_LATE, "rester");
 });

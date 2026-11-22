@@ -4,8 +4,8 @@
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the map's
-// fallback (map/fallbackSwitch), the height of a phone's raised sheet
-// (geo-nav/panel/sheetFitSwitch), the analyses' slabs
+// fallback (map/fallbackSwitch), the height of a phone's raised sheet and
+// how a late list re-frames it (geo-nav/panel/sheetFitSwitch), the analyses' slabs
 // (analyses/devSwitch; their section only in a build with the analyses), the
 // device's tier (shared/device/deviceTier) with what the page knows of the
 // device listed under it, the map's pixel ratio and whether it times its
@@ -40,7 +40,7 @@ import {
   slabTextMode,
   slabTextScale,
 } from "@/features/analyses";
-import { setSheetFitMode, sheetFitMode } from "@/features/geo-nav";
+import { setSheetFitMode, setSheetLateMode, sheetFitMode, sheetLateMode } from "@/features/geo-nav";
 import {
   dprChoice,
   frameMeasure,
@@ -85,6 +85,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:tier": bind(() => tierChoice, setTierChoice),
   "ac:map-fallback": bind(() => mapFallback, setMapFallback),
   "ac:sheet-fit": bind(() => sheetFitMode.value, setSheetFitMode),
+  "ac:sheet-late": bind(() => sheetLateMode.value, setSheetLateMode),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
 };

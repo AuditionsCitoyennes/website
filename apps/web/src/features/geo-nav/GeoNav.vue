@@ -6,6 +6,7 @@ import {
   nextTick,
   onBeforeUnmount,
   ref,
+  shallowRef,
   toRef,
   watch,
 } from "vue";
@@ -27,7 +28,7 @@ import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
 import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
 import { slowWaitPlace } from "./model/retryNotice";
-import { createNavState, type MapView } from "./navState";
+import { createNavState, type Insets, type MapView } from "./navState";
 import { bootCurtainCover } from "./bootListSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
@@ -45,10 +46,11 @@ import { useTapPending } from "./model/useTapPending";
 import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
-import { lieuAimPx } from "./panel/sheetFit";
-import { sheetFitMode } from "./panel/sheetFitSwitch";
+import { lieuAimPx, type PlateauBox } from "./panel/sheetFit";
+import { useSheetBand } from "./panel/useSheetBand";
+import { sheetFitMode, sheetLateMode } from "./panel/sheetFitSwitch";
 import { testimoniesOf } from "./model/auditions";
-import { PANEL_BASE_PX, usePanelLayout } from "./panel/usePanelLayout";
+import { PANEL_BASE_PX, PHONE_SIDE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
 import { usePlaqueFocus } from "./ring/usePlaqueFocus";
 import type { UnitTree } from "./data/useUnitTree";
@@ -75,6 +77,9 @@ const props = defineProps<{
   /** The themes picked in the filters (canonical names): every testimony
    *  counted cites one, so the analyses do not rank them. */
   themeFilter?: string[];
+  /** The filters' dialog stands over the page: the map behind it does not
+   *  frame again for what it changes in the sheet (panel/useSheetBand). */
+  filtersOpen?: boolean;
   /**
    * The server's tree (map phase 1): the map, the panel's units, their counts
    * and the analyses come from it, and the auditions' lists from the server's
@@ -424,6 +429,11 @@ if (__TEST_TOOLS__) {
  *  of an open lieu's pin (px), the sheet's rest top under a short sheet; null
  *  otherwise (sheetFit lieuAimPx, set further down, once the hold is made). */
 const sheetAimPx = ref<number | null>(null);
+/** « Ajusté, centré »: the map left above a short phone sheet, the territory
+ *  in scope framed there by the camera's padding (panel/useSheetBand, set up
+ *  further down once the sheet's hold is made), or null. The ring stands
+ *  aside meanwhile. */
+const sheetBand = shallowRef<Insets | null>(null);
 const layout = usePanelLayout({
   nav,
   isDesktop,
@@ -438,6 +448,7 @@ const layout = usePanelLayout({
     dragging: sheet.dragging,
     peekPx: sheetPeekPx,
     aimPx: sheetAimPx,
+    band: sheetBand,
   },
   follows,
 });
@@ -533,12 +544,14 @@ const ring = useAnalysesRing({
   sheetPeekPx,
   layout,
   listMode,
+  bandApplied: sheetBand,
   readingPlace,
   mapCmp,
   camera: cam,
 });
 const {
   measureHeaderClear,
+  headerClearPx,
   ringWanted,
   ringOn,
   ringRoom,
@@ -1033,6 +1046,67 @@ watch(
   (px) => (sheetAimPx.value = px),
   { immediate: true },
 );
+// ---- « Ajusté, centré »: the territory framed in the map left above a short
+// sheet (panel/useSheetBand) ----
+// The testing tools only: the switch never leaves « Ajusté » in a production
+// build, whose band is always none (the module is left out of it).
+/** Where the raised plateau stood on screen at the last frame drawn (the
+ *  map's frame bus), its unit's id with it ('' when none stands at full
+ *  height): a late list that brings the sheet down leaves a territory that
+ *  already clears the sheet's new top where it is (useSheetBand). Listened to
+ *  only under « Ajusté, centré » on a phone. One object, rewritten in place. */
+const plateauSeen = { id: "", minX: 0, minY: 0, maxX: 0, maxY: 0, w: 0, h: 0 };
+if (__TEST_TOOLS__) {
+  watch(
+    () =>
+      sheetFitMode.value === "centre" && !isDesktop.value && !asCard.value ? mapCmp.value : null,
+    (m, _old, onCleanup) => {
+      plateauSeen.id = "";
+      if (!m) return;
+      onCleanup(
+        m.onFrame((f) => {
+          const b = f.box;
+          plateauSeen.id = b && f.rise >= 0.99 ? f.scopeId : "";
+          if (!b) return;
+          plateauSeen.minX = b.minX;
+          plateauSeen.minY = b.minY;
+          plateauSeen.maxX = b.maxX;
+          plateauSeen.maxY = b.maxY;
+          plateauSeen.w = f.w;
+          plateauSeen.h = f.h;
+        }),
+      );
+    },
+    { immediate: true },
+  );
+}
+function plateauBox(): PlateauBox | null {
+  return plateauSeen.id !== "" && plateauSeen.id === nav.currentScope.value.id
+    ? { ...plateauSeen }
+    : null;
+}
+const band = __TEST_TOOLS__
+  ? useSheetBand({
+      nav,
+      mode: () => sheetFitMode.value,
+      late: () => sheetLateMode.value,
+      dialogOpen: () => Boolean(props.filtersOpen),
+      isDesktop,
+      preview: asCard,
+      fitted: sheetFitted,
+      shownPx: sheetShownPx,
+      viewportH,
+      headerClearPx,
+      sidePx: () => PHONE_SIDE_PX,
+      hold: () => sheetFitHold.value,
+      readingPlace,
+      plateauBox,
+      listMode,
+      mapCmp,
+      applied: sheetBand,
+      camera: cam,
+    })
+  : null;
 if (__TEST_TOOLS__) {
   // `window.__acSheet()`: the phone's sheet as measured last — raised or not,
   // the fit's mode, the box, the content, the raised and lowered offsets,
@@ -1050,8 +1124,18 @@ if (__TEST_TOOLS__) {
     expectFull: sheetExpectFull.value,
     aimPx: sheetAimPx.value,
     // What the camera is told to keep clear: the raised sheet's height only
-    // under « Ajusté, centré », for an open lieu (`aimPx`).
+    // under « Ajusté, centré », for an open lieu (`aimPx`) or a territory
+    // (the band below).
     mapPadding: { ...mapPadding.value },
+    // « Ajusté, centré »: the band above a short sheet asked for and the one
+    // the camera frames in (useSheetBand), and the last decision made.
+    band: band && {
+      wanted: band.wanted.value,
+      applied: band.applied.value,
+      last: band.last.value,
+      late: sheetLateMode.value,
+      plateauBox: plateauBox(),
+    },
   });
   const w = window as unknown as { __acSheet?: () => unknown };
   w.__acSheet = probe;
