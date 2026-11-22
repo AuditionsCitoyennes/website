@@ -23,10 +23,13 @@ export const MAP_ROOM_MARGIN_REM = 0.5;
  *  buttons over mapbox's logo) when they cannot be measured yet. */
 export const MAP_CONTROLS_FALLBACK_REM = 6.5;
 
-export type SheetFitMode = "ajuste" | "plein";
+/** "ajuste": as tall as the content, the camera framed as under a full
+ *  sheet; "centre": as tall as the content, and an open lieu's pin aimed into
+ *  the map left above a short sheet (`lieuAimPx`); "plein": always full. */
+export type SheetFitMode = "ajuste" | "centre" | "plein";
 
 /** The switch's choices, in the DEV dialog's order (sheetFitSwitch). */
-export const SHEET_FIT_MODES: readonly SheetFitMode[] = ["ajuste", "plein"];
+export const SHEET_FIT_MODES: readonly SheetFitMode[] = ["ajuste", "centre", "plein"];
 
 /** The mode of a build without the testing tools, and the switch's default. */
 export const DEFAULT_SHEET_FIT: SheetFitMode = "ajuste";
@@ -104,4 +107,32 @@ export interface SheetSettleInputs {
 export function sheetSettle(i: SheetSettleInputs): boolean {
   if (Math.abs(i.v) > i.flick) return i.v < 0;
   return i.at < (i.raisedPx + i.loweredPx) / 2;
+}
+
+export interface LieuAimInputs {
+  mode: SheetFitMode;
+  /** A phone, a lieu open, its sheet raised. */
+  lieuRaised: boolean;
+  /** The raised sheet stands shorter than the full panel. */
+  fitted: boolean;
+  /** How much of the screen's bottom the raised sheet covers at rest (px). */
+  shownPx: number;
+  /** Something the sheet shows is on its way (useBottomSheet's hold). */
+  hold: boolean;
+  /** The sheet stands full while an opened audition's text is on its way. */
+  expectFull: boolean;
+  /** The aim decided last. */
+  prev: number | null;
+}
+
+/** « Ajusté, centré »: how much of the screen's bottom the camera keeps clear
+ *  of an open lieu's pin (px), so that the pin stands in the map left above a
+ *  short sheet — or null: the strip at the top of the map, as under a full
+ *  sheet. Kept as it was while what the sheet shows loads (the sheet's height
+ *  is not known yet: the map moves once, when it is); the top strip as soon as
+ *  the sheet is to stand full. */
+export function lieuAimPx(i: LieuAimInputs): number | null {
+  if (i.mode !== "centre" || !i.lieuRaised || i.expectFull) return null;
+  if (i.hold) return i.prev;
+  return i.fitted && i.shownPx > 0 ? Math.round(i.shownPx) : null;
 }

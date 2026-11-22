@@ -245,8 +245,9 @@ function close() {
      buttons and the logo at the left, the attribution button at the right);
      over a raised sheet that leaves the map room above it, clear of that
      sheet's top and of the controls gone up with it (GeoNav's
-     `--sheet-tools`, unset otherwise), in one step under a short motion
-     (`--sheet-follow`, set by GeoNav). */
+     `--sheet-tools`, unset otherwise), moving as the sheet does: in one step
+     when the sheet's refit is made in one (`--sheet-follow`, set by GeoNav),
+     eased otherwise. */
   .dev-options {
     right: 12px;
     bottom: max(

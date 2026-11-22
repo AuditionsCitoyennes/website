@@ -2,9 +2,11 @@
 // page's testing options menu, temoignages/DevOptionsMenu.vue), in the builds
 // with the testing tools — the dev server and staging (__TEST_TOOLS__,
 // vite.config): "ajuste" (the default) — as tall as its head and its content
-// need, up to the full panel (sheetFit.ts) — or "plein": always the full
-// panel, as before. Read by useBottomSheet at each measure, so a choice
-// applies at once, with no reload. Production keeps the default, which this
+// need, up to the full panel (sheetFit.ts) —, "centre": the same, and an open
+// lieu's pin aimed into the map left above a short sheet (sheetFit
+// lieuAimPx, usePanelLayout's camera padding) — or "plein": always the full
+// panel, as before. Read by useBottomSheet at each measure and by the camera's
+// padding, so a choice applies at once, with no reload. Production keeps the default, which this
 // ref never leaves there (no switch is drawn). Desktops have no sheet: the
 // switch changes nothing there.
 import { ref } from "vue";

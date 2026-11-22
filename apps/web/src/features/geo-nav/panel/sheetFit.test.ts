@@ -1,7 +1,7 @@
 // A phone's raised sheet as tall as its content (sheetFit.ts): the offset
 // from the full box, the minimum, the snaps to full (a sliver of map, no
-// room for the map's controls), the hold while loading,
-// how a refit moves and where a released drag settles. Run with
+// room for the map's controls), the hold while loading, the camera's aim
+// under « Ajusté, centré », how a refit moves and where a released drag settles. Run with
 // `node --import tsx --test` (root "test:scripts"). Pure: no Vue component,
 // no DOM.
 
@@ -11,6 +11,7 @@ import {
   DEFAULT_SHEET_FIT,
   SHEET_FIT_MODES,
   SNAP_FULL_PX,
+  lieuAimPx,
   raisedOffset,
   refitMotion,
   sheetSettle,
@@ -73,7 +74,39 @@ test("an open audition's text on its way: the sheet stands full, whatever the re
 
 test("the switch's default is one of its choices, the first", () => {
   assert.equal(DEFAULT_SHEET_FIT, "ajuste");
-  assert.deepEqual([...SHEET_FIT_MODES], ["ajuste", "plein"]);
+  assert.deepEqual([...SHEET_FIT_MODES], ["ajuste", "centre", "plein"]);
+});
+
+test("« Ajusté, centré » fits the sheet as « Ajusté » does", () => {
+  for (const contentPx of [90, 300, 600, 2000])
+    assert.equal(
+      raisedOffset({ ...base, mode: "centre", contentPx }),
+      raisedOffset({ ...base, contentPx }),
+    );
+});
+
+test("an open lieu's pin is aimed above a short sheet only under « Ajusté, centré »", () => {
+  const lieu = {
+    mode: "centre" as const,
+    lieuRaised: true,
+    fitted: true,
+    shownPx: 433.4,
+    hold: false,
+    expectFull: false,
+    prev: null,
+  };
+  assert.equal(lieuAimPx(lieu), 433);
+  // The other modes keep the top strip.
+  assert.equal(lieuAimPx({ ...lieu, mode: "ajuste" }), null);
+  assert.equal(lieuAimPx({ ...lieu, mode: "plein" }), null);
+  // A full sheet, or one to stand full (an audition's text on its way): the top strip.
+  assert.equal(lieuAimPx({ ...lieu, fitted: false }), null);
+  assert.equal(lieuAimPx({ ...lieu, expectFull: true, prev: 433 }), null);
+  // No lieu, or its sheet lowered: no aim.
+  assert.equal(lieuAimPx({ ...lieu, lieuRaised: false, prev: 433 }), null);
+  // While the sheet's content loads, the aim stays as it was.
+  assert.equal(lieuAimPx({ ...lieu, hold: true, shownPx: 200, prev: 433 }), 433);
+  assert.equal(lieuAimPx({ ...lieu, hold: true, prev: null }), null);
 });
 
 test("a sheet at rest refits in one step on a weak device and on a box change", () => {

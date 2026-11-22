@@ -14,7 +14,6 @@ import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
 import { GeoDrillMap } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
 import { deviceSignals, deviceTier } from "@/shared/device/deviceTier";
-import { motionNow } from "@/shared/device/motion";
 import {
   analysisSummary,
   buildFactsIndex,
@@ -46,6 +45,7 @@ import { useTapPending } from "./model/useTapPending";
 import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
+import { lieuAimPx } from "./panel/sheetFit";
 import { sheetFitMode } from "./panel/sheetFitSwitch";
 import { testimoniesOf } from "./model/auditions";
 import { PANEL_BASE_PX, usePanelLayout } from "./panel/usePanelLayout";
@@ -401,13 +401,14 @@ const sheetToolsPx = computed(() =>
 if (__TEST_TOOLS__) {
   // The test emails' button is the app's, outside this page: told on the
   // document (`--ac-sheet-tools`, features/outbox OutboxLauncher).
-  // It follows in one step under a short motion, as the sheet's refit does
-  // (`--ac-sheet-tools-follow`, read at the same change).
+  // It moves as the sheet does: in one step when the sheet's refit is made in
+  // one (`--ac-sheet-tools-follow`, read at the same change), eased with the
+  // sheet's raise, lower or eased refit otherwise.
   const root = document.documentElement.style;
   watch(
     sheetToolsPx,
     (px) => {
-      if (motionNow() === "short") root.setProperty("--ac-sheet-tools-follow", "0s");
+      if (sheetRefit.value) root.setProperty("--ac-sheet-tools-follow", "0s");
       else root.removeProperty("--ac-sheet-tools-follow");
       if (px === null) root.removeProperty("--ac-sheet-tools");
       else root.setProperty("--ac-sheet-tools", `${px}px`);
@@ -419,6 +420,10 @@ if (__TEST_TOOLS__) {
     root.removeProperty("--ac-sheet-tools-follow");
   });
 }
+/** « Ajusté, centré »: how much of the screen's bottom the camera keeps clear
+ *  of an open lieu's pin (px), the sheet's rest top under a short sheet; null
+ *  otherwise (sheetFit lieuAimPx, set further down, once the hold is made). */
+const sheetAimPx = ref<number | null>(null);
 const layout = usePanelLayout({
   nav,
   isDesktop,
@@ -432,6 +437,7 @@ const layout = usePanelLayout({
     measure: measureSheet,
     dragging: sheet.dragging,
     peekPx: sheetPeekPx,
+    aimPx: sheetAimPx,
   },
   follows,
 });
@@ -1011,6 +1017,22 @@ const sheetExpectFull = computed(() => {
   }
   return false;
 });
+watch(
+  () =>
+    lieuAimPx({
+      mode: sheetFitMode.value,
+      lieuRaised: !isDesktop.value && Boolean(selectedPlace.value) && sheetOpen.value,
+      fitted: sheetFitted.value,
+      shownPx: sheetShownPx.value,
+      hold: sheetFitHold.value,
+      expectFull: sheetExpectFull.value,
+      // The aim decided last: a hold keeps it (re-reading it after a change
+      // gives the same aim back).
+      prev: sheetAimPx.value,
+    }),
+  (px) => (sheetAimPx.value = px),
+  { immediate: true },
+);
 if (__TEST_TOOLS__) {
   // `window.__acSheet()`: the phone's sheet as measured last — raised or not,
   // the fit's mode, the box, the content, the raised and lowered offsets,
@@ -1026,7 +1048,9 @@ if (__TEST_TOOLS__) {
     fitted: sheetFitted.value,
     hold: sheetFitHold.value,
     expectFull: sheetExpectFull.value,
-    // What the camera is told to keep clear: never the raised sheet's height.
+    aimPx: sheetAimPx.value,
+    // What the camera is told to keep clear: the raised sheet's height only
+    // under « Ajusté, centré », for an open lieu (`aimPx`).
     mapPadding: { ...mapPadding.value },
   });
   const w = window as unknown as { __acSheet?: () => unknown };
@@ -1092,7 +1116,7 @@ function retryAll() {
       '--sheet-peek': `${sheetPeekPx}px`,
       '--sheet-shown': `${sheetShownPx}px`,
       '--sheet-tools': sheetToolsPx === null ? undefined : `${sheetToolsPx}px`,
-      '--sheet-follow': motionNow() === 'short' ? '0s' : undefined,
+      '--sheet-follow': sheetRefit ? '0s' : undefined,
       '--panel-cover': `${panelCover}px`,
     }"
   >
@@ -1488,9 +1512,10 @@ function retryAll() {
   /* The lowered sheet covers the map's bottom edge, which is where mapbox puts
      the zoom buttons, its logo and the attribution — lift them clear of it;
      over a raised sheet shorter than the screen, clear of that sheet's top
-     (`--sheet-shown`), moving with it as it rises, refits and lowers — in one
-     step under a short motion (`--sheet-follow`, read at the same render: a
-     weak device, reduced motion asked), as the sheet's own refit. */
+     (`--sheet-shown`), moving with it as it rises, refits and lowers: eased
+     on the sheet's own curve, in one step when the sheet's refit is made in
+     one (`--sheet-follow`, the sheet's `sheetRefit`, read at the same
+     render). */
   .geo-map :deep(.mapboxgl-ctrl-bottom-left),
   .geo-map :deep(.mapboxgl-ctrl-bottom-right) {
     bottom: var(--sheet-peek, 4.5rem);

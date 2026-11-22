@@ -48,7 +48,8 @@ export interface BottomSheetInputs {
   listEl: Ref<HTMLElement | null>;
   /** The list's content (`.panel-list-body`), whatever the scroller shows. */
   bodyEl: Ref<HTMLElement | null>;
-  /** « Ajusté » or « Plein » (sheetFitSwitch), read at each measure. */
+  /** « Ajusté », « Ajusté, centré » or « Plein » (sheetFitSwitch), read at
+   *  each measure. */
   fitMode: () => SheetFitMode;
   /** Something the sheet shows is loading: a raised sheet may grow, not shrink.
    *  Read at a measure and watched from the mount on, never before. */

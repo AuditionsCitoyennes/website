@@ -331,8 +331,9 @@ onBeforeUnmount(() => {
   left: 1rem;
   /* Above the Témoignages page's phone sheet when it stands short and leaves
      the map room (`--ac-sheet-tools`, set by geo-nav GeoNav: its top), over
-     the zoom buttons gone up there with it; low on the screen otherwise. In
-     one step under a short motion (`--ac-sheet-tools-follow`, set with it). */
+     the zoom buttons gone up there with it; low on the screen otherwise. It
+     moves as the sheet does: in one step when the sheet's refit is made in
+     one (`--ac-sheet-tools-follow`, set with it), eased otherwise. */
   bottom: max(
     calc(2.5rem + env(safe-area-inset-bottom, 0px)),
     calc(var(--ac-sheet-tools, -100vh) + 7.5rem)

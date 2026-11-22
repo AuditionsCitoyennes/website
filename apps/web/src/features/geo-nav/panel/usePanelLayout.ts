@@ -24,12 +24,15 @@ export interface PanelLayoutInputs {
   /** The panel (`.panel`). */
   panelEl: Ref<HTMLElement | null>;
   /** The phone's sheet: its strip (measured with the panel), its measure, whether
-   *  a finger is on it, the height it leaves showing when lowered. */
+   *  a finger is on it, the height it leaves showing when lowered, and how much
+   *  of the screen's bottom an open lieu's pin is kept clear of under
+   *  « Ajusté, centré » (null: the top strip; sheetFit lieuAimPx). */
   sheet: {
     peekEl: Ref<HTMLElement | null>;
     measure: () => void;
     dragging: () => boolean;
     peekPx: Ref<number>;
+    aimPx?: Ref<number | null>;
   };
   /** No filters on: a gesture that moves the map closes the lieu
    *  (model/lieuFollow) — a desktop's panel stays where it is meanwhile,
@@ -182,20 +185,30 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
       return { top: 60, bottom: 60, left: 60, right: PANEL_BASE_PX + PANEL_GAP_PX };
     // Phone. Raised over a lieu, the place is parked in the strip at the top of
     // the map, where its pin stays in sight above the text: under a full sheet
-    // (« Plein », an audition open, a long lieu) that strip is all the map
-    // that shows. A short fitted sheet (« Ajusté », a lieu of a few
-    // auditions) leaves more map below the pin, empty; the pin stays in the
-    // top strip all the same, on purpose: the padding is the same whatever
-    // the sheet's height, so the map does not move as the sheet refits
-    // (opening an audition makes it full).
+    // (« Plein », a long lieu, while an opened audition's text is on its way
+    // — a long text keeps it full) that strip is all the map that shows.
+    // A short fitted sheet (« Ajusté », a lieu of a few auditions) leaves
+    // more map below the pin, empty; the pin stays in the top strip all the
+    // same: the padding is the same whatever the sheet's height, so the map
+    // does not move as the sheet refits. Under « Ajusté, centré » the pin
+    // goes to the middle of the map left above a short sheet instead
+    // (`aimPx`): the map moves with the sheet's rest, once what it shows is
+    // in (useMapCamera re-aims a flight still on its way).
     const h = viewportH.value;
+    const aim = sheet.aimPx?.value ?? null;
     if (selectedPlace.value && sheetOpen.value)
-      return { top: 24, bottom: Math.max(0, h - 70), left: 30, right: 30 };
+      return {
+        top: 24,
+        bottom: Math.max(0, aim === null ? h - 70 : Math.min(h - 70, aim + 20)),
+        left: 30,
+        right: 30,
+      };
     // Otherwise frame for the LOWERED sheet — the only state in which the map is
     // sure to be on screen. Raising the sheet over a list therefore moves
     // nothing. Neither reads the raised sheet's height (« Ajusté »,
     // useBottomSheet: as tall as its content), on purpose: the map never moves
-    // as the sheet refits, the map shown above a short sheet is extra room only.
+    // as the sheet refits over a list, the map shown above a short sheet is
+    // extra room only.
     return { top: 30, bottom: sheet.peekPx.value + 20, left: 36, right: 36 };
   });
 
