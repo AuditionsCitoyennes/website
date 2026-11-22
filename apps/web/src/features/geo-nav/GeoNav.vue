@@ -30,6 +30,8 @@ import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
 import { slowWaitPlace } from "./model/retryNotice";
 import { createNavState, type Insets, type MapView } from "./navState";
 import { bootCurtainCover } from "./bootListSwitch";
+import { panelHeldAtBoot } from "./panelBoot";
+import { panelBootMode } from "./panelBootSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
@@ -157,10 +159,10 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 
 // ---- Boot overlay ------------------------------------------------------------
 // A cold load shows an unstyled map, tiles popping in, and an empty panel before
-// anything is presentable. Cover the map (and the panel too, with the switch's
-// « Rideau » or on the home page's card: `bootCover` below), and lift once the
-// pieces the FIRST
-// view needs are in: the basemap painted (GeoDrillMap's `ready`), the
+// anything is presentable. Cover the map (and the panel too on the home page's
+// card: `bootCover` below; on the page the panel is held out of sight
+// meanwhile: `panelHeld`), and lift once the pieces the FIRST view needs are
+// in: the basemap painted (GeoDrillMap's `ready`), the
 // testimonies, and the outline files that view is drawn from — their boot
 // (root.json, k/FR: the country and its régions). Départements and communes
 // come on demand when drilling, so waiting on them here would just hold the
@@ -184,9 +186,19 @@ watch(
 // a loading screen is worse than a rough first paint.
 const bootCap = window.setTimeout(() => (booting.value = false), 10_000);
 onBeforeUnmount(() => clearTimeout(bootCap));
-// What the curtain covers: the map's box alone, the panel usable over it as
-// soon as its rows are in (bootListSwitch), or the whole card on the home page.
+// What the curtain covers: the map's box alone, the panel over it
+// (bootListSwitch), or the whole card on the home page.
 const bootCover = computed(() => bootCurtainCover(props.preview));
+// Under that curtain the panel is held out of sight (panelBoot, the DEV
+// switch's « Après le chargement »), so that only the loading placeholder
+// shows, and comes in as the curtain leaves: the same latch, so whatever
+// lifts the curtain (the map ready or unavailable, the outlines late, the
+// testimonies failing, the cap) shows the panel, and it never stays hidden.
+// Held, it keeps its box: the sheet's measures and the camera's padding run as
+// once it shows (GeoPanel `held`).
+const panelHeld = computed(() =>
+  panelHeldAtBoot({ mode: panelBootMode, booting: booting.value, preview: !!props.preview }),
+);
 /** France under the curtain's spinner: metropolitan France and its régions,
  *  muted, a picture in the map's box at the first paint, until the live map
  *  lifts the curtain (its own small file). */
@@ -1119,6 +1131,8 @@ if (__TEST_TOOLS__) {
     raisedPx: sheet.sheetRaisedPx.value,
     loweredPx: sheet.sheetLoweredPx.value,
     peekPx: sheetPeekPx.value,
+    // Held out of sight under the boot curtain (panelBoot).
+    held: panelHeld.value,
     fitted: sheetFitted.value,
     hold: sheetFitHold.value,
     expectFull: sheetExpectFull.value,
@@ -1260,9 +1274,10 @@ function retryAll() {
     <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over
          the map's box only (`bootCover` "map", bootListSwitch): no z-index of
          its own and before the panel in the page, so it lies under the panel,
-         which is usable as soon as its rows are in; its words centred in the
-         part of the map the panel leaves free. Over map AND panel ("all": the
-         card, or the switch's « Rideau »): above everything, so nothing
+         which is held out of sight meanwhile (`panelHeld`; under the DEV
+         switch's « Tout de suite », usable as soon as its rows are in); its
+         words centred in the part of the map the panel leaves free. Over map
+         AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
     <Transition name="boot">
@@ -1287,6 +1302,8 @@ function retryAll() {
       <GeoPanel
         v-show="!preview"
         ref="panelCmp"
+        :held="panelHeld"
+        :peek-px="sheetPeekPx"
         :wide="panelWide"
         :folded="panelFolded"
         :flush="panelFlush"

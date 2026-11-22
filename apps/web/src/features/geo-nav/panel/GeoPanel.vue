@@ -9,12 +9,21 @@
 // exposed. The aside's
 // own listeners (a click, a key, the wheel, the pointer resting on it) are
 // GeoNav's, attached to the root as fallthrough attributes.
-import { ref, type StyleValue } from "vue";
+import { ref, watch, type StyleValue } from "vue";
 import type { GeoUnit } from "@/features/geo";
-import { motionNow } from "@/shared/device/motion";
+import { deviceTier } from "@/shared/device/deviceTier";
+import { motionNow, prefersReducedMotion } from "@/shared/device/motion";
+import { panelEntrance } from "../panelBoot";
 import PanelBreadcrumb from "./PanelBreadcrumb.vue";
 
-defineProps<{
+const props = defineProps<{
+  /** Held out of sight under the page's boot curtain (GeoNav `panelHeld`,
+   *  panelBoot.ts): hidden but laid out (`.panel.held`), inert, so that the
+   *  sheet's measures and the camera's padding run as once it shows. */
+  held?: boolean;
+  /** The lowered sheet's strip on screen (px): how far it rises from as the
+   *  hold lifts. */
+  peekPx?: number;
   /** An audition is open on a desktop: the panel widens (`.panel.wide`). */
   wide: boolean;
   /** The wide panel slid aside while the map is used (`.panel.folded`). */
@@ -71,6 +80,29 @@ const listEl = ref<HTMLElement | null>(null);
  *  whatever the scroller shows (a phone's sheet fits it). */
 const bodyEl = ref<HTMLElement | null>(null);
 defineExpose({ el, peekEl, safeEl, listEl, bodyEl });
+
+// The hold lifted (the curtain leaving): the panel comes in — on a phone the
+// strip rising from the screen's edge, on a desktop the panel sliding in from
+// the right, a short fade on a weak device, at once under reduced motion
+// (panelEntrance). Started after the render that showed it, before its first
+// paint: no frame of the panel in place first. Web Animations on `opacity`
+// and `translate` only: the panel's own CSS transitions (the sheet's and the
+// fold's transform, a desktop's width) are left alone.
+watch(
+  () => props.held,
+  (held, was) => {
+    const aside = el.value;
+    if (held || !was || !aside || typeof aside.animate !== "function") return;
+    const parts = panelEntrance({
+      phone: props.phone,
+      peekPx: props.peekPx ?? 0,
+      reduced: prefersReducedMotion(),
+      tier: deviceTier(),
+    });
+    for (const p of parts) aside.animate(p.keyframes, { duration: p.duration, easing: p.easing });
+  },
+  { flush: "post" },
+);
 </script>
 
 <template>
@@ -78,6 +110,7 @@ defineExpose({ el, peekEl, safeEl, listEl, bodyEl });
     ref="el"
     class="panel glass-strong elevation-xl"
     :class="{
+      held,
       wide,
       folded,
       flush,
@@ -88,6 +121,7 @@ defineExpose({ el, peekEl, safeEl, listEl, bodyEl });
       'sheet-refit': sheetRefit,
     }"
     :style="sheetStyle"
+    :inert="held || undefined"
   >
     <span ref="safeEl" class="sheet-safe" aria-hidden="true"></span>
     <header class="panel-head">
@@ -188,6 +222,12 @@ defineExpose({ el, peekEl, safeEl, listEl, bodyEl });
 .panel.panel-arrive-enter-from {
   opacity: 0;
   translate: 2.5rem 0;
+}
+
+/* Held under the page's boot curtain: out of sight, its box kept (never
+   `display: none`, which the sheet's measures cannot read). */
+.panel.held {
+  visibility: hidden;
 }
 
 .panel.panel-arrive-leave-active {

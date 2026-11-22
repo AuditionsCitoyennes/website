@@ -137,15 +137,18 @@ function focusTitle() {
   if (!title) return false;
   title.tabIndex = -1;
   title.focus({ preventScroll: true });
-  return true;
+  // Not taken while the panel is held out of sight under the boot curtain
+  // (inert: geo-nav panelBoot): the watch below waits for the hold to lift.
+  return document.activeElement === title;
 }
 
 let stopTitleWatch: (() => void) | null = null;
 
 /**
- * The explorer's code is still coming: the title does not exist yet. It gets
- * the focus when it appears — unless the visitor has moved the focus meanwhile
- * (anywhere but the page's body), or ten seconds have gone by.
+ * The explorer's code is still coming: the title does not exist yet, or the
+ * panel is held out of sight while the map boots (inert). It gets the focus
+ * when it appears or the hold lifts — unless the visitor has moved the focus
+ * meanwhile (anywhere but the page's body), or ten seconds have gone by.
  */
 function focusTitleWhenIn() {
   const el = stageEl.value;
@@ -161,7 +164,12 @@ function focusTitleWhenIn() {
     if (focusTitle()) stop();
   });
   const timer = window.setTimeout(stop, 10_000);
-  observer.observe(el, { childList: true, subtree: true });
+  observer.observe(el, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["inert"],
+  });
   document.addEventListener("focusin", stop, true);
   stopTitleWatch = stop;
 }

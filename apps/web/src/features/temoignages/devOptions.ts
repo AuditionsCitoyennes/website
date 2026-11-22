@@ -3,7 +3,7 @@
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (map/fallbackSwitch,
-// geo-nav/panel/sheetFitSwitch, analyses/devSwitch, shared/device/deviceTier,
+// geo-nav/panel/sheetFitSwitch, geo-nav/panelBootSwitch, analyses/devSwitch, shared/device/deviceTier,
 // map/graphicsSwitch). Under the
 // « Appareil » row the dialog lists what the page knows of the device
 // (`tierFacts`). Testing tools only: imported by DevOptionsMenu.vue alone, so
@@ -30,6 +30,7 @@ export type DevKey =
   | "ac:map-fallback"
   | "ac:sheet-fit"
   | "ac:sheet-late"
+  | "ac:panel-boot"
   | "ac:dpr"
   | "ac:frame-measure";
 
@@ -72,7 +73,8 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "panneau",
     title: "Panneau",
-    intro: "Ce que fait le panneau des témoignages sur un téléphone.",
+    intro:
+      "Ce que fait le panneau des témoignages au chargement de la page et, sur un téléphone, sa hauteur.",
   },
   {
     id: "analyses",
@@ -134,6 +136,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Avec « Ajusté, centré » seulement, sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé s'il reste tout entier visible au-dessus du panneau : un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau en cache une partie (souvent après un toucher depuis une longue liste, le panneau en haut, sur un territoire haut comme le Bénin), la carte le recadre dans les deux cas.",
     reloads: false,
     defaultId: "rester",
+  },
+  {
+    key: "ac:panel-boot",
+    section: "panneau",
+    label: "Au chargement",
+    choices: [
+      { id: "apres", label: "Après le chargement" },
+      { id: "tout-de-suite", label: "Tout de suite" },
+    ],
+    explain:
+      "Pendant que la carte se prépare, à l'ouverture de la page des témoignages, sur un téléphone comme sur un ordinateur. « Après le chargement » (par défaut) ne montre que l'image d'attente : le panneau arrive quand elle s'efface, en montant du bas de l'écran sur un téléphone, en glissant depuis la droite sur un ordinateur. « Tout de suite » le montre dès le début, comme avant : sa liste se lit plus tôt, pendant que la carte finit de se préparer. Rien ne change en revenant sur la page quand la carte est déjà prête.",
+    reloads: true,
+    defaultId: "apres",
   },
   {
     key: "ac:analyses-pending",
