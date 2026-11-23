@@ -11,7 +11,11 @@
 //
 // France is drawn as the map shows it when the curtain starts leaving: flat
 // where the map then tilts in its entrance, tilted where it tilts in one step
-// first (the device's motion, read as the camera will read it).
+// first (the device's motion, read as the camera will read it, the WebGL
+// renderer included). Where nobody has asked for the renderer yet, the
+// curtain asks after its first frame: the probe (a throwaway WebGL context)
+// can take a long moment, a second or more where the processor draws, and
+// the spinner and the words do not wait for it; France fades in after it.
 //
 // France is `poster` (CurtainPoster.vue, its own file). The spinner and the
 // words show as soon as the box is measured: their place does not depend on
@@ -31,7 +35,7 @@ import {
   type Rect,
 } from "@/shared/boot/curtainFrame";
 import { bootPosterMode } from "@/shared/boot/bootPosterSwitch";
-import { deviceTier, probeRenderer } from "@/shared/device/deviceTier";
+import { deviceTier, probeRenderer, rendererKnown } from "@/shared/device/deviceTier";
 import { motionFor, prefersReducedMotion, type Motion } from "@/shared/device/motion";
 
 const props = defineProps<{
@@ -45,10 +49,22 @@ const props = defineProps<{
   bare?: boolean;
 }>();
 
+/** The map's entrance (features/map useMapCamera.beginIntro reads motionNow
+ *  then): the renderer is the probe the map's code asks for before the map
+ *  starts (graphicsSwitch, cacheBudget: one probe, kept), so both stages and
+ *  the camera read the same tier. */
+const entrance = (): Motion => motionFor(deviceTier(probeRenderer()), prefersReducedMotion());
+
+/** The entrance, once known (null: the probe waits for the visit's first
+ *  curtain frame; a curtain after it asks at once). Only "carte" reads it. */
+const motion = shallowRef<Motion | null>(
+  bootPosterMode !== "carte" ? "short" : rendererKnown() || painted ? entrance() : null,
+);
+
 /** France not there at the first render: it fades in when it comes, once
  *  (the stage moved from the card to the page re-inserts it, which would
  *  replay the fade). */
-const posterLate = ref(!props.poster);
+const posterLate = ref(!props.poster || !motion.value);
 
 const root = ref<HTMLElement | null>(null);
 const safe = ref<HTMLElement | null>(null);
@@ -74,22 +90,30 @@ function measure() {
 }
 
 let ro: ResizeObserver | null = null;
+let gone = false;
 onMounted(() => {
   measure();
+  // The map's code may have asked meanwhile (GeoDrillMap creates its map
+  // as it mounts); else after this first frame is painted (a task queued
+  // from its animation frame).
+  if (!motion.value && rendererKnown()) motion.value = entrance();
+  else if (!motion.value)
+    requestAnimationFrame(() => {
+      painted = true;
+      setTimeout(() => {
+        if (!gone) motion.value = entrance();
+      }, 0);
+    });
   // The card growing into the page, a turned phone, a resized window.
   if (typeof ResizeObserver !== "undefined" && root.value) {
     ro = new ResizeObserver(measure);
     ro.observe(root.value);
   }
 });
-onBeforeUnmount(() => ro?.disconnect());
-
-/** The map's entrance (features/map useMapCamera.beginIntro reads motionNow
- *  then). The renderer is asked for here, as the map's code asks before the
- *  map starts (graphicsSwitch, cacheBudget: one probe, kept), so both stages
- *  and the camera read the same tier. Only once France is drawn: the spinner
- *  and the words do not wait for the probe. */
-const entrance = (): Motion => motionFor(deviceTier(probeRenderer()), prefersReducedMotion());
+onBeforeUnmount(() => {
+  gone = true;
+  ro?.disconnect();
+});
 
 const SAME_FOR_BOTH: CurtainStage = { stage: "stage" };
 const layout = computed(() => {
@@ -102,7 +126,7 @@ const layout = computed(() => {
     preview: !!props.preview,
     peekPx: CURTAIN_PEEK_PX + b.safe,
     mode: bootPosterMode,
-    motion: props.poster && bootPosterMode === "carte" ? entrance() : "short",
+    motion: motion.value ?? "short",
     // Read only for "avant": the boot curtain's live measures, a new object
     // at each of its renders, must not redraw the others.
     from: bootPosterMode === "avant" ? props.from : SAME_FOR_BOTH,
@@ -127,13 +151,18 @@ watch(spin, (el) => {
 });
 </script>
 
+<script lang="ts">
+/** A curtain frame has been painted in this visit. */
+let painted = false;
+</script>
+
 <template>
   <div ref="root" class="map-curtain" :class="{ bare }">
     <span ref="safe" class="curtain-safe" aria-hidden="true"></span>
     <template v-if="layout">
       <component
         :is="poster"
-        v-if="poster"
+        v-if="poster && motion"
         :class="{ 'curtain-poster-late': posterLate }"
         :poster="layout.poster"
         @animationend="posterLate = false"
