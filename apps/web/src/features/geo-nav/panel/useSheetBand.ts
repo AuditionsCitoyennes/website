@@ -41,6 +41,11 @@
 //   alone would shrink the rectangle the scope is read off, and a child
 //   filling most of the lowered map would become the scope at rest, the
 //   list swapping under the visitor's finger; the next command takes it;
+// - a sheet lowered by the visitor's own use of the map (« Carte touchée »,
+//   sheetMap.ts: a drag, a pinch, a tap off a lieu) keeps the band as the
+//   camera's padding ("keep"): the camera is theirs and nothing moves it by
+//   itself after they let go; the next command (a tapped territory's own
+//   flight: its band, none under the lowered sheet) or a raise takes it off;
 // - a lowered (or full) sheet takes the band off at once, whatever is still
 //   on its way: no band padding under it, no move by itself seconds later;
 // - a hand on the map waits to be let go; with filters on, the filters'
@@ -98,6 +103,9 @@ export interface SheetBandInputs {
   /** The band applied: GeoNav's, the phone camera's padding while set
    *  (usePanelLayout), the ring set aside (useAnalysesRing). */
   applied: ShallowRef<Insets | null>;
+  /** The sheet came down for the visitor's use of the map, no command since
+   *  (usePanelLayout sets it, a raise clears it there; a command here). */
+  loweredByMap?: Ref<boolean>;
   camera: {
     onBeforeCommand: (hook: () => void) => void;
     flyToUnit: (unit: GeoUnit, animate: boolean) => void;
@@ -158,6 +166,7 @@ export function useSheetBand(inputs: SheetBandInputs) {
     laterTimer = 0;
     stayed = false;
     heldSinceCommand = inputs.hold();
+    if (inputs.loweredByMap) inputs.loweredByMap.value = false;
     applied.value = wanted.value;
   }
   camera.onBeforeCommand(apply);
@@ -192,6 +201,7 @@ export function useSheetBand(inputs: SheetBandInputs) {
       inHands: !!mapCmp.value?.inUserHands(),
       movedSinceCommand: camera.movedSinceCommand(),
       short: motionNow() === "short",
+      byMap: !!inputs.loweredByMap?.value,
     });
     last.value = how;
     switch (how) {

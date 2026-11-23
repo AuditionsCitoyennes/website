@@ -648,11 +648,13 @@ export function useMapPins({
   }
 
   /** The canvas `click`: inside a unit's boundary SELECTS the unit — the whole
-   *  territory is the click target, the pin is just its label. */
-  function onClick(e: mapboxgl.MapMouseEvent) {
+   *  territory is the click target, the pin is just its label. False: no unit
+   *  under it (GeoDrillMap's `emptyTap`). */
+  function onClick(e: mapboxgl.MapMouseEvent): boolean {
     const ll = readPointer(e.lngLat, e.point);
     const id = unitAt(ll.lng, ll.lat, e.point);
     if (id) onUnitClick(id);
+    return Boolean(id);
   }
 
   /** The container was resized: a pill's size follows the viewport's width

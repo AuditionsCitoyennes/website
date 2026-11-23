@@ -20,6 +20,11 @@ export interface MapUnit {
   geometry?: unknown;
 }
 
+/** Who started a gesture that moves the map (GeoDrillMap's `userGesture`): a
+ *  hand (a finger, the mouse, the wheel), the keys on a focused map, or the
+ *  map's own zoom buttons. */
+export type MapGestureSource = "hand" | "keys" | "controls";
+
 /** A camera command. `key` changes each time the parent wants a move. */
 export interface CameraCmd {
   key: number;

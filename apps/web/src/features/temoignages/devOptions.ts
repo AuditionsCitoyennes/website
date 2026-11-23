@@ -32,6 +32,7 @@ export type DevKey =
   | "ac:sheet-fit"
   | "ac:sheet-late"
   | "ac:panel-boot"
+  | "ac:sheet-map"
   | "ac:dpr"
   | "ac:frame-measure";
 
@@ -164,6 +165,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Pendant que la carte se prépare, à l'ouverture de la page des témoignages, sur un téléphone comme sur un ordinateur. « Après le chargement » (par défaut) ne montre que l'image d'attente : le panneau arrive quand elle s'efface, en montant du bas de l'écran sur un téléphone, en glissant depuis la droite sur un ordinateur. « Tout de suite » le montre dès le début, comme avant : sa liste se lit plus tôt, pendant que la carte finit de se préparer. Rien ne change en revenant sur la page quand la carte est déjà prête.",
     reloads: true,
     defaultId: "apres",
+  },
+  {
+    key: "ac:sheet-map",
+    section: "panneau",
+    label: "Carte touchée",
+    choices: [
+      { id: "baisser", label: "Baisser le panneau" },
+      { id: "rien", label: "Ne rien faire" },
+    ],
+    explain:
+      "Sur un téléphone, quand le panneau des témoignages est remonté et qu'on se sert de la carte. « Baisser le panneau » (par défaut) le redescend dès que la carte bouge sous les doigts (glisser, pincer, tourner, toucher deux fois) ou qu'on touche un endroit ou un territoire ; toucher un lieu le remonte toujours avec ses témoignages. « Ne rien faire » le laisse remonté, comme avant, sauf quand un lieu est ouvert. Rien ne change sur un ordinateur.",
+    reloads: false,
+    defaultId: "baisser",
   },
   {
     key: "ac:analyses-pending",

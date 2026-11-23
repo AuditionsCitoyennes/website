@@ -302,6 +302,9 @@ export interface BandReframeInputs {
   movedSinceCommand: boolean;
   /** shared/device/motion says "short" (a weak device, reduced motion). */
   short: boolean;
+  /** The sheet came down because the visitor used the map (sheetMap.ts),
+   *  and no camera command has been given since. */
+  byMap?: boolean;
 }
 
 /** What a new band asks of the camera (useSheetBand), the band applied
@@ -313,7 +316,9 @@ export interface BandReframeInputs {
  *  map left where the visitor put it, the band as applied (the sheet still
  *  raised; none when raised short again after a lowering: a band eased in
  *  alone would shrink the rectangle the scope is read off, and a child
- *  would become the scope at rest), until the next command; "drop" — no fit may come and the band wanted is none (the sheet
+ *  would become the scope at rest; the sheet lowered by the visitor's use
+ *  of the map: the camera theirs, nothing moved by itself), until the next
+ *  command; "drop" — no fit may come and the band wanted is none (the sheet
  *  lowered after the visitor moved the map, or in the lieu zone): the band
  *  goes alone, the map easing to the lowered frame's padding as it eases
  *  for any padding (what the visitor centred above the sheet comes to the
@@ -338,6 +343,10 @@ export type BandReframe =
 
 export function bandReframe(i: BandReframeInputs): BandReframe {
   if (i.dialog) return "dialog";
+  // Lowered by the visitor's own use of the map: the camera is theirs, and
+  // nothing moves it by itself — the band stays the camera's padding under
+  // the lowered sheet until the next command (or a raise) takes it off.
+  if (i.byMap && i.toNone) return "keep";
   if (i.readingPlace || i.microZone) return i.toNone ? "drop" : "hold";
   // A late list in, the flight landed, the territory still all in sight.
   const lateStays =

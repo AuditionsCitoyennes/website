@@ -59,6 +59,7 @@ function setup(late: "rester" | "recentrer" = "rester") {
   const cmds: string[] = [];
   let inHook = false;
   const applied = shallowRef<Insets | null>(null);
+  const byMap = ref(false);
   const changes: { inHook: boolean; to: Insets | null }[] = [];
   const command = (what: string) => {
     cmds.push(what);
@@ -95,6 +96,7 @@ function setup(late: "rester" | "recentrer" = "rester") {
       listMode: ref(false),
       mapCmp: ref({ inUserHands: () => false }) as unknown as Inputs["mapCmp"],
       applied,
+      loweredByMap: byMap,
       camera: {
         onBeforeCommand: (h) => hooks.push(h),
         flyToUnit: (_u, animate) => command(animate ? "fit" : "instant"),
@@ -115,6 +117,7 @@ function setup(late: "rester" | "recentrer" = "rester") {
   return {
     band,
     applied,
+    byMap,
     sheetOpen,
     shownPx,
     hold,
@@ -263,6 +266,50 @@ test("lowered after a hand moved the map: the band goes alone, with no command",
   // The next command takes the band of its moment.
   t.command("tap");
   assert.equal((t.applied.value as Insets | null)?.bottom, 212);
+  t.done();
+});
+
+test("lowered by the visitor's use of the map: the band stays, nothing moves until a command", async () => {
+  for (const moved of [false, true]) {
+    const t = setup();
+    await raised(t);
+    // A drag (the map moved) or a tap on an empty spot (it did not): the
+    // sheet comes down for the map (usePanelLayout's lowering).
+    t.moved.value = moved;
+    t.byMap.value = true;
+    t.sheetOpen.value = false;
+    await t.settle();
+    assert.deepEqual(t.cmds, []);
+    assert.equal(t.band.last.value, "keep");
+    assert.deepEqual(t.applied.value, { top: 63, bottom: 328, left: 36, right: 36 });
+    const changed = t.changes.length;
+    // Asked again with nothing new (a hold coming and going): still nothing.
+    t.hold.value = true;
+    await t.settle();
+    t.hold.value = false;
+    await t.settle();
+    assert.deepEqual(t.cmds, []);
+    assert.equal(t.changes.length, changed);
+    // The next command (a tapped territory's flight) takes the band of its
+    // moment, none under the lowered sheet, and the mark with it.
+    t.command("tap");
+    assert.equal(t.applied.value, null);
+    assert.equal(t.byMap.value, false);
+    assert.ok(t.changes.at(-1)!.inHook);
+    t.done();
+  }
+});
+
+test("a territory tapped: lowered for the map in the same tick as its flight, one move", async () => {
+  const t = setup();
+  await raised(t);
+  t.byMap.value = true;
+  t.sheetOpen.value = false;
+  t.command("tap");
+  await t.settle();
+  assert.deepEqual(t.cmds, ["tap"]);
+  assert.equal(t.applied.value, null);
+  assert.ok(t.changes.every((c) => c.inHook));
   t.done();
 });
 

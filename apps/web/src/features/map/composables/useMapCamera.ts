@@ -16,7 +16,7 @@ import { plateauHeightM, pointInPolygon, polysOf, toLngLat, toLngLatBounds } fro
 import { createFlightEnd } from "../lib/flightEnd";
 import { fitHullOf } from "../lib/projection";
 import { WALL_OVERSHOOT } from "../gl/mesh";
-import type { CameraCmd } from "../types";
+import type { CameraCmd, MapGestureSource } from "../types";
 import { zoomForFill, type Insets, type MapPadding } from "./useMapView";
 
 /** The camera a fit lands on, for the slabs of the unit it framed (`key`: its
@@ -95,6 +95,10 @@ export function useMapCamera({
   // gesture handlers, i.e. it kills the drag or the pinch in progress. So a
   // padding change that arrives meanwhile is owed, and paid when they let go.
   let userHolding = false;
+  /** Who started the gesture going on (or the last one), and its number:
+   *  each user `movestart` is a new gesture (see onMoveStart). */
+  let gesture: MapGestureSource = "hand";
+  let gestureSeq = 0;
   let padOwed = false;
   let padTimer = 0;
   /** Pointers currently down on the map: a finger at rest is a gesture to come. */
@@ -704,6 +708,13 @@ export function useMapCamera({
   function onMoveStart(e: { originalEvent?: Event }): boolean {
     const oe = e.originalEvent;
     if (!oe || NOT_A_GESTURE.test(oe.type)) return false;
+    // The keys on a focused map, the zoom buttons (their click), or a hand.
+    gesture = /^key/.test(oe.type)
+      ? "keys"
+      : oe.target instanceof Element && oe.target.closest(".mapboxgl-ctrl")
+        ? "controls"
+        : "hand";
+    gestureSeq++;
     userHolding = true; // until the `moveend` every such start is followed by
     fitCam = null; // the camera is the user's now: no fit to size slabs for
     return true;
@@ -757,6 +768,13 @@ export function useMapCamera({
     flightEndAt: () => flightEnd.at(),
     /** The user is moving the camera (a gesture's `movestart` to its `moveend`). */
     userHolding: () => userHolding,
+    /** Who started the user's latest gesture (onMoveStart). */
+    gestureSource: () => gesture,
+    /** The user's latest gesture's number: a new `movestart`, a new one. */
+    gestureSeq: () => gestureSeq,
+    /** A number for a gesture that has no `movestart` of its own (the wheel,
+     *  the box zoom): each signal a gesture of its own. */
+    nextGestureSeq: () => ++gestureSeq,
     /** The cold-load intro has not played yet: the plateau holds, instant fits stay flat. */
     introPending: () => introPending,
     /** Unmount: a new map plays the intro again. */
