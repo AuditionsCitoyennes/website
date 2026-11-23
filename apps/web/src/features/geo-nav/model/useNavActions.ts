@@ -1,13 +1,20 @@
 // Actions (pins, rows, breadcrumb all fly the map; the scope follows): a unit
 // activated from the panel, a click on the map, a crumb, a lieu opened, a
 // result's lieu asked for from its dot.
-import { nextTick, type ComputedRef } from "vue";
+import { computed, nextTick, ref, type ComputedRef } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { perfBegin, perfOn } from "@/shared/perf/perf";
 import { perfTapAnswered, perfTapTargets } from "@/shared/perf/tapAnswer";
 import type { NavState } from "../navState";
 import type { PanelAudition } from "./auditions";
-import { auditionToOpen, type LieuAuditionsKnown } from "./lieuSingle";
+import {
+  AWAIT_LIST,
+  auditionToOpen,
+  foldsToList,
+  type LieuAuditionsKnown,
+  type LieuVia,
+} from "./lieuSingle";
+import { pinOpenMode } from "./pinOpenSwitch";
 import type { TapPending } from "./useTapPending";
 
 export interface NavActionsInputs {
@@ -17,6 +24,8 @@ export interface NavActionsInputs {
   camera: {
     flyToUnit: (unit: GeoUnit, animate: boolean, fresh?: boolean) => void;
     spotlightPlace: (unit: GeoUnit, arc?: boolean) => void;
+    /** A hand has moved the map since the last camera command (useCamera's). */
+    movedSinceCommand: () => boolean;
   };
   panel: {
     resultAuditions: ComputedRef<PanelAudition[]>;
@@ -33,6 +42,13 @@ export interface NavActionsInputs {
     listToTop: () => void;
     /** The keys to an audition's line once it is listed, if still `wanted`. */
     focusAudWhenListed: (id: string, wanted: () => boolean) => void;
+    /** The top of the open lieu's list opened once it is listed, if still
+     *  `wanted` (the server's lazy path: no list embedded in the tree). */
+    openTopWhenListed: (
+      lieuId: string,
+      wanted: () => boolean,
+      opened?: (id: string) => void,
+    ) => void;
   };
   /** The user has started moving the map (usePanelLayout's). */
   engageMap: () => void;
@@ -49,7 +65,30 @@ export function useNavActions(inputs: NavActionsInputs) {
     nav;
   const { flyToUnit, spotlightPlace } = camera;
   const { resultAuditions, toggleAud, isAudOpen, audToTop, keepAtTop } = panel;
-  const { findResultFurther, lieuAuditionsOf, listToTop, focusAudWhenListed } = panel;
+  const { findResultFurther, lieuAuditionsOf, listToTop, focusAudWhenListed, openTopWhenListed } =
+    panel;
+
+  /** The lieu's crumb and the back arrow fold the audition being read back
+   *  into the open lieu's list (model/lieuSingle's foldsToList: "premiere",
+   *  a lieu of several). */
+  const foldToList = computed(() => {
+    const id = selectedPlaceId.value;
+    const lieu = id && !listMode.value ? index.value.get(id) : undefined;
+    return foldsToList({
+      mode: pinOpenMode.value,
+      lieuOpen: !!lieu,
+      auditionOpen: openAuditions.value.size > 0,
+      count: lieu ? (lieuAuditionsOf(lieu)?.count ?? 0) : 0,
+    });
+  });
+
+  /** The lieu its pin opened with an audition to open at once (pinOpen's
+   *  "premiere": the top of its list, or its only audition), until GeoNav ends
+   *  the wait for that audition's text: the phone's sheet holds still
+   *  meanwhile and moves once (panel/sheetFit's textWait); a fold by its crumb
+   *  or the back arrow ends that wait (as GeoNav's line press does). Never set
+   *  under "liste": a lieu of one opened from its pin there stays as before. */
+  const pinOpened = ref<string | null>(null);
 
   /** The element the keys are on, when it was reached with them (Tab):
    *  a click or a tap focuses no :focus-visible element — the panel's own
@@ -77,9 +116,10 @@ export function useNavActions(inputs: NavActionsInputs) {
     perfBegin("drill-boundaries", unit.id, { via, level: unit.levelKey });
   }
 
-  function activate(unit: GeoUnit) {
+  /** `via`: a unit's row in the panel (UnitList's emit), or the map (onUnitClick). */
+  function activate(unit: GeoUnit, via: "panel" | "map" = "panel") {
     if (unit.levelKey === "place") {
-      openPlace(unit);
+      openPlace(unit, via);
       return;
     }
     selectTimed(unit, "activate");
@@ -114,16 +154,27 @@ export function useNavActions(inputs: NavActionsInputs) {
       });
       return;
     }
-    activate(u);
+    activate(u, "map");
   }
 
   function drillToCrumb(id: string) {
     const u = index.value.get(id);
     if (!u) return;
     // The LAST crumb can be the open lieu itself — a place can never become the
-    // scope; re-centre its spotlight instead (useful after panning away).
+    // scope; re-centre its spotlight instead (useful after panning away). With
+    // an audition of a lieu of several open under "premiere" (foldToList: the
+    // crumb, or the back arrow pointed at it), it also folds that audition
+    // back into the lieu's list, as a press on its line does — before the
+    // camera's command, so that command aims with the panel as narrow as the
+    // list leaves it.
     if (u.levelKey === "place") {
-      openPlace(u);
+      if (u.id === selectedPlaceId.value && foldToList.value) {
+        // The visitor's own fold: the sheet goes under the rule of any list
+        // from it on, no longer waiting on the pin's audition.
+        pinOpened.value = null;
+        for (const open of [...openAuditions.value]) void toggleAud(open, false);
+      }
+      openPlace(u, "crumb");
       return;
     }
     selectTimed(u, "crumb");
@@ -174,7 +225,7 @@ export function useNavActions(inputs: NavActionsInputs) {
     keepAtTop(audition);
   }
 
-  function openPlace(unit: GeoUnit) {
+  function openPlace(unit: GeoUnit, via: LieuVia = "panel") {
     if (listMode.value) {
       void openResultAt(unit);
       return;
@@ -197,18 +248,25 @@ export function useNavActions(inputs: NavActionsInputs) {
     // map would keep deferring to a hover that no longer exists.
     hoveredPanelId.value = null;
     // A lieu of one audition opens with it open (model/lieuSingle):
-    // its list would be one line to press. Opened as that line's press opens
-    // it, in the same tick — so the camera's one command below aims with the
-    // panel as wide as an open audition makes it, and the press's own return
-    // to the lieu is that command.
+    // its list would be one line to press; a lieu of several opened from its
+    // pin on the map opens with the top of its list open (model/pinOpen: the
+    // default), the list one press away — that line pressed folds it back.
+    // Opened as that line's press opens it, in the same tick — so the
+    // camera's one command below aims with the panel as wide as an open
+    // audition makes it, and the press's own return to the lieu is that
+    // command.
     // The list is read from the lieu's title: the scroll of the list before it
     // (a long text, a long list of lieux) would otherwise carry over, the new
     // content as tall when the audition's testimonies are already in.
     const only = auditionToOpen({
       newLieu,
       known: newLieu ? lieuAuditionsOf(unit) : null,
+      via,
+      mode: pinOpenMode.value,
     });
-    if (only) {
+    if (newLieu)
+      pinOpened.value = only && via === "map" && pinOpenMode.value === "premiere" ? unit.id : null;
+    if (only && only !== AWAIT_LIST) {
       // Opened from the keys (its dot or its row reached with Tab, then Enter
       // or Space), the keys go on in the panel, on the audition's line — as
       // after a press on that line: the screen reader reads it, open
@@ -231,7 +289,36 @@ export function useNavActions(inputs: NavActionsInputs) {
       });
     }
     spotlightPlace(unit);
+    if (only === AWAIT_LIST) {
+      // Its list is on its way (the server's lazy path): its top opens once it
+      // is listed — the lieu still the open one, nothing opened meanwhile and
+      // the map not moved by a hand since the command just above (useCamera's
+      // movedSinceCommand: a pan or a pinch too small to close the lieu
+      // counts) — the camera coming back to it as a line's press brings it.
+      // Nothing opens before: never one audition, then another. Asked after
+      // that command, so a hand move before the tap does not count.
+      const from = keyFocused();
+      openTopWhenListed(
+        unit.id,
+        () =>
+          selectedPlaceId.value === unit.id &&
+          openAuditions.value.size === 0 &&
+          !camera.movedSinceCommand(),
+        (top) => {
+          // Opened from the keys: the keys go on on its line (as below).
+          if (!from) return;
+          focusAudWhenListed(top, () => {
+            const at = document.activeElement;
+            return (
+              selectedPlaceId.value === unit.id &&
+              isAudOpen(top) &&
+              (at === from || at === document.body || at === null)
+            );
+          });
+        },
+      );
+    }
   }
 
-  return { activate, onUnitClick, drillToCrumb, openResultAt, openPlace };
+  return { activate, onUnitClick, drillToCrumb, openResultAt, openPlace, foldToList, pinOpened };
 }

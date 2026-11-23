@@ -43,7 +43,9 @@ import {
 } from "@/features/analyses";
 import {
   panelBootMode,
+  pinOpenMode,
   setPanelBootMode,
+  setPinOpenMode,
   setSheetFitMode,
   setSheetLateMode,
   sheetFitMode,
@@ -102,6 +104,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
   "ac:sheet-map": bind(() => sheetMapMode.value, setSheetMapMode),
+  "ac:pin-open": bind(() => pinOpenMode.value, setPinOpenMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

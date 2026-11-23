@@ -49,3 +49,11 @@ test("backTarget: does not mutate the trail", () => {
   assert.equal(backTarget(trail), france);
   assert.deepEqual(trail, [monde, france, ara]);
 });
+
+test("backTarget: toLast, with a lieu ending the trail: the lieu itself (its list)", () => {
+  const trail = [monde, france, ara, rhone, lyon, lyon7, lieu];
+  assert.equal(backTarget(trail, true), lieu);
+  // The audition folded, the arrow goes up from the list as before.
+  assert.equal(backTarget(trail, false), lyon7);
+  assert.equal(backTarget([monde], true), null);
+});

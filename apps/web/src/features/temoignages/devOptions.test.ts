@@ -34,6 +34,7 @@ const sheetFit = await import("../geo-nav/panel/sheetFit");
 const panelBoot = await import("../geo-nav/panelBoot");
 const bootPoster = await import("../../shared/boot/bootPosterSwitch");
 const sheetMap = await import("../geo-nav/panel/sheetMap");
+const pinOpen = await import("../geo-nav/model/pinOpen");
 
 const MODULES = {
   relief: "../map/relief/reliefSwitch.ts",
@@ -45,6 +46,7 @@ const MODULES = {
   bootPoster: "../../shared/boot/bootPosterSwitch.ts",
   graphics: "../map/graphicsSwitch.ts",
   sheetMap: "../geo-nav/panel/sheetMapSwitch.ts",
+  pinOpen: "../geo-nav/model/pinOpenSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -69,6 +71,7 @@ const KEYS: readonly DevKey[] = [
   "ac:dpr",
   "ac:frame-measure",
   "ac:sheet-map",
+  "ac:pin-open",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -82,7 +85,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 14);
+  assert.equal(DEV_OPTIONS.length, 15);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -158,6 +161,7 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:dpr": ["graphics", "setDprChoice"],
   "ac:frame-measure": ["graphics", "setFrameMeasure"],
   "ac:sheet-map": ["sheetMap", "setSheetMapMode"],
+  "ac:pin-open": ["pinOpen", "setPinOpenMode"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -214,6 +218,7 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:sheet-late"), [...sheetFit.SHEET_LATE_MODES]);
   assert.deepEqual(ids("ac:panel-boot"), [...panelBoot.PANEL_BOOT_MODES]);
   assert.deepEqual(ids("ac:sheet-map"), [...sheetMap.SHEET_MAP_MODES]);
+  assert.deepEqual(ids("ac:pin-open"), [...pinOpen.PIN_OPEN_MODES]);
   const shares = /export const SCALE_CHOICES = \[([^\]]*)\]/.exec(code("slabs"))![1];
   const scale = shares.split(",").map((v) => pct(Number(v)));
   assert.deepEqual(ids("ac:slab-size"), scale);
@@ -235,6 +240,7 @@ test("the default marked in each sentence is the module's", () => {
     "ac:dpr": graphics.DEFAULT_DPR,
     "ac:frame-measure": graphics.DEFAULT_FRAME_MEASURE,
     "ac:sheet-map": sheetMap.DEFAULT_SHEET_MAP,
+    "ac:pin-open": pinOpen.DEFAULT_PIN_OPEN,
   };
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
   // The stored choice's fallback and a production build's mode are the one constant.
@@ -251,6 +257,10 @@ test("the default marked in each sentence is the module's", () => {
   assert.match(
     code("sheetMap"),
     /\?\s*stored\(SHEET_MAP_KEY, SHEET_MAP_MODES, DEFAULT_SHEET_MAP\)\s*:\s*DEFAULT_SHEET_MAP/,
+  );
+  assert.match(
+    code("pinOpen"),
+    /\?\s*stored\(PIN_OPEN_KEY, PIN_OPEN_MODES, DEFAULT_PIN_OPEN\)\s*:\s*DEFAULT_PIN_OPEN/,
   );
   for (const o of DEV_OPTIONS) {
     assert.equal(o.defaultId, defaults[o.key], o.key);

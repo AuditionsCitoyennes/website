@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bySort, serverPanelAudition } from "./auditions";
+import { bySort, lieuListOrder, serverPanelAudition } from "./auditions";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -39,6 +39,23 @@ test("a lieu's list re-sorted by the panel is lieu_auditions' order, either sort
       sort,
     );
   }
+});
+
+test("lieuListOrder: the panel's order, the rows given left as they are", () => {
+  for (const sort of [undefined, "recent", "ancien"] as const) {
+    const rows = [...LIST, { id: id(9), title: "U", date: null, n: 1 }];
+    const copy = [...rows];
+    const ordered = lieuListOrder(rows, sort);
+    assert.deepEqual(rows, copy, String(sort));
+    assert.deepEqual(
+      ordered.map((a) => a.id),
+      [...rows].sort((a, b) => bySort(a, b, sort)).map((a) => a.id),
+      String(sort),
+    );
+    assert.equal(ordered.at(-1)!.id, id(9), "undated last");
+  }
+  assert.equal(lieuListOrder(LIST, "ancien")[0].id, id(1));
+  assert.equal(lieuListOrder(LIST, "recent")[0].id, id(4));
 });
 
 test("a server row's line: its lieu by id, its count, its testimonies once here", () => {

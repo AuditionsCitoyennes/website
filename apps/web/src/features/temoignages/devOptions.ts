@@ -34,7 +34,8 @@ export type DevKey =
   | "ac:panel-boot"
   | "ac:sheet-map"
   | "ac:dpr"
-  | "ac:frame-measure";
+  | "ac:frame-measure"
+  | "ac:pin-open";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -125,6 +126,19 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "L'image de la France sous « Chargement de la carte… », sur la page des témoignages et sur la carte de l'accueil. « Comme la carte » (par défaut) la dessine comme la carte la montre au moment où elle apparaît, à la même place et à la même taille : à plat sur un appareil ordinaire, où la carte s'incline ensuite dans son entrée ; déjà penchée sur un appareil faible ou quand le système demande moins d'animations, où la carte s'incline d'un coup avant d'apparaître. Dans les deux cas, quand la carte apparaît, la France ne bouge pas. « À plat » la garde à plat, centrée sur la France de la carte penchée et aussi large. « Comme avant » la remet aux places d'avant, qui changeaient d'une étape du chargement à l'autre.",
     reloads: true,
     defaultId: "carte",
+  },
+  {
+    key: "ac:pin-open",
+    section: "carte",
+    label: "Clic sur une épingle",
+    choices: [
+      { id: "premiere", label: "Première audition" },
+      { id: "liste", label: "Liste du lieu" },
+    ],
+    explain:
+      "Sur la carte sans filtre, un clic (ou un toucher) sur l'épingle d'un lieu de plusieurs auditions. « Première audition » (par défaut) ouvre celle du haut de la liste du lieu (la plus récente, ou la plus ancienne avec « Plus anciens d'abord ») ; toucher sa ligne, le dernier élément du fil d'Ariane ou la flèche de retour la replie dans la liste du lieu. « Liste du lieu » ouvre la liste, comme avant (la flèche remonte alors au territoire). Un lieu d'une seule audition l'ouvre toujours, une ligne du panneau ouvre toujours la liste, et avec des filtres l'épingle ouvre déjà le premier résultat trouvé.",
+    reloads: false,
+    defaultId: "premiere",
   },
   {
     key: "ac:sheet-fit",
