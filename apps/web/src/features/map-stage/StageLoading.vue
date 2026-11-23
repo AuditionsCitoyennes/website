@@ -1,60 +1,65 @@
 <script setup lang="ts">
-import { defineAsyncComponent } from "vue";
+import { markRaw, shallowRef, type Component } from "vue";
+import MapCurtain from "@/shared/ui/MapCurtain.vue";
 
 // The stage while the map's code is still coming (MapStage's async explorer):
 // the card reached, opened, or /temoignages landed on before it is in. The
-// look of the map's own boot curtain (GeoNav's .boot), which takes over from
-// it the moment the explorer mounts — so the card, the growing box and the
-// page are never blank, and the hand-over is not seen. Hidden from assistive
-// technologies: it cannot tell the card from the page, and on the home page
-// it must not be announced; on the page, GeoNav's curtain announces right
-// after.
+// map's loading curtain (shared/ui/MapCurtain.vue), as GeoNav's boot curtain
+// draws it the moment the explorer mounts: the same France, spinner and words
+// at the same places, so the card, the growing box and the page are never
+// blank, and the hand-over is not seen. Hidden from assistive technologies:
+// it cannot tell the card from the page, and on the home page it must not be
+// announced; on the page, GeoNav's curtain announces right after.
 
-// The async wrapper hands its props over (`preview`): declared so that they
-// are not left on the root as attributes, and not used.
+// The async wrapper hands its props over (`preview`).
 defineOptions({ inheritAttrs: false });
 defineProps<{ preview?: boolean }>();
 
-// France behind the spinner, as GeoNav's curtain. Its own small file, asked
-// for only then: this curtain is in every page's code.
-const FrancePoster = defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"));
+// France, its own small file, asked for only then (or as the page's code
+// starts, below): this curtain is in every page's code. Until it is in, the curtain shows its spinner and words alone,
+// at their places; France fades in under them when it comes. Where it cannot
+// come (no network), they stand alone.
+const poster = shallowRef<Component | null>(posterIn);
+if (!posterIn) void askPoster().then(() => (poster.value = posterIn));
+</script>
+
+<script lang="ts">
+import { ROUTE } from "@/shared/routes";
+
+/** Once its file is in, for every later curtain of the visit. */
+let posterIn: Component | null = null;
+let posterAsked: Promise<unknown> | null = null;
+
+function askPoster(): Promise<unknown> {
+  return (posterAsked ??= import("@/shared/ui/CurtainPoster.vue").then(
+    (m) => (posterIn = markRaw(m.default)),
+    () => (posterAsked = null), // a later curtain asks again
+  ));
+}
+
+// A visit landing on the map's page (or on the old analyses links, which open
+// it) asks for France as the page's code starts, before the route is known:
+// it is in for the curtain's first frame. Asked with the map's code instead,
+// it could be held behind that code's start, a long moment on a slow device,
+// leaving the spinner alone meanwhile.
+if (
+  typeof location !== "undefined" &&
+  (location.pathname.startsWith(ROUTE.temoignages.path) ||
+    /^\/analyses?\/?$/.test(location.pathname))
+)
+  void askPoster();
 </script>
 
 <template>
   <div class="stage-loading" aria-hidden="true">
-    <FrancePoster class="loading-poster" />
-    <span class="spinner spinner-lg"></span>
-    <p>Chargement de la carte…</p>
+    <MapCurtain :poster="poster" :preview="preview" :from="{ stage: 'stage' }" />
   </div>
 </template>
 
 <style scoped>
-/* GeoNav.vue's .boot, verbatim. */
 .stage-loading {
   position: absolute;
   inset: 0;
   z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.9rem;
-  background: hsl(var(--background));
-  color: hsl(var(--muted-foreground));
-  font-size: var(--text-body);
-}
-
-/* GeoNav.vue's .boot-poster, verbatim: under the spinner and its words. */
-.loading-poster {
-  position: absolute;
-  top: 10%;
-  left: 10%;
-  width: 80%;
-  height: 80%;
-  opacity: 0.45;
-}
-
-.stage-loading > :not(.loading-poster) {
-  position: relative;
 }
 </style>

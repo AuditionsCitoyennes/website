@@ -7,21 +7,17 @@
 // callbacks, never this component; the hot per-frame state (the map, the GL
 // layer, typed arrays, frame buffers) is plain `let`s owned by one module and
 // never wrapped in ref/reactive.
-import {
-  defineAsyncComponent,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-  type Component,
-} from "vue";
+import { markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import mapboxgl from "mapbox-gl";
 // Mapbox's own stylesheet, with the map's code rather than in the stylesheet
 // every page waits for (main.ts): Vite loads it before this chunk runs.
 import "mapbox-gl/dist/mapbox-gl.css";
 import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
+import MapCurtain from "@/shared/ui/MapCurtain.vue";
+import CurtainPoster from "@/shared/ui/CurtainPoster.vue";
+import FrancePoster from "@/shared/ui/FrancePoster.vue";
+import { bootPosterMode } from "@/shared/boot/bootPosterSwitch";
 import { boundsOfFeatures, toLngLat } from "./lib/polygon";
 import { stillMap } from "./lib/stillMap";
 import { resetPlateauStood } from "./lib/plateauStood";
@@ -73,16 +69,14 @@ import {
   type StyleRecovery,
 } from "./lib/styleRecovery";
 
-// The picture of France under the fallback sentence: a rare path (the map
-// nearly always starts), so its file is asked for only when it shows. Where
-// that file cannot come either (no network), the sentence stands alone.
-const NO_POSTER: Component = { render: () => null };
-const FrancePoster = defineAsyncComponent((): Promise<Component> =>
-  import("@/shared/ui/FrancePoster.vue").then(
-    (m) => m.default,
-    () => NO_POSTER,
-  ),
-);
+// The picture of France under the fallback sentence: the loading curtain's
+// France (shared/ui/MapCurtain.vue, `bare`), where and as the curtain drew it
+// just before, so the curtain fades onto the same France. Under the testing
+// switch's « Comme avant » (`ac:boot-poster` "avant"), the fallback's own
+// place before (`.map-fallback-poster`). Both come with the map's code (GeoNav
+// imports CurtainPoster, which draws FrancePoster).
+const curtainPoster = markRaw(CurtainPoster);
+const posterBefore = bootPosterMode === "avant";
 
 const props = defineProps<{
   units: MapUnit[];
@@ -118,6 +112,8 @@ const props = defineProps<{
   /** The map corner the credits' « i » sits in (default bottom right, where
    *  mapbox's own goes). */
   creditCorner?: "top-left" | "bottom-right";
+  /** The home page's card (the fallback's France is framed as the card's). */
+  preview?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -1202,7 +1198,8 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 
 <template>
   <div v-if="unavailable" class="map-root map-fallback map-fallback--poster">
-    <FrancePoster class="map-fallback-poster" />
+    <FrancePoster v-if="posterBefore" class="map-fallback-poster" />
+    <MapCurtain v-else bare :poster="curtainPoster" :preview="preview" :from="{ stage: 'stage' }" />
     <p class="map-fallback-text">{{ MAP_FALLBACK_TEXT }}</p>
   </div>
   <div v-else class="map-root">
@@ -1212,7 +1209,14 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
          the map, which stays under it, and a button that asks for the style
          again. -->
     <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
-      <FrancePoster class="map-fallback-poster" />
+      <FrancePoster v-if="posterBefore" class="map-fallback-poster" />
+      <MapCurtain
+        v-else
+        bare
+        :poster="curtainPoster"
+        :preview="preview"
+        :from="{ stage: 'stage' }"
+      />
       <div class="map-down-say">
         <p class="map-fallback-text" role="status">{{ MAP_FALLBACK_TEXT }}</p>
         <button

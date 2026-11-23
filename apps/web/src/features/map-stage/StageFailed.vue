@@ -33,7 +33,7 @@ const pageHref = computed(
 </template>
 
 <style scoped>
-/* The box of StageLoading (GeoNav.vue's .boot). */
+/* The box of the map's loading curtain (shared/ui/MapCurtain.vue). */
 .stage-failed {
   position: absolute;
   inset: 0;

@@ -8,9 +8,8 @@
 // a while after that, and the panel would be in already, over it. Held, it
 // keeps its box (transparent and inert, never `display: none`): the sheet's
 // measures and the camera's padding stay what they will be once it shows,
-// and the map does not move when it does. The curtain's words and poster,
-// with no panel on show beside them, are centred in the whole map box
-// meanwhile (GeoNav `.boot.held`).
+// and the map does not move when it does. What the curtain draws where
+// meanwhile: shared/ui/MapCurtain.vue, by shared/boot/curtainFrame.ts.
 //
 // The home page's card has no panel on show: nothing to hold. A page whose
 // map was already up (back from the home page, the map kept alive in its

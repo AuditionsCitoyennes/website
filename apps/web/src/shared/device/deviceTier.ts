@@ -411,6 +411,10 @@ export function noteRenderer(name: string | null) {
   rendererName = name;
 }
 
+/** The renderer's name is known already (given, or probed): probeRenderer
+ *  costs nothing then. */
+export const rendererKnown = (): boolean => rendererName !== undefined;
+
 /** The renderer's name read once from a throwaway WebGL context, released at
  *  once; afterwards the name kept. Null where it cannot be read. */
 export function probeRenderer(): string | null {
