@@ -73,17 +73,56 @@ export interface RaisedOffsetInputs {
    *  from now on rather than fitting the line and rising again once the text
    *  is in (it settles down once in, if the text turns out short). */
   expectFull?: boolean;
+  /** An audition opened with its lieu from the lieu's pin (waitsForText),
+   *  its text on its way: the offset the sheet stands at now — raised, its
+   *  raised offset; on its way up, its lowered one —, kept as it is, so that
+   *  the sheet moves once, when the text is in, straight to the height it
+   *  needs. It comes before `expectFull`. null: no wait. */
+  waitAt?: number | null;
 }
 
 /** How far down (px) the raised sheet is slid from the full box: 0 is today's
  *  full sheet. */
 export function raisedOffset(i: RaisedOffsetInputs): number {
-  if (i.mode === "plein" || !(i.fullPx > 0) || i.expectFull) return 0;
+  if (i.mode === "plein" || !(i.fullPx > 0)) return 0;
+  if (i.waitAt != null && i.waitAt >= 0) return Math.round(Math.min(i.waitAt, i.fullPx));
+  if (i.expectFull) return 0;
   const fit = Math.min(i.fullPx, Math.max(i.contentPx, i.minPx));
   let off = i.fullPx - fit;
   if (off < Math.max(SNAP_FULL_PX, i.minOffsetPx ?? 0)) off = 0;
   if (i.heldOffset !== null) off = Math.min(off, Math.max(0, i.heldOffset));
   return Math.round(off);
+}
+
+/** How long (ms) a sheet waits for the text of an audition its lieu's pin
+ *  opened (waitsForText) before it goes on as for any open audition (full
+ *  while the text is on its way, `expectFull`): on a slow link the sheet does
+ *  not stand still for long after the tap. */
+export const TEXT_WAIT_MS = 800;
+
+export interface TextWaitInputs {
+  /** The open lieu was opened from its pin with an audition to open at once
+   *  (model/pinOpen's "premiere", or a lieu of one under it), and the wait
+   *  has not ended yet (TEXT_WAIT_MS, or the text came in once). */
+  pinOpened: boolean;
+  /** One of its auditions is open. */
+  auditionOpen: boolean;
+  /** The open audition's text is on its way (its testimonies, or the lieu's
+   *  list its line is in). */
+  textPending: boolean;
+  /** The lieu's list is on its way (the server's lazy path: its top opens
+   *  once it is listed, model/lieuSingle's AWAIT_LIST). */
+  listPending: boolean;
+}
+
+/** Whether the raised sheet holds still (`waitAt`) while the audition a
+ *  pin opened is on its way: not knowing the text's height, it neither
+ *  stands full first nor fits the line alone and rises again — it moves once,
+ *  the text in. Before the audition opens, only while its lieu's list is
+ *  coming (the lazy path: its top opens once listed). */
+export function waitsForText(i: TextWaitInputs): boolean {
+  if (!i.pinOpened) return false;
+  return i.auditionOpen ? i.textPending : i.listPending;
 }
 
 export interface RefitMotionInputs {

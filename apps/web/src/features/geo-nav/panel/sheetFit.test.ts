@@ -1,9 +1,10 @@
 // A phone's raised sheet as tall as its content (sheetFit.ts): the offset
 // from the full box, the minimum, the snaps to full (a sliver of map, no
-// room for the map's controls), the hold while loading, the camera's aim
-// under « Ajusté, centré » (an open lieu's pin; the band a territory is
-// framed in above a short sheet and when a new band frames it again), how a
-// refit moves and where a released drag settles. Run with
+// room for the map's controls), the hold while loading, the wait for an
+// audition a pin opened, the camera's aim under « Ajusté, centré » (an open
+// lieu's pin; the band a territory is framed in above a short sheet and when
+// a new band frames it again), how a refit moves and where a released drag
+// settles. Run with
 // `node --import tsx --test` (root "test:scripts"). Pure: no Vue component,
 // no DOM.
 
@@ -22,10 +23,12 @@ import {
   sheetBandInsets,
   SHEET_FIT_MODES,
   SNAP_FULL_PX,
+  TEXT_WAIT_MS,
   lieuAimPx,
   raisedOffset,
   refitMotion,
   sheetSettle,
+  waitsForText,
 } from "./sheetFit";
 
 const base = { mode: "ajuste" as const, fullPx: 675, minPx: 200, heldOffset: null };
@@ -81,6 +84,36 @@ test("an open audition's text on its way: the sheet stands full, whatever the re
   assert.equal(raisedOffset({ ...base, contentPx: 300, expectFull: false }), 375);
   // « Plein » is full anyway.
   assert.equal(raisedOffset({ ...base, mode: "plein", contentPx: 300, expectFull: true }), 0);
+});
+
+test("an audition a pin opened, its text on its way: the sheet stays where it stands", () => {
+  // Raised at 581 (a commune's short list), Jean Macé's top audition opened
+  // from its pin: neither full (expectFull) nor fitted to its line alone…
+  assert.equal(raisedOffset({ ...base, contentPx: 285, waitAt: 581, expectFull: true }), 581);
+  assert.equal(raisedOffset({ ...base, contentPx: 500, waitAt: 581, heldOffset: 581 }), 581);
+  // …on its way up from the lowered strip, still on that strip…
+  assert.equal(raisedOffset({ ...base, contentPx: 285, waitAt: 603 }), 603);
+  // …then, the text in (no wait), one move to where it lands: fitted for a
+  // short text, full for a long one.
+  assert.equal(raisedOffset({ ...base, contentPx: 488, waitAt: null }), 187);
+  assert.equal(raisedOffset({ ...base, contentPx: 1900, waitAt: null }), 0);
+  // Never past the box; « Plein » is full anyway.
+  assert.equal(raisedOffset({ ...base, contentPx: 285, waitAt: 900 }), 675);
+  assert.equal(raisedOffset({ ...base, mode: "plein", contentPx: 285, waitAt: 581 }), 0);
+});
+
+test("the sheet waits for a pin-opened audition only while its text, or its lieu's list, is coming", () => {
+  const w = { pinOpened: true, auditionOpen: true, textPending: true, listPending: false };
+  assert.equal(waitsForText(w), true);
+  // The text in: no wait.
+  assert.equal(waitsForText({ ...w, textPending: false }), false);
+  // Not opened from a pin (a line pressed, « Liste du lieu », or the wait over).
+  assert.equal(waitsForText({ ...w, pinOpened: false }), false);
+  // Nothing open yet: only while the lieu's list comes (the lazy path).
+  assert.equal(waitsForText({ ...w, auditionOpen: false, listPending: true }), true);
+  assert.equal(waitsForText({ ...w, auditionOpen: false, listPending: false }), false);
+  // A short wait: past it the sheet goes on as for any open audition.
+  assert.ok(TEXT_WAIT_MS > 0 && TEXT_WAIT_MS <= 1000);
 });
 
 test("the switch's default is one of its choices, the first", () => {

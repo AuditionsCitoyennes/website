@@ -50,7 +50,7 @@ import { useTapPending } from "./model/useTapPending";
 import type { SettleHow } from "./model/tapPendingCore";
 import { useViewport } from "./panel/useViewport";
 import { useBottomSheet } from "./panel/useBottomSheet";
-import { lieuAimPx, type PlateauBox } from "./panel/sheetFit";
+import { lieuAimPx, TEXT_WAIT_MS, waitsForText, type PlateauBox } from "./panel/sheetFit";
 import { useSheetBand } from "./panel/useSheetBand";
 import { sheetFitMode, sheetLateMode } from "./panel/sheetFitSwitch";
 import { sheetMapMode } from "./panel/sheetMapSwitch";
@@ -410,6 +410,7 @@ const sheet = useBottomSheet({
   fitMode: () => sheetFitMode.value,
   hold: () => sheetFitHold.value,
   expectFull: () => sheetExpectFull.value,
+  waitText: () => sheetWaitText.value,
   mapControlsPx: () => mapControlsPx(),
 });
 /** The taller of mapbox's two bottom corners (the zoom buttons over its logo
@@ -717,7 +718,7 @@ watch(
 );
 
 // ---- Actions (model/useNavActions): pins, rows, breadcrumb all fly the map ----
-const { activate, onUnitClick, drillToCrumb, foldToList } = useNavActions({
+const { activate, onUnitClick, drillToCrumb, foldToList, pinOpened } = useNavActions({
   nav,
   index,
   listMode,
@@ -1090,9 +1091,10 @@ const sheetFitHold = computed(
  *  list its line is in (a lieu of one audition opens with it open,
  *  model/lieuSingle): the phone's raised sheet stands full at once, as the
  *  text will most often make it, rather than fitting the line and the wait
- *  dots and rising again once the text is in. An audition without testimony
- *  has nothing to unfold. */
-const sheetExpectFull = computed(() => {
+ *  dots and rising again once the text is in (`sheetExpectFull`, below) —
+ *  unless a lieu's pin opened it (`sheetWaitText`). An audition without
+ *  testimony has nothing to unfold. */
+const openTextPending = computed(() => {
   if (!listMode.value && !selectedPlace.value) return false;
   for (const id of openAuditions.value) {
     const a = panelAuditions.value.find((x) => x.id === id);
@@ -1102,6 +1104,43 @@ const sheetExpectFull = computed(() => {
   }
   return false;
 });
+/** The audition a lieu's pin opened is on its way (useNavActions'
+ *  `pinOpened`, panel/sheetFit's waitsForText): the raised sheet holds where
+ *  it stands — neither full first (its text may be short) nor fitted to its
+ *  line alone — and moves once, the text in: straight to the height it
+ *  needs, full for a long one. */
+const sheetWaitText = computed(() => {
+  const id = pinOpened.value;
+  if (id === null || listMode.value || selectedPlace.value?.id !== id) return false;
+  return waitsForText({
+    pinOpened: true,
+    auditionOpen: openAuditions.value.size > 0,
+    textPending: openTextPending.value,
+    listPending: placeLoading.value,
+  });
+});
+const sheetExpectFull = computed(() => openTextPending.value && !sheetWaitText.value);
+// That wait ends once the text is in (the next audition opened in the lieu
+// goes as any line's press), with another lieu, or past TEXT_WAIT_MS from the
+// tap (a slow link: the sheet then goes on as for any open audition).
+let pinWaitTimer = 0;
+watch(pinOpened, (id) => {
+  window.clearTimeout(pinWaitTimer);
+  if (id !== null)
+    pinWaitTimer = window.setTimeout(() => {
+      if (pinOpened.value === id) pinOpened.value = null;
+    }, TEXT_WAIT_MS);
+});
+watch(
+  () =>
+    pinOpened.value !== null &&
+    (selectedPlace.value?.id !== pinOpened.value ||
+      (openAuditions.value.size > 0 && !openTextPending.value)),
+  (over) => {
+    if (over) pinOpened.value = null;
+  },
+);
+onBeforeUnmount(() => window.clearTimeout(pinWaitTimer));
 watch(
   () =>
     lieuAimPx({
@@ -1109,7 +1148,7 @@ watch(
       lieuRaised: !isDesktop.value && Boolean(selectedPlace.value) && sheetOpen.value,
       fitted: sheetFitted.value,
       shownPx: sheetShownPx.value,
-      hold: sheetFitHold.value,
+      hold: sheetFitHold.value || sheetWaitText.value,
       expectFull: sheetExpectFull.value,
       // The aim decided last: a hold keeps it (re-reading it after a change
       // gives the same aim back).
@@ -1197,6 +1236,7 @@ if (__TEST_TOOLS__) {
     fitted: sheetFitted.value,
     hold: sheetFitHold.value,
     expectFull: sheetExpectFull.value,
+    waitText: sheetWaitText.value,
     aimPx: sheetAimPx.value,
     // What the camera is told to keep clear: the raised sheet's height only
     // under « Ajusté, centré », for an open lieu (`aimPx`) or a territory

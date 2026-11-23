@@ -1,7 +1,7 @@
 // Actions (pins, rows, breadcrumb all fly the map; the scope follows): a unit
 // activated from the panel, a click on the map, a crumb, a lieu opened, a
 // result's lieu asked for from its dot.
-import { computed, nextTick, type ComputedRef } from "vue";
+import { computed, nextTick, ref, type ComputedRef } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import { perfBegin, perfOn } from "@/shared/perf/perf";
 import { perfTapAnswered, perfTapTargets } from "@/shared/perf/tapAnswer";
@@ -81,6 +81,13 @@ export function useNavActions(inputs: NavActionsInputs) {
       count: lieu ? (lieuAuditionsOf(lieu)?.count ?? 0) : 0,
     });
   });
+
+  /** The lieu its pin opened with an audition to open at once (pinOpen's
+   *  "premiere": the top of its list, or its only audition), until GeoNav ends
+   *  the wait for that audition's text: the phone's sheet holds still
+   *  meanwhile and moves once (panel/sheetFit's waitsForText). Never set
+   *  under "liste": a lieu of one opened from its pin there stays as before. */
+  const pinOpened = ref<string | null>(null);
 
   /** The element the keys are on, when it was reached with them (Tab):
    *  a click or a tap focuses no :focus-visible element — the panel's own
@@ -253,6 +260,8 @@ export function useNavActions(inputs: NavActionsInputs) {
       via,
       mode: pinOpenMode.value,
     });
+    if (newLieu)
+      pinOpened.value = only && via === "map" && pinOpenMode.value === "premiere" ? unit.id : null;
     if (only && only !== AWAIT_LIST) {
       // Opened from the keys (its dot or its row reached with Tab, then Enter
       // or Space), the keys go on in the panel, on the audition's line — as
@@ -307,5 +316,5 @@ export function useNavActions(inputs: NavActionsInputs) {
     }
   }
 
-  return { activate, onUnitClick, drillToCrumb, openResultAt, openPlace, foldToList };
+  return { activate, onUnitClick, drillToCrumb, openResultAt, openPlace, foldToList, pinOpened };
 }

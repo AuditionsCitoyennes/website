@@ -13,12 +13,14 @@
 // the list and its body), an audition unfolding or folding at the height its
 // tween goes to (ExpandTransition's `data-height-tween`); while something
 // loads (`hold`) it may only grow, and while an open audition's text is on
-// its way (`expectFull`) it stands full. A fit that would leave the map less
-// room above it than its controls need (`mapControlsPx`, under the header's
-// tiles) goes full instead. A refit eases like a raise and retargets an ease
-// still running (a raise included, on any device); a sheet at rest refits in
-// one step (`sheetRefit`) on a weak device and on a change of the box itself.
-// Desktop ignores all of this: the classes it drives only exist inside the
+// its way (`expectFull`) it stands full — unless a lieu's pin opened that
+// audition (`waitText`): the sheet then stays where it stands, raised or on
+// its way up, and moves once, when the text is in. A fit that would leave
+// the map less room above it than its controls need (`mapControlsPx`, under
+// the header's tiles) goes full instead. A refit eases like a raise and
+// retargets an ease still running (a raise included, on any device); a sheet
+// at rest refits in one step (`sheetRefit`) on a weak device and on a change
+// of the box itself. Desktop ignores all of this: the classes it drives only exist inside the
 // mobile media query.
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import { motionNow } from "@/shared/device/motion";
@@ -57,6 +59,10 @@ export interface BottomSheetInputs {
   /** An open audition's testimonies are on their way: the sheet stands full
    *  (sheetFit's `expectFull`). Read and watched as `hold`. */
   expectFull: () => boolean;
+  /** The audition a lieu's pin opened is on its way (sheetFit's
+   *  waitsForText): the sheet holds where it stands (`waitAt`), before
+   *  `expectFull`. Read and watched as `hold`. */
+  waitText?: () => boolean;
   /** The height (px) of the map's controls stacked in a corner, which go up
    *  above a fitted sheet (GeoNav); 0 when not measured yet. */
   mapControlsPx?: () => number;
@@ -110,6 +116,9 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
   let lastFull = 0;
   /** The sheet was raised at the previous measure: a raise itself is never held. */
   let wasOpen = false;
+  /** A raise held on the lowered strip (`waitAt`): the move that ends the
+   *  wait is that raise, eased as a raise is on any device. */
+  let raiseWaiting = false;
   let refitFrame = 0;
 
   /** The raised sheet's offset, from the content as it is now. */
@@ -141,6 +150,16 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
     const open = sheetOpen.value;
     const raising = open && !wasOpen;
     const held = open && wasOpen && inputs.hold();
+    // Where the sheet stands now: raised, its offset; on its way up (a raise
+    // measured as it starts), the lowered strip it leaves.
+    const waitAt =
+      open && inputs.waitText?.()
+        ? wasOpen
+          ? sheetRaisedPx.value
+          : (sheetLoweredPx.value ?? null)
+        : null;
+    const raiseWaited = raiseWaiting && waitAt === null;
+    raiseWaiting = open && waitAt !== null && (raising || raiseWaiting);
     // The panel's box starts under the header's tiles (GeoPanel's phone
     // `.panel` top): the map's controls, which stand on a fitted sheet's top,
     // fit in its offset, with a margin, or the sheet goes full.
@@ -153,6 +172,7 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
       minOffsetPx: controls + MAP_ROOM_MARGIN_REM * rem,
       heldOffset: held ? sheetRaisedPx.value : null,
       expectFull: open && inputs.expectFull(),
+      waitAt,
     });
     sheetFullPx.value = full;
     sheetContentPx.value = Math.round(content);
@@ -169,7 +189,7 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
         short: motionNow() === "short",
         // A raise measured as it starts, or any ease of the sheet still on
         // its way: a step in one go would cut it short.
-        easing: raising || transformEasing(panel),
+        easing: raising || raiseWaited || transformEasing(panel),
       });
       cancelAnimationFrame(refitFrame);
       refitFrame = 0;
@@ -232,9 +252,11 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
   // The hold is read once the page is set up (the caller may make it later).
   let stopHold: (() => void) | null = null;
   onMounted(() => {
-    stopHold = watch([() => inputs.hold(), () => inputs.expectFull()], measureSoon, {
-      flush: "post",
-    });
+    stopHold = watch(
+      [() => inputs.hold(), () => inputs.expectFull(), () => inputs.waitText?.() ?? false],
+      measureSoon,
+      { flush: "post" },
+    );
   });
   onBeforeUnmount(() => {
     stopHold?.();
