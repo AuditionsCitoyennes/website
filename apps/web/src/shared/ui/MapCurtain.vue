@@ -9,10 +9,16 @@
 // spinner keeps its turn too (its animation runs on the page's clock, not
 // from when its element came).
 //
-// France is `poster` (CurtainPoster.vue, its own file): until it is given,
-// the curtain is its background alone, so that the spinner and the words
-// never show without France. The words are said by the wrapper (GeoNav's
-// curtain has role="status"); this only draws.
+// France is `poster` (CurtainPoster.vue, its own file). The spinner and the
+// words show as soon as the box is measured: their place does not depend on
+// France, which fades in where it goes if its file comes after them (only
+// MapStage's StageLoading can be first; GeoNav's curtain has it with the
+// map's code, so the hand-over neither blinks nor fades it). The words are
+// said by the wrapper (GeoNav's curtain has role="status"); this only draws.
+//
+// `bare`: France alone, on no background (GeoDrillMap's « Carte
+// indisponible », over its own background): the fallback's France stands
+// where the curtain's stood.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, type Component } from "vue";
 import {
   CURTAIN_PEEK_PX,
@@ -29,7 +35,14 @@ const props = defineProps<{
   preview?: boolean;
   /** Which stage draws it, and that stage's live measures (for "avant"). */
   from: CurtainStage;
+  /** France alone: no background, no spinner, no words. */
+  bare?: boolean;
 }>();
+
+/** France not there at the first render: it fades in when it comes, once
+ *  (the stage moved from the card to the page re-inserts it, which would
+ *  replay the fade). */
+const posterLate = ref(!props.poster);
 
 const root = ref<HTMLElement | null>(null);
 const safe = ref<HTMLElement | null>(null);
@@ -101,11 +114,17 @@ watch(spin, (el) => {
 </script>
 
 <template>
-  <div ref="root" class="map-curtain">
+  <div ref="root" class="map-curtain" :class="{ bare }">
     <span ref="safe" class="curtain-safe" aria-hidden="true"></span>
-    <template v-if="layout && poster">
-      <component :is="poster" :poster="layout.poster" />
-      <div class="curtain-say" :style="rectStyle(layout.say)">
+    <template v-if="layout">
+      <component
+        :is="poster"
+        v-if="poster"
+        :class="{ 'curtain-poster-late': posterLate }"
+        :poster="layout.poster"
+        @animationend="posterLate = false"
+      />
+      <div v-if="!bare" class="curtain-say" :style="rectStyle(layout.say)">
         <span ref="spin" class="spinner spinner-lg" aria-hidden="true"></span>
         <p>Chargement de la carte…</p>
       </div>
@@ -120,6 +139,28 @@ watch(spin, (el) => {
   background: hsl(var(--background));
   color: hsl(var(--muted-foreground));
   font-size: var(--text-body);
+}
+
+.map-curtain.bare {
+  background: none;
+}
+
+/* France come after the spinner and the words: it fades in (to the poster's
+   own opacity). */
+.curtain-poster-late {
+  animation: curtain-poster-in 0.3s ease-out;
+}
+
+@keyframes curtain-poster-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .curtain-poster-late {
+    animation: none;
+  }
 }
 
 /* Zero-size probe whose padding resolves the home indicator's inset. */

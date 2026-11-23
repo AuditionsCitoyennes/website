@@ -6,6 +6,7 @@
 // Pure: no Vue component, no DOM.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   CURTAIN_PEEK_PX,
@@ -52,6 +53,22 @@ test("the camera's padding at boot: card, desktop panel, phone sheet", () => {
     bottom: 124,
     left: 36,
   });
+});
+
+test("the camera's boot framing is insetsFor's (card, desktop, lowered sheet)", () => {
+  // usePanelLayout's mapPadding returns insetsFor in those three cases, so the
+  // curtain's France and the map's cannot be framed apart.
+  const src = readFileSync(
+    new URL("../../features/geo-nav/panel/usePanelLayout.ts", import.meta.url),
+    "utf8",
+  );
+  const body = src.slice(src.indexOf("const mapPadding = computed("));
+  const calls = body.slice(0, body.indexOf("\n  });")).match(/return insetsFor\(\{[^}]*\}\)/g);
+  assert.deepEqual(calls, [
+    "return insetsFor({ preview: true, desktop: false, peekPx: 0 })",
+    "return insetsFor({ preview: false, desktop: true, peekPx: 0 })",
+    "return insetsFor({ preview: false, desktop: false, peekPx: sheet.peekPx.value })",
+  ]);
 });
 
 /** The live map's France (the poster's outline through map.project, dev

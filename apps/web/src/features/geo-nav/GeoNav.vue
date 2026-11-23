@@ -1277,6 +1277,7 @@ function retryAll() {
       :stable-outline="outlines.mode.value === 'fichiers'"
       :attribution="attribution"
       :credit-corner="isDesktop ? 'top-left' : 'bottom-right'"
+      :preview="preview"
       :hovered-id="hoveredPanelId"
       :active-id="selectedPlaceId"
       :slabs="slabSpec"
@@ -1333,7 +1334,7 @@ function retryAll() {
         v-if="booting"
         ref="bootEl"
         class="boot"
-        :class="{ 'boot-map': bootCover === 'map', sheet: !isDesktop, held: panelHeld }"
+        :class="{ 'boot-map': bootCover === 'map' }"
         role="status"
         aria-live="polite"
       >

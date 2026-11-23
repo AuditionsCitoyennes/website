@@ -16,7 +16,9 @@ defineOptions({ inheritAttrs: false });
 defineProps<{ preview?: boolean }>();
 
 // France, its own small file, asked for only then: this curtain is in every
-// page's code. Until it is in, the curtain is its background alone.
+// page's code. Until it is in, the curtain shows its spinner and words alone,
+// at their places; France fades in under them when it comes. Where it cannot
+// come (no network), they stand alone.
 const poster = shallowRef<Component | null>(posterIn);
 if (!posterIn) {
   posterAsked ??= import("@/shared/ui/CurtainPoster.vue").then(

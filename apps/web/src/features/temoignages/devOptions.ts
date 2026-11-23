@@ -4,7 +4,7 @@
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (map/fallbackSwitch,
 // geo-nav/panel/sheetFitSwitch, geo-nav/panelBootSwitch, analyses/devSwitch,
-// shared/device/deviceTier, map/graphicsSwitch, shared/boot/bootPosterSwitch). Under the « Appareil » row
+// shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue alone, so a production build has
 // none of these strings. French typography: a no-break space ( ) after «
@@ -69,7 +69,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "carte",
     title: "Carte",
-    intro: "Ce que montre son cadre pendant son chargement et quand elle ne démarre pas.",
+    intro: "Ce que montre son cadre quand elle ne démarre pas.",
   },
   {
     id: "panneau",

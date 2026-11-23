@@ -5,14 +5,15 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import type { Insets, NavState } from "../navState";
-import { PANEL_BASE_PX, PANEL_GAP_PX, PHONE_SIDE_PX } from "@/shared/boot/curtainFrame";
+import { insetsFor, PANEL_BASE_PX, PANEL_GAP_PX } from "@/shared/boot/curtainFrame";
 
 // Panel geometry. MUST stay in sync with `.panel` / `.panel.wide` in GeoNav's
 // <style> — the camera padding is what keeps the map clear of the panel, and
 // a mismatch parks the content under it.
 // The narrow width, the gap and a phone's side room are the map's loading
 // curtain's too (shared/boot/curtainFrame.ts, which draws France where this
-// padding frames it): one constant each, kept there.
+// padding frames it): one constant each, kept there, and the boot framing
+// (the card, the desktop, the lowered sheet) is its `insetsFor`.
 export { PANEL_BASE_PX, PANEL_GAP_PX, PHONE_SIDE_PX } from "@/shared/boot/curtainFrame";
 export const PANEL_WIDE_RATIO = 0.75; // 75%
 
@@ -182,13 +183,12 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
 
   const mapPadding = computed(() => {
     // A card: no panel to keep clear of.
-    if (preview.value) return { top: 24, bottom: 24, left: 24, right: 24 };
+    if (preview.value) return insetsFor({ preview: true, desktop: false, peekPx: 0 });
     // Desktop: always the narrow panel's framing — the globe never slides on
     // screen. The wide panel (an audition open) only changes what is in sight
     // (`mapViewPadding`): the map turns to bring the place into the strip left
     // beside it, and folding the panel aside moves nothing at all.
-    if (isDesktop.value)
-      return { top: 60, bottom: 60, left: 60, right: PANEL_BASE_PX + PANEL_GAP_PX };
+    if (isDesktop.value) return insetsFor({ preview: false, desktop: true, peekPx: 0 });
     // Phone. Raised over a lieu, the place is parked in the strip at the top of
     // the map, where its pin stays in sight above the text: under a full sheet
     // (« Plein », a long lieu, while an opened audition's text is on its way
@@ -225,12 +225,7 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
     // useBottomSheet: as tall as its content), on purpose: the map never moves
     // as the sheet refits over a list, the map shown above a short sheet is
     // extra room only.
-    return {
-      top: 30,
-      bottom: sheet.peekPx.value + 20,
-      left: PHONE_SIDE_PX,
-      right: PHONE_SIDE_PX,
-    };
+    return insetsFor({ preview: false, desktop: false, peekPx: sheet.peekPx.value });
   });
 
   // What is really clear of the panel while it is open wide: less than the

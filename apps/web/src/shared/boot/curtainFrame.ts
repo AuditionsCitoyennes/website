@@ -59,13 +59,14 @@ export interface Rect {
   height: number;
 }
 
-/** The camera's padding at boot (geo-nav/panel/usePanelLayout `mapPadding`):
- *  the home page's card, a desktop's narrow side panel, a phone's lowered
- *  sheet (its strip `peekPx` high, safe area included). */
+/** The camera's padding at boot: the home page's card, a desktop's narrow
+ *  side panel, a phone's lowered sheet (its strip `peekPx` high, safe area
+ *  included). geo-nav/panel/usePanelLayout's `mapPadding` returns these. */
 export function insetsFor(o: { desktop: boolean; preview: boolean; peekPx: number }): Insets {
-  if (o.preview) return { top: 24, right: 24, bottom: 24, left: 24 };
-  if (o.desktop) return { top: 60, right: PANEL_BASE_PX + PANEL_GAP_PX, bottom: 60, left: 60 };
-  return { top: 30, right: PHONE_SIDE_PX, bottom: o.peekPx + 20, left: PHONE_SIDE_PX };
+  // In mapPadding's key order (the camera compares paddings by their JSON).
+  if (o.preview) return { top: 24, bottom: 24, left: 24, right: 24 };
+  if (o.desktop) return { top: 60, bottom: 60, left: 60, right: PANEL_BASE_PX + PANEL_GAP_PX };
+  return { top: 30, bottom: o.peekPx + 20, left: PHONE_SIDE_PX, right: PHONE_SIDE_PX };
 }
 
 /** The part of the box the camera frames France in. */
