@@ -132,36 +132,67 @@ async function open() {
   }
 }
 
+function panelTitle() {
+  return stageEl.value?.querySelector<HTMLElement>(".panel-head h1") ?? null;
+}
+
 function focusTitle() {
-  const title = stageEl.value?.querySelector<HTMLElement>(".panel-head h1");
+  const title = panelTitle();
   if (!title) return false;
   title.tabIndex = -1;
   title.focus({ preventScroll: true });
-  return true;
+  // Not taken while the panel is held out of sight under the boot curtain
+  // (inert: geo-nav panelBoot): the watch below waits for the hold to lift.
+  return document.activeElement === title;
 }
 
 let stopTitleWatch: (() => void) | null = null;
 
+/** How long the watch below waits for the title (ms). */
+const TITLE_WAIT_MS = 10_000;
+/** How long it waits for a held panel from the title's first sight (ms): the
+ *  hold lasts at most the explorer's boot cap, 10 s from its own setup, which
+ *  comes before the title is in the page (geo-nav GeoNav `bootCap`). */
+const HELD_TITLE_WAIT_MS = 11_000;
+
 /**
- * The explorer's code is still coming: the title does not exist yet. It gets
- * the focus when it appears — unless the visitor has moved the focus meanwhile
- * (anywhere but the page's body), or ten seconds have gone by.
+ * The explorer's code is still coming: the title does not exist yet, or the
+ * panel is held out of sight while the map boots (inert). It gets the focus
+ * when it appears or the hold lifts — unless the visitor has moved the focus
+ * meanwhile (anywhere but the page's body), or the wait is over: ten seconds
+ * for the title to appear, then, once it is in but held, until the hold's own
+ * cap (counted from there: the explorer may have come in late).
  */
 function focusTitleWhenIn() {
   const el = stageEl.value;
   if (!el) return;
   stopTitleWatch?.();
+  let seen = false;
   const stop = () => {
     observer.disconnect();
     window.clearTimeout(timer);
     document.removeEventListener("focusin", stop, true);
     if (stopTitleWatch === stop) stopTitleWatch = null;
   };
+  // The title in but not taken (held): the wait starts again from here.
+  const sight = () => {
+    if (seen || !panelTitle()) return;
+    seen = true;
+    window.clearTimeout(timer);
+    timer = window.setTimeout(stop, HELD_TITLE_WAIT_MS);
+  };
   const observer = new MutationObserver(() => {
     if (focusTitle()) stop();
+    else sight();
   });
-  const timer = window.setTimeout(stop, 10_000);
-  observer.observe(el, { childList: true, subtree: true });
+  let timer = window.setTimeout(stop, TITLE_WAIT_MS);
+  sight();
+  observer.observe(el, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["inert"],
+  });
   document.addEventListener("focusin", stop, true);
   stopTitleWatch = stop;
 }

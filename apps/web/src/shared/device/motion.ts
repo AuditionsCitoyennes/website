@@ -19,7 +19,10 @@
 //   step (features/geo-nav panel/sheetFit refitMotion). A raise or a lower
 //   still eases. The map's controls and the testing tools' buttons that stand
 //   on its top follow the sheet's own motion, stepping when it steps
-//   (GeoNav's `--sheet-follow`).
+//   (GeoNav's `--sheet-follow`);
+// - the Témoignages panel coming in as the boot curtain leaves: a short fade
+//   on a weak device, with no rise or slide, and no motion at all under
+//   reduced motion (features/geo-nav panelBoot panelEntrance).
 // Everything else moves as in "full": a selection's flight, the padding ease,
 // the pins, the hover sweep.
 //

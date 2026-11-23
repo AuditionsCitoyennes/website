@@ -18,5 +18,7 @@ export {
   type SheetFitMode,
   type SheetLateMode,
 } from "./panel/sheetFitSwitch";
+// When the panel shows while the page loads (the testing options menu's « Au chargement »).
+export { panelBootMode, setPanelBootMode, type PanelBootMode } from "./panelBootSwitch";
 // Which reads of the map page wait (the Filtres dialog's data).
 export { FILTERS_IDLE_CAP_MS, FILTERS_IDLE_MS, filtersDataWanted } from "./data/bootReadsSwitch";
