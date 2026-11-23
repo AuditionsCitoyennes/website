@@ -33,16 +33,28 @@
 //   lieu zone, where nothing is raised. Lowered (or gone full) there, the
 //   band goes alone ("drop"): the camera's padding eases back to the lowered
 //   frame's, as it eases for any padding, and what the visitor had centred
-//   above the sheet comes to the middle of the map now seen — never the
-//   band's padding under a lowered sheet, where the analyses' ring would
-//   stand under the header's tiles and the zoom buttons zoom about a point
-//   high on the map. Raised short again, the map stays the visitor's and
+//   above the sheet comes to the middle of the map now seen — not the band's
+//   padding under a lowered sheet (but for the map's own lowering, below),
+//   where the analyses' ring would stand under the header's tiles and the
+//   zoom buttons zoom about a point high on the map. Raised short again, the map stays the visitor's and
 //   the band does not come ("keep", as under « Ajusté »): a band eased in
 //   alone would shrink the rectangle the scope is read off, and a child
 //   filling most of the lowered map would become the scope at rest, the
 //   list swapping under the visitor's finger; the next command takes it;
-// - a lowered (or full) sheet takes the band off at once, whatever is still
-//   on its way: no band padding under it, no move by itself seconds later;
+// - a sheet lowered by the visitor's own use of the map (« Carte touchée »,
+//   sheetMap.ts: a drag, a pinch, an empty spot tapped) keeps the band as
+//   the camera's padding ("keep"), the one case of a band under a lowered
+//   sheet: a padding changed under a hand kills the drag or the pinch in
+//   progress, and eased off once they let go it would slide the map by
+//   itself. The cost, until the next command (a tapped territory's own
+//   flight: its band, none under the lowered sheet) or a raise takes it
+//   off: the ring's room is left out of the padding although its plates
+//   are drawn again (useAnalysesRing's mapViewPadding), the scope is read
+//   off the band's upper rectangle while the whole map is in sight, and
+//   « + » zooms about a point high on the map;
+// - any other lowered (or full) sheet takes the band off at once, whatever
+//   is still on its way: no band padding under it, no move by itself
+//   seconds later;
 // - a hand on the map waits to be let go; with filters on, the filters'
 //   frame is owed (not at the world for a band that only grew: filters never
 //   move the globe by themselves), and a late list in view stays as above;
@@ -98,6 +110,9 @@ export interface SheetBandInputs {
   /** The band applied: GeoNav's, the phone camera's padding while set
    *  (usePanelLayout), the ring set aside (useAnalysesRing). */
   applied: ShallowRef<Insets | null>;
+  /** The sheet came down for the visitor's use of the map, no command since
+   *  (usePanelLayout sets it, a raise clears it there; a command here). */
+  loweredByMap?: Ref<boolean>;
   camera: {
     onBeforeCommand: (hook: () => void) => void;
     flyToUnit: (unit: GeoUnit, animate: boolean) => void;
@@ -158,6 +173,7 @@ export function useSheetBand(inputs: SheetBandInputs) {
     laterTimer = 0;
     stayed = false;
     heldSinceCommand = inputs.hold();
+    if (inputs.loweredByMap) inputs.loweredByMap.value = false;
     applied.value = wanted.value;
   }
   camera.onBeforeCommand(apply);
@@ -192,6 +208,7 @@ export function useSheetBand(inputs: SheetBandInputs) {
       inHands: !!mapCmp.value?.inUserHands(),
       movedSinceCommand: camera.movedSinceCommand(),
       short: motionNow() === "short",
+      byMap: !!inputs.loweredByMap?.value,
     });
     last.value = how;
     switch (how) {

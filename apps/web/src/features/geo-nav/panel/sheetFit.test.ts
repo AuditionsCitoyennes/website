@@ -266,6 +266,7 @@ test("a new band frames the scope again only where the scope may move with it", 
     inHands: false,
     movedSinceCommand: false,
     short: false,
+    byMap: false,
   };
   const table: [Partial<typeof rest>, string][] = [
     [{}, "fit"],
@@ -342,6 +343,22 @@ test("a new band frames the scope again only where the scope may move with it", 
     [{ listMode: true, world: true, grewOnly: true, late: "recentrer" }, "stay"],
     [{ listMode: true, world: true }, "filter"],
     [{ listMode: true, grewOnly: true }, "filter"],
+    // Lowered by the visitor's use of the map (« Carte touchée »): the band
+    // stays as applied, whatever the hands and the moves; a band that is not
+    // none, or a lowering by other means, as above.
+    [{ byMap: true, toNone: true }, "keep"],
+    [{ byMap: true, toNone: true, movedSinceCommand: true }, "keep"],
+    [{ byMap: true, toNone: true, inHands: true }, "keep"],
+    [{ byMap: true, toNone: true, inHands: true, movedSinceCommand: true }, "keep"],
+    [{ byMap: true, toNone: true, hold: true }, "keep"],
+    [{ byMap: true, toNone: true, inFlight: true }, "keep"],
+    [{ byMap: true, toNone: true, microZone: true }, "keep"],
+    [{ byMap: true, toNone: true, listMode: true }, "keep"],
+    [{ byMap: true, toNone: true, dialog: true }, "dialog"],
+    [{ byMap: true }, "fit"],
+    [{ byMap: true, movedSinceCommand: true, fromNone: true }, "keep"],
+    [{ byMap: false, toNone: true, movedSinceCommand: true }, "drop"],
+    [{ byMap: false, toNone: true }, "fit"],
   ];
   for (const [over, want] of table) {
     assert.equal(bandReframe({ ...rest, ...over }), want, JSON.stringify(over));

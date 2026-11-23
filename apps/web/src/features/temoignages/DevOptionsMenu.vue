@@ -48,6 +48,8 @@ import {
   setSheetLateMode,
   sheetFitMode,
   sheetLateMode,
+  setSheetMapMode,
+  sheetMapMode,
 } from "@/features/geo-nav";
 import {
   dprChoice,
@@ -99,6 +101,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:panel-boot": bind(() => panelBootMode, setPanelBootMode),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
+  "ac:sheet-map": bind(() => sheetMapMode.value, setSheetMapMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

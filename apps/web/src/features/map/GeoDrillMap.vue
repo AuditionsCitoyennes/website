@@ -59,7 +59,7 @@ import type { MarkMotion } from "./gl/PendingMarkPass";
 import { TAP_LINE_RGB, type TapMark } from "./plateau/tapAnswerSwitch";
 import { createTapProgress, type TapStep } from "./plateau/tapProgress";
 import { liftOf } from "./plateau/lift";
-import type { CameraCmd, MapUnit, OutlineFC, SlabSpec } from "./types";
+import type { CameraCmd, MapGestureSource, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
 import { fallbackForced, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
 import {
@@ -117,7 +117,9 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  unitClick: [id: string];
+  /** A unit chosen on the map: its pin, or a tap or click inside its
+   *  boundary. `byKeys`: its pin, focused, pressed with Enter or Space. */
+  unitClick: [id: string, byKeys: boolean];
   /** The view, measured (composables/useMapView): what the scope is read from. */
   viewChange: [view: MapView];
   /**
@@ -131,8 +133,13 @@ const emit = defineEmits<{
    * double-click, the keyboard, the zoom buttons. Never a camera command, the
    * padding ease, a resize, a hover or a click on a pin. Fires again for each
    * gesture (and for each wheel notch): the listener must be idempotent.
+   * Said with who started the gesture (`source`) and its number (`seq`): the
+   * same number for each repeat of one gesture, a new one for each wheel
+   * notch and box zoom.
    */
-  userGesture: [];
+  userGesture: [source: MapGestureSource, seq: number];
+  /** A tap or click on the map off every unit (no pin, no boundary under it). */
+  emptyTap: [];
   /**
    * The camera has come to rest (mapbox's `moveend`, the one a camera command
    * swallows aside), after the view of that moment: a gesture, if one was
@@ -282,7 +289,7 @@ const pins = useMapPins({
   plateauActive: () => plateau.active(),
   screenBoundsInset: view.screenBoundsInset,
   occlusion,
-  onUnitClick: (id) => emit("unitClick", id),
+  onUnitClick: (id, byKeys) => emit("unitClick", id, byKeys === true),
   smallerWins: () => !!props.stableOutline,
   lift: () => plateau.lift(),
 });
@@ -906,7 +913,9 @@ function mountMap() {
     // just its label.
     map.on("mousemove", (e) => pins.onHover(e.lngLat, e.point));
     map.on("mouseout", pins.onMouseOut);
-    map.on("click", pins.onClick);
+    map.on("click", (e) => {
+      if (!pins.onClick(e)) emit("emptyTap");
+    });
     // During FREE navigation, emit the view (throttled) while the gesture is still
     // going, so the scope — and the plateau transition — react mid-zoom instead of
     // waiting for moveend. Suppressed during programmatic flights (a drill must
@@ -923,7 +932,7 @@ function mountMap() {
         lastMoveEmit = now;
         // Said again as the gesture goes on: the parent may have had a reason
         // to ignore its first moments.
-        if (camera.userHolding()) emit("userGesture");
+        if (camera.userHolding()) emit("userGesture", camera.gestureSource(), camera.gestureSeq());
         view.emitView();
       } else if (camera.userHolding()) emit("gestureMove");
     });
@@ -939,14 +948,14 @@ function mountMap() {
 
     // "The user has started moving the map" (see the `userGesture` emit).
     map.on("movestart", (e) => {
-      if (camera.onMoveStart(e)) emit("userGesture");
+      if (camera.onMoveStart(e)) emit("userGesture", camera.gestureSource(), camera.gestureSeq());
     });
     // Two starts that carry no DOM event: the box zoom (shift-drag), whose
     // flight has none, and the wheel zoom when mapbox starts it from its own
     // 40 ms timer. They only signal — neither is guaranteed a `moveend`.
-    map.on("boxzoomstart", () => emit("userGesture"));
+    map.on("boxzoomstart", () => emit("userGesture", "hand", camera.nextGestureSeq()));
     map.on("wheel", (e) => {
-      if (e.originalEvent.deltaY !== 0) emit("userGesture");
+      if (e.originalEvent.deltaY !== 0) emit("userGesture", "hand", camera.nextGestureSeq());
     });
 
     resizeObserver = new ResizeObserver((entries) => {

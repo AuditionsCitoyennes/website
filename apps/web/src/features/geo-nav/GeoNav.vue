@@ -12,7 +12,7 @@ import {
 } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
 import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
-import { GeoDrillMap } from "@/features/map";
+import { GeoDrillMap, type MapGestureSource } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
 import { deviceSignals, deviceTier } from "@/shared/device/deviceTier";
 import {
@@ -53,6 +53,7 @@ import { useBottomSheet } from "./panel/useBottomSheet";
 import { lieuAimPx, type PlateauBox } from "./panel/sheetFit";
 import { useSheetBand } from "./panel/useSheetBand";
 import { sheetFitMode, sheetLateMode } from "./panel/sheetFitSwitch";
+import { sheetMapMode } from "./panel/sheetMapSwitch";
 import { testimoniesOf } from "./model/auditions";
 import { PANEL_BASE_PX, PHONE_SIDE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
@@ -488,6 +489,9 @@ const sheetAimPx = ref<number | null>(null);
  *  further down once the sheet's hold is made), or null. The ring stands
  *  aside meanwhile. */
 const sheetBand = shallowRef<Insets | null>(null);
+/** The sheet came down for the visitor's use of the map (« Carte touchée »,
+ *  panel/sheetMap), no camera command since: the band stays as applied. */
+const sheetLoweredByMap = ref(false);
 const layout = usePanelLayout({
   nav,
   isDesktop,
@@ -505,6 +509,8 @@ const layout = usePanelLayout({
     band: sheetBand,
   },
   follows,
+  mapMode: () => sheetMapMode.value,
+  loweredByMap: sheetLoweredByMap,
 });
 const {
   panelWide,
@@ -513,6 +519,7 @@ const {
   panelHeightPx,
   panelPx,
   engageMap,
+  tapMap,
   returnToPanel,
   cancelHoverReturn,
   onPanelClick,
@@ -522,11 +529,12 @@ const {
   onPanelPointerLeave,
   mapPadding,
 } = layout;
-/** A hand on the map: the panel makes way, the frame the camera gave is left
- *  (useCamera's handMoved), and a gesture that has moved the map far enough
- *  closes the open lieu (unless filters are on). */
-function onUserGesture() {
-  engageMap();
+/** A hand on the map: the panel makes way (a phone's raised sheet comes
+ *  down: panel/sheetMap), the frame the camera gave is left (useCamera's
+ *  handMoved), and a gesture that has moved the map far enough closes the
+ *  open lieu (unless filters are on). */
+function onUserGesture(source: MapGestureSource, seq: number) {
+  engageMap(source, seq);
   handMoved();
   lieuFollow.gesture();
 }
@@ -719,6 +727,16 @@ const { activate, onUnitClick, drillToCrumb } = useNavActions({
   follows,
   tap,
 });
+/** A unit tapped on the map: a phone's raised sheet comes down first, in the
+ *  same tick, unless it is a lieu's dot (the lieu opens, the sheet rising
+ *  with it): a territory's flight then frames for the lowered sheet
+ *  (panel/sheetMap, useSheetBand). A pin chosen with the keys is no use of
+ *  the map: the sheet stays as it is. */
+function onMapUnitClick(id: string, byKeys = false) {
+  const u = index.value.get(id);
+  if (u && !byKeys) tapMap(u.levelKey === "place" ? "lieu" : "territory");
+  onUnitClick(id);
+}
 
 // ---- Analyses ----------------------------------------------------------------
 // What the association heard in the raised territory, drawn on the map around
@@ -1158,6 +1176,7 @@ const band = __TEST_TOOLS__
       listMode,
       mapCmp,
       applied: sheetBand,
+      loweredByMap: sheetLoweredByMap,
       camera: cam,
     })
   : null;
@@ -1183,6 +1202,11 @@ if (__TEST_TOOLS__) {
     // under « Ajusté, centré », for an open lieu (`aimPx`) or a territory
     // (the band below).
     mapPadding: { ...mapPadding.value },
+    // « Carte touchée »: the rule, why the sheet came down for the map last
+    // (panel/sheetMap), and whether the band stays for it.
+    mapMode: sheetMapMode.value,
+    mapLower: layout.lastMapLower.value,
+    loweredByMap: sheetLoweredByMap.value,
     // « Ajusté, centré »: the band above a short sheet asked for and the one
     // the camera frames in (useSheetBand), and the last decision made.
     band: band && {
@@ -1282,7 +1306,8 @@ function retryAll() {
       :active-id="selectedPlaceId"
       :slabs="slabSpec"
       @ready="mapPresentable = true"
-      @unit-click="onUnitClick"
+      @unit-click="onMapUnitClick"
+      @empty-tap="tapMap('empty')"
       @plateau-settled="onPlateauSettled"
       @view-change="onMapView"
       @user-gesture="onUserGesture"
