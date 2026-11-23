@@ -4,7 +4,7 @@
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads (map/fallbackSwitch,
 // geo-nav/panel/sheetFitSwitch, geo-nav/panelBootSwitch, analyses/devSwitch,
-// shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
+// shared/device/deviceTier, map/graphicsSwitch, shared/boot/bootPosterSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue alone, so a production build has
 // none of these strings. French typography: a no-break space ( ) after «
@@ -28,6 +28,7 @@ export type DevKey =
   | "ac:ring-band"
   | "ac:tier"
   | "ac:map-fallback"
+  | "ac:boot-poster"
   | "ac:sheet-fit"
   | "ac:sheet-late"
   | "ac:panel-boot"
@@ -68,7 +69,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "carte",
     title: "Carte",
-    intro: "Ce que montre son cadre quand elle ne démarre pas.",
+    intro: "Ce que montre son cadre pendant son chargement et quand elle ne démarre pas.",
   },
   {
     id: "panneau",
@@ -109,6 +110,20 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Quand la carte ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée), son cadre montre la France en image, en retrait, sous une phrase simple. « Visiteur » (par défaut) démarre la carte comme d'habitude ; « Essai » ne la démarre pas du tout, pour voir ce cadre sur n'importe quel appareil. Le même cadre, avec un bouton « Réessayer », sert quand le fond de carte n'arrive pas malgré les nouveaux essais.",
     reloads: true,
     defaultId: "visiteur",
+  },
+  {
+    key: "ac:boot-poster",
+    section: "carte",
+    label: "Image d'attente",
+    choices: [
+      { id: "carte", label: "Inclinée" },
+      { id: "plat", label: "À plat" },
+      { id: "avant", label: "Comme avant" },
+    ],
+    explain:
+      "L'image de la France sous « Chargement de la carte… », sur la page des témoignages et sur la carte de l'accueil. « Inclinée » (par défaut) la dessine penchée comme la carte, à la place et à la taille où la carte montre la France : quand la carte apparaît, la France ne bouge pas. « À plat » la garde à plat, au même endroit et aussi large. « Comme avant » la remet aux places d'avant, qui changeaient d'une étape du chargement à l'autre.",
+    reloads: true,
+    defaultId: "carte",
   },
   {
     key: "ac:sheet-fit",

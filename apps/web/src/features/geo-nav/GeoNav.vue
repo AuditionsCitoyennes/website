@@ -23,6 +23,8 @@ import {
   useScopeAnalysis,
 } from "@/features/analyses";
 import LoadingDots from "@/shared/ui/feedback/LoadingDots.vue";
+import MapCurtain from "@/shared/ui/MapCurtain.vue";
+import CurtainPoster from "@/shared/ui/CurtainPoster.vue";
 import GeoPanel from "./panel/GeoPanel.vue";
 import UnitList from "./panel/UnitList.vue";
 import AuditionList from "./panel/AuditionList.vue";
@@ -239,10 +241,10 @@ const panelHeld = computed(() =>
     preview: !!props.preview,
   }),
 );
-/** France under the curtain's spinner: metropolitan France and its régions,
- *  muted, a picture in the map's box at the first paint, until the live map
- *  lifts the curtain (its own small file). */
-const FrancePoster = defineAsyncComponent(() => import("@/shared/ui/FrancePoster.vue"));
+/** France under the curtain's spinner (shared/ui/MapCurtain.vue): with the
+ *  map's code, so that the curtain has it from its first render, where
+ *  MapStage's StageLoading drew it just before. */
+const curtainPoster = markRaw(CurtainPoster);
 
 // Direction of the level swap, from how deep the new scope sits in the
 // hierarchy: going deeper brings the new list in from the right, stepping back
@@ -1317,10 +1319,12 @@ function retryAll() {
          the map's box only (`bootCover` "map", bootListSwitch): no z-index of
          its own and before the panel in the page, so it lies under the panel,
          which is held out of sight meanwhile (`panelHeld`; under the DEV
-         switch's « Tout de suite », usable as soon as its rows are in); its
-         words centred in the part of the map the panel leaves free, where
-         the camera frames France (a phone's held sheet: words in the whole
-         box, `.boot.held`; as the curtain leaves it keeps that class). Over map
+         switch's « Tout de suite », usable as soon as its rows are in).
+         France, the spinner and the words are drawn by shared/ui/MapCurtain:
+         France where the camera frames it once the map is up, as MapStage's
+         StageLoading drew it just before this curtain (the same rules, the
+         same inputs; "avant", the testing switch's, reads the live `cover`,
+         `peek` and `held` for the places used before). Over map
          AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
@@ -1333,9 +1337,18 @@ function retryAll() {
         role="status"
         aria-live="polite"
       >
-        <FrancePoster class="boot-poster" />
-        <span class="spinner spinner-lg" aria-hidden="true"></span>
-        <p>Chargement de la carte…</p>
+        <MapCurtain
+          :poster="curtainPoster"
+          :preview="preview"
+          :from="{
+            stage: 'geo',
+            mapOnly: bootCover === 'map',
+            sheet: !isDesktop,
+            cover: panelCover,
+            peek: sheetPeekPx,
+            held: panelHeld,
+          }"
+        />
       </div>
     </Transition>
 
@@ -1475,60 +1488,13 @@ function retryAll() {
   inset: 0;
   /* Above the panel (elevation-xl) and the map's own controls. */
   z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.9rem;
-  background: hsl(var(--background));
-  color: hsl(var(--muted-foreground));
-  font-size: var(--text-body);
 }
 
-/* Over the map's box only: under the panel (no z-index, earlier in the page),
-   its words centred in the part of the map the panel leaves free. */
+/* Over the map's box only: under the panel (no z-index, earlier in the page).
+   What it draws where: shared/ui/MapCurtain.vue — France where the camera
+   frames it, its words in the part of the map the panel leaves free. */
 .boot.boot-map {
   z-index: auto;
-  padding-right: var(--panel-cover, 0px);
-}
-
-.boot.boot-map.sheet {
-  padding-right: 0;
-  padding-bottom: var(--sheet-peek, 0px);
-}
-
-/* France under the spinner and its words, in the part of the
-   map the panel leaves free. */
-.boot-poster {
-  position: absolute;
-  top: 10%;
-  left: 10%;
-  width: 80%;
-  height: 80%;
-  opacity: 0.45;
-}
-
-.boot.boot-map .boot-poster {
-  width: calc(80% - var(--panel-cover, 0px));
-}
-
-.boot.boot-map.sheet .boot-poster {
-  width: 80%;
-  height: calc(80% - var(--sheet-peek, 0px));
-}
-
-/* The phone's sheet held out of sight meanwhile (panelBoot): its words are
-   centred in the whole box, with no strip under them. The poster keeps the
-   box above the strip, where the camera frames France (its padding counts
-   the strip from the start), so the curtain fades onto the same France. On
-   a desktop the whole curtain keeps the camera's framing: the side panel
-   arrives into the part it leaves free. */
-.boot.boot-map.sheet.held {
-  padding-bottom: 0;
-}
-
-.boot > :not(.boot-poster) {
-  position: relative;
 }
 
 /* Fade the curtain out only — it is covering the entrance animation, so it must

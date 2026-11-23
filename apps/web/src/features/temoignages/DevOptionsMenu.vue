@@ -71,6 +71,7 @@ import {
   type DevKey,
   type DevOption,
 } from "./devOptions";
+import { bootPosterMode, setBootPosterMode } from "@/shared/boot/bootPosterSwitch";
 
 type Binding = { now: () => string; set: (id: string) => void };
 /** A row's choice now and its switch's own setter (a choice's id is the switch's value). */
@@ -92,6 +93,7 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
   "ac:map-fallback": bind(() => mapFallback, setMapFallback),
+  "ac:boot-poster": bind(() => bootPosterMode, setBootPosterMode),
   "ac:sheet-fit": bind(() => sheetFitMode.value, setSheetFitMode),
   "ac:sheet-late": bind(() => sheetLateMode.value, setSheetLateMode),
   "ac:panel-boot": bind(() => panelBootMode, setPanelBootMode),

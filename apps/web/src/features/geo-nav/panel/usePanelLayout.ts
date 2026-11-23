@@ -5,15 +5,16 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from "vue";
 import type { GeoUnit } from "@/features/geo";
 import type { Insets, NavState } from "../navState";
+import { PANEL_BASE_PX, PANEL_GAP_PX, PHONE_SIDE_PX } from "@/shared/boot/curtainFrame";
 
 // Panel geometry. MUST stay in sync with `.panel` / `.panel.wide` in GeoNav's
 // <style> — the camera padding is what keeps the map clear of the panel, and
 // a mismatch parks the content under it.
-export const PANEL_BASE_PX = 480; // 30rem
+// The narrow width, the gap and a phone's side room are the map's loading
+// curtain's too (shared/boot/curtainFrame.ts, which draws France where this
+// padding frames it): one constant each, kept there.
+export { PANEL_BASE_PX, PANEL_GAP_PX, PHONE_SIDE_PX } from "@/shared/boot/curtainFrame";
 export const PANEL_WIDE_RATIO = 0.75; // 75%
-export const PANEL_GAP_PX = 40;
-/** A phone's camera keeps this much room (px) from the screen's sides. */
-export const PHONE_SIDE_PX = 36;
 
 export interface PanelLayoutInputs {
   nav: NavState;
