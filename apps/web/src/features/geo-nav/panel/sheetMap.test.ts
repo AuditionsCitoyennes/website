@@ -11,6 +11,7 @@ import { OPEN_TAIL_MS } from "../model/lieuFollow";
 import {
   DEFAULT_SHEET_MAP,
   SHEET_MAP_MODES,
+  createGestureFirst,
   sheetLowersOnMap,
   type MapUse,
   type SheetMapInputs,
@@ -39,11 +40,14 @@ const USES: MapUse[] = [
   { kind: "tap", target: "lieu" },
 ];
 
-/** The phone branch of engageMap before this rule: a gesture with a lieu
- *  open, past the tail of the tap that opened it, the sheet not under a
- *  finger; taps never lowered the sheet. */
+/** The phone branch of engageMap before this rule, as origin/dev wrote it: a
+ *  gesture with a lieu open, past the tail of the tap that opened it, the
+ *  sheet not under a finger; taps never lowered the sheet. It never read the
+ *  home card (`preview`): there the whole page is inert (GeoNav's
+ *  `.geo-page`), no gesture or tap reaches the map, so the card is compared
+ *  apart (below), not against this. */
 function before(i: SheetMapInputs): boolean {
-  if (!i.phone || i.preview || i.use.kind !== "gesture") return false;
+  if (!i.phone || i.use.kind !== "gesture") return false;
   if (!i.lieuOpen || i.sinceLieuOpenMs < 400) return false;
   return !i.sheetDragging;
 }
@@ -55,26 +59,42 @@ test("the choices, the default first", () => {
   assert.equal(OPEN_TAIL_MS, 400);
 });
 
-test("« Ne rien faire » is the rule of before, case by case", () => {
+test("« Ne rien faire » is the rule of before, case by case (off the card)", () => {
   for (const use of USES)
     for (const phone of [true, false])
-      for (const preview of [false, true])
-        for (const isRaised of [true, false])
-          for (const sheetDragging of [false, true])
-            for (const lieuOpen of [false, true])
-              for (const sinceLieuOpenMs of [0, 399, 400, 5000]) {
-                const i: SheetMapInputs = {
-                  mode: "rien",
-                  phone,
-                  preview,
-                  raised: isRaised,
-                  sheetDragging,
-                  lieuOpen,
-                  sinceLieuOpenMs,
-                  use,
-                };
-                assert.equal(sheetLowersOnMap(i), before(i), JSON.stringify(i));
-              }
+      for (const isRaised of [true, false])
+        for (const sheetDragging of [false, true])
+          for (const lieuOpen of [false, true])
+            for (const sinceLieuOpenMs of [0, 399, 400, 5000]) {
+              const i: SheetMapInputs = {
+                mode: "rien",
+                phone,
+                preview: false,
+                raised: isRaised,
+                sheetDragging,
+                lieuOpen,
+                sinceLieuOpenMs,
+                use,
+              };
+              assert.equal(sheetLowersOnMap(i), before(i), JSON.stringify(i));
+            }
+});
+
+test("the home card (inert on dev and here): nothing lowers, under both choices", () => {
+  for (const mode of SHEET_MAP_MODES)
+    for (const use of USES)
+      for (const lieuOpen of [false, true])
+        assert.equal(
+          sheetLowersOnMap({
+            ...raised,
+            mode,
+            preview: true,
+            lieuOpen,
+            sinceLieuOpenMs: 5000,
+            use,
+          }),
+          false,
+        );
 });
 
 test("« Baisser le panneau »: a hand's first signal and a tap off a lieu lower the sheet", () => {
@@ -121,4 +141,18 @@ test("an open lieu: a tap on a territory lowers, on a lieu's dot it does not", (
     sheetLowersOnMap({ ...open, mode: "rien", use: { kind: "tap", target: "territory" } }),
     false,
   );
+});
+
+test("a gesture's first signal, told from its repeats", () => {
+  const first = createGestureFirst();
+  assert.equal(first(1), true);
+  assert.equal(first(1), false); // the same gesture said again as it glides on
+  assert.equal(first(1), false);
+  assert.equal(first(2), true); // a new gesture
+  assert.equal(first(), true); // no number: a use of its own, always first…
+  assert.equal(first(2), false); // …and it does not count as a gesture seen
+  assert.equal(first(3), true);
+  // Each layout its own count.
+  const other = createGestureFirst();
+  assert.equal(other(3), true);
 });

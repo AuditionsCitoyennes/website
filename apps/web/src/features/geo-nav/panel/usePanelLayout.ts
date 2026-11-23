@@ -7,7 +7,7 @@ import type { GeoUnit } from "@/features/geo";
 import type { MapGestureSource } from "@/features/map";
 import type { Insets, NavState } from "../navState";
 import { insetsFor, PANEL_BASE_PX, PANEL_GAP_PX } from "@/shared/boot/curtainFrame";
-import { sheetLowersOnMap, type MapUse, type SheetMapMode } from "./sheetMap";
+import { createGestureFirst, sheetLowersOnMap, type MapUse, type SheetMapMode } from "./sheetMap";
 
 // Panel geometry. MUST stay in sync with `.panel` / `.panel.wide` in GeoNav's
 // <style> — the camera padding is what keeps the map clear of the panel, and
@@ -52,7 +52,8 @@ export interface PanelLayoutInputs {
   mapMode: () => SheetMapMode;
   /** Set when the sheet comes down for the map with no lieu open, cleared
    *  when it is raised again (and by the next camera command, useSheetBand):
-   *  the band above a short sheet stays as applied meanwhile. */
+   *  the band above a short sheet stays as applied meanwhile. Read and
+   *  written only under the testing tools, where the band is. */
   loweredByMap?: Ref<boolean>;
 }
 
@@ -107,9 +108,10 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
   });
   watch(isDesktop, () => (mapEngaged.value = false));
 
-  /** The last gesture's number engageMap saw (GeoDrillMap's `seq`). */
-  let lastGestureSeq: number | null = null;
-  /** Why the sheet came down for the map last (the testing probe's). */
+  /** A gesture's first signal, told from its repeats (GeoDrillMap's `seq`). */
+  const gestureFirst = createGestureFirst();
+  /** Why the sheet came down for the map last (the testing probe's; set only
+   *  under the testing tools). */
   const lastMapLower = shallowRef("");
 
   /** A phone: the sheet lowered for this use of the map, if the rule says so
@@ -127,7 +129,8 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
       use,
     });
     if (!lowers) return;
-    if (sheetOpen.value) {
+    // The probe's record, and the band's (useSheetBand: testing tools only).
+    if (__TEST_TOOLS__ && sheetOpen.value) {
       lastMapLower.value =
         (lieuOpen ? "lieu:" : "") +
         (use.kind === "gesture" ? `gesture:${use.source}` : `tap:${use.target}`);
@@ -135,13 +138,16 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
     }
     sheetOpen.value = false;
   }
-  watch(
-    sheetOpen,
-    (open) => {
-      if (open && inputs.loweredByMap) inputs.loweredByMap.value = false;
-    },
-    { flush: "sync" },
-  );
+  if (__TEST_TOOLS__ && inputs.loweredByMap) {
+    const loweredByMap = inputs.loweredByMap;
+    watch(
+      sheetOpen,
+      (open) => {
+        if (open) loweredByMap.value = false;
+      },
+      { flush: "sync" },
+    );
+  }
 
   // The user has started moving the map (GeoDrillMap's `userGesture`; it repeats,
   // hence the cheap exits). A phone's raised sheet comes down (sheetMap.ts):
@@ -152,8 +158,7 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
   // the map closes the lieu instead (model/lieuFollow).
   function engageMap(source: MapGestureSource = "hand", seq?: number) {
     nav.hoverReturnHeld.value = false; // the hand is on the map now (see onPanelPointerMove)
-    const first = seq === undefined || seq !== lastGestureSeq;
-    if (seq !== undefined) lastGestureSeq = seq;
+    const first = gestureFirst(seq);
     if (!isDesktop.value) {
       // Unless the sheet itself is under a finger: that gesture decides.
       lowerForMap({ kind: "gesture", source, first });

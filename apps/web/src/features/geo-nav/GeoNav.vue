@@ -730,10 +730,11 @@ const { activate, onUnitClick, drillToCrumb } = useNavActions({
 /** A unit tapped on the map: a phone's raised sheet comes down first, in the
  *  same tick, unless it is a lieu's dot (the lieu opens, the sheet rising
  *  with it): a territory's flight then frames for the lowered sheet
- *  (panel/sheetMap, useSheetBand). */
-function onMapUnitClick(id: string) {
+ *  (panel/sheetMap, useSheetBand). A pin chosen with the keys is no use of
+ *  the map: the sheet stays as it is. */
+function onMapUnitClick(id: string, byKeys = false) {
   const u = index.value.get(id);
-  if (u) tapMap(u.levelKey === "place" ? "lieu" : "territory");
+  if (u && !byKeys) tapMap(u.levelKey === "place" ? "lieu" : "territory");
   onUnitClick(id);
 }
 

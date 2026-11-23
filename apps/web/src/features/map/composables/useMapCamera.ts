@@ -14,6 +14,7 @@ import { motionNow } from "@/shared/device/motion";
 import { FIT_PITCH_DEG, fitSilhouette, type FitShape, type SlabCam } from "../lib";
 import { plateauHeightM, pointInPolygon, polysOf, toLngLat, toLngLatBounds } from "../lib/polygon";
 import { createFlightEnd } from "../lib/flightEnd";
+import { gestureSourceOf } from "../lib/gestureSource";
 import { fitHullOf } from "../lib/projection";
 import { WALL_OVERSHOOT } from "../gl/mesh";
 import type { CameraCmd, MapGestureSource } from "../types";
@@ -709,11 +710,7 @@ export function useMapCamera({
     const oe = e.originalEvent;
     if (!oe || NOT_A_GESTURE.test(oe.type)) return false;
     // The keys on a focused map, the zoom buttons (their click), or a hand.
-    gesture = /^key/.test(oe.type)
-      ? "keys"
-      : oe.target instanceof Element && oe.target.closest(".mapboxgl-ctrl")
-        ? "controls"
-        : "hand";
+    gesture = gestureSourceOf(oe);
     gestureSeq++;
     userHolding = true; // until the `moveend` every such start is followed by
     fitCam = null; // the camera is the user's now: no fit to size slabs for

@@ -46,8 +46,9 @@ export interface MapPinsInputs {
   screenBoundsInset: (margin: number) => Bounds | null;
   /** What the slabs hide (useSlabOcclusion). */
   occlusion: ReturnType<typeof useSlabOcclusion>;
-  /** A unit was clicked (its pin, or inside its boundary): the `unitClick` emit. */
-  onUnitClick: (id: string) => void;
+  /** A unit was clicked (its pin, or inside its boundary): the `unitClick` emit.
+   *  `byKeys`: its pin, focused, was pressed with Enter or Space. */
+  onUnitClick: (id: string, byKeys?: boolean) => void;
   /** Of two units holding a point, the smaller box is hit (the outline files:
    *  their coarse France covers Monaco); otherwise the first in `units`. */
   smallerWins?: () => boolean;
@@ -119,7 +120,9 @@ export function useMapPins({
     root.type = "button";
     root.addEventListener("click", (e) => {
       e.stopPropagation();
-      onUnitClick(unit.id);
+      // A click the keys made (Enter or Space on the focused pin) counts no
+      // press: `detail` is 0 (a tap, a mouse click: 1 or more).
+      onUnitClick(unit.id, e.detail === 0);
     });
     // A double-click on a pin is the same selection twice — not the map's
     // double-click zoom, which would also count as the user taking the camera.

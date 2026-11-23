@@ -117,7 +117,9 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  unitClick: [id: string];
+  /** A unit chosen on the map: its pin, or a tap or click inside its
+   *  boundary. `byKeys`: its pin, focused, pressed with Enter or Space. */
+  unitClick: [id: string, byKeys: boolean];
   /** The view, measured (composables/useMapView): what the scope is read from. */
   viewChange: [view: MapView];
   /**
@@ -287,7 +289,7 @@ const pins = useMapPins({
   plateauActive: () => plateau.active(),
   screenBoundsInset: view.screenBoundsInset,
   occlusion,
-  onUnitClick: (id) => emit("unitClick", id),
+  onUnitClick: (id, byKeys) => emit("unitClick", id, byKeys === true),
   smallerWins: () => !!props.stableOutline,
   lift: () => plateau.lift(),
 });

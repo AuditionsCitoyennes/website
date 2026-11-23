@@ -72,3 +72,18 @@ export function sheetLowersOnMap(i: SheetMapInputs): boolean {
   if (i.use.kind === "gesture") return i.use.source === "hand" && i.use.first;
   return i.use.target !== "lieu";
 }
+
+/** Tells a gesture's first `userGesture` signal from its repeats: GeoDrillMap
+ *  numbers each gesture (`seq`), and every repeat said while it glides on
+ *  carries the same number. A signal without one (useNavActions' own call, a
+ *  territory tapped with a lieu open) is a use of its own, and does not count
+ *  as a gesture seen. */
+export function createGestureFirst(): (seq?: number) => boolean {
+  let last: number | null = null;
+  return (seq) => {
+    if (seq === undefined) return true;
+    const first = seq !== last;
+    last = seq;
+    return first;
+  };
+}
