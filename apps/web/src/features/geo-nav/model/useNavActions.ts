@@ -85,7 +85,8 @@ export function useNavActions(inputs: NavActionsInputs) {
   /** The lieu its pin opened with an audition to open at once (pinOpen's
    *  "premiere": the top of its list, or its only audition), until GeoNav ends
    *  the wait for that audition's text: the phone's sheet holds still
-   *  meanwhile and moves once (panel/sheetFit's waitsForText). Never set
+   *  meanwhile and moves once (panel/sheetFit's textWait); a fold by its crumb
+   *  or the back arrow ends that wait (as GeoNav's line press does). Never set
    *  under "liste": a lieu of one opened from its pin there stays as before. */
   const pinOpened = ref<string | null>(null);
 
@@ -168,6 +169,9 @@ export function useNavActions(inputs: NavActionsInputs) {
     // list leaves it.
     if (u.levelKey === "place") {
       if (u.id === selectedPlaceId.value && foldToList.value) {
+        // The visitor's own fold: the sheet goes under the rule of any list
+        // from it on, no longer waiting on the pin's audition.
+        pinOpened.value = null;
         for (const open of [...openAuditions.value]) void toggleAud(open, false);
       }
       openPlace(u, "crumb");

@@ -15,7 +15,9 @@
 // loads (`hold`) it may only grow, and while an open audition's text is on
 // its way (`expectFull`) it stands full — unless a lieu's pin opened that
 // audition (`waitText`): the sheet then stays where it stands, raised or on
-// its way up, and moves once, when the text is in. A fit that would leave
+// its way up, and moves once, when the text is in — a raised one growing, on
+// a slow link, to show the audition's line and its loading dots
+// (`waitGrows`). A fit that would leave
 // the map less room above it than its controls need (`mapControlsPx`, under
 // the header's tiles) goes full instead. A refit eases like a raise and
 // retargets an ease still running (a raise included, on any device); a sheet
@@ -60,9 +62,13 @@ export interface BottomSheetInputs {
    *  (sheetFit's `expectFull`). Read and watched as `hold`. */
   expectFull: () => boolean;
   /** The audition a lieu's pin opened is on its way (sheetFit's
-   *  waitsForText): the sheet holds where it stands (`waitAt`), before
+   *  textWait's "hold"): the sheet holds where it stands (`waitAt`), before
    *  `expectFull`. Read and watched as `hold`. */
   waitText?: () => boolean;
+  /** That wait has lasted long enough for the raised sheet to grow, so that
+   *  the audition's line and its loading dots are in view (sheetFit's
+   *  `waitGrows`; never on the lowered strip). Read and watched as `hold`. */
+  waitGrows?: () => boolean;
   /** The height (px) of the map's controls stacked in a corner, which go up
    *  above a fitted sheet (GeoNav); 0 when not measured yet. */
   mapControlsPx?: () => number;
@@ -128,16 +134,20 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
     const body = bodyEl.value;
     const full = panel.offsetHeight;
     let content = full;
+    /** Down to what a waiting sheet keeps in view (`[data-sheet-wait]`:
+     *  the open audition's loading dots), the same way. */
+    let waitContent: number | undefined;
     if (list && body) {
       const cs = getComputedStyle(list);
       // The list's offsetParent is the panel: its top is the head's height,
       // whatever the scroll or the transforms; the bottom padding holds the
       // home indicator's inset.
-      content =
-        list.offsetTop +
-        (parseFloat(cs.paddingTop) || 0) +
-        body.getBoundingClientRect().height +
-        (parseFloat(cs.paddingBottom) || 0);
+      const around =
+        list.offsetTop + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      const bodyBox = body.getBoundingClientRect();
+      content = around + bodyBox.height;
+      const wait = body.querySelector<HTMLElement>("[data-sheet-wait]");
+      if (wait) waitContent = around + wait.getBoundingClientRect().bottom - bodyBox.top;
       // A block tweening its height (an audition unfolding or folding) counts
       // at the height it goes to: one refit for the whole tween, from its
       // first frame — not a step per frame behind it.
@@ -160,6 +170,9 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
         : null;
     const raiseWaited = raiseWaiting && waitAt === null;
     raiseWaiting = open && waitAt !== null && (raising || raiseWaiting);
+    // A raised sheet's wait, long enough: it may grow to show the audition's
+    // line and its dots (never a raise held on the strip).
+    const waitGrows = waitAt !== null && !raiseWaiting && (inputs.waitGrows?.() ?? false);
     // The panel's box starts under the header's tiles (GeoPanel's phone
     // `.panel` top): the map's controls, which stand on a fitted sheet's top,
     // fit in its offset, with a margin, or the sheet goes full.
@@ -173,6 +186,8 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
       heldOffset: held ? sheetRaisedPx.value : null,
       expectFull: open && inputs.expectFull(),
       waitAt,
+      waitGrows,
+      waitContentPx: waitContent,
     });
     sheetFullPx.value = full;
     sheetContentPx.value = Math.round(content);
@@ -253,7 +268,12 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
   let stopHold: (() => void) | null = null;
   onMounted(() => {
     stopHold = watch(
-      [() => inputs.hold(), () => inputs.expectFull(), () => inputs.waitText?.() ?? false],
+      [
+        () => inputs.hold(),
+        () => inputs.expectFull(),
+        () => inputs.waitText?.() ?? false,
+        () => inputs.waitGrows?.() ?? false,
+      ],
       measureSoon,
       { flush: "post" },
     );

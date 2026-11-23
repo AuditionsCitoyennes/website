@@ -103,10 +103,12 @@ defineExpose({ moreEl, moreTestimoniesEl });
       </button>
       <!-- Its testimonies are still loading: the dots, right under its
            line. The text then unfolds to its own height — measured once
-           it is there. -->
+           it is there. A phone's sheet waiting for that text keeps them in
+           view (`data-sheet-wait`, panel/useBottomSheet). -->
       <LoadingDots
         v-if="open.has(g.id) && testimoniesOf(g) === null"
         class="aud-loading"
+        data-sheet-wait
         label="Chargement des témoignages…"
       />
       <ExpandTransition :instant-leave="swapping">
