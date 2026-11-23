@@ -717,7 +717,7 @@ watch(
 );
 
 // ---- Actions (model/useNavActions): pins, rows, breadcrumb all fly the map ----
-const { activate, onUnitClick, drillToCrumb } = useNavActions({
+const { activate, onUnitClick, drillToCrumb, foldToList } = useNavActions({
   nav,
   index,
   listMode,
@@ -1400,6 +1400,7 @@ function retryAll() {
         :sheet-hidden="sheetHidden"
         :phone="!isDesktop"
         :crumbs="listMode ? null : breadcrumb"
+        :back-to-lieu="foldToList"
         :busy="pendingUnit !== null"
         :waiting="waitStage === 'moving'"
         @toggle-sheet="sheetOpen = !sheetOpen"

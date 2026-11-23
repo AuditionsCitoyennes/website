@@ -11,7 +11,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { lieuListOrder } from "./auditions";
-import { AWAIT_LIST, auditionToOpen, knownFromRow, type LieuAuditionsKnown } from "./lieuSingle";
+import {
+  AWAIT_LIST,
+  auditionToOpen,
+  foldsToList,
+  knownFromRow,
+  type LieuAuditionsKnown,
+} from "./lieuSingle";
 import { DEFAULT_PIN_OPEN, PIN_OPEN_MODES } from "./pinOpen";
 
 test("knownFromRow: the count, and the embedded list's first, else the newest (tie)", () => {
@@ -158,4 +164,20 @@ test("auditionToOpen: « liste » is exactly the rule before, every case", () =>
       }
     }
   }
+});
+
+test("foldsToList: « premiere », a lieu of several with one of them open", () => {
+  const base = { mode: "premiere" as const, lieuOpen: true, auditionOpen: true };
+  assert.equal(foldsToList({ ...base, count: 2 }), true);
+  assert.equal(foldsToList({ ...base, count: 12 }), true);
+});
+
+test("foldsToList: otherwise as before (crumb re-aims, arrow goes up)", () => {
+  const base = { mode: "premiere" as const, lieuOpen: true, auditionOpen: true, count: 3 };
+  assert.equal(foldsToList({ ...base, mode: "liste" }), false);
+  assert.equal(foldsToList({ ...base, lieuOpen: false }), false);
+  assert.equal(foldsToList({ ...base, auditionOpen: false }), false);
+  // A lieu of one: its list of one line is the step lieuSingle leaves out.
+  assert.equal(foldsToList({ ...base, count: 1 }), false);
+  assert.equal(foldsToList({ ...base, count: 0 }), false);
 });

@@ -49,6 +49,9 @@ const props = defineProps<{
   phone: boolean;
   /** The breadcrumb's trail; null while the results are listed (no trail). */
   crumbs: GeoUnit[] | null;
+  /** The back arrow points at the open lieu: the audition being read folds
+   *  back into its list (useNavActions' foldToList). */
+  backToLieu?: boolean;
   /** A territory was tapped and its plateau is on its way: the list is
    *  the new level's already, the map is not there yet (`aria-busy`). */
   busy?: boolean;
@@ -154,6 +157,7 @@ watch(
             v-if="phone && crumbs"
             class="head-trail"
             :trail="crumbs"
+            :back-to-last="backToLieu"
             :waiting="waiting"
             reserve-wait
             @go="emit('crumb', $event)"
@@ -181,6 +185,7 @@ watch(
       <PanelBreadcrumb
         v-if="crumbs && !phone"
         :trail="crumbs"
+        :back-to-last="backToLieu"
         :waiting="waiting"
         :inert="sheetHidden || undefined"
         @go="emit('crumb', $event)"

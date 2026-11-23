@@ -78,3 +78,21 @@ export function auditionToOpen(o: {
   // Never the newest (`first`) for several: the list's top may be another.
   return o.known.top ?? AWAIT_LIST;
 }
+
+/**
+ * The lieu's crumb, or the back arrow, folds the audition being read back
+ * into the lieu's list (true) — or, as before, the crumb only brings the map
+ * back to the lieu and the arrow goes up to the territory (false). Under
+ * "premiere" only, where a pin opens an audition before its list was seen:
+ * the list stays one step back. Only for a lieu of several auditions — the
+ * list of one line a lieu of one would show is the step lieuSingle leaves out
+ * — and only with one of them open.
+ */
+export function foldsToList(o: {
+  mode: PinOpenMode;
+  lieuOpen: boolean;
+  auditionOpen: boolean;
+  count: number;
+}): boolean {
+  return o.mode === "premiere" && o.lieuOpen && o.auditionOpen && o.count >= 2;
+}

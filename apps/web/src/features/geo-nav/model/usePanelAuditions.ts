@@ -3,7 +3,16 @@
 // scrolls; the single-open accordion; the list's scroll kept where the
 // reader's eye is while an audition opens or the results change. From the
 // server's lists (map phase 1, PR K: data/useServerLists).
-import { computed, nextTick, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from "vue";
+import {
+  computed,
+  getCurrentScope,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+  watch,
+  type ComputedRef,
+  type Ref,
+} from "vue";
 import { formatDateShort } from "@/shared/format/dates";
 import { placeLabel, type GeoUnit } from "@/features/geo";
 import type { NavState } from "../navState";
@@ -60,6 +69,9 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     server,
   } = inputs;
   const { selectedPlaceId, openAuditions, mapEngaged } = nav;
+  /** The component's scope: a wait asked from a click ends with the page
+   *  (openTopWhenListed). */
+  const setupScope = getCurrentScope();
 
   // The open lieu's auditions: listed at once from what the map already knows of
   // them (title, date, how many testimonies) — its row's own list, embedded; on
@@ -320,6 +332,12 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
    * not taken in hand); not wanted, the list failed or slow (LIST_WAIT_MS),
    * the lieu's list stays as it is and nothing waits any longer. Never one
    * audition and then another: nothing is open before.
+   *
+   * Asked from a click, outside any effect: the wait is made in the
+   * component's own scope (`setupScope`), so leaving the page ends it. It
+   * looks at once (`immediate`) — the list may already be in — then at each
+   * change; data for another lieu never reaches placeAuditions (placeList
+   * keeps the open lieu's only). The LIST_WAIT_MS count starts at the click.
    */
   function openTopWhenListed(lieuId: string, wanted: () => boolean, opened?: (id: string) => void) {
     let over = false;
@@ -330,21 +348,25 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
       stop?.();
     };
     const timer = window.setTimeout(end, LIST_WAIT_MS);
-    stop = watch(
-      () => ({
-        ok: selectedPlaceId.value === lieuId && wanted() && !placeFailed.value,
-        top: placeAuditions.value[0]?.id ?? null,
-      }),
-      ({ ok, top }) => {
-        if (over) return;
-        if (!ok) return end();
-        if (!top) return;
-        end();
-        listToTop();
-        void toggleAud(top).then(() => opened?.(top));
-      },
-      { flush: "post" },
-    );
+    const watchIt = () =>
+      watch(
+        () => ({
+          ok: selectedPlaceId.value === lieuId && wanted() && !placeFailed.value,
+          top: placeAuditions.value[0]?.id ?? null,
+        }),
+        ({ ok, top }) => {
+          if (over) return;
+          if (!ok) return end();
+          if (!top) return;
+          end();
+          listToTop();
+          void toggleAud(top).then(() => opened?.(top));
+        },
+        { flush: "post", immediate: true },
+      );
+    stop = (setupScope ? setupScope.run(watchIt) : watchIt()) ?? null;
+    // Settled at once (`immediate`): the watch made after end() ran is stopped.
+    if (over) stop?.();
   }
 
   /** What the reader taking the list in hand looks like. */

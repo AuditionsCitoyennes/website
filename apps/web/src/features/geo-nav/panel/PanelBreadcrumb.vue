@@ -17,6 +17,9 @@ import { backTarget } from "./backTarget";
 const props = defineProps<{
   /** The trail, root first, ending at the scope or at the open lieu. */
   trail: GeoUnit[];
+  /** The back arrow points at the last crumb (the open lieu: the audition
+   *  being read folds back into its list) instead of the one before it. */
+  backToLast?: boolean;
   /** The last unit's plateau is long in coming: the dots after its name. */
   waiting?: boolean;
   /** Keep the dots' room when they are not shown: the trail never refolds
@@ -81,7 +84,13 @@ const crumbsHidden = computed(() =>
 // none at the root. Pressed into the root it goes away with its focus: the
 // focus moves to the root's crumb, not to the page. ----
 const backEl = ref<HTMLButtonElement | null>(null);
-const back = computed(() => backTarget(props.trail));
+const back = computed(() => backTarget(props.trail, props.backToLast));
+/** What the arrow says it does: one level up, or back to the lieu's list. */
+const backLabel = computed(() =>
+  back.value
+    ? `${props.backToLast ? "Retour à la liste du lieu" : "Niveau précédent"} : ${back.value.label}`
+    : "",
+);
 function goBack() {
   const to = back.value;
   if (!to) return;
@@ -108,8 +117,8 @@ function goBack() {
       ref="backEl"
       type="button"
       class="crumb crumb-back"
-      :aria-label="`Niveau précédent : ${back.label}`"
-      :title="`Niveau précédent : ${back.label}`"
+      :aria-label="backLabel"
+      :title="backLabel"
       @click="goBack"
     >
       <svg

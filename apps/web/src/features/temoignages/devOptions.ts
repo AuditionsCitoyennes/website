@@ -71,8 +71,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "carte",
     title: "Carte",
-    intro:
-      "Ce que montre son cadre quand elle ne démarre pas, et ce qu'ouvre un clic sur une épingle.",
+    intro: "Ce que montre son cadre quand elle ne démarre pas.",
   },
   {
     id: "panneau",
@@ -137,7 +136,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "liste", label: "Liste du lieu" },
     ],
     explain:
-      "Sur la carte sans filtre, un clic (ou un toucher) sur l'épingle d'un lieu de plusieurs auditions. « Première audition » (par défaut) ouvre celle du haut de la liste du lieu (la plus récente, ou la plus ancienne avec « Plus anciens d'abord ») ; toucher sa ligne la replie dans la liste du lieu. « Liste du lieu » ouvre la liste, comme avant. Un lieu d'une seule audition l'ouvre toujours, une ligne du panneau ouvre toujours la liste, et avec des filtres l'épingle ouvre déjà le premier résultat trouvé.",
+      "Sur la carte sans filtre, un clic (ou un toucher) sur l'épingle d'un lieu de plusieurs auditions. « Première audition » (par défaut) ouvre celle du haut de la liste du lieu (la plus récente, ou la plus ancienne avec « Plus anciens d'abord ») ; toucher sa ligne, le dernier élément du fil d'Ariane ou la flèche de retour la replie dans la liste du lieu. « Liste du lieu » ouvre la liste, comme avant (la flèche remonte alors au territoire). Un lieu d'une seule audition l'ouvre toujours, une ligne du panneau ouvre toujours la liste, et avec des filtres l'épingle ouvre déjà le premier résultat trouvé.",
     reloads: false,
     defaultId: "premiere",
   },
