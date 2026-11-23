@@ -9,13 +9,17 @@ import { placeLabel, type GeoUnit } from "@/features/geo";
 import type { NavState } from "../navState";
 import type { ServerLists } from "../data/useServerLists";
 import {
-  bySort,
+  lieuListOrder,
   serverPanelAudition,
   testimoniesOf,
   type AuditionSort,
   type PanelAudition,
 } from "./auditions";
 import type { LieuAuditionsKnown } from "./lieuSingle";
+
+/** How long a lieu opened from its pin waits for its list before its top
+ *  opens (openTopWhenListed): past it, the list shows as it is. */
+const LIST_WAIT_MS = 3000;
 
 export interface PanelAuditionsInputs {
   nav: NavState;
@@ -64,9 +68,12 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     const place = selectedPlace.value;
     if (!place) return [];
     const lieu = { id: place.id, canonical: place.canonical ?? place.label };
-    return server.placeList.value.rows
-      .map((a) => serverPanelAudition(a, lieu, server.testimoniesFor(a.id)))
-      .sort((a, b) => bySort(a, b, sort.value));
+    return lieuListOrder(
+      server.placeList.value.rows.map((a) =>
+        serverPanelAudition(a, lieu, server.testimoniesFor(a.id)),
+      ),
+      sort.value,
+    );
   });
 
   /** What is known of a lieu's auditions the moment it is opened, before its
@@ -304,6 +311,42 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     );
   }
 
+  /**
+   * The top of the open lieu's list opened once the server has listed it — a
+   * lieu of several auditions opened from its pin while its list is not in
+   * the tree (the server's lazy path: useNavActions' openPlace). Opened as a
+   * press on that line opens it: the map comes back to the lieu. `wanted`: the
+   * move still makes sense (the same lieu, nothing opened meanwhile, the map
+   * not taken in hand); not wanted, the list failed or slow (LIST_WAIT_MS),
+   * the lieu's list stays as it is and nothing waits any longer. Never one
+   * audition and then another: nothing is open before.
+   */
+  function openTopWhenListed(lieuId: string, wanted: () => boolean, opened?: (id: string) => void) {
+    let over = false;
+    let stop: (() => void) | null = null;
+    const end = () => {
+      over = true;
+      window.clearTimeout(timer);
+      stop?.();
+    };
+    const timer = window.setTimeout(end, LIST_WAIT_MS);
+    stop = watch(
+      () => ({
+        ok: selectedPlaceId.value === lieuId && wanted() && !placeFailed.value,
+        top: placeAuditions.value[0]?.id ?? null,
+      }),
+      ({ ok, top }) => {
+        if (over) return;
+        if (!ok) return end();
+        if (!top) return;
+        end();
+        listToTop();
+        void toggleAud(top).then(() => opened?.(top));
+      },
+      { flush: "post" },
+    );
+  }
+
   /** What the reader taking the list in hand looks like. */
   const HANDS_ON = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
 
@@ -411,6 +454,7 @@ export function usePanelAuditions(inputs: PanelAuditionsInputs) {
     keepAtTop,
     listToTop,
     focusAudWhenListed,
+    openTopWhenListed,
     lieuAuditionsOf,
   };
 }
