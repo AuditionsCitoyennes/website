@@ -1,7 +1,7 @@
 // The loading curtain's rules (curtainFrame.ts): the camera's padding at boot,
-// where the map draws France at the measured sizes (pinned: a change to the
-// camera's framing or to the panel's widths must be measured again), the
-// tilted and flat posters on it, today's places under "avant", and one layout
+// where the map draws France at the measured sizes, tilted and flat (pinned: a
+// change to the camera's framing or to the panel's widths must be measured
+// again), the posters on it, today's places under "avant", and one layout
 // for both stages. Run with `node --import tsx --test` (root "test:scripts").
 // Pure: no Vue component, no DOM.
 
@@ -17,6 +17,7 @@ import {
   POSTER_OUTLINE,
   POSTER_W,
   curtainLayout,
+  flatFranceAim,
   flatPosterRect,
   franceAim,
   inSight,
@@ -71,9 +72,9 @@ test("the camera's boot framing is insetsFor's (card, desktop, lowered sheet)", 
   ]);
 });
 
-/** The live map's France (the poster's outline through map.project, dev
- *  828c15d, 2026-11-23): the map's box [w, h] and the outline's bounding box
- *  [x, y, w, h] in it. */
+/** The live map's France, settled at 45° (the poster's outline through
+ *  map.project, dev 828c15d, 2026-11-23): the map's box [w, h] and the
+ *  outline's bounding box [x, y, w, h] in it. */
 const MEASURED: readonly (readonly [string, number, number, readonly number[]])[] = [
   ["phone 360×740", 360, 740, [91.5, 272.8, 200.5, 132.7]],
   ["phone 412×915", 412, 915, [101.1, 348, 237.1, 157.2]],
@@ -81,6 +82,18 @@ const MEASURED: readonly (readonly [string, number, number, readonly number[]])[
   ["desktop 1280×720", 1280, 653.53, [221.4, 179.3, 456.1, 289.4]],
   ["desktop 1440×900", 1440, 833.53, [256.6, 234.5, 562.3, 357.7]],
   ["desktop 1920×1080", 1920, 1013.53, [380.9, 237.4, 867, 544]],
+];
+/** The same, flat: the map at the curtain's first leaving frame under full
+ *  motion (`ac:tier=full`, pitch 0, before the entrance's tilt; lane on dev
+ *  828c15d's camera, 2026-11-23). */
+const MEASURED_FLAT: readonly (readonly [string, number, number, readonly number[]])[] = [
+  ["phone 360×740", 360, 740, [83.4, 240.1, 209.9, 197.3]],
+  ["phone 390×844", 390, 844, [88.3, 281.7, 231.7, 217.9]],
+  ["phone 412×915", 412, 915, [92, 309.6, 247.8, 232.9]],
+  ["tablet 820×1180", 820, 1180, [158.3, 299.4, 546.1, 513.4]],
+  ["desktop 1280×720", 1280, 653.53, [211.6, 121, 430.1, 404.3]],
+  ["desktop 1440×900", 1440, 833.53, [224.7, 141.5, 575, 540.6]],
+  ["desktop 1920×1080", 1920, 1013.53, [397.7, 162.5, 720.1, 676.9]],
 ];
 const rings = POSTER_REGIONS.flatMap((r) => posterRings(r.d));
 const bboxOf = (pts: readonly (readonly number[])[]) => {
@@ -90,7 +103,7 @@ const bboxOf = (pts: readonly (readonly number[])[]) => {
   const y = Math.min(...ys);
   return [x, y, Math.max(...xs) - x, Math.max(...ys) - y];
 };
-const layoutAt = (w: number, h: number, mode: "carte" | "plat") =>
+const layoutAt = (w: number, h: number, mode: "carte" | "plat", motion: "full" | "short") =>
   curtainLayout({
     w,
     h,
@@ -98,6 +111,7 @@ const layoutAt = (w: number, h: number, mode: "carte" | "plat") =>
     preview: false,
     peekPx: CURTAIN_PEEK_PX,
     mode,
+    motion,
     from: { stage: "stage" },
   });
 
@@ -111,15 +125,53 @@ test("the aim is the map's France at every measured size", () => {
   }
 });
 
-test("the tilted poster lies on the map's France, the flat one on its width and centre", () => {
+test("the flat aim is the flat map's France at every measured size", () => {
+  for (const [name, w, h, [x, y, bw, bh]] of MEASURED_FLAT) {
+    const view = inSight(w, h, insetsFor({ desktop: w >= 900, preview: false, peekPx: 70 }));
+    const aim = flatFranceAim(view, h);
+    near(aim.width, bw, 0.5, `${name} width`);
+    near(aim.x, x + bw / 2, 0.6, `${name} centre x`);
+    near(aim.y, y + bh / 2, 0.6, `${name} centre y`);
+  }
+});
+
+test("« carte » draws France as the map is shown: flat under full motion, tilted under short", () => {
+  for (const [name, w, h, box] of MEASURED_FLAT) {
+    const carte = layoutAt(w, h, "carte", "full").poster;
+    assert.ok(carte.kind === "carte" && carte.flat, `${name} flat`);
+    if (carte.kind !== "carte") continue;
+    const got = bboxOf(projectRings(rings, carte).flat());
+    for (let k = 0; k < 4; k++) near(got[k], box[k], 1, `${name} flat bbox[${k}]`);
+  }
   for (const [name, w, h, box] of MEASURED) {
-    const carte = layoutAt(w, h, "carte").poster;
-    assert.equal(carte.kind, "carte");
+    const carte = layoutAt(w, h, "carte", "short").poster;
+    assert.ok(carte.kind === "carte" && !carte.flat, `${name} tilted`);
     if (carte.kind !== "carte") continue;
     const got = bboxOf(projectRings(rings, carte).flat());
     for (let k = 0; k < 4; k++) near(got[k], box[k], 1, `${name} tilted bbox[${k}]`);
+  }
+});
 
-    const flat = layoutAt(w, h, "plat").poster;
+test("the flat globe keeps the map's shape: France as high as the map draws it", () => {
+  // The globe seen from above draws France 0.94 as high as wide; the
+  // Mercator drawing is 0.98: a flat box of the drawing would stray ~3 % at
+  // the north and the south.
+  for (const [name, w, h, box] of MEASURED_FLAT) {
+    const carte = layoutAt(w, h, "carte", "full").poster;
+    if (carte.kind !== "carte") continue;
+    const [, , bw, bh] = bboxOf(projectRings(rings, carte).flat());
+    near(bh / bw, box[3] / box[2], 0.002, `${name} aspect`);
+  }
+  const view = { left: 0, top: 0, width: 300, height: 600 };
+  assert.deepEqual(
+    projectRings(rings, { view, boxH: 700, aim: { x: 0, y: 0, width: 0 }, flat: true }),
+    [],
+  );
+});
+
+test("« plat »: the flat drawing on the tilted map's width and centre", () => {
+  for (const [name, w, h, box] of MEASURED) {
+    const flat = layoutAt(w, h, "plat", "full").poster;
     assert.equal(flat.kind, "rect");
     if (flat.kind !== "rect") continue;
     const unit = flat.rect.width / POSTER_W;
@@ -146,22 +198,23 @@ test("the poster's outline fills the box the rules read", () => {
 
 test("both stages lay the curtain out alike, whatever the boot curtain's live measures", () => {
   for (const mode of ["carte", "plat"] as const)
-    for (const [w, h] of [
-      [360, 740],
-      [390, 844],
-      [820, 1180],
-      [1440, 833.53],
-    ]) {
-      const base = { w, h, desktop: w >= 900, preview: false, peekPx: 70, mode };
-      const a: CurtainLayout = curtainLayout({ ...base, from: { stage: "stage" } });
-      const b = curtainLayout({
-        ...base,
-        from: { stage: "geo", mapOnly: true, sheet: w < 900, cover: 480, peek: 72, held: true },
-      });
-      assert.deepEqual(a, b);
-      // The words in the part France is framed in.
-      assert.deepEqual(a.say, inSight(w, h, insetsFor(base)));
-    }
+    for (const motion of ["full", "short"] as const)
+      for (const [w, h] of [
+        [360, 740],
+        [390, 844],
+        [820, 1180],
+        [1440, 833.53],
+      ]) {
+        const base = { w, h, desktop: w >= 900, preview: false, peekPx: 70, mode, motion };
+        const a: CurtainLayout = curtainLayout({ ...base, from: { stage: "stage" } });
+        const b = curtainLayout({
+          ...base,
+          from: { stage: "geo", mapOnly: true, sheet: w < 900, cover: 480, peek: 72, held: true },
+        });
+        assert.deepEqual(a, b);
+        // The words in the part France is framed in.
+        assert.deepEqual(a.say, inSight(w, h, insetsFor(base)));
+      }
 });
 
 test("« avant »: each stage's places before", () => {
@@ -172,6 +225,7 @@ test("« avant »: each stage's places before", () => {
     preview: false,
     peekPx: 70,
     mode: "avant",
+    motion: "full",
     from: { stage: "stage" },
   });
   assert.equal(stage.poster.kind, "rect");
@@ -190,6 +244,7 @@ test("« avant »: each stage's places before", () => {
     preview: false,
     peekPx: 70,
     mode: "avant",
+    motion: "full",
     from: { stage: "geo", mapOnly: true, sheet: false, cover: 480, peek: 72, held: true },
   });
   assert.equal(desk.poster.kind === "rect" && desk.poster.rect.width, 1152 - 480);
@@ -202,6 +257,7 @@ test("« avant »: each stage's places before", () => {
       preview: false,
       peekPx: 70,
       mode: "avant",
+      motion: "full",
       from: { stage: "geo", mapOnly: true, sheet: true, cover: 0, peek: 70, held },
     });
   const held = phone(true).poster;
@@ -216,12 +272,14 @@ test("« avant »: each stage's places before", () => {
     preview: true,
     peekPx: 70,
     mode: "avant",
+    motion: "full",
     from: { stage: "geo", mapOnly: false, sheet: false, cover: 0, peek: 72, held: false },
   });
   assert.deepEqual(
     card,
     curtainLayout({
       ...{ w: 600, h: 400, desktop: true, preview: true, peekPx: 70, mode: "avant" },
+      motion: "short",
       from: { stage: "stage" },
     }),
   );

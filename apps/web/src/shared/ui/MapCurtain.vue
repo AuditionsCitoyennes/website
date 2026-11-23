@@ -9,6 +9,10 @@
 // spinner keeps its turn too (its animation runs on the page's clock, not
 // from when its element came).
 //
+// France is drawn as the map shows it when the curtain starts leaving: flat
+// where the map then tilts in its entrance, tilted where it tilts in one step
+// first (the device's motion, read as the camera will read it).
+//
 // France is `poster` (CurtainPoster.vue, its own file). The spinner and the
 // words show as soon as the box is measured: their place does not depend on
 // France, which fades in where it goes if its file comes after them (only
@@ -27,6 +31,8 @@ import {
   type Rect,
 } from "@/shared/boot/curtainFrame";
 import { bootPosterMode } from "@/shared/boot/bootPosterSwitch";
+import { deviceTier, probeRenderer } from "@/shared/device/deviceTier";
+import { motionFor, prefersReducedMotion, type Motion } from "@/shared/device/motion";
 
 const props = defineProps<{
   /** France (CurtainPoster.vue), null while its file is coming. */
@@ -78,6 +84,13 @@ onMounted(() => {
 });
 onBeforeUnmount(() => ro?.disconnect());
 
+/** The map's entrance (features/map useMapCamera.beginIntro reads motionNow
+ *  then). The renderer is asked for here, as the map's code asks before the
+ *  map starts (graphicsSwitch, cacheBudget: one probe, kept), so both stages
+ *  and the camera read the same tier. Only once France is drawn: the spinner
+ *  and the words do not wait for the probe. */
+const entrance = (): Motion => motionFor(deviceTier(probeRenderer()), prefersReducedMotion());
+
 const SAME_FOR_BOTH: CurtainStage = { stage: "stage" };
 const layout = computed(() => {
   const b = box.value;
@@ -89,6 +102,7 @@ const layout = computed(() => {
     preview: !!props.preview,
     peekPx: CURTAIN_PEEK_PX + b.safe,
     mode: bootPosterMode,
+    motion: props.poster && bootPosterMode === "carte" ? entrance() : "short",
     // Read only for "avant": the boot curtain's live measures, a new object
     // at each of its renders, must not redraw the others.
     from: bootPosterMode === "avant" ? props.from : SAME_FOR_BOTH,

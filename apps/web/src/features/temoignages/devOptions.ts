@@ -116,12 +116,12 @@ export const DEV_OPTIONS: readonly DevOption[] = [
     section: "carte",
     label: "Image d'attente",
     choices: [
-      { id: "carte", label: "Inclinée" },
+      { id: "carte", label: "Comme la carte" },
       { id: "plat", label: "À plat" },
       { id: "avant", label: "Comme avant" },
     ],
     explain:
-      "L'image de la France sous « Chargement de la carte… », sur la page des témoignages et sur la carte de l'accueil. « Inclinée » (par défaut) la dessine penchée comme la carte, à la place et à la taille où la carte montre la France : quand la carte apparaît, la France ne bouge pas. « À plat » la garde à plat, au même endroit et aussi large. « Comme avant » la remet aux places d'avant, qui changeaient d'une étape du chargement à l'autre.",
+      "L'image de la France sous « Chargement de la carte… », sur la page des témoignages et sur la carte de l'accueil. « Comme la carte » (par défaut) la dessine comme la carte la montre au moment où elle apparaît, à la même place et à la même taille : à plat sur un appareil ordinaire, où la carte s'incline ensuite dans son entrée ; déjà penchée sur un appareil faible ou quand le système demande moins d'animations, où la carte s'incline d'un coup avant d'apparaître. Dans les deux cas, quand la carte apparaît, la France ne bouge pas. « À plat » la garde à plat, centrée sur la France de la carte penchée et aussi large. « Comme avant » la remet aux places d'avant, qui changeaient d'une étape du chargement à l'autre.",
     reloads: true,
     defaultId: "carte",
   },

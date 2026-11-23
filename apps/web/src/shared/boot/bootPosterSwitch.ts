@@ -1,10 +1,11 @@
 // How the map's loading curtain draws France (shared/boot/curtainFrame.ts),
 // compared live (the testing options menu, temoignages/DevOptionsMenu.vue) in
 // the builds with the testing tools — the dev server and staging
-// (__TEST_TOOLS__, vite.config): "carte" (the default) — tilted, where and as
-// the map draws France once it is up — "plat" — flat, centred on the map's
-// France and as wide — or "avant": where each of the curtain's two stages
-// drew it before, which moved from one to the other.
+// (__TEST_TOOLS__, vite.config): "carte" (the default) — where and as the map
+// shows France when the curtain leaves: flat on the globe under full motion,
+// tilted under short — "plat" — flat, centred on the tilted map's France and
+// as wide — or "avant": where each of the curtain's two stages drew it
+// before, which moved from one to the other.
 //
 // Read once per page load: the choice only matters while the map loads, so
 // its setter loads the page again. Production has neither key nor switch:

@@ -15,24 +15,39 @@ import MapCurtain from "@/shared/ui/MapCurtain.vue";
 defineOptions({ inheritAttrs: false });
 defineProps<{ preview?: boolean }>();
 
-// France, its own small file, asked for only then: this curtain is in every
-// page's code. Until it is in, the curtain shows its spinner and words alone,
+// France, its own small file, asked for only then (or as the page's code
+// starts, below): this curtain is in every page's code. Until it is in, the curtain shows its spinner and words alone,
 // at their places; France fades in under them when it comes. Where it cannot
 // come (no network), they stand alone.
 const poster = shallowRef<Component | null>(posterIn);
-if (!posterIn) {
-  posterAsked ??= import("@/shared/ui/CurtainPoster.vue").then(
-    (m) => (posterIn = markRaw(m.default)),
-    () => (posterAsked = null), // a later curtain asks again
-  );
-  void posterAsked.then(() => (poster.value = posterIn));
-}
+if (!posterIn) void askPoster().then(() => (poster.value = posterIn));
 </script>
 
 <script lang="ts">
+import { ROUTE } from "@/shared/routes";
+
 /** Once its file is in, for every later curtain of the visit. */
 let posterIn: Component | null = null;
 let posterAsked: Promise<unknown> | null = null;
+
+function askPoster(): Promise<unknown> {
+  return (posterAsked ??= import("@/shared/ui/CurtainPoster.vue").then(
+    (m) => (posterIn = markRaw(m.default)),
+    () => (posterAsked = null), // a later curtain asks again
+  ));
+}
+
+// A visit landing on the map's page (or on the old analyses links, which open
+// it) asks for France as the page's code starts, before the route is known:
+// it is in for the curtain's first frame. Asked with the map's code instead,
+// it could be held behind that code's start, a long moment on a slow device,
+// leaving the spinner alone meanwhile.
+if (
+  typeof location !== "undefined" &&
+  (location.pathname.startsWith(ROUTE.temoignages.path) ||
+    /^\/analyses?\/?$/.test(location.pathname))
+)
+  void askPoster();
 </script>
 
 <template>

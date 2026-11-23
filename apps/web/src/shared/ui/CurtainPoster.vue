@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // France on the map's loading curtain (MapCurtain.vue), where curtainFrame.ts
-// puts it: the flat poster in its box, or its outline tilted like the map's
-// (its points projected, drawn as plain paths: a CSS 3D tilt rasterises
-// blurry). Its own small file: the curtain is in every page's code, the
+// puts it: the flat poster in its box, or its outline as the map shows it,
+// flat on the globe or tilted (its points projected, drawn as plain paths: a
+// CSS 3D tilt rasterises blurry). Its own small file: the curtain is in every page's code, the
 // poster's outline is not (MapStage's StageLoading asks for it, GeoNav
 // imports it with the map's code). Decorative, as the poster.
 import { computed, onBeforeUnmount, shallowRef, watch } from "vue";
@@ -33,10 +33,10 @@ const rectStyle = computed(() => {
   return { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` };
 });
 
-type Tilted = Extract<CurtainLayout["poster"], { kind: "carte" }>;
+type Projected = Extract<CurtainLayout["poster"], { kind: "carte" }>;
 
 /** One path per région, as the poster. */
-function project(p: Tilted): string[] {
+function project(p: Projected): string[] {
   const out = projectRings(allRings(), p);
   const paths: string[] = [];
   let at = 0;
@@ -61,13 +61,13 @@ function project(p: Tilted): string[] {
 // onto the new aim (a transform); the outline is projected again once the
 // box has held still that long.
 const SETTLE_MS = 150;
-const drawn = shallowRef<{ paths: string[]; aim: FranceAim } | null>(null);
+const drawn = shallowRef<{ paths: string[]; aim: FranceAim; flat: boolean } | null>(null);
 let settle: ReturnType<typeof setTimeout> | undefined;
 let lastChange = 0;
 
 function draw() {
   const p = props.poster;
-  drawn.value = p.kind === "carte" ? { paths: project(p), aim: p.aim } : null;
+  drawn.value = p.kind === "carte" ? { paths: project(p), aim: p.aim, flat: p.flat } : null;
 }
 
 watch(
@@ -82,7 +82,7 @@ watch(
     const now = performance.now();
     const busy = settle !== undefined || now - lastChange < SETTLE_MS;
     lastChange = now;
-    if (!drawn.value || !busy) {
+    if (!drawn.value || !busy || drawn.value.flat !== p.flat) {
       draw();
       return;
     }
