@@ -182,14 +182,21 @@ const mapPresentable = ref(false);
  *  meanwhile (panelBoot), and nothing covers the map's box. */
 const mapFailed = ref(false);
 const booting = ref(true);
-// A map that failed waits for nothing else: the panel those reads were for
-// does not show, so the fallback shows as soon as the failure is known.
+// On the page, a map that failed waits for nothing else: the panel those
+// reads were for does not show, so the fallback shows as soon as the failure
+// is known. The home page's card waits as for a map that came (its curtain
+// covers the card whole).
 watch(
   () =>
     !mapPresentable.value ||
-    (!mapFailed.value && (props.loading || outlines.ready.value === "loading")),
+    ((props.preview || !mapFailed.value) && (props.loading || outlines.ready.value === "loading")),
   (busy) => {
-    if (!busy) booting.value = false;
+    if (busy) return;
+    // A failure told in this same tick: the curtain first renders once more
+    // with its France in the middle (MapCurtain `centred`), since a leaving
+    // element keeps the props it had; then it fades onto the fallback's.
+    if (mapFailed.value && !props.preview) void nextTick(() => (booting.value = false));
+    else booting.value = false;
   },
   { immediate: true },
 );
@@ -1438,7 +1445,8 @@ function retryAll() {
          France, the spinner and the words are drawn by shared/ui/MapCurtain:
          France where the camera frames it once the map is up, as MapStage's
          StageLoading drew it just before this curtain (the same rules, the
-         same inputs). Over map
+         same inputs); once the map has failed, in the middle of the box,
+         as the fallback it fades onto draws it. Over map
          AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
@@ -1451,7 +1459,7 @@ function retryAll() {
         role="status"
         aria-live="polite"
       >
-        <MapCurtain :poster="curtainPoster" :preview="preview" />
+        <MapCurtain :poster="curtainPoster" :preview="preview" :centred="mapFailed && !preview" />
       </div>
     </Transition>
 

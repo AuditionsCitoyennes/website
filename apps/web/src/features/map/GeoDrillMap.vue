@@ -159,9 +159,9 @@ const emit = defineEmits<{
    * The box shows the fallback (« La carte n'a pas pu s'afficher. »): the map
    * could not start, its style was refused, or its style never came (with a
    * « Réessayer »); false once a retry has brought the map in and painted
-   * it. Told at once (immediate) and in the same tick as the flag changes
-   * (sync), before `ready`: the page never renders its panel over the
-   * fallback for a frame.
+   * it, and the frame's fade has started. Told at once (immediate) and in
+   * the same tick as the flag changes (sync), before `ready`: the page never
+   * renders its panel over the fallback for a frame.
    */
   fallback: [shown: boolean];
 }>();
@@ -193,8 +193,29 @@ let stopStyleReconnect: () => void = () => {};
 function retryStyle() {
   styleRecovery?.retry();
 }
+// The fallback's frame told to leave (a « Réessayer » that brought the map)
+// but not fading yet: a heavy first map frame can hold it opaque a moment
+// (as the page's loading curtain). It still counts as shown until its fade
+// starts (`transitionrun`), its leave ends, or DOWN_FADE_BELT_MS pass: the
+// page's panel comes in as it fades, not over it.
+const DOWN_FADE_BELT_MS = 2000;
+const downLeaving = ref(false);
+let downFadeBelt = 0;
+function endDownLeave() {
+  window.clearTimeout(downFadeBelt);
+  downFadeBelt = 0;
+  downLeaving.value = false;
+}
+/** The leaving frame (its Transition's `leave`): the wait ends as its own
+ *  opacity transition runs. One parameter: Vue still runs the CSS leave. */
+function onDownLeave(el: Element) {
+  el.addEventListener("transitionrun", (e) => {
+    const t = e as TransitionEvent;
+    if (t.target === el && t.propertyName === "opacity") endDownLeave();
+  });
+}
 watch(
-  () => unavailable.value || styleDown.value !== false,
+  () => unavailable.value || styleDown.value !== false || downLeaving.value,
   (shown) => emit("fallback", shown),
   { immediate: true, flush: "sync" },
 );
@@ -202,9 +223,12 @@ watch(
 const retryBtn = ref<HTMLButtonElement | null>(null);
 // A « Réessayer » that brought the style: the box keeps the fallback (the
 // button still unavailable) until the new style's map is painted — its
-// `load`, then its first `idle` —, rather than showing a bare basemap for
-// the moment its tiles take. At most DOWN_PAINT_CAP_MS after the style came
-// (the intro's own cap): a map whose tiles never come shows as it is.
+// `load`, then its first `idle`, the moment a first load lifts the loading
+// curtain (`ready`: the intro's tilt and the plateau's rise then play in
+// sight) —, rather than showing a bare basemap for the moment its tiles take;
+// then it fades out as that curtain does. At most DOWN_PAINT_CAP_MS after
+// the style came (the intro's own cap): a map whose tiles never come shows as
+// it is.
 const DOWN_PAINT_CAP_MS = 4000;
 let downPaintTimer = 0;
 let downPaintOff: () => void = () => {};
@@ -219,6 +243,11 @@ function holdDownUntilPainted(loaded: boolean) {
   const m = map;
   const lift = () => {
     endDownHold();
+    // Shown until the frame's fade starts (above): set first, in the same
+    // tick, so the fallback is never told gone before.
+    downLeaving.value = true;
+    window.clearTimeout(downFadeBelt);
+    downFadeBelt = window.setTimeout(endDownLeave, DOWN_FADE_BELT_MS);
     styleDown.value = false;
   };
   if (!m) return lift();
@@ -839,6 +868,7 @@ function mountMap() {
           holdDownUntilPainted(initialLoadDone);
         } else {
           endDownHold();
+          endDownLeave();
           styleDown.value = state === "down" || state === "asking" ? state : false;
         }
         // The message is up: nothing more comes by itself — never strand a boot overlay.
@@ -923,6 +953,7 @@ function mountMap() {
         emitReady(); // nothing more is coming — never strand a boot overlay
         styleRecovery?.stop();
         endDownHold();
+        endDownLeave();
         styleDown.value = false;
         pins.clear();
         stillMap.detach(map);
@@ -1094,6 +1125,7 @@ onBeforeUnmount(() => {
   lid.destroy();
   styleRecovery?.stop();
   endDownHold();
+  window.clearTimeout(downFadeBelt);
   stopStyleReconnect();
   resizeObserver?.disconnect();
   resizeObserver = null;
@@ -1276,22 +1308,27 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
     <div ref="el" class="map-box"></div>
     <!-- The style could not be had (lib/styleRecovery.ts): the fallback over
          the map, which stays under it, and a button that asks for the style
-         again. -->
-    <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
-      <MapCurtain bare :centred="!preview" :poster="curtainPoster" :preview="preview" />
-      <div class="map-down-say">
-        <p class="map-fallback-text" role="status">{{ MAP_FALLBACK_TEXT }}</p>
-        <button
-          ref="retryBtn"
-          type="button"
-          class="ac-btn ac-btn--outline ac-btn--sm map-down-retry"
-          :aria-disabled="styleDown === 'asking' || undefined"
-          @click="retryStyle"
-        >
-          Réessayer
-        </button>
+         again. Shown at once; once a « Réessayer » has brought the map and
+         it is painted, it fades out as the loading curtain does (the button
+         still unavailable meanwhile), the page's panel coming in as it
+         fades (`downLeaving`). -->
+    <Transition name="map-down" @leave="onDownLeave" @after-leave="endDownLeave">
+      <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
+        <MapCurtain bare :centred="!preview" :poster="curtainPoster" :preview="preview" />
+        <div class="map-down-say">
+          <p class="map-fallback-text" role="status">{{ MAP_FALLBACK_TEXT }}</p>
+          <button
+            ref="retryBtn"
+            type="button"
+            class="ac-btn ac-btn--outline ac-btn--sm map-down-retry"
+            :aria-disabled="styleDown !== 'down' || undefined"
+            @click="retryStyle"
+          >
+            Réessayer
+          </button>
+        </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 
@@ -1328,6 +1365,17 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
   inset: 0;
   z-index: 3;
   background-color: hsl(var(--background));
+}
+
+/* Leaving (a « Réessayer » that brought the map): the loading curtain's own
+   fade (GeoNav's .boot-leave-active), while the page's panel comes in. */
+.map-down-leave-active {
+  transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+
+.map-down-leave-to {
+  opacity: 0;
 }
 
 .map-down-say {
