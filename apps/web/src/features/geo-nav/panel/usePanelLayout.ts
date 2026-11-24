@@ -7,7 +7,7 @@ import type { GeoUnit } from "@/features/geo";
 import type { MapGestureSource } from "@/features/map";
 import type { Insets, NavState } from "../navState";
 import { insetsFor, PANEL_BASE_PX, PANEL_GAP_PX } from "@/shared/boot/curtainFrame";
-import { createGestureFirst, sheetLowersOnMap, type MapUse, type SheetMapMode } from "./sheetMap";
+import { createGestureFirst, sheetLowersOnMap, type MapUse } from "./sheetMap";
 
 // Panel geometry. MUST stay in sync with `.panel` / `.panel.wide` in GeoNav's
 // <style> — the camera padding is what keeps the map clear of the panel, and
@@ -47,9 +47,6 @@ export interface PanelLayoutInputs {
    *  (model/lieuFollow) — a desktop's panel stays where it is meanwhile,
    *  never folded. */
   follows: () => boolean;
-  /** What a phone's raised sheet does when the map is used (sheetMap.ts,
-   *  « Carte touchée »). Read at each use. */
-  mapMode: () => SheetMapMode;
   /** Set when the sheet comes down for the map with no lieu open, cleared
    *  when it is raised again (and by the next camera command, useSheetBand):
    *  the band above a short sheet stays as applied meanwhile. Read and
@@ -119,7 +116,6 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
   function lowerForMap(use: MapUse) {
     const lieuOpen = Boolean(selectedPlaceId.value);
     const lowers = sheetLowersOnMap({
-      mode: inputs.mapMode(),
       phone: !isDesktop.value,
       preview: Boolean(preview.value),
       raised: sheetOpen.value,

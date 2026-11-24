@@ -3,8 +3,8 @@
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads
-// (geo-nav/panel/sheetFitSwitch, geo-nav/panel/sheetMapSwitch,
-// analyses/devSwitch, shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
+// (geo-nav/panel/sheetFitSwitch, analyses/devSwitch,
+// shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue alone, so a production build has
 // none of these strings. French typography: a no-break space ( ) after «
@@ -29,7 +29,6 @@ export type DevKey =
   | "ac:tier"
   | "ac:sheet-fit"
   | "ac:sheet-late"
-  | "ac:sheet-map"
   | "ac:dpr"
   | "ac:frame-measure";
 
@@ -67,8 +66,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "panneau",
     title: "Panneau",
-    intro:
-      "Sur un téléphone, la hauteur du panneau des témoignages et ce qu'il fait quand on se sert de la carte.",
+    intro: "Sur un téléphone, la hauteur du panneau des témoignages.",
   },
   {
     id: "analyses",
@@ -117,19 +115,6 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       "Avec « Ajusté, centré » seulement, sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé s'il reste tout entier visible au-dessus du panneau : un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau en cache une partie (souvent après un toucher depuis une longue liste, le panneau en haut, sur un territoire haut comme le Bénin), la carte le recadre dans les deux cas.",
     reloads: false,
     defaultId: "rester",
-  },
-  {
-    key: "ac:sheet-map",
-    section: "panneau",
-    label: "Carte touchée",
-    choices: [
-      { id: "baisser", label: "Baisser le panneau" },
-      { id: "rien", label: "Ne rien faire" },
-    ],
-    explain:
-      "Sur un téléphone, quand le panneau des témoignages est remonté et qu'on se sert de la carte. « Baisser le panneau » (par défaut) le redescend dès que la carte bouge sous les doigts (glisser, pincer, tourner, toucher deux fois) ou qu'on touche un endroit ou un territoire ; toucher un lieu le remonte toujours avec ses témoignages. « Ne rien faire » le laisse remonté, comme avant, sauf quand un lieu est ouvert. Rien ne change sur un ordinateur.",
-    reloads: false,
-    defaultId: "baisser",
   },
   {
     key: "ac:analyses-pending",

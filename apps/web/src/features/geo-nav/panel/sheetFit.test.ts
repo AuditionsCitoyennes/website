@@ -431,7 +431,7 @@ test("a new band frames the scope again only where the scope may move with it", 
     [{ listMode: true, world: true, grewOnly: true, late: "recentrer" }, "stay"],
     [{ listMode: true, world: true }, "filter"],
     [{ listMode: true, grewOnly: true }, "filter"],
-    // Lowered by the visitor's use of the map (« Carte touchée »): the band
+    // Lowered by the visitor's use of the map: the band
     // stays as applied, whatever the hands and the moves; a band that is not
     // none, or a lowering by other means, as above.
     [{ byMap: true, toNone: true }, "keep"],

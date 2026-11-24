@@ -41,8 +41,7 @@
 //   alone would shrink the rectangle the scope is read off, and a child
 //   filling most of the lowered map would become the scope at rest, the
 //   list swapping under the visitor's finger; the next command takes it;
-// - a sheet lowered by the visitor's own use of the map (« Carte touchée »,
-//   sheetMap.ts: a drag, a pinch, an empty spot tapped) keeps the band as
+// - a sheet lowered by the visitor's own use of the map (sheetMap.ts: a drag, a pinch, an empty spot tapped) keeps the band as
 //   the camera's padding ("keep"), the one case of a band under a lowered
 //   sheet: a padding changed under a hand kills the drag or the pinch in
 //   progress, and eased off once they let go it would slide the map by

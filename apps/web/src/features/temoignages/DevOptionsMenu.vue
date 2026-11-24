@@ -5,8 +5,7 @@
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the height
 // of a phone's raised sheet and how a late list re-frames it
-// (geo-nav/panel/sheetFitSwitch), what that sheet does when the map is used
-// (geo-nav/panel/sheetMapSwitch), the analyses' slabs
+// (geo-nav/panel/sheetFitSwitch), the analyses' slabs
 // (analyses/devSwitch; their section only in a build with the analyses), the
 // device's tier (shared/device/deviceTier) with what the page knows of the
 // device listed under it, the map's pixel ratio and whether it times its
@@ -41,14 +40,7 @@ import {
   slabTextMode,
   slabTextScale,
 } from "@/features/analyses";
-import {
-  setSheetFitMode,
-  setSheetLateMode,
-  sheetFitMode,
-  sheetLateMode,
-  setSheetMapMode,
-  sheetMapMode,
-} from "@/features/geo-nav";
+import { setSheetFitMode, setSheetLateMode, sheetFitMode, sheetLateMode } from "@/features/geo-nav";
 import { dprChoice, frameMeasure, setDprChoice, setFrameMeasure } from "@/features/map";
 import {
   DEV_CHANGED_MARK,
@@ -88,7 +80,6 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:sheet-late": bind(() => sheetLateMode.value, setSheetLateMode),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
-  "ac:sheet-map": bind(() => sheetMapMode.value, setSheetMapMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();

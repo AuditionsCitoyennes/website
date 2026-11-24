@@ -58,7 +58,6 @@ import {
 } from "./panel/sheetFit";
 import { useSheetBand } from "./panel/useSheetBand";
 import { sheetFitMode, sheetLateMode } from "./panel/sheetFitSwitch";
-import { sheetMapMode } from "./panel/sheetMapSwitch";
 import { testimoniesOf } from "./model/auditions";
 import { PANEL_BASE_PX, PHONE_SIDE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
@@ -515,8 +514,8 @@ const sheetAimPx = ref<number | null>(null);
  *  further down once the sheet's hold is made), or null. The ring stands
  *  aside meanwhile. */
 const sheetBand = shallowRef<Insets | null>(null);
-/** The sheet came down for the visitor's use of the map (« Carte touchée »,
- *  panel/sheetMap), no camera command since: the band stays as applied. */
+/** The sheet came down for the visitor's use of the map (panel/sheetMap),
+ *  no camera command since: the band stays as applied. */
 const sheetLoweredByMap = ref(false);
 const layout = usePanelLayout({
   nav,
@@ -535,7 +534,6 @@ const layout = usePanelLayout({
     band: sheetBand,
   },
   follows,
-  mapMode: () => sheetMapMode.value,
   loweredByMap: sheetLoweredByMap,
 });
 const {
@@ -1307,9 +1305,8 @@ if (__TEST_TOOLS__) {
     // under « Ajusté, centré », for an open lieu (`aimPx`) or a territory
     // (the band below).
     mapPadding: { ...mapPadding.value },
-    // « Carte touchée »: the rule, why the sheet came down for the map last
-    // (panel/sheetMap), and whether the band stays for it.
-    mapMode: sheetMapMode.value,
+    // Why the sheet came down for the map last (panel/sheetMap), and whether
+    // the band stays for it.
     mapLower: layout.lastMapLower.value,
     loweredByMap: sheetLoweredByMap.value,
     // « Ajusté, centré »: the band above a short sheet asked for and the one
