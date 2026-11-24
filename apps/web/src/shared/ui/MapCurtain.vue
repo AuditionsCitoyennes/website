@@ -24,8 +24,8 @@
 // map's code, so the hand-over neither blinks nor fades it). The words are
 // said by the wrapper (GeoNav's curtain has role="status"); this only draws.
 //
-// `bare`: France alone, on no background (GeoDrillMap's « Carte
-// indisponible », over its own background). With `centred` (the page's
+// `bare`: France alone, on no background (GeoDrillMap's fallback, over its
+// own background). With `centred` (the page's
 // fallback, which shows no panel), France as large as the curtain drew it,
 // in the middle of the whole box.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, type Component } from "vue";

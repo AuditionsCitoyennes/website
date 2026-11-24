@@ -61,7 +61,7 @@ import { createTapProgress, type TapStep } from "./plateau/tapProgress";
 import { liftOf } from "./plateau/lift";
 import type { CameraCmd, MapGestureSource, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
-import { fallbackForced, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
+import { MAP_FALLBACK_TEXT } from "./fallback";
 import {
   createStyleRecovery,
   finalStatus,
@@ -183,10 +183,9 @@ const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? "";
 const STYLE = import.meta.env.VITE_MAPBOX_STYLE || "mapbox://styles/mapbox/dark-v11";
 
 const el = ref<HTMLElement | null>(null);
-// No map: no token in the build, or not started on purpose (the testing
-// tools' `ac:map-fallback` "essai"); later, the style refused or the engine
-// failing. What the box then shows: fallbackSwitch.ts.
-const unavailable = ref(!TOKEN || (__TEST_TOOLS__ && fallbackForced(mapFallback)));
+// No map: no token in the build; later, the style refused or the engine
+// failing. What the box then shows: fallback.ts.
+const unavailable = ref(!TOKEN);
 // The style's request failed and the attempts made by themselves did too
 // (lib/styleRecovery.ts): the box says so over the map,
 // which stays, with a « Réessayer ». "asking": pressed, the style on its way.

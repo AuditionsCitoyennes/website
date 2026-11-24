@@ -4,7 +4,8 @@
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
 // « Options de test », a row for each switch of devOptions.ts — the map's
-// fallback (map/fallbackSwitch), the height of a phone's raised sheet and
+// loading picture (shared/boot/bootPosterSwitch), what a lieu's pin opens
+// (geo-nav/model/pinOpenSwitch), the height of a phone's raised sheet and
 // how a late list re-frames it (geo-nav/panel/sheetFitSwitch), when the panel
 // shows while the page loads (geo-nav/panelBootSwitch), the analyses' slabs
 // (analyses/devSwitch; their section only in a build with the analyses), the
@@ -53,14 +54,7 @@ import {
   setSheetMapMode,
   sheetMapMode,
 } from "@/features/geo-nav";
-import {
-  dprChoice,
-  frameMeasure,
-  mapFallback,
-  setDprChoice,
-  setFrameMeasure,
-  setMapFallback,
-} from "@/features/map";
+import { dprChoice, frameMeasure, setDprChoice, setFrameMeasure } from "@/features/map";
 import {
   DEV_CHANGED_MARK,
   DEV_DESCRIPTION,
@@ -96,7 +90,6 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
-  "ac:map-fallback": bind(() => mapFallback, setMapFallback),
   "ac:boot-poster": bind(() => bootPosterMode, setBootPosterMode),
   "ac:sheet-fit": bind(() => sheetFitMode.value, setSheetFitMode),
   "ac:sheet-late": bind(() => sheetLateMode.value, setSheetLateMode),

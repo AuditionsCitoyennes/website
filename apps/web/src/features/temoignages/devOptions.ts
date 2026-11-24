@@ -2,8 +2,9 @@
 // key, name, choices, its sentences for a tester (what changes on screen, when
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
-// modules own the keys, the defaults and the reads (map/fallbackSwitch,
-// geo-nav/panel/sheetFitSwitch, geo-nav/panelBootSwitch, analyses/devSwitch,
+// modules own the keys, the defaults and the reads (shared/boot/bootPosterSwitch,
+// geo-nav/model/pinOpenSwitch, geo-nav/panel/sheetFitSwitch,
+// geo-nav/panel/sheetMapSwitch, geo-nav/panelBootSwitch, analyses/devSwitch,
 // shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue alone, so a production build has
@@ -27,7 +28,6 @@ export type DevKey =
   | "ac:slab-size"
   | "ac:ring-band"
   | "ac:tier"
-  | "ac:map-fallback"
   | "ac:boot-poster"
   | "ac:sheet-fit"
   | "ac:sheet-late"
@@ -71,7 +71,8 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "carte",
     title: "Carte",
-    intro: "Ce que montre son cadre quand elle ne démarre pas.",
+    intro:
+      "L'image d'attente pendant son chargement, et ce qu'ouvre un clic sur l'épingle d'un lieu.",
   },
   {
     id: "panneau",
@@ -100,19 +101,6 @@ const SHARES: readonly DevChoice[] = [
 ];
 
 export const DEV_OPTIONS: readonly DevOption[] = [
-  {
-    key: "ac:map-fallback",
-    section: "carte",
-    label: "Carte indisponible",
-    choices: [
-      { id: "visiteur", label: "Visiteur" },
-      { id: "essai", label: "Essai" },
-    ],
-    explain:
-      "Quand la carte ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée), son cadre montre la France en image, en retrait, sous une phrase simple. « Visiteur » (par défaut) démarre la carte comme d'habitude ; « Essai » ne la démarre pas du tout, pour voir ce cadre sur n'importe quel appareil. Le même cadre, avec un bouton « Réessayer », sert quand le fond de carte n'arrive pas malgré les nouveaux essais.",
-    reloads: true,
-    defaultId: "visiteur",
-  },
   {
     key: "ac:boot-poster",
     section: "carte",

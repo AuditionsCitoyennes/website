@@ -28,7 +28,6 @@ import {
 
 (globalThis as unknown as { __TEST_TOOLS__: boolean }).__TEST_TOOLS__ = false;
 const tier = await import("../../shared/device/deviceTier");
-const fallbackSwitch = await import("../map/fallbackSwitch");
 const graphics = await import("../map/graphicsSwitch");
 const sheetFit = await import("../geo-nav/panel/sheetFit");
 const panelBoot = await import("../geo-nav/panelBoot");
@@ -40,7 +39,6 @@ const MODULES = {
   relief: "../map/relief/reliefSwitch.ts",
   slabs: "../analyses/devSwitch.ts",
   tier: "../../shared/device/deviceTier.ts",
-  fallback: "../map/fallbackSwitch.ts",
   sheetFit: "../geo-nav/panel/sheetFitSwitch.ts",
   panelBoot: "../geo-nav/panelBootSwitch.ts",
   bootPoster: "../../shared/boot/bootPosterSwitch.ts",
@@ -63,7 +61,6 @@ const KEYS: readonly DevKey[] = [
   "ac:slab-size",
   "ac:ring-band",
   "ac:tier",
-  "ac:map-fallback",
   "ac:boot-poster",
   "ac:sheet-fit",
   "ac:sheet-late",
@@ -85,7 +82,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 15);
+  assert.equal(DEV_OPTIONS.length, 14);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -153,7 +150,6 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:slab-size": ["slabs", "setSlabTextScale"],
   "ac:ring-band": ["slabs", "setRingBandMode"],
   "ac:tier": ["tier", "setTierChoice"],
-  "ac:map-fallback": ["fallback", "setMapFallback"],
   "ac:boot-poster": ["bootPoster", "setBootPosterMode"],
   "ac:sheet-fit": ["sheetFit", "setSheetFitMode"],
   "ac:sheet-late": ["sheetFit", "setSheetLateMode"],
@@ -185,7 +181,7 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
   }
   assert.deepEqual(
     DEV_OPTIONS.filter((o) => o.reloads).map((o) => o.label),
-    ["Carte indisponible", "Image d'attente", "Au chargement", "Niveau", "Finesse", "Mesure"],
+    ["Image d'attente", "Au chargement", "Niveau", "Finesse", "Mesure"],
   );
 });
 
@@ -206,7 +202,6 @@ const constant = (name: string) => {
 
 test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:tier"), [...tier.TIER_CHOICES]);
-  assert.deepEqual(ids("ac:map-fallback"), [...fallbackSwitch.MAP_FALLBACKS]);
   assert.deepEqual(ids("ac:boot-poster"), [...bootPoster.BOOT_POSTERS]);
   assert.deepEqual(ids("ac:dpr"), [...graphics.DPR_CHOICES]);
   assert.deepEqual(ids("ac:frame-measure"), [...graphics.FRAME_MEASURES]);
@@ -232,7 +227,6 @@ test("the default marked in each sentence is the module's", () => {
     "ac:slab-size": pct(constant("TEXT_SCALE")),
     "ac:ring-band": storedCall("slabs", "RING_KEY").fallback,
     "ac:tier": tier.DEFAULT_TIER_CHOICE,
-    "ac:map-fallback": fallbackSwitch.DEFAULT_MAP_FALLBACK,
     "ac:boot-poster": bootPoster.DEFAULT_BOOT_POSTER,
     "ac:sheet-fit": sheetFit.DEFAULT_SHEET_FIT,
     "ac:sheet-late": sheetFit.DEFAULT_SHEET_LATE,
