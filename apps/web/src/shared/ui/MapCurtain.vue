@@ -29,13 +29,7 @@
 // fallback, which shows no panel), France as large as the curtain drew it,
 // in the middle of the whole box.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, type Component } from "vue";
-import {
-  CURTAIN_PEEK_PX,
-  curtainLayout,
-  type CurtainStage,
-  type Rect,
-} from "@/shared/boot/curtainFrame";
-import { bootPosterMode } from "@/shared/boot/bootPosterSwitch";
+import { CURTAIN_PEEK_PX, curtainLayout, type Rect } from "@/shared/boot/curtainFrame";
 import { deviceTier, probeRenderer, rendererKnown } from "@/shared/device/deviceTier";
 import { motionFor, prefersReducedMotion, type Motion } from "@/shared/device/motion";
 
@@ -44,8 +38,6 @@ const props = defineProps<{
   poster: Component | null;
   /** The home page's card. */
   preview?: boolean;
-  /** Which stage draws it, and that stage's live measures (for "avant"). */
-  from: CurtainStage;
   /** France alone: no background, no spinner, no words. */
   bare?: boolean;
   /** France in the middle of the box (the map's fallback, with no panel
@@ -60,10 +52,8 @@ const props = defineProps<{
 const entrance = (): Motion => motionFor(deviceTier(probeRenderer()), prefersReducedMotion());
 
 /** The entrance, once known (null: the probe waits for the visit's first
- *  curtain frame; a curtain after it asks at once). Only "carte" reads it. */
-const motion = shallowRef<Motion | null>(
-  bootPosterMode !== "carte" ? "short" : rendererKnown() || painted ? entrance() : null,
-);
+ *  curtain frame; a curtain after it asks at once). */
+const motion = shallowRef<Motion | null>(rendererKnown() || painted ? entrance() : null);
 
 /** France not there at the first render: it fades in when it comes, once
  *  (the stage moved from the card to the page re-inserts it, which would
@@ -119,7 +109,6 @@ onBeforeUnmount(() => {
   ro?.disconnect();
 });
 
-const SAME_FOR_BOTH: CurtainStage = { stage: "stage" };
 const layout = computed(() => {
   const b = box.value;
   if (!b || !(b.w > 0) || !(b.h > 0)) return null;
@@ -129,11 +118,7 @@ const layout = computed(() => {
     desktop: b.desktop,
     preview: !!props.preview,
     peekPx: CURTAIN_PEEK_PX + b.safe,
-    mode: bootPosterMode,
     motion: motion.value ?? "short",
-    // Read only for "avant": the boot curtain's live measures, a new object
-    // at each of its renders, must not redraw the others.
-    from: bootPosterMode === "avant" ? props.from : SAME_FOR_BOTH,
     centred: props.centred,
   });
 });

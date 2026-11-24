@@ -1457,8 +1457,7 @@ function retryAll() {
          France, the spinner and the words are drawn by shared/ui/MapCurtain:
          France where the camera frames it once the map is up, as MapStage's
          StageLoading drew it just before this curtain (the same rules, the
-         same inputs; "avant", the testing switch's, reads the live `cover`,
-         `peek` and `held` for the places used before). Over map
+         same inputs). Over map
          AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
@@ -1471,18 +1470,7 @@ function retryAll() {
         role="status"
         aria-live="polite"
       >
-        <MapCurtain
-          :poster="curtainPoster"
-          :preview="preview"
-          :from="{
-            stage: 'geo',
-            mapOnly: bootCover === 'map',
-            sheet: !isDesktop,
-            cover: panelCover,
-            peek: sheetPeekPx,
-            held: panelHeld,
-          }"
-        />
+        <MapCurtain :poster="curtainPoster" :preview="preview" />
       </div>
     </Transition>
 

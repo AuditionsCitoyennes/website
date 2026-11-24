@@ -16,8 +16,6 @@ import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
 import MapCurtain from "@/shared/ui/MapCurtain.vue";
 import CurtainPoster from "@/shared/ui/CurtainPoster.vue";
-import FrancePoster from "@/shared/ui/FrancePoster.vue";
-import { bootPosterMode } from "@/shared/boot/bootPosterSwitch";
 import { boundsOfFeatures, toLngLat } from "./lib/polygon";
 import { stillMap } from "./lib/stillMap";
 import { resetPlateauStood } from "./lib/plateauStood";
@@ -70,13 +68,10 @@ import {
 } from "./lib/styleRecovery";
 
 // The picture of France under the fallback sentence: the loading curtain's
-// France (shared/ui/MapCurtain.vue, `bare`), where and as the curtain drew it
-// just before, so the curtain fades onto the same France. Under the testing
-// switch's « Comme avant » (`ac:boot-poster` "avant"), the fallback's own
-// place before (`.map-fallback-poster`). Both come with the map's code (GeoNav
-// imports CurtainPoster, which draws FrancePoster).
+// France (shared/ui/MapCurtain.vue, `bare`), as large as the curtain drew it
+// just before; on the page, in the middle of the box (no panel beside it).
+// It comes with the map's code (GeoNav imports CurtainPoster).
 const curtainPoster = markRaw(CurtainPoster);
-const posterBefore = bootPosterMode === "avant";
 
 const props = defineProps<{
   units: MapUnit[];
@@ -1273,15 +1268,7 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 
 <template>
   <div v-if="unavailable" class="map-root map-fallback map-fallback--poster">
-    <FrancePoster v-if="posterBefore" class="map-fallback-poster" />
-    <MapCurtain
-      v-else
-      bare
-      :centred="!preview"
-      :poster="curtainPoster"
-      :preview="preview"
-      :from="{ stage: 'stage' }"
-    />
+    <MapCurtain bare :centred="!preview" :poster="curtainPoster" :preview="preview" />
     <p class="map-fallback-text">{{ MAP_FALLBACK_TEXT }}</p>
   </div>
   <div v-else class="map-root">
@@ -1291,15 +1278,7 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
          the map, which stays under it, and a button that asks for the style
          again. -->
     <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
-      <FrancePoster v-if="posterBefore" class="map-fallback-poster" />
-      <MapCurtain
-        v-else
-        bare
-        :centred="!preview"
-        :poster="curtainPoster"
-        :preview="preview"
-        :from="{ stage: 'stage' }"
-      />
+      <MapCurtain bare :centred="!preview" :poster="curtainPoster" :preview="preview" />
       <div class="map-down-say">
         <p class="map-fallback-text" role="status">{{ MAP_FALLBACK_TEXT }}</p>
         <button
@@ -1341,17 +1320,6 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 .map-fallback--poster {
   overflow: hidden;
   background: var(--gradient-surface);
-  /* In the part of the box the panel leaves free (GeoNav's --panel-cover). */
-  padding-right: calc(1.5rem + var(--panel-cover, 0px));
-}
-
-.map-fallback-poster {
-  position: absolute;
-  top: 8%;
-  left: 8%;
-  width: calc(84% - var(--panel-cover, 0px));
-  height: 84%;
-  opacity: 0.55;
 }
 
 /* Over the map that could not get its style, its controls included. */

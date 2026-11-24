@@ -2,8 +2,7 @@
 // key, name, choices, its sentences for a tester (what changes on screen, when
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
-// modules own the keys, the defaults and the reads (shared/boot/bootPosterSwitch,
-// geo-nav/model/pinOpenSwitch, geo-nav/panel/sheetFitSwitch,
+// modules own the keys, the defaults and the reads (geo-nav/model/pinOpenSwitch, geo-nav/panel/sheetFitSwitch,
 // geo-nav/panel/sheetMapSwitch, geo-nav/panelBootSwitch, analyses/devSwitch,
 // shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
@@ -28,7 +27,6 @@ export type DevKey =
   | "ac:slab-size"
   | "ac:ring-band"
   | "ac:tier"
-  | "ac:boot-poster"
   | "ac:sheet-fit"
   | "ac:sheet-late"
   | "ac:panel-boot"
@@ -71,8 +69,7 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "carte",
     title: "Carte",
-    intro:
-      "L'image d'attente pendant son chargement, et ce qu'ouvre un clic sur l'épingle d'un lieu.",
+    intro: "Ce qu'ouvre un clic sur l'épingle d'un lieu.",
   },
   {
     id: "panneau",
@@ -101,20 +98,6 @@ const SHARES: readonly DevChoice[] = [
 ];
 
 export const DEV_OPTIONS: readonly DevOption[] = [
-  {
-    key: "ac:boot-poster",
-    section: "carte",
-    label: "Image d'attente",
-    choices: [
-      { id: "carte", label: "Comme la carte" },
-      { id: "plat", label: "À plat" },
-      { id: "avant", label: "Comme avant" },
-    ],
-    explain:
-      "L'image de la France sous « Chargement de la carte… », sur la page des témoignages et sur la carte de l'accueil. « Comme la carte » (par défaut) la dessine comme la carte la montre au moment où elle apparaît, à la même place et à la même taille : à plat sur un appareil ordinaire, où la carte s'incline ensuite dans son entrée ; déjà penchée sur un appareil faible ou quand le système demande moins d'animations, où la carte s'incline d'un coup avant d'apparaître. Dans les deux cas, quand la carte apparaît, la France ne bouge pas. « À plat » la garde à plat, centrée sur la France de la carte penchée et aussi large. « Comme avant » la remet aux places d'avant, qui changeaient d'une étape du chargement à l'autre.",
-    reloads: true,
-    defaultId: "carte",
-  },
   {
     key: "ac:pin-open",
     section: "carte",
