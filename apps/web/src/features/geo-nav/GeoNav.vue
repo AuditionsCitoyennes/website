@@ -33,7 +33,6 @@ import { slowWaitPlace } from "./model/retryNotice";
 import { createNavState, type Insets, type MapView } from "./navState";
 import { bootCurtainCover } from "./bootListSwitch";
 import { CURTAIN_FADE_BELT_MS, panelHeldAtBoot } from "./panelBoot";
-import { panelBootMode } from "./panelBootSwitch";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
@@ -206,8 +205,8 @@ onBeforeUnmount(() => clearTimeout(bootCap));
 // What the curtain covers: the map's box alone, the panel over it
 // (bootListSwitch), or the whole card on the home page.
 const bootCover = computed(() => bootCurtainCover(props.preview));
-// Under that curtain the panel is held out of sight (panelBoot, the DEV
-// switch's « Après le chargement »), so that only the loading placeholder
+// Under that curtain the panel is held out of sight (panelBoot), so that
+// only the loading placeholder
 // shows, and comes in as the curtain's fade starts: the same latch, so
 // whatever lifts the curtain (the map ready, the outlines late, the
 // testimonies failing, the cap) shows the panel. Except the map's fallback
@@ -252,7 +251,6 @@ function onCurtainLeave(el: Element) {
 }
 const panelHeld = computed(() =>
   panelHeldAtBoot({
-    mode: panelBootMode,
     booting: booting.value,
     awaitingFade: awaitingFade.value,
     mapFailed: mapFailed.value,
@@ -1392,8 +1390,7 @@ function retryAll() {
     }"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the
-         keyboard skips it. The panel is usable at once under the DEV switch's
-         « Tout de suite »; by default it is held (inert) until the curtain
+         keyboard skips it. The panel is held (inert) until the curtain
          leaves (`panelHeld`). -->
     <GeoDrillMap
       ref="mapCmp"
@@ -1452,8 +1449,7 @@ function retryAll() {
     <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over
          the map's box only (`bootCover` "map", bootListSwitch): no z-index of
          its own and before the panel in the page, so it lies under the panel,
-         which is held out of sight meanwhile (`panelHeld`; under the DEV
-         switch's « Tout de suite », usable as soon as its rows are in).
+         which is held out of sight meanwhile (`panelHeld`).
          France, the spinner and the words are drawn by shared/ui/MapCurtain:
          France where the camera frames it once the map is up, as MapStage's
          StageLoading drew it just before this curtain (the same rules, the

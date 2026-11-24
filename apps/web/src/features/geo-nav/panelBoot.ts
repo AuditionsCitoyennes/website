@@ -1,4 +1,4 @@
-// The Témoignages page's panel while the page loads (panelBootSwitch): held
+// The Témoignages page's panel while the page loads: held
 // out of sight under the boot curtain, on a phone (the lowered sheet's strip)
 // and on a desktop (the side panel) alike, so that only the loading
 // placeholder shows; it comes in as the curtain's fade starts, whatever made
@@ -20,33 +20,21 @@
 // load: loadable under node (panelBoot.test.ts).
 import type { DeviceTier } from "@/shared/device/deviceTier";
 
-/** "apres": the panel waits for the curtain to leave; "tout-de-suite": it
- *  shows from the page's first render, the curtain under it (as before). */
-export type PanelBootMode = "apres" | "tout-de-suite";
-
-/** The switch's choices, in the DEV dialog's order. */
-export const PANEL_BOOT_MODES: readonly PanelBootMode[] = ["apres", "tout-de-suite"];
-
-/** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_PANEL_BOOT: PanelBootMode = "apres";
-
 /** The panel is held out of sight now, on the page (not the home page's
- *  card): under « Après le chargement », while the curtain is up or leaving
- *  but not fading yet (`awaitingFade`); and whatever the mode, while the
- *  map's box shows its fallback (`mapFailed`: « La carte n'a pas pu
+ *  card): while the curtain is up or leaving but not fading yet
+ *  (`awaitingFade`), and while the map's box shows its fallback (`mapFailed`: « La carte n'a pas pu
  *  s'afficher. », GeoDrillMap's `fallback`), which then stands alone.
  *  `booting` is GeoNav's latch and the wait only ever ends, so the boot's
  *  hold never comes back once lifted; the fallback's goes with it (a
  *  « Réessayer » that brings the map), and the panel comes in as after the
  *  curtain. */
 export function panelHeldAtBoot(o: {
-  mode: PanelBootMode;
   booting: boolean;
   awaitingFade: boolean;
   mapFailed: boolean;
   preview: boolean;
 }): boolean {
-  return ((o.mode === "apres" && (o.booting || o.awaitingFade)) || o.mapFailed) && !o.preview;
+  return (o.booting || o.awaitingFade || o.mapFailed) && !o.preview;
 }
 
 /** How long (ms) after the curtain is told to leave the panel waits at most

@@ -6,8 +6,7 @@
 // « Options de test », a row for each switch of devOptions.ts — the height
 // of a phone's raised sheet and how a late list re-frames it
 // (geo-nav/panel/sheetFitSwitch), what that sheet does when the map is used
-// (geo-nav/panel/sheetMapSwitch), when the panel shows while the page loads
-// (geo-nav/panelBootSwitch), the analyses' slabs
+// (geo-nav/panel/sheetMapSwitch), the analyses' slabs
 // (analyses/devSwitch; their section only in a build with the analyses), the
 // device's tier (shared/device/deviceTier) with what the page knows of the
 // device listed under it, the map's pixel ratio and whether it times its
@@ -43,8 +42,6 @@ import {
   slabTextScale,
 } from "@/features/analyses";
 import {
-  panelBootMode,
-  setPanelBootMode,
   setSheetFitMode,
   setSheetLateMode,
   sheetFitMode,
@@ -89,7 +86,6 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:tier": bind(() => tierChoice, setTierChoice),
   "ac:sheet-fit": bind(() => sheetFitMode.value, setSheetFitMode),
   "ac:sheet-late": bind(() => sheetLateMode.value, setSheetLateMode),
-  "ac:panel-boot": bind(() => panelBootMode, setPanelBootMode),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
   "ac:sheet-map": bind(() => sheetMapMode.value, setSheetMapMode),

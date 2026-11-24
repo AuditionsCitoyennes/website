@@ -30,7 +30,6 @@ import {
 const tier = await import("../../shared/device/deviceTier");
 const graphics = await import("../map/graphicsSwitch");
 const sheetFit = await import("../geo-nav/panel/sheetFit");
-const panelBoot = await import("../geo-nav/panelBoot");
 const sheetMap = await import("../geo-nav/panel/sheetMap");
 
 const MODULES = {
@@ -38,7 +37,6 @@ const MODULES = {
   slabs: "../analyses/devSwitch.ts",
   tier: "../../shared/device/deviceTier.ts",
   sheetFit: "../geo-nav/panel/sheetFitSwitch.ts",
-  panelBoot: "../geo-nav/panelBootSwitch.ts",
   graphics: "../map/graphicsSwitch.ts",
   sheetMap: "../geo-nav/panel/sheetMapSwitch.ts",
 } as const;
@@ -59,7 +57,6 @@ const KEYS: readonly DevKey[] = [
   "ac:tier",
   "ac:sheet-fit",
   "ac:sheet-late",
-  "ac:panel-boot",
   "ac:dpr",
   "ac:frame-measure",
   "ac:sheet-map",
@@ -76,7 +73,7 @@ const NO_ROW = [
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
 test("every switch key has exactly one row, in the three sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 12);
+  assert.equal(DEV_OPTIONS.length, 11);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
@@ -146,7 +143,6 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:tier": ["tier", "setTierChoice"],
   "ac:sheet-fit": ["sheetFit", "setSheetFitMode"],
   "ac:sheet-late": ["sheetFit", "setSheetLateMode"],
-  "ac:panel-boot": ["panelBoot", "setPanelBootMode"],
   "ac:dpr": ["graphics", "setDprChoice"],
   "ac:frame-measure": ["graphics", "setFrameMeasure"],
   "ac:sheet-map": ["sheetMap", "setSheetMapMode"],
@@ -173,7 +169,7 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
   }
   assert.deepEqual(
     DEV_OPTIONS.filter((o) => o.reloads).map((o) => o.label),
-    ["Au chargement", "Niveau", "Finesse", "Mesure"],
+    ["Niveau", "Finesse", "Mesure"],
   );
 });
 
@@ -202,7 +198,6 @@ test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:analyses-pending"), storedCall("slabs", '"ac:analyses-pending"').ids);
   assert.deepEqual(ids("ac:sheet-fit"), [...sheetFit.SHEET_FIT_MODES]);
   assert.deepEqual(ids("ac:sheet-late"), [...sheetFit.SHEET_LATE_MODES]);
-  assert.deepEqual(ids("ac:panel-boot"), [...panelBoot.PANEL_BOOT_MODES]);
   assert.deepEqual(ids("ac:sheet-map"), [...sheetMap.SHEET_MAP_MODES]);
   const shares = /export const SCALE_CHOICES = \[([^\]]*)\]/.exec(code("slabs"))![1];
   const scale = shares.split(",").map((v) => pct(Number(v)));
@@ -219,7 +214,6 @@ test("the default marked in each sentence is the module's", () => {
     "ac:tier": tier.DEFAULT_TIER_CHOICE,
     "ac:sheet-fit": sheetFit.DEFAULT_SHEET_FIT,
     "ac:sheet-late": sheetFit.DEFAULT_SHEET_LATE,
-    "ac:panel-boot": panelBoot.DEFAULT_PANEL_BOOT,
     "ac:dpr": graphics.DEFAULT_DPR,
     "ac:frame-measure": graphics.DEFAULT_FRAME_MEASURE,
     "ac:sheet-map": sheetMap.DEFAULT_SHEET_MAP,
@@ -234,7 +228,6 @@ test("the default marked in each sentence is the module's", () => {
     code("sheetFit"),
     /\?\s*stored\(SHEET_LATE_KEY, SHEET_LATE_MODES, DEFAULT_SHEET_LATE\)\s*:\s*DEFAULT_SHEET_LATE/,
   );
-  assert.match(code("panelBoot"), /\?\s*storedPanelBoot\(\)\s*:\s*DEFAULT_PANEL_BOOT/);
   assert.match(
     code("sheetMap"),
     /\?\s*stored\(SHEET_MAP_KEY, SHEET_MAP_MODES, DEFAULT_SHEET_MAP\)\s*:\s*DEFAULT_SHEET_MAP/,
