@@ -2,9 +2,10 @@
 // key, name, choices, its sentences for a tester (what changes on screen, when
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
-// modules own the keys, the defaults and the reads (geo-nav/model/pinOpenSwitch, geo-nav/panel/sheetFitSwitch,
-// geo-nav/panel/sheetMapSwitch, geo-nav/panelBootSwitch, analyses/devSwitch,
-// shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
+// modules own the keys, the defaults and the reads
+// (geo-nav/panel/sheetFitSwitch, geo-nav/panel/sheetMapSwitch,
+// geo-nav/panelBootSwitch, analyses/devSwitch, shared/device/deviceTier,
+// map/graphicsSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue alone, so a production build has
 // none of these strings. French typography: a no-break space ( ) after «
@@ -18,7 +19,7 @@ import type {
   TierVerdict,
 } from "@/shared/device/deviceTier";
 
-export type DevSection = "carte" | "panneau" | "analyses" | "appareil";
+export type DevSection = "panneau" | "analyses" | "appareil";
 
 export type DevKey =
   | "ac:analyses-pending"
@@ -32,8 +33,7 @@ export type DevKey =
   | "ac:panel-boot"
   | "ac:sheet-map"
   | "ac:dpr"
-  | "ac:frame-measure"
-  | "ac:pin-open";
+  | "ac:frame-measure";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -67,11 +67,6 @@ export const changedCount = (n: number) => `${n} choix ${DEV_CHANGED_MARK}${n > 
 
 export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: string }[] = [
   {
-    id: "carte",
-    title: "Carte",
-    intro: "Ce qu'ouvre un clic sur l'épingle d'un lieu.",
-  },
-  {
     id: "panneau",
     title: "Panneau",
     intro:
@@ -98,19 +93,6 @@ const SHARES: readonly DevChoice[] = [
 ];
 
 export const DEV_OPTIONS: readonly DevOption[] = [
-  {
-    key: "ac:pin-open",
-    section: "carte",
-    label: "Clic sur une épingle",
-    choices: [
-      { id: "premiere", label: "Première audition" },
-      { id: "liste", label: "Liste du lieu" },
-    ],
-    explain:
-      "Sur la carte sans filtre, un clic (ou un toucher) sur l'épingle d'un lieu de plusieurs auditions. « Première audition » (par défaut) ouvre celle du haut de la liste du lieu (la plus récente, ou la plus ancienne avec « Plus anciens d'abord ») ; toucher sa ligne, le dernier élément du fil d'Ariane ou la flèche de retour la replie dans la liste du lieu. « Liste du lieu » ouvre la liste, comme avant (la flèche remonte alors au territoire). Un lieu d'une seule audition l'ouvre toujours, une ligne du panneau ouvre toujours la liste, et avec des filtres l'épingle ouvre déjà le premier résultat trouvé.",
-    reloads: false,
-    defaultId: "premiere",
-  },
   {
     key: "ac:sheet-fit",
     section: "panneau",

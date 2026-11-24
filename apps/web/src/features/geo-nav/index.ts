@@ -20,8 +20,6 @@ export {
 } from "./panel/sheetFitSwitch";
 // What a phone's raised sheet does when the map is used (the testing options menu's « Carte touchée »).
 export { sheetMapMode, setSheetMapMode, type SheetMapMode } from "./panel/sheetMapSwitch";
-// What a click on a lieu's pin opens (the testing options menu's « Clic sur une épingle »).
-export { pinOpenMode, setPinOpenMode, type PinOpenMode } from "./model/pinOpenSwitch";
 // When the panel shows while the page loads (the testing options menu's « Au chargement »).
 export { panelBootMode, setPanelBootMode, type PanelBootMode } from "./panelBootSwitch";
 // Which reads of the map page wait (the Filtres dialog's data).

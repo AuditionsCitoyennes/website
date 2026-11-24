@@ -6,11 +6,13 @@
 //
 // - A lieu with one audition opens it, whichever way it is opened: the list
 //   of one line it would show is a step with nothing to choose.
-// - A lieu of several auditions opened from its pin on the map opens the
-//   audition at the top of its list (pinOpen.ts: "premiere", the default) —
-//   the very line the panel shows first, in the panel's own order
-//   (auditions.ts' lieuListOrder, the sort chosen included). Its row in the
-//   panel, or the "liste" choice, opens its list.
+// - A lieu of several auditions opened from its pin on the map (clicked,
+//   tapped or pressed with Enter, with no filters on) opens the audition at
+//   the top of its list — the very line the panel shows first, in the
+//   panel's own order (auditions.ts' lieuListOrder, the sort chosen
+//   included) —, its list one press away (that audition's line, pressed,
+//   folds it back into the list). Its row in the panel opens its list. With
+//   the filters on, a pin already opens the first result held there.
 //
 // Known at once, so the audition opens in the same tick as the lieu — one
 // camera command, aimed with the panel already as wide as an open audition
@@ -21,7 +23,6 @@
 // (AWAIT_LIST): the newest on the map may not be one the list holds.
 
 import { lieuListOrder, type AuditionSort } from "./auditions";
-import type { PinOpenMode } from "./pinOpen";
 
 /** What is known of a lieu's auditions when it is opened. */
 export interface LieuAuditionsKnown {
@@ -70,29 +71,26 @@ export function auditionToOpen(o: {
   newLieu: boolean;
   known: LieuAuditionsKnown | null;
   via: LieuVia;
-  mode: PinOpenMode;
 }): string | typeof AWAIT_LIST | null {
   if (!o.newLieu || !o.known) return null;
   if (o.known.count === 1) return o.known.first;
-  if (o.via !== "map" || o.mode !== "premiere" || o.known.count < 2) return null;
+  if (o.via !== "map" || o.known.count < 2) return null;
   // Never the newest (`first`) for several: the list's top may be another.
   return o.known.top ?? AWAIT_LIST;
 }
 
 /**
  * The lieu's crumb, or the back arrow, folds the audition being read back
- * into the lieu's list (true) — or, as before, the crumb only brings the map
- * back to the lieu and the arrow goes up to the territory (false). Under
- * "premiere" only, where a pin opens an audition before its list was seen:
- * the list stays one step back. Only for a lieu of several auditions — the
- * list of one line a lieu of one would show is the step lieuSingle leaves out
- * — and only with one of them open.
+ * into the lieu's list (true) — or the crumb only brings the map back to the
+ * lieu and the arrow goes up to the territory (false). A pin opens an
+ * audition before its list was seen: the list stays one step back. Only for
+ * a lieu of several auditions — the list of one line a lieu of one would
+ * show is the step lieuSingle leaves out — and only with one of them open.
  */
 export function foldsToList(o: {
-  mode: PinOpenMode;
   lieuOpen: boolean;
   auditionOpen: boolean;
   count: number;
 }): boolean {
-  return o.mode === "premiere" && o.lieuOpen && o.auditionOpen && o.count >= 2;
+  return o.lieuOpen && o.auditionOpen && o.count >= 2;
 }

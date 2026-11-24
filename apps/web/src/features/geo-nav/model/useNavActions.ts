@@ -14,7 +14,6 @@ import {
   type LieuAuditionsKnown,
   type LieuVia,
 } from "./lieuSingle";
-import { pinOpenMode } from "./pinOpenSwitch";
 import type { TapPending } from "./useTapPending";
 
 export interface NavActionsInputs {
@@ -69,25 +68,23 @@ export function useNavActions(inputs: NavActionsInputs) {
     panel;
 
   /** The lieu's crumb and the back arrow fold the audition being read back
-   *  into the open lieu's list (model/lieuSingle's foldsToList: "premiere",
-   *  a lieu of several). */
+   *  into the open lieu's list (model/lieuSingle's foldsToList: a lieu of
+   *  several). */
   const foldToList = computed(() => {
     const id = selectedPlaceId.value;
     const lieu = id && !listMode.value ? index.value.get(id) : undefined;
     return foldsToList({
-      mode: pinOpenMode.value,
       lieuOpen: !!lieu,
       auditionOpen: openAuditions.value.size > 0,
       count: lieu ? (lieuAuditionsOf(lieu)?.count ?? 0) : 0,
     });
   });
 
-  /** The lieu its pin opened with an audition to open at once (pinOpen's
-   *  "premiere": the top of its list, or its only audition), until GeoNav ends
+  /** The lieu its pin opened with an audition to open at once (the top of
+   *  its list, or its only audition: model/lieuSingle), until GeoNav ends
    *  the wait for that audition's text: the phone's sheet holds still
    *  meanwhile and moves once (panel/sheetFit's textWait); a fold by its crumb
-   *  or the back arrow ends that wait (as GeoNav's line press does). Never set
-   *  under "liste": a lieu of one opened from its pin there stays as before. */
+   *  or the back arrow ends that wait (as GeoNav's line press does). */
   const pinOpened = ref<string | null>(null);
 
   /** The element the keys are on, when it was reached with them (Tab):
@@ -249,8 +246,8 @@ export function useNavActions(inputs: NavActionsInputs) {
     hoveredPanelId.value = null;
     // A lieu of one audition opens with it open (model/lieuSingle):
     // its list would be one line to press; a lieu of several opened from its
-    // pin on the map opens with the top of its list open (model/pinOpen: the
-    // default), the list one press away — that line pressed folds it back.
+    // pin on the map opens with the top of its list open, the list one press
+    // away — that line pressed folds it back.
     // Opened as that line's press opens it, in the same tick — so the
     // camera's one command below aims with the panel as wide as an open
     // audition makes it, and the press's own return to the lieu is that
@@ -262,10 +259,8 @@ export function useNavActions(inputs: NavActionsInputs) {
       newLieu,
       known: newLieu ? lieuAuditionsOf(unit) : null,
       via,
-      mode: pinOpenMode.value,
     });
-    if (newLieu)
-      pinOpened.value = only && via === "map" && pinOpenMode.value === "premiere" ? unit.id : null;
+    if (newLieu) pinOpened.value = only && via === "map" ? unit.id : null;
     if (only && only !== AWAIT_LIST) {
       // Opened from the keys (its dot or its row reached with Tab, then Enter
       // or Space), the keys go on in the panel, on the audition's line — as

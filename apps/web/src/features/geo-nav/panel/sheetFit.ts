@@ -131,7 +131,7 @@ export const TEXT_WAIT_DOTS_MS = 400;
 
 export interface TextWaitInputs {
   /** The open lieu was opened from its pin with an audition to open at once
-   *  (model/pinOpen's "premiere", or a lieu of one under it), and nothing has
+   *  (the top of its list, or a lieu's only one: model/lieuSingle), and nothing has
    *  ended the wait yet: the text in, another lieu, another audition opened
    *  or this one folded (its line, the lieu's crumb, the back arrow), the
    *  sheet dragged or lowered. */
