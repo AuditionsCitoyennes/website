@@ -223,7 +223,9 @@ function close() {
   right: calc(var(--panel-cover, 0px) + 12px);
   bottom: 40px;
   z-index: 5;
-  transition: right 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  /* In one step to the corner where the map's fallback shows (GeoNav's
+     `--tools-ease`: no panel then). */
+  transition: right var(--tools-ease, 0.55s) cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -239,16 +241,17 @@ function close() {
      sheet's top and of the controls gone up with it (GeoNav's
      `--sheet-tools`, unset otherwise), moving as the sheet does: in one step
      when the sheet's refit is made in one (`--sheet-follow`, set by GeoNav),
-     eased otherwise. */
+     eased otherwise. With no sheet (the map's fallback: GeoNav's
+     `--tools-bottom`), low in the corner, moved there in one step. */
   .dev-options {
     right: 12px;
-    bottom: max(
-      calc(11.5rem + env(safe-area-inset-bottom)),
-      calc(var(--sheet-tools, -100vh) + 7rem)
+    bottom: var(
+      --tools-bottom,
+      max(calc(11.5rem + env(safe-area-inset-bottom)), calc(var(--sheet-tools, -100vh) + 7rem))
     );
     transition:
-      right 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-      bottom var(--sheet-follow, 0.35s) cubic-bezier(0.22, 1, 0.36, 1);
+      right var(--tools-ease, 0.55s) cubic-bezier(0.22, 1, 0.36, 1),
+      bottom var(--tools-ease, var(--sheet-follow, 0.35s)) cubic-bezier(0.22, 1, 0.36, 1);
   }
 }
 

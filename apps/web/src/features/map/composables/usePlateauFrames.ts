@@ -388,6 +388,28 @@ export function usePlateauFrames({ getMap, wall: plateauWall }: PlateauFramesInp
     };
   }
 
+  /** Where the plateau stood on screen at the last frame drawn, read on
+   *  demand: its rim projected with the camera that frame was drawn with,
+   *  as the frame bus sent it then (no subscriber needed, so a still or
+   *  moving map pays nothing for it between reads). Null without a map or a
+   *  box (nothing raised, or not drawn with a captured camera). */
+  let nowBuf: FrameBuf | null = null;
+  function plateauNow(): {
+    scopeId: string;
+    rise: number;
+    box: { minX: number; minY: number; maxX: number; maxY: number };
+    w: number;
+    h: number;
+  } | null {
+    if (!getMap()) return null;
+    nowBuf ??= makeFrameBuf();
+    readFrameSize();
+    fillFrame(nowBuf, camFresh, cameraInsets());
+    const f = nowBuf.frame;
+    if (!f.box) return null;
+    return { scopeId: f.scopeId, rise: f.rise, box: { ...f.box }, w: f.w, h: f.h };
+  }
+
   /** The container's CSS size, from the component's ResizeObserver: what stands
    *  in for mapbox's transform size should its internals ever move. */
   function setContainerSize(w: number, h: number) {
@@ -412,6 +434,7 @@ export function usePlateauFrames({ getMap, wall: plateauWall }: PlateauFramesInp
     frameH: () => frameH,
     /** Whether the last `render` was drawn with a camera the layer captured. */
     camFresh: () => camFresh,
+    plateauNow,
     /** DEV probe (window.__acFrame). */
     probe: probeFrame,
     dispose,

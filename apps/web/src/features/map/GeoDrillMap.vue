@@ -222,27 +222,34 @@ watch(
 /** The fallback's « Réessayer » button, while it shows. */
 const retryBtn = ref<HTMLButtonElement | null>(null);
 // A « Réessayer » that brought the style: the box keeps the fallback (the
-// button still unavailable) until the new style's map is painted — its
-// `load`, then its first `idle`, the moment a first load lifts the loading
-// curtain (`ready`: the intro's tilt and the plateau's rise then play in
-// sight) —, rather than showing a bare basemap for the moment its tiles take;
-// then it fades out as that curtain does. At most DOWN_PAINT_CAP_MS after
-// the style came (the intro's own cap): a map whose tiles never come shows as
-// it is.
+// button still unavailable) until the new style's map is painted and its
+// plateau stands — its `load`, its first `idle` (where the intro starts:
+// the tilt, the plateau's rise), then the plateau at full height, or a
+// verdict that none will rise (`plateauSettled` "cleared" or "failed") —,
+// rather than showing a bare basemap, then its plateau rising; then it
+// fades out as the loading curtain does, onto the same picture a boot's
+// curtain lifts onto. At most DOWN_PAINT_CAP_MS from the style's coming to
+// that first `idle` (the intro's own cap), then DOWN_RISE_CAP_MS for the
+// plateau: a map whose tiles or plateau never come shows as it is.
 const DOWN_PAINT_CAP_MS = 4000;
+const DOWN_RISE_CAP_MS = 2000;
 let downPaintTimer = 0;
 let downPaintOff: () => void = () => {};
+/** The plateau pipeline's verdict, told to the hold while it runs. */
+let downVerdict: (how: PlateauSettle) => void = () => {};
 function endDownHold() {
   window.clearTimeout(downPaintTimer);
   downPaintTimer = 0;
   downPaintOff();
   downPaintOff = () => {};
+  downVerdict = () => {};
 }
 function holdDownUntilPainted(loaded: boolean) {
   endDownHold();
   const m = map;
-  const lift = () => {
+  const lift = (why: "standing" | "flat" | "cap" | "nomap") => {
     endDownHold();
+    if (perfOn) perfNote("style.downLift", 0, { why });
     // Shown until the frame's fade starts (above): set first, in the same
     // tick, so the fallback is never told gone before.
     downLeaving.value = true;
@@ -250,16 +257,36 @@ function holdDownUntilPainted(loaded: boolean) {
     downFadeBelt = window.setTimeout(endDownLeave, DOWN_FADE_BELT_MS);
     styleDown.value = false;
   };
-  if (!m) return lift();
-  const onIdle = () => lift();
+  if (!m) return lift("nomap");
+  /** No plateau will stand (the map is flat, or its transition failed). */
+  let flat = false;
+  let painted = false;
+  const standing = () => plateauWall.scopeId !== "" && plateauWall.rise >= 0.999;
+  // Every frame drawn while the plateau rises: a read of two fields.
+  const onRender = () => {
+    if (standing()) lift("standing");
+  };
+  const onIdle = () => {
+    painted = true;
+    if (flat || standing()) return lift(flat ? "flat" : "standing");
+    m.on("render", onRender);
+    window.clearTimeout(downPaintTimer);
+    downPaintTimer = window.setTimeout(() => lift("cap"), DOWN_RISE_CAP_MS);
+  };
   const onLoad = () => m.once("idle", onIdle);
   if (loaded) m.once("idle", onIdle);
   else m.once("load", onLoad);
+  downVerdict = (how) => {
+    if (how !== "cleared" && how !== "failed") return;
+    flat = true;
+    if (painted) lift("flat");
+  };
   downPaintOff = () => {
     m.off("load", onLoad);
     m.off("idle", onIdle);
+    m.off("render", onRender);
   };
-  downPaintTimer = window.setTimeout(lift, DOWN_PAINT_CAP_MS);
+  downPaintTimer = window.setTimeout(() => lift("cap"), DOWN_PAINT_CAP_MS);
 }
 
 // The map, a plain variable: the composables read it through `getMap`, never
@@ -382,6 +409,7 @@ const plateau = usePlateau({
   onSettled: (scopeId, how) => {
     // The run's verdict is the last step of a tapped unit's progress.
     if (how === "rise" || how === "same" || how === "quiet") pendingStep(scopeId, { t: "settled" });
+    downVerdict(how);
     emit("plateauSettled", scopeId, how);
   },
   onLift: pins.syncLift,
@@ -863,7 +891,8 @@ function mountMap() {
       clearTimer: (timer) => window.clearTimeout(timer as number),
       onState: (state) => {
         if (state === "in" && styleDown.value !== false) {
-          // Brought by a « Réessayer »: the fallback stays until the map is painted.
+          // Brought by a « Réessayer »: the fallback stays until the map is painted
+          // and its plateau stands.
           styleDown.value = "asking";
           holdDownUntilPainted(initialLoadDone);
         } else {
@@ -1235,6 +1264,9 @@ defineExpose({
   /** Where the raised plateau stands on screen, once per frame drawn (see
    *  PlateauFrame); returns the unsubscribe. */
   onFrame: frames.onFrame,
+  /** Where the plateau stood on screen at the last frame drawn (its unit,
+   *  its rise, its box), read when asked; null when no box. */
+  plateauNow: frames.plateauNow,
   /** The analyses' ring: the part picked and the one hovered on the unit
    *  `scopeId`'s — the raised parts and the bar follow. */
   setRing: slabs.setRing,
@@ -1309,9 +1341,9 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
     <!-- The style could not be had (lib/styleRecovery.ts): the fallback over
          the map, which stays under it, and a button that asks for the style
          again. Shown at once; once a « Réessayer » has brought the map and
-         it is painted, it fades out as the loading curtain does (the button
-         still unavailable meanwhile), the page's panel coming in as it
-         fades (`downLeaving`). -->
+         it is painted, its plateau standing, it fades out as the loading
+         curtain does (the button still unavailable meanwhile), the page's
+         panel coming in as it fades (`downLeaving`). -->
     <Transition name="map-down" @leave="onDownLeave" @after-leave="endDownLeave">
       <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
         <MapCurtain bare :centred="!preview" :poster="curtainPoster" :preview="preview" />

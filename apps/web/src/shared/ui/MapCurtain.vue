@@ -109,18 +109,42 @@ onBeforeUnmount(() => {
   ro?.disconnect();
 });
 
+// France and the words are laid out where the camera frames them; `centred`
+// moves them whole (curtainLayout's centred drawing is that same drawing,
+// moved), as a transform: so a curtain told `centred` while it shows (GeoNav's,
+// the map's failure learned under it) glides there rather than jumping, and
+// is only then faded onto the fallback, which draws its France at the same
+// spot (GeoNav's `.boot-failed`).
 const layout = computed(() => {
   const b = box.value;
   if (!b || !(b.w > 0) || !(b.h > 0)) return null;
-  return curtainLayout({
+  const o = {
     w: b.w,
     h: b.h,
     desktop: b.desktop,
     preview: !!props.preview,
     peekPx: CURTAIN_PEEK_PX + b.safe,
     motion: motion.value ?? "short",
-    centred: props.centred,
-  });
+  };
+  const at = curtainLayout(o);
+  if (!props.centred) return { ...at, dx: 0, dy: 0 };
+  const mid = curtainLayout({ ...o, centred: true });
+  return { ...at, dx: mid.say.left - at.say.left, dy: mid.say.top - at.say.top };
+});
+
+/** `centred` turned on while France or the words show: they glide there
+ *  (the transition below), until its end. */
+const gliding = ref(false);
+watch(
+  () => !!props.centred,
+  (on, was) => {
+    if (on && !was && layout.value) gliding.value = true;
+  },
+  { flush: "pre" },
+);
+const moveStyle = computed(() => {
+  const l = layout.value;
+  return l && (l.dx || l.dy) ? { transform: `translate(${l.dx}px, ${l.dy}px)` } : undefined;
 });
 
 const rectStyle = (r: Rect) => ({
@@ -149,7 +173,13 @@ let painted = false;
 <template>
   <div ref="root" class="map-curtain" :class="{ bare }">
     <span ref="safe" class="curtain-safe" aria-hidden="true"></span>
-    <template v-if="layout">
+    <div
+      v-if="layout"
+      class="curtain-move"
+      :class="{ 'curtain-gliding': gliding }"
+      :style="moveStyle"
+      @transitionend.self="gliding = false"
+    >
       <component
         :is="poster"
         v-if="poster && motion"
@@ -161,7 +191,7 @@ let painted = false;
         <span ref="spin" class="spinner spinner-lg" aria-hidden="true"></span>
         <p>Chargement de la carte…</p>
       </div>
-    </template>
+    </div>
   </div>
 </template>
 
@@ -193,6 +223,24 @@ let painted = false;
 @media (prefers-reduced-motion: reduce) {
   .curtain-poster-late {
     animation: none;
+  }
+}
+
+/* France and the words, moved whole when `centred`. */
+.curtain-move {
+  position: absolute;
+  inset: 0;
+}
+
+/* Told `centred` while showing: the glide (GeoNav's failed curtain fades out
+   only once it is over: its .boot-failed waits as long). */
+.curtain-gliding {
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .curtain-gliding {
+    transition: none;
   }
 }
 

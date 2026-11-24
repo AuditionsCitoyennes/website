@@ -193,8 +193,9 @@ watch(
   (busy) => {
     if (busy) return;
     // A failure told in this same tick: the curtain first renders once more
-    // with its France in the middle (MapCurtain `centred`), since a leaving
-    // element keeps the props it had; then it fades onto the fallback's.
+    // with its France told to the middle (MapCurtain `centred`: it glides
+    // there), since a leaving element keeps the props it had; then it fades
+    // onto the fallback's once the glide is over (`.boot-failed`).
     if (mapFailed.value && !props.preview) void nextTick(() => (booting.value = false));
     else booting.value = false;
   },
@@ -229,6 +230,20 @@ const bootCover = computed(() => bootCurtainCover(props.preview));
 // the fade go unseen), or on a belt (CURTAIN_FADE_BELT_MS); never set when the
 // curtain was not on screen (a warm map), so that panel shows at once.
 const bootEl = ref<HTMLElement | null>(null);
+/** The boot curtain has had a frame on screen. */
+let bootShown = false;
+watch(
+  bootEl,
+  (el) => {
+    if (el && !bootShown) requestAnimationFrame(() => (bootShown = true));
+  },
+  { flush: "post" },
+);
+/** The map's failure came while the curtain was on screen: its France and
+ *  its words glide to the middle of the box (MapCurtain `centred`) before
+ *  it fades (`.boot-failed`). One told before its first frame (no WebGL)
+ *  finds them there already: the curtain fades at once. */
+const failedInSight = ref(false);
 const awaitingFade = ref(false);
 let fadeBelt = 0;
 function endFadeWait() {
@@ -360,6 +375,7 @@ const mapCmp = ref<InstanceType<typeof GeoDrillMap> | null>(null);
  *  the one control left, rather than to the page's body. */
 function onMapFallback(shown: boolean) {
   const focusIn = shown && !mapFailed.value && !!panelEl.value?.contains(document.activeElement);
+  if (shown && booting.value && bootShown) failedInSight.value = true;
   mapFailed.value = shown;
   if (focusIn) void nextTick(() => mapCmp.value?.focusFallback());
 }
@@ -1224,36 +1240,16 @@ watch(
 // ---- The territory framed in the map left above a short sheet
 // (panel/useSheetBand) ----
 /** Where the raised plateau stood on screen at the last frame drawn (the
- *  map's frame bus), its unit's id with it ('' when none stands at full
- *  height): a late list that brings the sheet down leaves a territory that
- *  already clears the sheet's new top where it is (useSheetBand). Listened to
- *  only on a phone's page. One object, rewritten in place. */
-const plateauSeen = { id: "", minX: 0, minY: 0, maxX: 0, maxY: 0, w: 0, h: 0 };
-watch(
-  () => (!isDesktop.value && !asCard.value ? mapCmp.value : null),
-  (m, _old, onCleanup) => {
-    plateauSeen.id = "";
-    if (!m) return;
-    onCleanup(
-      m.onFrame((f) => {
-        const b = f.box;
-        plateauSeen.id = b && f.rise >= 0.99 ? f.scopeId : "";
-        if (!b) return;
-        plateauSeen.minX = b.minX;
-        plateauSeen.minY = b.minY;
-        plateauSeen.maxX = b.maxX;
-        plateauSeen.maxY = b.maxY;
-        plateauSeen.w = f.w;
-        plateauSeen.h = f.h;
-      }),
-    );
-  },
-  { immediate: true },
-);
+ *  map's frame bus, read when asked: only a band decision reads it), when it
+ *  is the scope's and stands at full height: a late list that brings the
+ *  sheet down leaves a territory that already clears the sheet's new top
+ *  where it is (useSheetBand). A phone's page only. */
 function plateauBox(): PlateauBox | null {
-  return plateauSeen.id !== "" && plateauSeen.id === nav.currentScope.value.id
-    ? { ...plateauSeen }
-    : null;
+  if (isDesktop.value || asCard.value) return null;
+  const p = mapCmp.value?.plateauNow() ?? null;
+  if (!p || p.rise < 0.99 || p.scopeId === "" || p.scopeId !== nav.currentScope.value.id)
+    return null;
+  return { ...p.box, w: p.w, h: p.h };
 }
 const band = useSheetBand({
   nav,
@@ -1379,6 +1375,11 @@ function retryAll() {
       '--sheet-tools': sheetToolsPx === null ? undefined : `${sheetToolsPx}px`,
       '--sheet-follow': sheetRefit ? '0s' : undefined,
       '--panel-cover': `${panelCover}px`,
+      // The map's fallback (no panel, no sheet): the testing tools' menu
+      // (map-tools) sits low in the corner, moved there in one step.
+      '--tools-bottom':
+        mapFailed && !preview ? 'calc(40px + env(safe-area-inset-bottom, 0px))' : undefined,
+      '--tools-ease': mapFailed && !preview ? '0s' : undefined,
     }"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the
@@ -1445,8 +1446,8 @@ function retryAll() {
          France, the spinner and the words are drawn by shared/ui/MapCurtain:
          France where the camera frames it once the map is up, as MapStage's
          StageLoading drew it just before this curtain (the same rules, the
-         same inputs); once the map has failed, in the middle of the box,
-         as the fallback it fades onto draws it. Over map
+         same inputs); once the map has failed, gliding to the middle of the
+         box, where the fallback it then fades onto draws it. Over map
          AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
@@ -1455,7 +1456,10 @@ function retryAll() {
         v-if="booting"
         ref="bootEl"
         class="boot"
-        :class="{ 'boot-map': bootCover === 'map' }"
+        :class="{
+          'boot-map': bootCover === 'map',
+          'boot-failed': mapFailed && !preview && failedInSight,
+        }"
         role="status"
         aria-live="polite"
       >
@@ -1617,6 +1621,20 @@ function retryAll() {
 
 .boot-leave-to {
   opacity: 0;
+}
+
+/* The map failed under the curtain: its France and its words glide to the
+   middle of the box first (MapCurtain `centred`, 0.4 s), where the fallback
+   draws them, then it fades onto the fallback: the two Frances meet in place
+   rather than crossing. */
+.boot.boot-failed.boot-leave-active {
+  transition-delay: 0.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot.boot-failed.boot-leave-active {
+    transition-delay: 0s;
+  }
 }
 
 .geo-page {
