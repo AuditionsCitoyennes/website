@@ -14,7 +14,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
-import MapCurtain from "@/shared/ui/MapCurtain.vue";
+import MapCurtain, { MAP_LOADING_TEXT } from "@/shared/ui/MapCurtain.vue";
 import CurtainPoster from "@/shared/ui/CurtainPoster.vue";
 import { boundsOfFeatures, toLngLat } from "./lib/polygon";
 import { stillMap } from "./lib/stillMap";
@@ -221,6 +221,32 @@ watch(
 );
 /** The fallback's « Réessayer » button, while it shows. */
 const retryBtn = ref<HTMLButtonElement | null>(null);
+/** The fallback's sentence (its live region): « Chargement de la carte… »
+ *  while a « Réessayer » is on its way. */
+const downSay = ref<HTMLElement | null>(null);
+// The button goes while the style is asked for (the loading words in its
+// place): a focus it held moves to the words, which stay, and comes back to
+// it should the attempt fail. Read before the render that removes the button
+// (sync), moved once it has rendered (post).
+let focusTo: "say" | "button" | null = null;
+watch(
+  styleDown,
+  (now, was) => {
+    const at = document.activeElement;
+    if (was === "down" && now === "asking" && at && at === retryBtn.value) focusTo = "say";
+    else if (now === "down" && was === "asking" && at && at === downSay.value) focusTo = "button";
+  },
+  { flush: "sync" },
+);
+watch(
+  styleDown,
+  () => {
+    const to = focusTo;
+    focusTo = null;
+    if (to) (to === "say" ? downSay.value : retryBtn.value)?.focus({ preventScroll: true });
+  },
+  { flush: "post" },
+);
 // A « Réessayer » that brought the style: the box keeps the fallback (the
 // button still unavailable) until the new style's map is painted and its
 // plateau stands — its `load`, its first `idle` (where the intro starts:
@@ -890,9 +916,10 @@ function mountMap() {
       setTimer: (fn, ms) => window.setTimeout(fn, ms),
       clearTimer: (timer) => window.clearTimeout(timer as number),
       onState: (state) => {
-        if (state === "in" && styleDown.value !== false) {
-          // Brought by a « Réessayer »: the fallback stays until the map is painted
-          // and its plateau stands.
+        if (state === "in" && styleDown.value !== false && !props.preview) {
+          // Brought by a « Réessayer » on the page: the fallback stays until
+          // the map is painted and its plateau stands. The home page's card
+          // drops it at once, as ever (no fade either: its Transition's `css`).
           styleDown.value = "asking";
           holdDownUntilPainted(initialLoadDone);
         } else {
@@ -1232,6 +1259,13 @@ defineExpose({
     b.focus();
     return true;
   },
+  /** The focus is in the fallback over the map (its button or its words,
+   *  the frame fading out included). */
+  fallbackHasFocus: (): boolean => {
+    const at = document.activeElement;
+    // Through the box, not the refs: a leaving frame's are already unset.
+    return !!at?.closest(".map-down") && !!el.value?.parentElement?.contains(at);
+  },
   /** A finger or the mouse is on the map, or it is still gliding from one: a
    *  camera command now would cut that gesture short. */
   inUserHands: camera.inUserHands,
@@ -1340,20 +1374,29 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
     <div ref="el" class="map-box"></div>
     <!-- The style could not be had (lib/styleRecovery.ts): the fallback over
          the map, which stays under it, and a button that asks for the style
-         again. Shown at once; once a « Réessayer » has brought the map and
-         it is painted, its plateau standing, it fades out as the loading
-         curtain does (the button still unavailable meanwhile), the page's
-         panel coming in as it fades (`downLeaving`). -->
-    <Transition name="map-down" @leave="onDownLeave" @after-leave="endDownLeave">
+         again. Shown at once. Pressed, the loading curtain's spinner and
+         words take the sentence's and the button's place; on the page, once
+         that brought the map and it is painted, its plateau standing, it
+         fades out as the loading curtain does, the page's panel coming in as
+         it fades (`downLeaving`). The home page's card drops it at once. -->
+    <Transition name="map-down" :css="!preview" @leave="onDownLeave" @after-leave="endDownLeave">
       <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
         <MapCurtain bare :centred="!preview" :poster="curtainPoster" :preview="preview" />
-        <div class="map-down-say">
-          <p class="map-fallback-text" role="status">{{ MAP_FALLBACK_TEXT }}</p>
+        <div class="map-down-say" :class="{ 'map-down-asking': styleDown !== 'down' }">
+          <span v-if="styleDown !== 'down'" class="spinner spinner-lg" aria-hidden="true"></span>
+          <p
+            ref="downSay"
+            :class="styleDown === 'down' ? 'map-fallback-text' : 'map-down-wait'"
+            role="status"
+            tabindex="-1"
+          >
+            {{ styleDown === "down" ? MAP_FALLBACK_TEXT : MAP_LOADING_TEXT }}
+          </p>
           <button
+            v-if="styleDown === 'down'"
             ref="retryBtn"
             type="button"
             class="ac-btn ac-btn--outline ac-btn--sm map-down-retry"
-            :aria-disabled="styleDown !== 'down' || undefined"
             @click="retryStyle"
           >
             Réessayer
@@ -1421,13 +1464,24 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
   margin: 0;
 }
 
-.map-down-retry {
-  background: hsl(var(--background) / 0.9);
+/* Focused only by the page, when the button it replaces had the focus. */
+.map-down-say p:focus {
+  outline: none;
 }
 
-.map-down-retry[aria-disabled="true"] {
-  opacity: 0.6;
-  cursor: progress;
+/* A « Réessayer » on its way: the loading curtain's spinner and words
+   (shared/ui/MapCurtain.vue). */
+.map-down-asking {
+  gap: 0.9rem;
+}
+
+.map-down-wait {
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-body);
+}
+
+.map-down-retry {
+  background: hsl(var(--background) / 0.9);
 }
 
 .map-fallback-text {

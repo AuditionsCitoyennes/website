@@ -168,6 +168,9 @@ watch(spin, (el) => {
 <script lang="ts">
 /** A curtain frame has been painted in this visit. */
 let painted = false;
+/** The words under the spinner (also the map's fallback's, while a
+ *  « Réessayer » is on its way: features/map GeoDrillMap). */
+export const MAP_LOADING_TEXT = "Chargement de la carte…";
 </script>
 
 <template>
@@ -189,7 +192,7 @@ let painted = false;
       />
       <div v-if="!bare" class="curtain-say" :style="rectStyle(layout.say)">
         <span ref="spin" class="spinner spinner-lg" aria-hidden="true"></span>
-        <p>Chargement de la carte…</p>
+        <p>{{ MAP_LOADING_TEXT }}</p>
       </div>
     </div>
   </div>

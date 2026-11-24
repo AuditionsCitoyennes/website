@@ -193,7 +193,7 @@ export const POSTER_W = 600;
  *  shows it: `flat` on the globe, or tilted, aimed at the map's France), and
  *  the rectangle its spinner and words are centred in. */
 export interface CurtainLayout {
-  poster: { kind: "carte"; view: Rect; boxH: number; aim: FranceAim; flat: boolean };
+  poster: { view: Rect; boxH: number; aim: FranceAim; flat: boolean };
   say: Rect;
 }
 
@@ -215,14 +215,14 @@ export function curtainLayout(o: {
   const view = inSight(w, h, insetsFor(o));
   const flat = o.motion === "full";
   const aim = flat ? flatFranceAim(view, h) : franceAim(view, h);
-  if (!o.centred) return { poster: { kind: "carte", view, boxH: h, aim, flat }, say: view };
+  if (!o.centred) return { poster: { view, boxH: h, aim, flat }, say: view };
   // The same drawing moved whole (its camera's centre with it): its outline's
   // box on the box's centre, its size and shape unchanged.
   const dx = w / 2 - aim.x;
   const dy = h / 2 - aim.y;
   const at = moved(view, dx, dy);
   return {
-    poster: { kind: "carte", view: at, boxH: h, aim: { ...aim, x: w / 2, y: h / 2 }, flat },
+    poster: { view: at, boxH: h, aim: { ...aim, x: w / 2, y: h / 2 }, flat },
     say: at,
   };
 }

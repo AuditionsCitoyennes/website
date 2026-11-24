@@ -15,6 +15,7 @@ import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
 import { GeoDrillMap, type MapGestureSource } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
 import { deviceSignals, deviceTier } from "@/shared/device/deviceTier";
+import { prefersReducedMotion } from "@/shared/device/motion";
 import {
   analysisSummary,
   buildFactsIndex,
@@ -32,7 +33,7 @@ import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
 import { slowWaitPlace } from "./model/retryNotice";
 import { createNavState, type Insets, type MapView } from "./navState";
 import { bootCurtainCover } from "./bootListSwitch";
-import { CURTAIN_FADE_BELT_MS, panelHeldAtBoot } from "./panelBoot";
+import { CURTAIN_FADE_BELT_MS, HOLD_FADE_MS, panelHeldAtBoot } from "./panelBoot";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
@@ -372,12 +373,35 @@ const mapCmp = ref<InstanceType<typeof GeoDrillMap> | null>(null);
 /** The map's fallback shows or goes (GeoDrillMap's `fallback`, told before
  *  the render that would show the panel over it). A focus inside the panel,
  *  which goes out of sight (inert), moves to the fallback's « Réessayer »,
- *  the one control left, rather than to the page's body. */
+ *  the one control left, rather than to the page's body; one in the
+ *  fallback, which fades out (a « Réessayer » that brought the map), moves
+ *  to the panel coming back, on its trail's current crumb, without
+ *  scrolling anything. */
 function onMapFallback(shown: boolean) {
   const focusIn = shown && !mapFailed.value && !!panelEl.value?.contains(document.activeElement);
+  const focusBack = !shown && mapFailed.value && !!mapCmp.value?.fallbackHasFocus();
+  // On screen until now (the map failing after the page was up): the panel
+  // fades out over the fallback (the card's own `panel-arrive` leave), out of
+  // reach at once (inert); at once under reduced motion.
+  const fadeOut = shown && !mapFailed.value && !panelHeld.value && !props.preview;
   if (shown && booting.value && bootShown) failedInSight.value = true;
   mapFailed.value = shown;
   if (focusIn) void nextTick(() => mapCmp.value?.focusFallback());
+  if (fadeOut && !prefersReducedMotion())
+    void nextTick(() => {
+      const p = panelEl.value;
+      if (panelHeld.value && typeof p?.animate === "function")
+        p.animate([{ opacity: 1 }, { opacity: 0 }], { duration: HOLD_FADE_MS, easing: "ease" });
+    });
+  if (focusBack)
+    void nextTick(() => {
+      if (panelHeld.value) return;
+      const p = panelEl.value;
+      const to =
+        p?.querySelector<HTMLElement>(".crumb.current") ??
+        p?.querySelector<HTMLElement>("nav.crumbs");
+      to?.focus({ preventScroll: true });
+    });
 }
 /** The unit a tap left pending, "" when none (model/useTapPending, made
  *  further down: read when a unit is selected, never before). */
@@ -500,6 +524,9 @@ const sheetShownPx = computed(() =>
 const SHEET_TOOLS_ROOM_PX = 192;
 /** Where the testing tools' buttons sit above (`--sheet-tools`), or null:
  *  where they always were. */
+/** The testing tools' menu sits low in the corner: the map's fallback shows
+ *  on the page (no panel, no sheet). Always false outside testing builds. */
+const toolsLow = computed(() => __TEST_TOOLS__ && mapFailed.value && !props.preview);
 const sheetToolsPx = computed(() =>
   sheetShownPx.value > sheetPeekPx.value && sheet.sheetRaisedPx.value >= SHEET_TOOLS_ROOM_PX
     ? sheetShownPx.value
@@ -1376,10 +1403,10 @@ function retryAll() {
       '--sheet-follow': sheetRefit ? '0s' : undefined,
       '--panel-cover': `${panelCover}px`,
       // The map's fallback (no panel, no sheet): the testing tools' menu
-      // (map-tools) sits low in the corner, moved there in one step.
-      '--tools-bottom':
-        mapFailed && !preview ? 'calc(40px + env(safe-area-inset-bottom, 0px))' : undefined,
-      '--tools-ease': mapFailed && !preview ? '0s' : undefined,
+      // (map-tools) sits low in the corner, moved there in one step. Testing
+      // builds only: nothing else reads them.
+      '--tools-bottom': toolsLow ? 'calc(40px + env(safe-area-inset-bottom, 0px))' : undefined,
+      '--tools-ease': toolsLow ? '0s' : undefined,
     }"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the

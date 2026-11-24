@@ -46,6 +46,11 @@ export function panelHeldAtBoot(o: {
  *  one. */
 export const CURTAIN_FADE_BELT_MS = 2_000;
 
+/** How long (ms) the panel fades out when it is held again after it was on
+ *  screen (the map failing after the page was up, GeoNav's `onMapFallback`):
+ *  the card's own `panel-arrive` leave. */
+export const HOLD_FADE_MS = 200;
+
 /** One part of the panel's entrance (Web Animations, GeoPanel): each runs
  *  on its own property, with its own time and easing. */
 export interface EntrancePart {
