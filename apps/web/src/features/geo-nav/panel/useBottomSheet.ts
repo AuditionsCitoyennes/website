@@ -245,11 +245,11 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
     },
     { immediate: true },
   );
-  // A raise, a choice of the switch, a hold that starts or ends: measured at
-  // the next frame, once the render's own hooks have run — an audition's
-  // unfolding starts from no height in its enter hook, after the watchers: a
-  // measure before it would see the whole body for an instant, and the sheet
-  // would shrink back as the unfolding starts.
+  // A raise, a hold that starts or ends: measured at the next frame, once the
+  // render's own hooks have run — an audition's unfolding starts from no
+  // height in its enter hook, after the watchers: a measure before it would
+  // see the whole body for an instant, and the sheet would shrink back as the
+  // unfolding starts.
   let measureFrame = 0;
   const measureSoon = () => {
     if (measureFrame) return;

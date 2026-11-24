@@ -1,10 +1,10 @@
 // The audition a lieu opens with (lieuSingle.ts): what is known of a lieu's
 // auditions from the server's row — how many, the newest, the top of its list
-// in the panel's order — and the rule that opens one with a lieu newly
-// opened: its one audition whichever way it is opened; for several, the top
-// of its list from its pin on the map (or the wait for its list when none is
-// embedded); its list otherwise, and for the lieu already open. Plain objects stand in for the rows. Run with
-// `node --import tsx --test` (root "test:scripts").
+// in the panel's order — and the rule that opens one with a lieu newly opened:
+// its one audition whichever way it is opened; for several, the top of its list
+// from its pin on the map (or the wait for its list when none is embedded); its
+// list otherwise, and for the lieu already open. Plain objects stand in for the
+// rows. Run with `node --import tsx --test` (root "test:scripts").
 // Pure: no Vue, no DOM.
 
 import assert from "node:assert/strict";

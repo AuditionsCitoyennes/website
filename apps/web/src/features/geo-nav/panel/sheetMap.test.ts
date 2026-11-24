@@ -32,10 +32,6 @@ const USES: MapUse[] = [
   { kind: "tap", target: "lieu" },
 ];
 
-test("an open lieu's tail is the lieu follow's", () => {
-  assert.equal(OPEN_TAIL_MS, 400);
-});
-
 test("the home card (inert anyway): nothing lowers", () => {
   for (const use of USES)
     for (const lieuOpen of [false, true])
@@ -65,7 +61,8 @@ test("nothing lowers a sheet that is down, under a finger, on a desktop or on th
   }
 });
 
-test("an open lieu: any gesture past the tail of its tap", () => {
+test("an open lieu: any gesture past the tail of its tap (the lieu follow's)", () => {
+  assert.equal(OPEN_TAIL_MS, 400);
   for (const source of ["hand", "keys", "controls"] as const)
     for (const first of [true, false]) {
       const i: SheetMapInputs = {

@@ -215,10 +215,23 @@ export function changedOptions(read: (key: DevKey) => string): DevOption[] {
   return DEV_OPTIONS.filter((o) => read(o.key) !== o.defaultId);
 }
 
+/** Keys of switches since removed, their choice kept as the page's own: no
+ *  code reads them any more; the reset clears what a browser still holds. */
+export const RETIRED_KEYS: readonly string[] = [
+  "ac:map-fallback",
+  "ac:boot-poster",
+  "ac:pin-open",
+  "ac:sheet-fit",
+  "ac:panel-boot",
+  "ac:sheet-map",
+];
+
 /** Every row back to its default: its stored key removed (`remove`:
- *  localStorage's). The caller loads the page again, once. */
-export function clearOptions(remove: (key: DevKey) => void) {
+ *  localStorage's), and the retired keys with them. The caller loads the
+ *  page again, once. */
+export function clearOptions(remove: (key: string) => void) {
   for (const o of DEV_OPTIONS) remove(o.key);
+  for (const k of RETIRED_KEYS) remove(k);
 }
 
 /** A line of the « Appareil » section: something the page knows of the device. */

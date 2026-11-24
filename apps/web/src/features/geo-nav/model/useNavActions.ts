@@ -159,11 +159,10 @@ export function useNavActions(inputs: NavActionsInputs) {
     if (!u) return;
     // The LAST crumb can be the open lieu itself — a place can never become the
     // scope; re-centre its spotlight instead (useful after panning away). With
-    // an audition of a lieu of several open under "premiere" (foldToList: the
-    // crumb, or the back arrow pointed at it), it also folds that audition
-    // back into the lieu's list, as a press on its line does — before the
-    // camera's command, so that command aims with the panel as narrow as the
-    // list leaves it.
+    // an audition of a lieu of several open (foldToList: the crumb, or the
+    // back arrow pointed at it), it also folds that audition back into the
+    // lieu's list, as a press on its line does — before the camera's command,
+    // so that command aims with the panel as narrow as the list leaves it.
     if (u.levelKey === "place") {
       if (u.id === selectedPlaceId.value && foldToList.value) {
         // The visitor's own fold: the sheet goes under the rule of any list

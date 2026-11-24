@@ -1,7 +1,8 @@
 // The loading curtain's rules (curtainFrame.ts): the camera's padding at boot,
 // where the map draws France at the measured sizes, tilted and flat (pinned: a
 // change to the camera's framing or to the panel's widths must be measured
-// again), the outline projected on it, and the fallback's France, centred. Run with `node --import tsx --test` (root "test:scripts").
+// again), the outline projected on it, and the fallback's France, centred. Run
+// with `node --import tsx --test` (root "test:scripts").
 // Pure: no Vue component, no DOM.
 
 import assert from "node:assert/strict";

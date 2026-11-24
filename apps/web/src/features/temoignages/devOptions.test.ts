@@ -22,6 +22,7 @@ import {
   changedCount,
   changedOptions,
   clearOptions,
+  RETIRED_KEYS,
   tierFacts,
   type DevKey,
 } from "./devOptions";
@@ -96,6 +97,10 @@ test("every ac:* key a switch module reads is a row or a measurement arm", () =>
     assert.ok(KEYS.includes(k as DevKey) || NO_ROW.includes(k), `${k}: no row`);
   }
   for (const k of KEYS) assert.ok(seen.has(k), `${k}: read by no module`);
+  for (const k of RETIRED_KEYS) {
+    assert.ok(!seen.has(k), `${k}: retired, still read`);
+    assert.ok(!KEYS.includes(k as DevKey), `${k}: retired, still a row`);
+  }
 });
 
 const JARGON = /\b(dem|worker|float32array|lru|readback|hillshade|mesh)\b/i;
@@ -250,9 +255,10 @@ test("the rows off their default are found, in the menu's order", () => {
   assert.equal(changedCount(2), "2 choix modifiés");
 });
 
-test("the reset removes the key of every row, and no other", () => {
+test("the reset removes the key of every row and the retired ones, and no other", () => {
   const kept = new Map<string, string>([
     ...KEYS.map((k): [string, string] => [k, "x"]),
+    ...RETIRED_KEYS.map((k): [string, string] => [k, "x"]),
     ...NO_ROW.map((k): [string, string] => [k, "x"]),
     ["sb-auth-token", "x"],
   ]);

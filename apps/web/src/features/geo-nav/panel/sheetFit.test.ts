@@ -216,8 +216,9 @@ test("a released drag settles on the nearer rest unless flicked", () => {
   assert.equal(sheetSettle({ at: 380, v: 0.3, raisedPx: 375, loweredPx: 610, flick }), true);
 });
 
-// The band a territory in scope is framed in above a short sheet. A 360×740 phone, the header's tiles 51 px down, the camera's 36 px
-// beside, a sheet of 5 rows covering 316 px of the screen's bottom.
+// The band a territory in scope is framed in above a short sheet. A 360×740
+// phone, the header's tiles 51 px down, the camera's 36 px beside, a sheet of
+// 5 rows covering 316 px of the screen's bottom.
 const band = {
   phone: true,
   raised: true,

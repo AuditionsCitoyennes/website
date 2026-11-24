@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // France on the map's loading curtain (MapCurtain.vue), where curtainFrame.ts
 // puts it: its outline as the map shows it, flat on the globe or tilted (its
-// points projected, drawn as plain paths: a CSS 3D tilt rasterises blurry). Its own small file: the curtain is in every page's code, the
-// poster's outline is not (MapStage's StageLoading asks for it, GeoNav
-// imports it with the map's code). Decorative, as the poster.
+// points projected, drawn as plain paths: a CSS 3D tilt rasterises blurry). Its
+// own small file: the curtain is in every page's code, the poster's outline is
+// not (MapStage's StageLoading asks for it, GeoNav imports it with the map's
+// code). Decorative, as the poster.
 import { computed, onBeforeUnmount, shallowRef, watch } from "vue";
 import { POSTER_REGIONS } from "./francePoster";
 import { posterRings, type PosterRing } from "./francePosterRings";

@@ -22,8 +22,9 @@ import type { DeviceTier } from "@/shared/device/deviceTier";
 
 /** The panel is held out of sight now, on the page (not the home page's
  *  card): while the curtain is up or leaving but not fading yet
- *  (`awaitingFade`), and while the map's box shows its fallback (`mapFailed`: « La carte n'a pas pu
- *  s'afficher. », GeoDrillMap's `fallback`), which then stands alone.
+ *  (`awaitingFade`), and while the map's box shows its fallback
+ *  (`mapFailed`: « La carte n'a pas pu s'afficher. », GeoDrillMap's
+ *  `fallback`), which then stands alone.
  *  `booting` is GeoNav's latch and the wait only ever ends, so the boot's
  *  hold never comes back once lifted; the fallback's goes with it (a
  *  « Réessayer » that brings the map), and the panel comes in as after the
