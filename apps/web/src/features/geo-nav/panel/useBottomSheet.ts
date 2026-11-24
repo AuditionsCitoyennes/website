@@ -5,7 +5,7 @@
 // it again (the grip also toggles on tap/keyboard).
 //
 // Raised, it stands as tall as its head and its content need, up to the full
-// panel (sheetFit.ts, « Ajusté »; « Plein », sheetFitSwitch: always full).
+// panel (sheetFit.ts).
 // The panel's box never changes — it is the full sheet —: a shorter one is
 // that box slid down (`--sheet-raised`, a transform like the lowered one), so
 // the scroller, the lowered offset and the drag's numbers stay those of the
@@ -34,7 +34,6 @@ import {
   raisedOffset,
   refitMotion,
   sheetSettle,
-  type SheetFitMode,
 } from "./sheetFit";
 
 export interface BottomSheetInputs {
@@ -52,9 +51,6 @@ export interface BottomSheetInputs {
   listEl: Ref<HTMLElement | null>;
   /** The list's content (`.panel-list-body`), whatever the scroller shows. */
   bodyEl: Ref<HTMLElement | null>;
-  /** « Ajusté », « Ajusté, centré » or « Plein » (sheetFitSwitch), read at
-   *  each measure. */
-  fitMode: () => SheetFitMode;
   /** Something the sheet shows is loading: a raised sheet may grow, not shrink.
    *  Read at a measure and watched from the mount on, never before. */
   hold: () => boolean;
@@ -178,7 +174,6 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
     // fit in its offset, with a margin, or the sheet goes full.
     const controls = inputs.mapControlsPx?.() || MAP_CONTROLS_FALLBACK_REM * rem;
     const next = raisedOffset({
-      mode: inputs.fitMode(),
       fullPx: full,
       contentPx: content,
       minPx: sheetPeekPx.value + MIN_BODY_REM * rem,
@@ -263,7 +258,7 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
       measureSheet();
     });
   };
-  watch([sheetOpen, () => inputs.fitMode()], measureSoon, { flush: "post" });
+  watch(sheetOpen, measureSoon, { flush: "post" });
   // The hold is read once the page is set up (the caller may make it later).
   let stopHold: (() => void) | null = null;
   onMounted(() => {

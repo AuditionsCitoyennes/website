@@ -57,7 +57,7 @@ import {
   type PlateauBox,
 } from "./panel/sheetFit";
 import { useSheetBand } from "./panel/useSheetBand";
-import { sheetFitMode, sheetLateMode } from "./panel/sheetFitSwitch";
+import { sheetLateMode } from "./panel/sheetLateSwitch";
 import { testimoniesOf } from "./model/auditions";
 import { PANEL_BASE_PX, PHONE_SIDE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
@@ -418,7 +418,7 @@ const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
 const pageEl = ref<HTMLElement | null>(null);
 
 // ---- The phone's sheet (panel/useBottomSheet), the panel's layout (panel/usePanelLayout) ----
-// A raised sheet as tall as its content (« Ajusté »), held while what it
+// A raised sheet as tall as its content, held while what it
 // shows loads and full while an open audition's text is on its way
 // (`sheetFitHold`, `sheetExpectFull`, made further down: read at a measure,
 // never before the page is set up).
@@ -430,7 +430,6 @@ const sheet = useBottomSheet({
   safeEl: sheetSafeEl,
   listEl: panelListEl,
   bodyEl: panelBodyEl,
-  fitMode: () => sheetFitMode.value,
   hold: () => sheetFitHold.value,
   expectFull: () => sheetExpectFull.value,
   waitText: () => sheetWaitText.value,
@@ -505,11 +504,11 @@ if (__TEST_TOOLS__) {
     root.removeProperty("--ac-sheet-tools-follow");
   });
 }
-/** « Ajusté, centré »: how much of the screen's bottom the camera keeps clear
+/** How much of the screen's bottom the camera keeps clear
  *  of an open lieu's pin (px), the sheet's rest top under a short sheet; null
  *  otherwise (sheetFit lieuAimPx, set further down, once the hold is made). */
 const sheetAimPx = ref<number | null>(null);
-/** « Ajusté, centré »: the map left above a short phone sheet, the territory
+/** The map left above a short phone sheet, the territory
  *  in scope framed there by the camera's padding (panel/useSheetBand, set up
  *  further down once the sheet's hold is made), or null. The ring stands
  *  aside meanwhile. */
@@ -1203,7 +1202,6 @@ function onAudToggle(id: string) {
 watch(
   () =>
     lieuAimPx({
-      mode: sheetFitMode.value,
       lieuRaised: !isDesktop.value && Boolean(selectedPlace.value) && sheetOpen.value,
       fitted: sheetFitted.value,
       shownPx: sheetShownPx.value,
@@ -1216,75 +1214,66 @@ watch(
   (px) => (sheetAimPx.value = px),
   { immediate: true },
 );
-// ---- « Ajusté, centré »: the territory framed in the map left above a short
-// sheet (panel/useSheetBand) ----
-// The testing tools only: the switch never leaves « Ajusté » in a production
-// build, whose band is always none (the module is left out of it).
+// ---- The territory framed in the map left above a short sheet
+// (panel/useSheetBand) ----
 /** Where the raised plateau stood on screen at the last frame drawn (the
  *  map's frame bus), its unit's id with it ('' when none stands at full
  *  height): a late list that brings the sheet down leaves a territory that
  *  already clears the sheet's new top where it is (useSheetBand). Listened to
- *  only under « Ajusté, centré » on a phone. One object, rewritten in place. */
+ *  only on a phone's page. One object, rewritten in place. */
 const plateauSeen = { id: "", minX: 0, minY: 0, maxX: 0, maxY: 0, w: 0, h: 0 };
-if (__TEST_TOOLS__) {
-  watch(
-    () =>
-      sheetFitMode.value === "centre" && !isDesktop.value && !asCard.value ? mapCmp.value : null,
-    (m, _old, onCleanup) => {
-      plateauSeen.id = "";
-      if (!m) return;
-      onCleanup(
-        m.onFrame((f) => {
-          const b = f.box;
-          plateauSeen.id = b && f.rise >= 0.99 ? f.scopeId : "";
-          if (!b) return;
-          plateauSeen.minX = b.minX;
-          plateauSeen.minY = b.minY;
-          plateauSeen.maxX = b.maxX;
-          plateauSeen.maxY = b.maxY;
-          plateauSeen.w = f.w;
-          plateauSeen.h = f.h;
-        }),
-      );
-    },
-    { immediate: true },
-  );
-}
+watch(
+  () => (!isDesktop.value && !asCard.value ? mapCmp.value : null),
+  (m, _old, onCleanup) => {
+    plateauSeen.id = "";
+    if (!m) return;
+    onCleanup(
+      m.onFrame((f) => {
+        const b = f.box;
+        plateauSeen.id = b && f.rise >= 0.99 ? f.scopeId : "";
+        if (!b) return;
+        plateauSeen.minX = b.minX;
+        plateauSeen.minY = b.minY;
+        plateauSeen.maxX = b.maxX;
+        plateauSeen.maxY = b.maxY;
+        plateauSeen.w = f.w;
+        plateauSeen.h = f.h;
+      }),
+    );
+  },
+  { immediate: true },
+);
 function plateauBox(): PlateauBox | null {
   return plateauSeen.id !== "" && plateauSeen.id === nav.currentScope.value.id
     ? { ...plateauSeen }
     : null;
 }
-const band = __TEST_TOOLS__
-  ? useSheetBand({
-      nav,
-      mode: () => sheetFitMode.value,
-      late: () => sheetLateMode.value,
-      dialogOpen: () => Boolean(props.filtersOpen),
-      isDesktop,
-      preview: asCard,
-      fitted: sheetFitted,
-      shownPx: sheetShownPx,
-      viewportH,
-      headerClearPx,
-      sidePx: () => PHONE_SIDE_PX,
-      hold: () => sheetFitHold.value,
-      readingPlace,
-      plateauBox,
-      listMode,
-      mapCmp,
-      applied: sheetBand,
-      loweredByMap: sheetLoweredByMap,
-      camera: cam,
-    })
-  : null;
+const band = useSheetBand({
+  nav,
+  late: () => sheetLateMode.value,
+  dialogOpen: () => Boolean(props.filtersOpen),
+  isDesktop,
+  preview: asCard,
+  fitted: sheetFitted,
+  shownPx: sheetShownPx,
+  viewportH,
+  headerClearPx,
+  sidePx: () => PHONE_SIDE_PX,
+  hold: () => sheetFitHold.value,
+  readingPlace,
+  plateauBox,
+  listMode,
+  mapCmp,
+  applied: sheetBand,
+  loweredByMap: sheetLoweredByMap,
+  camera: cam,
+});
 if (__TEST_TOOLS__) {
   // `window.__acSheet()`: the phone's sheet as measured last — raised or not,
-  // the fit's mode, the box, the content, the raised and lowered offsets,
+  // the box, the content, the raised and lowered offsets,
   // the hold (px; desktops have no sheet), and the camera's padding.
   const probe = () => ({
     open: sheetOpen.value,
-    mode: sheetFitMode.value,
     fullPx: sheet.sheetFullPx.value,
     contentPx: sheet.sheetContentPx.value,
     raisedPx: sheet.sheetRaisedPx.value,
@@ -1301,17 +1290,16 @@ if (__TEST_TOOLS__) {
     pinWait: pinTextWait.value,
     waitGrows: pinWaitDots.value,
     aimPx: sheetAimPx.value,
-    // What the camera is told to keep clear: the raised sheet's height only
-    // under « Ajusté, centré », for an open lieu (`aimPx`) or a territory
-    // (the band below).
+    // What the camera is told to keep clear: the raised sheet's height, for
+    // an open lieu (`aimPx`) or a territory (the band below).
     mapPadding: { ...mapPadding.value },
     // Why the sheet came down for the map last (panel/sheetMap), and whether
     // the band stays for it.
     mapLower: layout.lastMapLower.value,
     loweredByMap: sheetLoweredByMap.value,
-    // « Ajusté, centré »: the band above a short sheet asked for and the one
-    // the camera frames in (useSheetBand), and the last decision made.
-    band: band && {
+    // The band above a short sheet asked for and the one the camera frames
+    // in (useSheetBand), and the last decision made.
+    band: {
       wanted: band.wanted.value,
       applied: band.applied.value,
       last: band.last.value,

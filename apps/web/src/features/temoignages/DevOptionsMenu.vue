@@ -3,9 +3,9 @@
 // button over the map's bottom-right corner (GeoNav's `map-tools` slot: on a
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
-// « Options de test », a row for each switch of devOptions.ts — the height
-// of a phone's raised sheet and how a late list re-frames it
-// (geo-nav/panel/sheetFitSwitch), the analyses' slabs
+// « Options de test », a row for each switch of devOptions.ts — how a
+// phone's late list re-frames the map above its sheet
+// (geo-nav/panel/sheetLateSwitch), the analyses' slabs
 // (analyses/devSwitch; their section only in a build with the analyses), the
 // device's tier (shared/device/deviceTier) with what the page knows of the
 // device listed under it, the map's pixel ratio and whether it times its
@@ -40,7 +40,7 @@ import {
   slabTextMode,
   slabTextScale,
 } from "@/features/analyses";
-import { setSheetFitMode, setSheetLateMode, sheetFitMode, sheetLateMode } from "@/features/geo-nav";
+import { setSheetLateMode, sheetLateMode } from "@/features/geo-nav";
 import { dprChoice, frameMeasure, setDprChoice, setFrameMeasure } from "@/features/map";
 import {
   DEV_CHANGED_MARK,
@@ -76,7 +76,6 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
-  "ac:sheet-fit": bind(() => sheetFitMode.value, setSheetFitMode),
   "ac:sheet-late": bind(() => sheetLateMode.value, setSheetLateMode),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),

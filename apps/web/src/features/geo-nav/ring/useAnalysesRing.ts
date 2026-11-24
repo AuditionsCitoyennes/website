@@ -80,7 +80,7 @@ export interface AnalysesRingInputs {
     panelPx: ComputedRef<number>;
   };
   listMode: ComputedRef<boolean>;
-  /** « Ajusté, centré »: the map left above a short phone sheet, the territory
+  /** The map left above a short phone sheet, the territory
    *  framed there by the camera's own padding (panel/useSheetBand), or null.
    *  The ring stands aside meanwhile. */
   bandApplied?: Ref<Insets | null>;
@@ -285,7 +285,7 @@ export function useAnalysesRing(inputs: AnalysesRingInputs) {
     };
   }
 
-  // A short phone sheet's band (« Ajusté, centré ») goes before the ring: the
+  // A short phone sheet's band (panel/useSheetBand) goes before the ring: the
   // camera frames the territory in it, and the plates are not drawn under a
   // raised phone sheet (useScopeAnalysis), so no room is kept for them;
   // lowered, the band is gone and the ring is back, both with the fit that

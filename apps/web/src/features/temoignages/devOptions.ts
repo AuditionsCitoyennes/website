@@ -3,7 +3,7 @@
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
 // modules own the keys, the defaults and the reads
-// (geo-nav/panel/sheetFitSwitch, analyses/devSwitch,
+// (geo-nav/panel/sheetLateSwitch, analyses/devSwitch,
 // shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue alone, so a production build has
@@ -27,7 +27,6 @@ export type DevKey =
   | "ac:slab-size"
   | "ac:ring-band"
   | "ac:tier"
-  | "ac:sheet-fit"
   | "ac:sheet-late"
   | "ac:dpr"
   | "ac:frame-measure";
@@ -66,7 +65,8 @@ export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: stri
   {
     id: "panneau",
     title: "Panneau",
-    intro: "Sur un téléphone, la hauteur du panneau des témoignages.",
+    intro:
+      "Sur un téléphone, ce que fait la carte quand le panneau des témoignages change de hauteur après coup.",
   },
   {
     id: "analyses",
@@ -90,20 +90,6 @@ const SHARES: readonly DevChoice[] = [
 
 export const DEV_OPTIONS: readonly DevOption[] = [
   {
-    key: "ac:sheet-fit",
-    section: "panneau",
-    label: "Hauteur",
-    choices: [
-      { id: "ajuste", label: "Ajusté" },
-      { id: "centre", label: "Ajusté, centré" },
-      { id: "plein", label: "Plein" },
-    ],
-    explain:
-      "Sur un téléphone, la hauteur du panneau des témoignages quand il est remonté. « Ajusté » (par défaut) le fait aussi haut que ce qu'il montre : deux villes, et la carte reste visible au-dessus ; une longue liste, et il monte jusqu'en haut ; un lieu ouvert reste en haut de la carte. « Ajusté, centré » fait de même mais place le territoire en relief, ou le lieu ouvert, au milieu de la carte visible au-dessus du panneau : la carte suit alors sa hauteur. « Plein » le monte toujours jusqu'en haut, comme avant. Rien ne change sur un ordinateur.",
-    reloads: false,
-    defaultId: "ajuste",
-  },
-  {
     key: "ac:sheet-late",
     section: "panneau",
     label: "Recadrage tardif",
@@ -112,7 +98,7 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "recentrer", label: "Recentrer" },
     ],
     explain:
-      "Avec « Ajusté, centré » seulement, sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé s'il reste tout entier visible au-dessus du panneau : un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau en cache une partie (souvent après un toucher depuis une longue liste, le panneau en haut, sur un territoire haut comme le Bénin), la carte le recadre dans les deux cas.",
+      "Sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé s'il reste tout entier visible au-dessus du panneau : un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau en cache une partie (souvent après un toucher depuis une longue liste, le panneau en haut, sur un territoire haut comme le Bénin), la carte le recadre dans les deux cas.",
     reloads: false,
     defaultId: "rester",
   },

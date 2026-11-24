@@ -31,10 +31,10 @@ export interface PanelLayoutInputs {
   panelEl: Ref<HTMLElement | null>;
   /** The phone's sheet: its strip (measured with the panel), its measure, whether
    *  a finger is on it, the height it leaves showing when lowered, and how much
-   *  of the screen's bottom an open lieu's pin is kept clear of under
-   *  « Ajusté, centré » (null: the top strip; sheetFit lieuAimPx) — and,
-   *  under that option, the map left above a short sheet raised over a
-   *  territory, the camera framed in it (null: none; panel/useSheetBand). */
+   *  of the screen's bottom an open lieu's pin is kept clear of (null: the
+   *  top strip; sheetFit lieuAimPx) — and the map left above a short sheet
+   *  raised over a territory, the camera framed in it (null: none;
+   *  panel/useSheetBand). */
   sheet: {
     peekEl: Ref<HTMLElement | null>;
     measure: () => void;
@@ -49,8 +49,7 @@ export interface PanelLayoutInputs {
   follows: () => boolean;
   /** Set when the sheet comes down for the map with no lieu open, cleared
    *  when it is raised again (and by the next camera command, useSheetBand):
-   *  the band above a short sheet stays as applied meanwhile. Read and
-   *  written only under the testing tools, where the band is. */
+   *  the band above a short sheet stays as applied meanwhile. */
   loweredByMap?: Ref<boolean>;
 }
 
@@ -125,16 +124,17 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
       use,
     });
     if (!lowers) return;
-    // The probe's record, and the band's (useSheetBand: testing tools only).
-    if (__TEST_TOOLS__ && sheetOpen.value) {
-      lastMapLower.value =
-        (lieuOpen ? "lieu:" : "") +
-        (use.kind === "gesture" ? `gesture:${use.source}` : `tap:${use.target}`);
+    // The band's record (useSheetBand), and the probe's (testing tools only).
+    if (sheetOpen.value) {
+      if (__TEST_TOOLS__)
+        lastMapLower.value =
+          (lieuOpen ? "lieu:" : "") +
+          (use.kind === "gesture" ? `gesture:${use.source}` : `tap:${use.target}`);
       if (!lieuOpen && inputs.loweredByMap) inputs.loweredByMap.value = true;
     }
     sheetOpen.value = false;
   }
-  if (__TEST_TOOLS__ && inputs.loweredByMap) {
+  if (inputs.loweredByMap) {
     const loweredByMap = inputs.loweredByMap;
     watch(
       sheetOpen,
@@ -252,15 +252,12 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
     if (isDesktop.value) return insetsFor({ preview: false, desktop: true, peekPx: 0 });
     // Phone. Raised over a lieu, the place is parked in the strip at the top of
     // the map, where its pin stays in sight above the text: under a full sheet
-    // (« Plein », a long lieu, while an opened audition's text is on its way
-    // — a long text keeps it full) that strip is all the map that shows.
-    // A short fitted sheet (« Ajusté », a lieu of a few auditions) leaves
-    // more map below the pin, empty; the pin stays in the top strip all the
-    // same: the padding is the same whatever the sheet's height, so the map
-    // does not move as the sheet refits. Under « Ajusté, centré » the pin
-    // goes to the middle of the map left above a short sheet instead
-    // (`aimPx`): the map moves with the sheet's rest, once what it shows is
-    // in (useMapCamera re-aims a flight still on its way).
+    // (a long lieu, while an opened audition's text is on its way — a long
+    // text keeps it full) that strip is all the map that shows. Above a short
+    // fitted sheet (a lieu of a few auditions) the pin goes to the middle of
+    // the map left there instead (`aimPx`): the map moves with the sheet's
+    // rest, once what it shows is in (useMapCamera re-aims a flight still on
+    // its way).
     const h = viewportH.value;
     const aim = sheet.aimPx?.value ?? null;
     if (selectedPlace.value && sheetOpen.value)
@@ -270,7 +267,7 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
         left: 30,
         right: 30,
       };
-    // « Ajusté, centré », a short sheet raised over a territory: the map left
+    // A short sheet raised over a territory: the map left
     // above it (useSheetBand), the territory centred and fitted there. Changed
     // only together with a fit of the scope (the band's own rules), so the
     // map moves once, as the camera is told to frame; the camera's centre —
@@ -281,11 +278,8 @@ export function usePanelLayout(inputs: PanelLayoutInputs) {
     const band = sheet.band?.value;
     if (band) return { ...band };
     // Otherwise frame for the LOWERED sheet — the only state in which the map is
-    // sure to be on screen. Raising the sheet over a list therefore moves
-    // nothing. Neither reads the raised sheet's height (« Ajusté »,
-    // useBottomSheet: as tall as its content), on purpose: the map never moves
-    // as the sheet refits over a list, the map shown above a short sheet is
-    // extra room only.
+    // sure to be on screen: the sheet lowered, a full sheet over a list, or a
+    // band too short to frame in (sheetFit sheetBandInsets).
     return insetsFor({ preview: false, desktop: false, peekPx: sheet.peekPx.value });
   });
 

@@ -9,14 +9,8 @@ export { fetchFacets, retryable, retryWait, RETRIES, type CountsRequest } from "
 
 // `window.__acOutlines()`: the outline files in the page (testing tools only).
 if (__TEST_TOOLS__) void import("./data/outlinesProbe");
-// How tall a phone's raised sheet stands (the testing options menu's « Hauteur »).
-export {
-  sheetFitMode,
-  setSheetFitMode,
-  sheetLateMode,
-  setSheetLateMode,
-  type SheetFitMode,
-  type SheetLateMode,
-} from "./panel/sheetFitSwitch";
+// How a phone's camera re-frames a short sheet's late list (the testing
+// options menu's « Recadrage tardif »).
+export { sheetLateMode, setSheetLateMode, type SheetLateMode } from "./panel/sheetLateSwitch";
 // Which reads of the map page wait (the Filtres dialog's data).
 export { FILTERS_IDLE_CAP_MS, FILTERS_IDLE_MS, filtersDataWanted } from "./data/bootReadsSwitch";

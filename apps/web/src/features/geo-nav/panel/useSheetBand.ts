@@ -1,4 +1,4 @@
-// « Ajusté, centré » (sheetFitSwitch) on a phone: while a short sheet stands
+// On a phone: while a short sheet stands
 // raised over a territory in scope, the territory is framed in the map left
 // between the header's tiles and the sheet's top (sheetFit sheetBandInsets),
 // not in the lowered sheet's frame, where it would stand half under the sheet.
@@ -37,7 +37,7 @@
 //   padding under a lowered sheet (but for the map's own lowering, below),
 //   where the analyses' ring would stand under the header's tiles and the
 //   zoom buttons zoom about a point high on the map. Raised short again, the map stays the visitor's and
-//   the band does not come ("keep", as under « Ajusté »): a band eased in
+//   the band does not come ("keep"): a band eased in
 //   alone would shrink the rectangle the scope is read off, and a child
 //   filling most of the lowered map would become the scope at rest, the
 //   list swapping under the visitor's finger; the next command takes it;
@@ -73,13 +73,11 @@ import {
   boxInBand,
   sheetBandInsets,
   type PlateauBox,
-  type SheetFitMode,
   type SheetLateMode,
 } from "./sheetFit";
 
 export interface SheetBandInputs {
   nav: NavState;
-  mode: () => SheetFitMode;
   /** A band that only grew under a landed map: left, or framed again. */
   late: () => SheetLateMode;
   /** The filters' dialog stands over the page. */
@@ -136,7 +134,6 @@ export function useSheetBand(inputs: SheetBandInputs) {
     preview.value
       ? null
       : sheetBandInsets({
-          mode: inputs.mode(),
           phone: !isDesktop.value,
           raised: sheetOpen.value,
           fitted: fitted.value,

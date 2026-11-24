@@ -1,9 +1,9 @@
 // A phone's raised sheet as tall as its content (sheetFit.ts): the offset
 // from the full box, the minimum, the snaps to full (a sliver of map, no
 // room for the map's controls), the hold while loading, the wait for an
-// audition a pin opened, the camera's aim under « Ajusté, centré » (an open
-// lieu's pin; the band a territory is framed in above a short sheet and when
-// a new band frames it again), how a refit moves and where a released drag
+// audition a pin opened, the camera's aim above a short sheet (an open
+// lieu's pin; the band a territory is framed in and when a new band frames
+// it again), how a refit moves and where a released drag
 // settles. Run with
 // `node --import tsx --test` (root "test:scripts"). Pure: no Vue component,
 // no DOM.
@@ -12,7 +12,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   BAND_MARGIN_PX,
-  DEFAULT_SHEET_FIT,
   MIN_BAND_REM,
   DEFAULT_SHEET_LATE,
   SHEET_LATE_MODES,
@@ -21,7 +20,6 @@ import {
   bandReframe,
   boxInBand,
   sheetBandInsets,
-  SHEET_FIT_MODES,
   SNAP_FULL_PX,
   TEXT_WAIT_CAP_MS,
   TEXT_WAIT_DOTS_MS,
@@ -32,11 +30,10 @@ import {
   textWait,
 } from "./sheetFit";
 
-const base = { mode: "ajuste" as const, fullPx: 675, minPx: 200, heldOffset: null };
+const base = { fullPx: 675, minPx: 200, heldOffset: null };
 
-test("« Plein » is always the full sheet", () => {
-  assert.equal(raisedOffset({ ...base, mode: "plein", contentPx: 120 }), 0);
-  assert.equal(raisedOffset({ ...base, mode: "plein", contentPx: 2000 }), 0);
+test("no box measured yet: the full sheet", () => {
+  assert.equal(raisedOffset({ ...base, fullPx: 0, contentPx: 120 }), 0);
 });
 
 test("short content slides the sheet down to its height, long content keeps it full", () => {
@@ -83,8 +80,6 @@ test("an open audition's text on its way: the sheet stands full, whatever the re
   assert.equal(raisedOffset({ ...base, contentPx: 300, heldOffset: 375, expectFull: true }), 0);
   // Once the text is in (no longer expected), a short one fits again.
   assert.equal(raisedOffset({ ...base, contentPx: 300, expectFull: false }), 375);
-  // « Plein » is full anyway.
-  assert.equal(raisedOffset({ ...base, mode: "plein", contentPx: 300, expectFull: true }), 0);
 });
 
 test("an audition a pin opened, its text on its way: the sheet stays where it stands", () => {
@@ -98,9 +93,8 @@ test("an audition a pin opened, its text on its way: the sheet stays where it st
   // short text, full for a long one.
   assert.equal(raisedOffset({ ...base, contentPx: 488, waitAt: null }), 187);
   assert.equal(raisedOffset({ ...base, contentPx: 1900, waitAt: null }), 0);
-  // Never past the box; « Plein » is full anyway.
+  // Never past the box.
   assert.equal(raisedOffset({ ...base, contentPx: 285, waitAt: 900 }), 675);
-  assert.equal(raisedOffset({ ...base, mode: "plein", contentPx: 285, waitAt: 581 }), 0);
 });
 
 test("a long wait lets the raised sheet grow to show the line and its dots, never shrink", () => {
@@ -171,22 +165,8 @@ test("past the cap the pin-opened sheet stands full, and stays full once the tex
   assert.ok(TEXT_WAIT_CAP_MS >= 5000 && TEXT_WAIT_CAP_MS <= 12000);
 });
 
-test("the switch's default is one of its choices, the first", () => {
-  assert.equal(DEFAULT_SHEET_FIT, "ajuste");
-  assert.deepEqual([...SHEET_FIT_MODES], ["ajuste", "centre", "plein"]);
-});
-
-test("« Ajusté, centré » fits the sheet as « Ajusté » does", () => {
-  for (const contentPx of [90, 300, 600, 2000])
-    assert.equal(
-      raisedOffset({ ...base, mode: "centre", contentPx }),
-      raisedOffset({ ...base, contentPx }),
-    );
-});
-
-test("an open lieu's pin is aimed above a short sheet only under « Ajusté, centré »", () => {
+test("an open lieu's pin is aimed above a short sheet", () => {
   const lieu = {
-    mode: "centre" as const,
     lieuRaised: true,
     fitted: true,
     shownPx: 433.4,
@@ -195,9 +175,6 @@ test("an open lieu's pin is aimed above a short sheet only under « Ajusté, cen
     prev: null,
   };
   assert.equal(lieuAimPx(lieu), 433);
-  // The other modes keep the top strip.
-  assert.equal(lieuAimPx({ ...lieu, mode: "ajuste" }), null);
-  assert.equal(lieuAimPx({ ...lieu, mode: "plein" }), null);
   // A full sheet, or one to stand full (an audition's text on its way): the top strip.
   assert.equal(lieuAimPx({ ...lieu, fitted: false }), null);
   assert.equal(lieuAimPx({ ...lieu, expectFull: true, prev: 433 }), null);
@@ -239,11 +216,9 @@ test("a released drag settles on the nearer rest unless flicked", () => {
   assert.equal(sheetSettle({ at: 380, v: 0.3, raisedPx: 375, loweredPx: 610, flick }), true);
 });
 
-// « Ajusté, centré »: the band a territory in scope is framed in above a short
-// sheet. A 360×740 phone, the header's tiles 51 px down, the camera's 36 px
+// The band a territory in scope is framed in above a short sheet. A 360×740 phone, the header's tiles 51 px down, the camera's 36 px
 // beside, a sheet of 5 rows covering 316 px of the screen's bottom.
 const band = {
-  mode: "centre" as const,
   phone: true,
   raised: true,
   fitted: true,
@@ -271,9 +246,7 @@ test("the band is the map between the header's tiles and the short sheet, a marg
   });
 });
 
-test("no band but under « Ajusté, centré », on a phone, over a raised short sheet, no lieu open", () => {
-  assert.equal(sheetBandInsets({ ...band, mode: "ajuste" }), null);
-  assert.equal(sheetBandInsets({ ...band, mode: "plein" }), null);
+test("no band but on a phone, over a raised short sheet, no lieu open", () => {
   assert.equal(sheetBandInsets({ ...band, phone: false }), null);
   assert.equal(sheetBandInsets({ ...band, raised: false }), null);
   // A full sheet (a long list, an opening audition): framed as today.
