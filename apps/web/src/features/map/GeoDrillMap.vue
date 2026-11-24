@@ -160,6 +160,15 @@ const emit = defineEmits<{
    * mark (`markPending`) waits for.
    */
   plateauSettled: [scopeId: string, how: PlateauSettle];
+  /**
+   * The box shows the fallback (« La carte n'a pas pu s'afficher. »): the map
+   * could not start, its style was refused, or its style never came (with a
+   * « Réessayer »); false once a retry has brought the map in and painted
+   * it. Told at once (immediate) and in the same tick as the flag changes
+   * (sync), before `ready`: the page never renders its panel over the
+   * fallback for a frame.
+   */
+  fallback: [shown: boolean];
 }>();
 
 /** `ready` fires at most once. */
@@ -189,6 +198,45 @@ let stopStyleReconnect: () => void = () => {};
 /** The fallback's « Réessayer ». */
 function retryStyle() {
   styleRecovery?.retry();
+}
+watch(
+  () => unavailable.value || styleDown.value !== false,
+  (shown) => emit("fallback", shown),
+  { immediate: true, flush: "sync" },
+);
+/** The fallback's « Réessayer » button, while it shows. */
+const retryBtn = ref<HTMLButtonElement | null>(null);
+// A « Réessayer » that brought the style: the box keeps the fallback (the
+// button still unavailable) until the new style's map is painted — its
+// `load`, then its first `idle` —, rather than showing a bare basemap for
+// the moment its tiles take. At most DOWN_PAINT_CAP_MS after the style came
+// (the intro's own cap): a map whose tiles never come shows as it is.
+const DOWN_PAINT_CAP_MS = 4000;
+let downPaintTimer = 0;
+let downPaintOff: () => void = () => {};
+function endDownHold() {
+  window.clearTimeout(downPaintTimer);
+  downPaintTimer = 0;
+  downPaintOff();
+  downPaintOff = () => {};
+}
+function holdDownUntilPainted(loaded: boolean) {
+  endDownHold();
+  const m = map;
+  const lift = () => {
+    endDownHold();
+    styleDown.value = false;
+  };
+  if (!m) return lift();
+  const onIdle = () => lift();
+  const onLoad = () => m.once("idle", onIdle);
+  if (loaded) m.once("idle", onIdle);
+  else m.once("load", onLoad);
+  downPaintOff = () => {
+    m.off("load", onLoad);
+    m.off("idle", onIdle);
+  };
+  downPaintTimer = window.setTimeout(lift, DOWN_PAINT_CAP_MS);
 }
 
 // The map, a plain variable: the composables read it through `getMap`, never
@@ -768,6 +816,9 @@ function mountMap() {
     // The slabs' opaque lids take the site's card colour, and follow the theme.
     slabs.observeTheme();
 
+    // The style's first `load` has fired (a « Réessayer » that brings the
+    // style waits for it before the map is painted).
+    let initialLoadDone = false;
     // The style's request failing: asked again by itself
     // a few times, then the box says so, with a button (lib/styleRecovery.ts).
     // The map stays as it is meanwhile: a new style on the same map, not a
@@ -788,7 +839,14 @@ function mountMap() {
       setTimer: (fn, ms) => window.setTimeout(fn, ms),
       clearTimer: (timer) => window.clearTimeout(timer as number),
       onState: (state) => {
-        styleDown.value = state === "down" || state === "asking" ? state : false;
+        if (state === "in" && styleDown.value !== false) {
+          // Brought by a « Réessayer »: the fallback stays until the map is painted.
+          styleDown.value = "asking";
+          holdDownUntilPainted(initialLoadDone);
+        } else {
+          endDownHold();
+          styleDown.value = state === "down" || state === "asking" ? state : false;
+        }
         // The message is up: nothing more comes by itself — never strand a boot overlay.
         if (state === "down") emitReady();
         if (perfOn) perfNote("style.state", 0, { state });
@@ -802,7 +860,6 @@ function mountMap() {
     // The browser back online, the page shown again: an attempt now.
     stopStyleReconnect = onReconnect(retryStyle);
 
-    let initialLoadDone = false;
     map.once("load", () => {
       initialLoadDone = true;
       mapReady = true;
@@ -871,6 +928,7 @@ function mountMap() {
         unavailable.value = true;
         emitReady(); // nothing more is coming — never strand a boot overlay
         styleRecovery?.stop();
+        endDownHold();
         styleDown.value = false;
         pins.clear();
         stillMap.detach(map);
@@ -1041,6 +1099,7 @@ onBeforeUnmount(() => {
   mask.setTintCutter(null);
   lid.destroy();
   styleRecovery?.stop();
+  endDownHold();
   stopStyleReconnect();
   resizeObserver?.disconnect();
   resizeObserver = null;
@@ -1110,6 +1169,14 @@ watch(
 watch(() => props.activeId, pins.applyActivePin);
 
 defineExpose({
+  /** The focus to the fallback's « Réessayer », where it shows (the page's
+   *  panel, where the focus was, is going out of sight): whether it went. */
+  focusFallback: (): boolean => {
+    const b = retryBtn.value;
+    if (!b) return false;
+    b.focus();
+    return true;
+  },
   /** A finger or the mouse is on the map, or it is still gliding from one: a
    *  camera command now would cut that gesture short. */
   inUserHands: camera.inUserHands,
@@ -1208,7 +1275,14 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 <template>
   <div v-if="unavailable" class="map-root map-fallback map-fallback--poster">
     <FrancePoster v-if="posterBefore" class="map-fallback-poster" />
-    <MapCurtain v-else bare :poster="curtainPoster" :preview="preview" :from="{ stage: 'stage' }" />
+    <MapCurtain
+      v-else
+      bare
+      :centred="!preview"
+      :poster="curtainPoster"
+      :preview="preview"
+      :from="{ stage: 'stage' }"
+    />
     <p class="map-fallback-text">{{ MAP_FALLBACK_TEXT }}</p>
   </div>
   <div v-else class="map-root">
@@ -1222,6 +1296,7 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
       <MapCurtain
         v-else
         bare
+        :centred="!preview"
         :poster="curtainPoster"
         :preview="preview"
         :from="{ stage: 'stage' }"
@@ -1229,6 +1304,7 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
       <div class="map-down-say">
         <p class="map-fallback-text" role="status">{{ MAP_FALLBACK_TEXT }}</p>
         <button
+          ref="retryBtn"
           type="button"
           class="ac-btn ac-btn--outline ac-btn--sm map-down-retry"
           :aria-disabled="styleDown === 'asking' || undefined"

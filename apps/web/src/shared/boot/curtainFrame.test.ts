@@ -152,6 +152,47 @@ test("« carte » draws France as the map is shown: flat under full motion, tilt
   }
 });
 
+test("the fallback's France: as the curtain draws it, its box on the box's centre", () => {
+  const sizes: readonly (readonly [number, number])[] = [
+    [360, 740],
+    [390, 844],
+    [412, 915],
+    [820, 1180],
+    [1280, 653.53],
+    [1440, 833.53],
+    [1920, 1013.53],
+  ];
+  for (const [w, h] of sizes)
+    for (const motion of ["full", "short"] as const) {
+      const name = `${w}×${h} ${motion}`;
+      const boot = layoutAt(w, h, "carte", motion).poster;
+      const mid = curtainLayout({
+        w,
+        h,
+        desktop: w >= 900,
+        preview: false,
+        peekPx: CURTAIN_PEEK_PX,
+        mode: "carte",
+        motion,
+        from: { stage: "stage" },
+        centred: true,
+      }).poster;
+      assert.ok(boot.kind === "carte" && mid.kind === "carte", name);
+      if (boot.kind !== "carte" || mid.kind !== "carte") continue;
+      assert.equal(mid.flat, boot.flat, name);
+      const [bx, by, bw, bh] = bboxOf(projectRings(rings, boot).flat());
+      const [x, y, mw, mh] = bboxOf(projectRings(rings, mid).flat());
+      // The same size and shape, moved whole…
+      near(mw, bw, 0.01, `${name} width`);
+      near(mh, bh, 0.01, `${name} height`);
+      // …its box's centre on the box's.
+      near(x + mw / 2, w / 2, 0.01, `${name} centre x`);
+      near(y + mh / 2, h / 2, 0.01, `${name} centre y`);
+      // Not where the boot framed it, beside the panel or above the strip.
+      assert.ok(Math.abs(bx + bw / 2 - w / 2) + Math.abs(by + bh / 2 - h / 2) > 5, name);
+    }
+});
+
 test("the flat globe keeps the map's shape: France as high as the map draws it", () => {
   // The globe seen from above draws France 0.94 as high as wide; the
   // Mercator drawing is 0.98: a flat box of the drawing would stray ~3 % at

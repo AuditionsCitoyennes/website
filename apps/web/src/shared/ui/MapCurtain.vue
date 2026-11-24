@@ -25,8 +25,9 @@
 // said by the wrapper (GeoNav's curtain has role="status"); this only draws.
 //
 // `bare`: France alone, on no background (GeoDrillMap's « Carte
-// indisponible », over its own background): the fallback's France stands
-// where the curtain's stood.
+// indisponible », over its own background). With `centred` (the page's
+// fallback, which shows no panel), France as large as the curtain drew it,
+// in the middle of the whole box.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, type Component } from "vue";
 import {
   CURTAIN_PEEK_PX,
@@ -47,6 +48,9 @@ const props = defineProps<{
   from: CurtainStage;
   /** France alone: no background, no spinner, no words. */
   bare?: boolean;
+  /** France in the middle of the box (the map's fallback, with no panel
+   *  beside it), as large as on the curtain. */
+  centred?: boolean;
 }>();
 
 /** The map's entrance (features/map useMapCamera.beginIntro reads motionNow
@@ -130,6 +134,7 @@ const layout = computed(() => {
     // Read only for "avant": the boot curtain's live measures, a new object
     // at each of its renders, must not redraw the others.
     from: bootPosterMode === "avant" ? props.from : SAME_FOR_BOTH,
+    centred: props.centred,
   });
 });
 

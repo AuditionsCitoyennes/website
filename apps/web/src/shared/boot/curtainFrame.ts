@@ -249,16 +249,41 @@ export function curtainLayout(o: {
    *  before it is shown ("short"). Read by "carte" only. */
   motion: Motion;
   from: CurtainStage;
+  /** France in the middle of the box, as large as the camera frames it
+   *  (the map's fallback, with no panel beside it). */
+  centred?: boolean;
 }): CurtainLayout {
   const { w, h } = o;
   if (o.mode === "avant") return beforeLayout(w, h, o.from);
   const view = inSight(w, h, insetsFor(o));
-  if (o.mode === "plat")
-    return { poster: { kind: "rect", rect: flatPosterRect(franceAim(view, h)) }, say: view };
+  if (o.mode === "plat") {
+    const aim = franceAim(view, h);
+    const [dx, dy] = o.centred ? [w / 2 - aim.x, h / 2 - aim.y] : [0, 0];
+    return {
+      poster: { kind: "rect", rect: moved(flatPosterRect(aim), dx, dy) },
+      say: moved(view, dx, dy),
+    };
+  }
   const flat = o.motion === "full";
   const aim = flat ? flatFranceAim(view, h) : franceAim(view, h);
-  return { poster: { kind: "carte", view, boxH: h, aim, flat }, say: view };
+  if (!o.centred) return { poster: { kind: "carte", view, boxH: h, aim, flat }, say: view };
+  // The same drawing moved whole (its camera's centre with it): its outline's
+  // box on the box's centre, its size and shape unchanged.
+  const dx = w / 2 - aim.x;
+  const dy = h / 2 - aim.y;
+  const at = moved(view, dx, dy);
+  return {
+    poster: { kind: "carte", view: at, boxH: h, aim: { ...aim, x: w / 2, y: h / 2 }, flat },
+    say: at,
+  };
 }
+
+/** `r` moved by (dx, dy). */
+const moved = (r: Rect, dx: number, dy: number): Rect => ({
+  ...r,
+  left: r.left + dx,
+  top: r.top + dy,
+});
 
 /** Each stage's places before (StageLoading.vue and GeoNav.vue's .boot rules
  *  up to 828c15d). */

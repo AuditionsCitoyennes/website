@@ -23,12 +23,12 @@ test("the modes, the default first", () => {
 
 test("held only while the curtain is up or not fading yet, on the page, under « Après le chargement »", () => {
   const held = (booting: boolean, awaitingFade: boolean, preview = false) =>
-    panelHeldAtBoot({ mode: "apres", booting, awaitingFade, preview });
+    panelHeldAtBoot({ mode: "apres", booting, awaitingFade, mapFailed: false, preview });
   assert.equal(held(true, false), true);
   // Told to leave, its fade not started yet (a heavy first map frame): still held.
   assert.equal(held(false, true), true);
-  // The curtain fading or gone, for whatever reason (ready, late, unavailable,
-  // the cap, the belt): the panel shows.
+  // The curtain fading or gone, for whatever reason (ready, late, the cap,
+  // the belt) but the map's fallback: the panel shows.
   assert.equal(held(false, false), false);
   // The home page's card shows no panel: nothing held.
   for (const booting of [true, false]) {
@@ -41,8 +41,34 @@ test("held only while the curtain is up or not fading yet, on the page, under «
     for (const awaitingFade of [true, false]) {
       for (const preview of [true, false]) {
         assert.equal(
-          panelHeldAtBoot({ mode: "tout-de-suite", booting, awaitingFade, preview }),
+          panelHeldAtBoot({
+            mode: "tout-de-suite",
+            booting,
+            awaitingFade,
+            mapFailed: false,
+            preview,
+          }),
           false,
+        );
+      }
+    }
+  }
+});
+
+test("held while the map's fallback shows, whatever the boot says, never on the card", () => {
+  for (const mode of PANEL_BOOT_MODES) {
+    for (const booting of [true, false]) {
+      for (const awaitingFade of [true, false]) {
+        const at = (mapFailed: boolean, preview: boolean) =>
+          panelHeldAtBoot({ mode, booting, awaitingFade, mapFailed, preview });
+        assert.equal(at(true, false), true, `${mode} ${booting} ${awaitingFade}`);
+        // The home page's card has no panel on show: nothing held.
+        assert.equal(at(true, true), false);
+        // The fallback gone (« Réessayer » brought the map): the boot's rule alone.
+        assert.equal(
+          at(false, false),
+          mode === "apres" && (booting || awaitingFade),
+          `${mode} ${booting} ${awaitingFade}`,
         );
       }
     }

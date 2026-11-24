@@ -179,9 +179,17 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 // does one past the loader's 6 s cap (`ready` "late": its files are drawn
 // when they land).
 const mapPresentable = ref(false);
+/** The map's box shows its fallback (GeoDrillMap's `fallback`: the map could
+ *  not start, or its style could not be had): the panel is held out of sight
+ *  meanwhile (panelBoot), and nothing covers the map's box. */
+const mapFailed = ref(false);
 const booting = ref(true);
+// A map that failed waits for nothing else: the panel those reads were for
+// does not show, so the fallback shows as soon as the failure is known.
 watch(
-  () => !mapPresentable.value || props.loading || outlines.ready.value === "loading",
+  () =>
+    !mapPresentable.value ||
+    (!mapFailed.value && (props.loading || outlines.ready.value === "loading")),
   (busy) => {
     if (!busy) booting.value = false;
   },
@@ -201,10 +209,12 @@ const bootCover = computed(() => bootCurtainCover(props.preview));
 // Under that curtain the panel is held out of sight (panelBoot, the DEV
 // switch's « Après le chargement »), so that only the loading placeholder
 // shows, and comes in as the curtain's fade starts: the same latch, so
-// whatever lifts the curtain (the map ready or unavailable, the outlines late,
-// the testimonies failing, the cap) shows the panel, and it never stays
-// hidden. Held, it keeps its box: the sheet's measures and the camera's
-// padding run as once it shows (GeoPanel `held`).
+// whatever lifts the curtain (the map ready, the outlines late, the
+// testimonies failing, the cap) shows the panel. Except the map's fallback
+// (`mapFailed`): the panel stays out of sight while it shows, and comes in
+// the same way if a « Réessayer » brings the map. Held, it keeps its box:
+// the sheet's measures and the camera's padding run as once it shows
+// (GeoPanel `held`).
 //
 // Told to leave, the curtain only starts fading two frames later (Vue's
 // leave-to), and a heavy first map frame can stretch that to a second or more:
@@ -245,6 +255,7 @@ const panelHeld = computed(() =>
     mode: panelBootMode,
     booting: booting.value,
     awaitingFade: awaitingFade.value,
+    mapFailed: mapFailed.value,
     preview: !!props.preview,
   }),
 );
@@ -339,6 +350,15 @@ const moreTestimoniesEl = computed(() => auditionsCmp.value?.moreTestimoniesEl ?
 
 // ---- The camera (model/useCamera): what GeoDrillMap is told to frame ----
 const mapCmp = ref<InstanceType<typeof GeoDrillMap> | null>(null);
+/** The map's fallback shows or goes (GeoDrillMap's `fallback`, told before
+ *  the render that would show the panel over it). A focus inside the panel,
+ *  which goes out of sight (inert), moves to the fallback's « Réessayer »,
+ *  the one control left, rather than to the page's body. */
+function onMapFallback(shown: boolean) {
+  const focusIn = shown && !mapFailed.value && !!panelEl.value?.contains(document.activeElement);
+  mapFailed.value = shown;
+  if (focusIn) void nextTick(() => mapCmp.value?.focusFallback());
+}
 /** The unit a tap left pending, "" when none (model/useTapPending, made
  *  further down: read when a unit is selected, never before). */
 let tappedUnit: () => string = () => "";
@@ -591,9 +611,11 @@ const lieuFollow = createLieuFollow({
 });
 // Desktop: how much of the map's right edge the panel covers, which the
 // credit's top-left box (desktop) is kept clear of: the narrow width when
-// folded (the fold leaves it on screen), the wide one when open wide.
+// folded (the fold leaves it on screen), the wide one when open wide. None
+// while the map's fallback shows: the panel is out of sight, the fallback's
+// sentence is centred in the whole box.
 const panelCover = computed(() => {
-  if (props.preview || !isDesktop.value) return 0;
+  if (props.preview || !isDesktop.value || mapFailed.value) return 0;
   return panelWide.value && !panelFolded.value ? panelPx.value : PANEL_BASE_PX;
 });
 // Back on the map (or the lieu closed): the scope, held still meanwhile,
@@ -1391,6 +1413,7 @@ function retryAll() {
       :active-id="selectedPlaceId"
       :slabs="slabSpec"
       @ready="mapPresentable = true"
+      @fallback="onMapFallback"
       @unit-click="onMapUnitClick"
       @empty-tap="tapMap('empty')"
       @plateau-settled="onPlateauSettled"
