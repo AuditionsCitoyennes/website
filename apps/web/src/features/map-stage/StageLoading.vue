@@ -52,7 +52,7 @@ if (
 
 <template>
   <div class="stage-loading" aria-hidden="true">
-    <MapCurtain :poster="poster" :preview="preview" :from="{ stage: 'stage' }" />
+    <MapCurtain :poster="poster" :preview="preview" />
   </div>
 </template>
 

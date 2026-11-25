@@ -14,10 +14,8 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { FRANCE_CENTER } from "@ac/shared";
 import { perfNote, perfOn } from "@/shared/perf/perf";
-import MapCurtain from "@/shared/ui/MapCurtain.vue";
+import MapCurtain, { MAP_LOADING_TEXT } from "@/shared/ui/MapCurtain.vue";
 import CurtainPoster from "@/shared/ui/CurtainPoster.vue";
-import FrancePoster from "@/shared/ui/FrancePoster.vue";
-import { bootPosterMode } from "@/shared/boot/bootPosterSwitch";
 import { boundsOfFeatures, toLngLat } from "./lib/polygon";
 import { stillMap } from "./lib/stillMap";
 import { resetPlateauStood } from "./lib/plateauStood";
@@ -61,7 +59,7 @@ import { createTapProgress, type TapStep } from "./plateau/tapProgress";
 import { liftOf } from "./plateau/lift";
 import type { CameraCmd, MapGestureSource, MapUnit, OutlineFC, SlabSpec } from "./types";
 import { MAP_MOVED_EVENT } from "./events";
-import { fallbackForced, mapFallback, MAP_FALLBACK_TEXT } from "./fallbackSwitch";
+import { MAP_FALLBACK_TEXT } from "./fallback";
 import {
   createStyleRecovery,
   finalStatus,
@@ -70,13 +68,10 @@ import {
 } from "./lib/styleRecovery";
 
 // The picture of France under the fallback sentence: the loading curtain's
-// France (shared/ui/MapCurtain.vue, `bare`), where and as the curtain drew it
-// just before, so the curtain fades onto the same France. Under the testing
-// switch's « Comme avant » (`ac:boot-poster` "avant"), the fallback's own
-// place before (`.map-fallback-poster`). Both come with the map's code (GeoNav
-// imports CurtainPoster, which draws FrancePoster).
+// France (shared/ui/MapCurtain.vue, `bare`), as large as the curtain drew it
+// just before; on the page, in the middle of the box (no panel beside it).
+// It comes with the map's code (GeoNav imports CurtainPoster).
 const curtainPoster = markRaw(CurtainPoster);
-const posterBefore = bootPosterMode === "avant";
 
 const props = defineProps<{
   units: MapUnit[];
@@ -160,6 +155,15 @@ const emit = defineEmits<{
    * mark (`markPending`) waits for.
    */
   plateauSettled: [scopeId: string, how: PlateauSettle];
+  /**
+   * The box shows the fallback (« La carte n'a pas pu s'afficher. »): the map
+   * could not start, its style was refused, or its style never came (with a
+   * « Réessayer »); false once a retry has brought the map in and painted
+   * it, and the frame's fade has started. Told at once (immediate) and in
+   * the same tick as the flag changes (sync), before `ready`: the page never
+   * renders its panel over the fallback for a frame.
+   */
+  fallback: [shown: boolean];
 }>();
 
 /** `ready` fires at most once. */
@@ -174,10 +178,9 @@ const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? "";
 const STYLE = import.meta.env.VITE_MAPBOX_STYLE || "mapbox://styles/mapbox/dark-v11";
 
 const el = ref<HTMLElement | null>(null);
-// No map: no token in the build, or not started on purpose (the testing
-// tools' `ac:map-fallback` "essai"); later, the style refused or the engine
-// failing. What the box then shows: fallbackSwitch.ts.
-const unavailable = ref(!TOKEN || (__TEST_TOOLS__ && fallbackForced(mapFallback)));
+// No map: no token in the build; later, the style refused or the engine
+// failing. What the box then shows: fallback.ts.
+const unavailable = ref(!TOKEN);
 // The style's request failed and the attempts made by themselves did too
 // (lib/styleRecovery.ts): the box says so over the map,
 // which stays, with a « Réessayer ». "asking": pressed, the style on its way.
@@ -189,6 +192,127 @@ let stopStyleReconnect: () => void = () => {};
 /** The fallback's « Réessayer ». */
 function retryStyle() {
   styleRecovery?.retry();
+}
+// The fallback's frame told to leave (a « Réessayer » that brought the map)
+// but not fading yet: a heavy first map frame can hold it opaque a moment
+// (as the page's loading curtain). It still counts as shown until its fade
+// starts (`transitionrun`), its leave ends, or DOWN_FADE_BELT_MS pass: the
+// page's panel comes in as it fades, not over it.
+const DOWN_FADE_BELT_MS = 2000;
+const downLeaving = ref(false);
+let downFadeBelt = 0;
+function endDownLeave() {
+  window.clearTimeout(downFadeBelt);
+  downFadeBelt = 0;
+  downLeaving.value = false;
+}
+/** The leaving frame (its Transition's `leave`): the wait ends as its own
+ *  opacity transition runs. One parameter: Vue still runs the CSS leave. */
+function onDownLeave(el: Element) {
+  el.addEventListener("transitionrun", (e) => {
+    const t = e as TransitionEvent;
+    if (t.target === el && t.propertyName === "opacity") endDownLeave();
+  });
+}
+watch(
+  () => unavailable.value || styleDown.value !== false || downLeaving.value,
+  (shown) => emit("fallback", shown),
+  { immediate: true, flush: "sync" },
+);
+/** The fallback's « Réessayer » button, while it shows. */
+const retryBtn = ref<HTMLButtonElement | null>(null);
+/** The fallback's sentence (its live region): « Chargement de la carte… »
+ *  while a « Réessayer » is on its way. */
+const downSay = ref<HTMLElement | null>(null);
+// The button goes while the style is asked for (the loading words in its
+// place): a focus it held moves to the words, which stay, and comes back to
+// it should the attempt fail. Read before the render that removes the button
+// (sync), moved once it has rendered (post).
+let focusTo: "say" | "button" | null = null;
+watch(
+  styleDown,
+  (now, was) => {
+    const at = document.activeElement;
+    if (was === "down" && now === "asking" && at && at === retryBtn.value) focusTo = "say";
+    else if (now === "down" && was === "asking" && at && at === downSay.value) focusTo = "button";
+  },
+  { flush: "sync" },
+);
+watch(
+  styleDown,
+  () => {
+    const to = focusTo;
+    focusTo = null;
+    if (to) (to === "say" ? downSay.value : retryBtn.value)?.focus({ preventScroll: true });
+  },
+  { flush: "post" },
+);
+// A « Réessayer » that brought the style: the box keeps the fallback (the
+// button still unavailable) until the new style's map is painted and its
+// plateau stands — its `load`, its first `idle` (where the intro starts:
+// the tilt, the plateau's rise), then the plateau at full height, or a
+// verdict that none will rise (`plateauSettled` "cleared" or "failed") —,
+// rather than showing a bare basemap, then its plateau rising; then it
+// fades out as the loading curtain does, onto the same picture a boot's
+// curtain lifts onto. At most DOWN_PAINT_CAP_MS from the style's coming to
+// that first `idle` (the intro's own cap), then DOWN_RISE_CAP_MS for the
+// plateau: a map whose tiles or plateau never come shows as it is.
+const DOWN_PAINT_CAP_MS = 4000;
+const DOWN_RISE_CAP_MS = 2000;
+let downPaintTimer = 0;
+let downPaintOff: () => void = () => {};
+/** The plateau pipeline's verdict, told to the hold while it runs. */
+let downVerdict: (how: PlateauSettle) => void = () => {};
+function endDownHold() {
+  window.clearTimeout(downPaintTimer);
+  downPaintTimer = 0;
+  downPaintOff();
+  downPaintOff = () => {};
+  downVerdict = () => {};
+}
+function holdDownUntilPainted(loaded: boolean) {
+  endDownHold();
+  const m = map;
+  const lift = (why: "standing" | "flat" | "cap" | "nomap") => {
+    endDownHold();
+    if (perfOn) perfNote("style.downLift", 0, { why });
+    // Shown until the frame's fade starts (above): set first, in the same
+    // tick, so the fallback is never told gone before.
+    downLeaving.value = true;
+    window.clearTimeout(downFadeBelt);
+    downFadeBelt = window.setTimeout(endDownLeave, DOWN_FADE_BELT_MS);
+    styleDown.value = false;
+  };
+  if (!m) return lift("nomap");
+  /** No plateau will stand (the map is flat, or its transition failed). */
+  let flat = false;
+  let painted = false;
+  const standing = () => plateauWall.scopeId !== "" && plateauWall.rise >= 0.999;
+  // Every frame drawn while the plateau rises: a read of two fields.
+  const onRender = () => {
+    if (standing()) lift("standing");
+  };
+  const onIdle = () => {
+    painted = true;
+    if (flat || standing()) return lift(flat ? "flat" : "standing");
+    m.on("render", onRender);
+    window.clearTimeout(downPaintTimer);
+    downPaintTimer = window.setTimeout(() => lift("cap"), DOWN_RISE_CAP_MS);
+  };
+  const onLoad = () => m.once("idle", onIdle);
+  if (loaded) m.once("idle", onIdle);
+  else m.once("load", onLoad);
+  downVerdict = (how) => {
+    if (how !== "cleared" && how !== "failed") return;
+    flat = true;
+    if (painted) lift("flat");
+  };
+  downPaintOff = () => {
+    m.off("load", onLoad);
+    m.off("idle", onIdle);
+    m.off("render", onRender);
+  };
+  downPaintTimer = window.setTimeout(() => lift("cap"), DOWN_PAINT_CAP_MS);
 }
 
 // The map, a plain variable: the composables read it through `getMap`, never
@@ -311,6 +435,7 @@ const plateau = usePlateau({
   onSettled: (scopeId, how) => {
     // The run's verdict is the last step of a tapped unit's progress.
     if (how === "rise" || how === "same" || how === "quiet") pendingStep(scopeId, { t: "settled" });
+    downVerdict(how);
     emit("plateauSettled", scopeId, how);
   },
   onLift: pins.syncLift,
@@ -768,6 +893,9 @@ function mountMap() {
     // The slabs' opaque lids take the site's card colour, and follow the theme.
     slabs.observeTheme();
 
+    // The style's first `load` has fired (a « Réessayer » that brings the
+    // style waits for it before the map is painted).
+    let initialLoadDone = false;
     // The style's request failing: asked again by itself
     // a few times, then the box says so, with a button (lib/styleRecovery.ts).
     // The map stays as it is meanwhile: a new style on the same map, not a
@@ -788,7 +916,17 @@ function mountMap() {
       setTimer: (fn, ms) => window.setTimeout(fn, ms),
       clearTimer: (timer) => window.clearTimeout(timer as number),
       onState: (state) => {
-        styleDown.value = state === "down" || state === "asking" ? state : false;
+        if (state === "in" && styleDown.value !== false && !props.preview) {
+          // Brought by a « Réessayer » on the page: the fallback stays until
+          // the map is painted and its plateau stands. The home page's card
+          // drops it at once, as ever (no fade either: its Transition's `css`).
+          styleDown.value = "asking";
+          holdDownUntilPainted(initialLoadDone);
+        } else {
+          endDownHold();
+          endDownLeave();
+          styleDown.value = state === "down" || state === "asking" ? state : false;
+        }
         // The message is up: nothing more comes by itself — never strand a boot overlay.
         if (state === "down") emitReady();
         if (perfOn) perfNote("style.state", 0, { state });
@@ -802,7 +940,6 @@ function mountMap() {
     // The browser back online, the page shown again: an attempt now.
     stopStyleReconnect = onReconnect(retryStyle);
 
-    let initialLoadDone = false;
     map.once("load", () => {
       initialLoadDone = true;
       mapReady = true;
@@ -871,6 +1008,8 @@ function mountMap() {
         unavailable.value = true;
         emitReady(); // nothing more is coming — never strand a boot overlay
         styleRecovery?.stop();
+        endDownHold();
+        endDownLeave();
         styleDown.value = false;
         pins.clear();
         stillMap.detach(map);
@@ -1041,6 +1180,8 @@ onBeforeUnmount(() => {
   mask.setTintCutter(null);
   lid.destroy();
   styleRecovery?.stop();
+  endDownHold();
+  window.clearTimeout(downFadeBelt);
   stopStyleReconnect();
   resizeObserver?.disconnect();
   resizeObserver = null;
@@ -1110,6 +1251,21 @@ watch(
 watch(() => props.activeId, pins.applyActivePin);
 
 defineExpose({
+  /** The focus to the fallback's « Réessayer », where it shows (the page's
+   *  panel, where the focus was, is going out of sight): whether it went. */
+  focusFallback: (): boolean => {
+    const b = retryBtn.value;
+    if (!b) return false;
+    b.focus();
+    return true;
+  },
+  /** The focus is in the fallback over the map (its button or its words,
+   *  the frame fading out included). */
+  fallbackHasFocus: (): boolean => {
+    const at = document.activeElement;
+    // Through the box, not the refs: a leaving frame's are already unset.
+    return !!at?.closest(".map-down") && !!el.value?.parentElement?.contains(at);
+  },
   /** A finger or the mouse is on the map, or it is still gliding from one: a
    *  camera command now would cut that gesture short. */
   inUserHands: camera.inUserHands,
@@ -1142,6 +1298,9 @@ defineExpose({
   /** Where the raised plateau stands on screen, once per frame drawn (see
    *  PlateauFrame); returns the unsubscribe. */
   onFrame: frames.onFrame,
+  /** Where the plateau stood on screen at the last frame drawn (its unit,
+   *  its rise, its box), read when asked; null when no box. */
+  plateauNow: frames.plateauNow,
   /** The analyses' ring: the part picked and the one hovered on the unit
    *  `scopeId`'s — the raised parts and the bar follow. */
   setRing: slabs.setRing,
@@ -1207,8 +1366,7 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 
 <template>
   <div v-if="unavailable" class="map-root map-fallback map-fallback--poster">
-    <FrancePoster v-if="posterBefore" class="map-fallback-poster" />
-    <MapCurtain v-else bare :poster="curtainPoster" :preview="preview" :from="{ stage: 'stage' }" />
+    <MapCurtain bare :centred="!preview" :poster="curtainPoster" :preview="preview" />
     <p class="map-fallback-text">{{ MAP_FALLBACK_TEXT }}</p>
   </div>
   <div v-else class="map-root">
@@ -1216,28 +1374,36 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
     <div ref="el" class="map-box"></div>
     <!-- The style could not be had (lib/styleRecovery.ts): the fallback over
          the map, which stays under it, and a button that asks for the style
-         again. -->
-    <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
-      <FrancePoster v-if="posterBefore" class="map-fallback-poster" />
-      <MapCurtain
-        v-else
-        bare
-        :poster="curtainPoster"
-        :preview="preview"
-        :from="{ stage: 'stage' }"
-      />
-      <div class="map-down-say">
-        <p class="map-fallback-text" role="status">{{ MAP_FALLBACK_TEXT }}</p>
-        <button
-          type="button"
-          class="ac-btn ac-btn--outline ac-btn--sm map-down-retry"
-          :aria-disabled="styleDown === 'asking' || undefined"
-          @click="retryStyle"
-        >
-          Réessayer
-        </button>
+         again. Shown at once. Pressed, the loading curtain's spinner and
+         words take the sentence's and the button's place; on the page, once
+         that brought the map and it is painted, its plateau standing, it
+         fades out as the loading curtain does, the page's panel coming in as
+         it fades (`downLeaving`). The home page's card drops it at once. -->
+    <Transition name="map-down" :css="!preview" @leave="onDownLeave" @after-leave="endDownLeave">
+      <div v-if="styleDown" class="map-fallback map-down map-fallback--poster">
+        <MapCurtain bare :centred="!preview" :poster="curtainPoster" :preview="preview" />
+        <div class="map-down-say" :class="{ 'map-down-asking': styleDown !== 'down' }">
+          <span v-if="styleDown !== 'down'" class="spinner spinner-lg" aria-hidden="true"></span>
+          <p
+            ref="downSay"
+            :class="styleDown === 'down' ? 'map-fallback-text' : 'map-down-wait'"
+            role="status"
+            tabindex="-1"
+          >
+            {{ styleDown === "down" ? MAP_FALLBACK_TEXT : MAP_LOADING_TEXT }}
+          </p>
+          <button
+            v-if="styleDown === 'down'"
+            ref="retryBtn"
+            type="button"
+            class="ac-btn ac-btn--outline ac-btn--sm map-down-retry"
+            @click="retryStyle"
+          >
+            Réessayer
+          </button>
+        </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 
@@ -1266,17 +1432,6 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
 .map-fallback--poster {
   overflow: hidden;
   background: var(--gradient-surface);
-  /* In the part of the box the panel leaves free (GeoNav's --panel-cover). */
-  padding-right: calc(1.5rem + var(--panel-cover, 0px));
-}
-
-.map-fallback-poster {
-  position: absolute;
-  top: 8%;
-  left: 8%;
-  width: calc(84% - var(--panel-cover, 0px));
-  height: 84%;
-  opacity: 0.55;
 }
 
 /* Over the map that could not get its style, its controls included. */
@@ -1285,6 +1440,17 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
   inset: 0;
   z-index: 3;
   background-color: hsl(var(--background));
+}
+
+/* Leaving (a « Réessayer » that brought the map): the loading curtain's own
+   fade (GeoNav's .boot-leave-active), while the page's panel comes in. */
+.map-down-leave-active {
+  transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+
+.map-down-leave-to {
+  opacity: 0;
 }
 
 .map-down-say {
@@ -1298,13 +1464,24 @@ watch([() => props.attribution?.join("\n") ?? "", creditCorner], () => {
   margin: 0;
 }
 
-.map-down-retry {
-  background: hsl(var(--background) / 0.9);
+/* Focused only by the page, when the button it replaces had the focus. */
+.map-down-say p:focus {
+  outline: none;
 }
 
-.map-down-retry[aria-disabled="true"] {
-  opacity: 0.6;
-  cursor: progress;
+/* A « Réessayer » on its way: the loading curtain's spinner and words
+   (shared/ui/MapCurtain.vue). */
+.map-down-asking {
+  gap: 0.9rem;
+}
+
+.map-down-wait {
+  color: hsl(var(--muted-foreground));
+  font-size: var(--text-body);
+}
+
+.map-down-retry {
+  background: hsl(var(--background) / 0.9);
 }
 
 .map-fallback-text {

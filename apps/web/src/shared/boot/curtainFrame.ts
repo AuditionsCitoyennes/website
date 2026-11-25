@@ -12,15 +12,9 @@
 // either. That moment differs with the motion (shared/device/motion,
 // features/map useMapCamera.beginIntro): under "full" the map is shown flat,
 // then tilts to 45° in its 0.9 s entrance; under "short" it tilts in one step
-// before it is shown.
-// - "carte": as the map is shown, flat on the globe under "full", tilted
-//   under "short", its outline projected as the camera draws it;
-// - "plat": the flat drawing, centred on the tilted map's France and as wide;
-// - "avant": the places each stage used before (StageLoading: 10 % in from
-//   the box's edges; the boot curtain: the same less the panel's side or the
-//   sheet's strip), with its words centred as before.
-// The default is "carte"; the others stay behind the testing switch
-// (bootPosterSwitch.ts).
+// before it is shown. France is drawn as the map is shown: flat on the globe
+// under "full", tilted under "short", its outline projected as the camera
+// draws it (curtainProject.ts).
 //
 // How wide the map draws France, and where in the padded box, were measured
 // on the live camera (2026-11-23, dev 828c15d: the boot framing, globe at
@@ -42,14 +36,6 @@ export const PHONE_SIDE_PX = 36;
  *  a constant, so that both curtains read the same value (the panel measures
  *  its own once it is in). */
 export const CURTAIN_PEEK_PX = 70;
-
-/** How the curtain draws France: tilted like the map, flat on the map's
- *  France, or where each stage drew it before. */
-export type BootPoster = "carte" | "plat" | "avant";
-/** The switch's choices, in the DEV dialog's order. */
-export const BOOT_POSTERS: readonly BootPoster[] = ["carte", "plat", "avant"];
-/** A build without the testing tools draws this one; the switch's default. */
-export const DEFAULT_BOOT_POSTER: BootPoster = "carte";
 
 export interface Insets {
   top: number;
@@ -199,43 +185,17 @@ export function flatFranceAim(view: Rect, boxH: number): FranceAim {
   };
 }
 
-/** The poster's drawing (shared/ui/francePoster.ts): its viewBox, and the
- *  bounding box of its outline inside it (pinned in curtainFrame.test.ts). */
+/** The poster's drawing (shared/ui/francePoster.ts): its viewBox's width
+ *  (curtainProject.ts reads its outline in those units). */
 export const POSTER_W = 600;
-export const POSTER_H = 579;
-export const POSTER_OUTLINE = { left: 22, top: 8, right: 592, bottom: 568 } as const;
 
-/** The flat poster's box: its outline as wide as the map's France, centred on it. */
-export function flatPosterRect(aim: FranceAim): Rect {
-  const o = POSTER_OUTLINE;
-  const unit = aim.width / (o.right - o.left);
-  return {
-    left: aim.x - ((o.left + o.right) / 2) * unit,
-    top: aim.y - ((o.top + o.bottom) / 2) * unit,
-    width: POSTER_W * unit,
-    height: POSTER_H * unit,
-  };
-}
-
-/** What a curtain draws where: France (the flat drawing in a box, or the
- *  outline projected as the map shows it: `flat` on the globe, or tilted,
- *  aimed at the map's France), and the rectangle its spinner and words are
- *  centred in. */
+/** What a curtain draws where: France (its outline projected as the map
+ *  shows it: `flat` on the globe, or tilted, aimed at the map's France), and
+ *  the rectangle its spinner and words are centred in. */
 export interface CurtainLayout {
-  poster:
-    | { kind: "rect"; rect: Rect }
-    | { kind: "carte"; view: Rect; boxH: number; aim: FranceAim; flat: boolean };
+  poster: { view: Rect; boxH: number; aim: FranceAim; flat: boolean };
   say: Rect;
 }
-
-/** Which curtain asks, for "avant" (where each drew France before): MapStage's
- *  StageLoading, or GeoNav's boot curtain with its live cover (`map`: over the
- *  map's box alone, `all`: the card), the desktop panel's side (`cover` px),
- *  the phone sheet's strip (`peek` px, as measured) and whether the panel is
- *  held out of sight. */
-export type CurtainStage =
-  | { stage: "stage" }
-  | { stage: "geo"; mapOnly: boolean; sheet: boolean; cover: number; peek: number; held: boolean };
 
 export function curtainLayout(o: {
   w: number;
@@ -244,36 +204,32 @@ export function curtainLayout(o: {
   preview: boolean;
   /** The phone sheet's strip at boot: CURTAIN_PEEK_PX plus the safe area. */
   peekPx: number;
-  mode: BootPoster;
   /** How the map will enter: shown flat then tilted ("full"), or tilted
-   *  before it is shown ("short"). Read by "carte" only. */
+   *  before it is shown ("short"). */
   motion: Motion;
-  from: CurtainStage;
+  /** France in the middle of the box, as large as the camera frames it
+   *  (the map's fallback, with no panel beside it). */
+  centred?: boolean;
 }): CurtainLayout {
   const { w, h } = o;
-  if (o.mode === "avant") return beforeLayout(w, h, o.from);
   const view = inSight(w, h, insetsFor(o));
-  if (o.mode === "plat")
-    return { poster: { kind: "rect", rect: flatPosterRect(franceAim(view, h)) }, say: view };
   const flat = o.motion === "full";
   const aim = flat ? flatFranceAim(view, h) : franceAim(view, h);
-  return { poster: { kind: "carte", view, boxH: h, aim, flat }, say: view };
-}
-
-/** Each stage's places before (StageLoading.vue and GeoNav.vue's .boot rules
- *  up to 828c15d). */
-function beforeLayout(w: number, h: number, from: CurtainStage): CurtainLayout {
-  const whole: Rect = { left: 0, top: 0, width: w, height: h };
-  const poster: Rect = { left: 0.1 * w, top: 0.1 * h, width: 0.8 * w, height: 0.8 * h };
-  if (from.stage === "stage" || !from.mapOnly)
-    return { poster: { kind: "rect", rect: poster }, say: whole };
-  if (!from.sheet)
-    return {
-      poster: { kind: "rect", rect: { ...poster, width: 0.8 * w - from.cover } },
-      say: { ...whole, width: w - from.cover },
-    };
+  if (!o.centred) return { poster: { view, boxH: h, aim, flat }, say: view };
+  // The same drawing moved whole (its camera's centre with it): its outline's
+  // box on the box's centre, its size and shape unchanged.
+  const dx = w / 2 - aim.x;
+  const dy = h / 2 - aim.y;
+  const at = moved(view, dx, dy);
   return {
-    poster: { kind: "rect", rect: { ...poster, height: 0.8 * h - from.peek } },
-    say: from.held ? whole : { ...whole, height: h - from.peek },
+    poster: { view: at, boxH: h, aim: { ...aim, x: w / 2, y: h / 2 }, flat },
+    say: at,
   };
 }
+
+/** `r` moved by (dx, dy). */
+const moved = (r: Rect, dx: number, dy: number): Rect => ({
+  ...r,
+  left: r.left + dx,
+  top: r.top + dy,
+});

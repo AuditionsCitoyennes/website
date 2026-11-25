@@ -2,8 +2,8 @@
 // key, name, choices, its sentences for a tester (what changes on screen, when
 // to switch) and whether choosing reloads the page. The menu draws them
 // (DevOptionsMenu.vue), the test checks them (devOptions.test.ts); the switch
-// modules own the keys, the defaults and the reads (map/fallbackSwitch,
-// geo-nav/panel/sheetFitSwitch, geo-nav/panelBootSwitch, analyses/devSwitch,
+// modules own the keys, the defaults and the reads
+// (geo-nav/panel/sheetLateSwitch, analyses/devSwitch,
 // shared/device/deviceTier, map/graphicsSwitch). Under the « Appareil » row
 // the dialog lists what the page knows of the device (`tierFacts`). Testing
 // tools only: imported by DevOptionsMenu.vue alone, so a production build has
@@ -18,7 +18,7 @@ import type {
   TierVerdict,
 } from "@/shared/device/deviceTier";
 
-export type DevSection = "carte" | "panneau" | "analyses" | "appareil";
+export type DevSection = "panneau" | "analyses" | "appareil";
 
 export type DevKey =
   | "ac:analyses-pending"
@@ -27,15 +27,9 @@ export type DevKey =
   | "ac:slab-size"
   | "ac:ring-band"
   | "ac:tier"
-  | "ac:map-fallback"
-  | "ac:boot-poster"
-  | "ac:sheet-fit"
   | "ac:sheet-late"
-  | "ac:panel-boot"
-  | "ac:sheet-map"
   | "ac:dpr"
-  | "ac:frame-measure"
-  | "ac:pin-open";
+  | "ac:frame-measure";
 
 export interface DevChoice {
   /** The value the switch stores. */
@@ -69,15 +63,10 @@ export const changedCount = (n: number) => `${n} choix ${DEV_CHANGED_MARK}${n > 
 
 export const DEV_SECTIONS: readonly { id: DevSection; title: string; intro: string }[] = [
   {
-    id: "carte",
-    title: "Carte",
-    intro: "Ce que montre son cadre quand elle ne démarre pas.",
-  },
-  {
     id: "panneau",
     title: "Panneau",
     intro:
-      "Ce que fait le panneau des témoignages au chargement de la page et, sur un téléphone, sa hauteur.",
+      "Sur un téléphone, ce que fait la carte quand le panneau des témoignages change de hauteur après coup.",
   },
   {
     id: "analyses",
@@ -101,60 +90,6 @@ const SHARES: readonly DevChoice[] = [
 
 export const DEV_OPTIONS: readonly DevOption[] = [
   {
-    key: "ac:map-fallback",
-    section: "carte",
-    label: "Carte indisponible",
-    choices: [
-      { id: "visiteur", label: "Visiteur" },
-      { id: "essai", label: "Essai" },
-    ],
-    explain:
-      "Quand la carte ne peut pas démarrer (navigateur sans affichage 3D, clé de la carte refusée), son cadre montre la France en image, en retrait, sous une phrase simple. « Visiteur » (par défaut) démarre la carte comme d'habitude ; « Essai » ne la démarre pas du tout, pour voir ce cadre sur n'importe quel appareil. Le même cadre, avec un bouton « Réessayer », sert quand le fond de carte n'arrive pas malgré les nouveaux essais.",
-    reloads: true,
-    defaultId: "visiteur",
-  },
-  {
-    key: "ac:boot-poster",
-    section: "carte",
-    label: "Image d'attente",
-    choices: [
-      { id: "carte", label: "Comme la carte" },
-      { id: "plat", label: "À plat" },
-      { id: "avant", label: "Comme avant" },
-    ],
-    explain:
-      "L'image de la France sous « Chargement de la carte… », sur la page des témoignages et sur la carte de l'accueil. « Comme la carte » (par défaut) la dessine comme la carte la montre au moment où elle apparaît, à la même place et à la même taille : à plat sur un appareil ordinaire, où la carte s'incline ensuite dans son entrée ; déjà penchée sur un appareil faible ou quand le système demande moins d'animations, où la carte s'incline d'un coup avant d'apparaître. Dans les deux cas, quand la carte apparaît, la France ne bouge pas. « À plat » la garde à plat, centrée sur la France de la carte penchée et aussi large. « Comme avant » la remet aux places d'avant, qui changeaient d'une étape du chargement à l'autre.",
-    reloads: true,
-    defaultId: "carte",
-  },
-  {
-    key: "ac:pin-open",
-    section: "carte",
-    label: "Clic sur une épingle",
-    choices: [
-      { id: "premiere", label: "Première audition" },
-      { id: "liste", label: "Liste du lieu" },
-    ],
-    explain:
-      "Sur la carte sans filtre, un clic (ou un toucher) sur l'épingle d'un lieu de plusieurs auditions. « Première audition » (par défaut) ouvre celle du haut de la liste du lieu (la plus récente, ou la plus ancienne avec « Plus anciens d'abord ») ; toucher sa ligne, le dernier élément du fil d'Ariane ou la flèche de retour la replie dans la liste du lieu. « Liste du lieu » ouvre la liste, comme avant (la flèche remonte alors au territoire). Un lieu d'une seule audition l'ouvre toujours, une ligne du panneau ouvre toujours la liste, et avec des filtres l'épingle ouvre déjà le premier résultat trouvé.",
-    reloads: false,
-    defaultId: "premiere",
-  },
-  {
-    key: "ac:sheet-fit",
-    section: "panneau",
-    label: "Hauteur",
-    choices: [
-      { id: "ajuste", label: "Ajusté" },
-      { id: "centre", label: "Ajusté, centré" },
-      { id: "plein", label: "Plein" },
-    ],
-    explain:
-      "Sur un téléphone, la hauteur du panneau des témoignages quand il est remonté. « Ajusté » (par défaut) le fait aussi haut que ce qu'il montre : deux villes, et la carte reste visible au-dessus ; une longue liste, et il monte jusqu'en haut ; un lieu ouvert reste en haut de la carte. « Ajusté, centré » fait de même mais place le territoire en relief, ou le lieu ouvert, au milieu de la carte visible au-dessus du panneau : la carte suit alors sa hauteur. « Plein » le monte toujours jusqu'en haut, comme avant. Rien ne change sur un ordinateur.",
-    reloads: false,
-    defaultId: "ajuste",
-  },
-  {
     key: "ac:sheet-late",
     section: "panneau",
     label: "Recadrage tardif",
@@ -163,35 +98,9 @@ export const DEV_OPTIONS: readonly DevOption[] = [
       { id: "recentrer", label: "Recentrer" },
     ],
     explain:
-      "Avec « Ajusté, centré » seulement, sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé s'il reste tout entier visible au-dessus du panneau : un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau en cache une partie (souvent après un toucher depuis une longue liste, le panneau en haut, sur un territoire haut comme le Bénin), la carte le recadre dans les deux cas.",
+      "Sur un téléphone : quand la liste d'un territoire touché arrive après que la carte s'est posée (une connexion lente) et que le panneau redescend à sa hauteur, « Rester » (par défaut) laisse le territoire en relief où la carte l'a posé s'il reste tout entier visible au-dessus du panneau : un seul mouvement par toucher ; « Recentrer » le recentre au-dessus du panneau par un second mouvement. Si le panneau en cache une partie (souvent après un toucher depuis une longue liste, le panneau en haut, sur un territoire haut comme le Bénin), la carte le recadre dans les deux cas.",
     reloads: false,
     defaultId: "rester",
-  },
-  {
-    key: "ac:panel-boot",
-    section: "panneau",
-    label: "Au chargement",
-    choices: [
-      { id: "apres", label: "Après le chargement" },
-      { id: "tout-de-suite", label: "Tout de suite" },
-    ],
-    explain:
-      "Pendant que la carte se prépare, à l'ouverture de la page des témoignages, sur un téléphone comme sur un ordinateur. « Après le chargement » (par défaut) ne montre que l'image d'attente : le panneau arrive quand elle s'efface, en montant du bas de l'écran sur un téléphone, en glissant depuis la droite sur un ordinateur. « Tout de suite » le montre dès le début, comme avant : sa liste se lit plus tôt, pendant que la carte finit de se préparer. Rien ne change en revenant sur la page quand la carte est déjà prête.",
-    reloads: true,
-    defaultId: "apres",
-  },
-  {
-    key: "ac:sheet-map",
-    section: "panneau",
-    label: "Carte touchée",
-    choices: [
-      { id: "baisser", label: "Baisser le panneau" },
-      { id: "rien", label: "Ne rien faire" },
-    ],
-    explain:
-      "Sur un téléphone, quand le panneau des témoignages est remonté et qu'on se sert de la carte. « Baisser le panneau » (par défaut) le redescend dès que la carte bouge sous les doigts (glisser, pincer, tourner, toucher deux fois) ou qu'on touche un endroit ou un territoire ; toucher un lieu le remonte toujours avec ses témoignages. « Ne rien faire » le laisse remonté, comme avant, sauf quand un lieu est ouvert. Rien ne change sur un ordinateur.",
-    reloads: false,
-    defaultId: "baisser",
   },
   {
     key: "ac:analyses-pending",
@@ -306,10 +215,23 @@ export function changedOptions(read: (key: DevKey) => string): DevOption[] {
   return DEV_OPTIONS.filter((o) => read(o.key) !== o.defaultId);
 }
 
+/** Keys of switches since removed, their choice kept as the page's own: no
+ *  code reads them any more; the reset clears what a browser still holds. */
+export const RETIRED_KEYS: readonly string[] = [
+  "ac:map-fallback",
+  "ac:boot-poster",
+  "ac:pin-open",
+  "ac:sheet-fit",
+  "ac:panel-boot",
+  "ac:sheet-map",
+];
+
 /** Every row back to its default: its stored key removed (`remove`:
- *  localStorage's). The caller loads the page again, once. */
-export function clearOptions(remove: (key: DevKey) => void) {
+ *  localStorage's), and the retired keys with them. The caller loads the
+ *  page again, once. */
+export function clearOptions(remove: (key: string) => void) {
   for (const o of DEV_OPTIONS) remove(o.key);
+  for (const k of RETIRED_KEYS) remove(k);
 }
 
 /** A line of the « Appareil » section: something the page knows of the device. */

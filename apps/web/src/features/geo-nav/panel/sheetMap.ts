@@ -1,9 +1,8 @@
-// What a phone's raised sheet does when the visitor uses the map above it
-// (« Carte touchée », sheetMapSwitch): "baisser" (the default) lowers it to
-// its strip, so that the map the visitor reaches for is all in sight;
-// "rien" leaves it raised, as before, but for an open lieu (below).
+// What a phone's raised sheet does when the visitor uses the map above it:
+// it lowers to its strip, so that the map the visitor reaches for is all in
+// sight.
 //
-// Lowered by (under "baisser"):
+// Lowered by:
 // - a gesture that moves the camera by hand — a drag, a pinch, a two-finger
 //   turn or tilt, a double-tap zoom, the wheel —, at its start (mapbox's
 //   `movestart` carrying the DOM event, GeoDrillMap's `userGesture`), once
@@ -18,8 +17,7 @@
 // - the keys on a focused map;
 // - the camera's own moves (no DOM event: no `userGesture`), a finger on the
 //   sheet (its own gesture decides where it rests), a desktop, the home card.
-// With a lieu open the rule is the one of before, under both choices
-// (usePanelLayout's engageMap): any gesture the visitor makes on the map,
+// With a lieu open (usePanelLayout's engageMap): any gesture the visitor makes on the map,
 // its repeats too, lowers the sheet once the tap that opened the lieu is
 // over (OPEN_TAIL_MS), and the lieu closes as it is taken elsewhere
 // (model/lieuFollow).
@@ -27,15 +25,6 @@
 // No import but an import-free module, nothing run at load: loadable under
 // node (sheetMap.test.ts).
 import { OPEN_TAIL_MS } from "../model/lieuFollow";
-
-/** "baisser": the sheet lowers when the map is used; "rien": as before. */
-export type SheetMapMode = "baisser" | "rien";
-
-/** The switch's choices, in the DEV dialog's order (sheetMapSwitch). */
-export const SHEET_MAP_MODES: readonly SheetMapMode[] = ["baisser", "rien"];
-
-/** The rule of a build without the testing tools, and the switch's default. */
-export const DEFAULT_SHEET_MAP: SheetMapMode = "baisser";
 
 /** What the visitor did on the map. A gesture: who moved the camera — a hand
  *  (a finger, the mouse, the wheel), the keys, or the map's zoom buttons —
@@ -46,7 +35,6 @@ export type MapUse =
   | { kind: "tap"; target: "empty" | "territory" | "lieu" };
 
 export interface SheetMapInputs {
-  mode: SheetMapMode;
   /** Below the desktop line: the panel is a sheet. */
   phone: boolean;
   /** The map is a card (the home page): no sheet. */
@@ -66,9 +54,9 @@ export interface SheetMapInputs {
  *  file. */
 export function sheetLowersOnMap(i: SheetMapInputs): boolean {
   if (!i.phone || i.preview || i.sheetDragging) return false;
-  // An open lieu: the rule of before, whatever the switch says.
+  // An open lieu: any gesture once the tap that opened it is over.
   if (i.lieuOpen && i.use.kind === "gesture") return i.sinceLieuOpenMs >= OPEN_TAIL_MS;
-  if (!i.raised || i.mode === "rien") return false;
+  if (!i.raised) return false;
   if (i.use.kind === "gesture") return i.use.source === "hand" && i.use.first;
   return i.use.target !== "lieu";
 }

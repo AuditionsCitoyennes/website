@@ -6,29 +6,22 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CURTAIN_FADE_BELT_MS,
-  DEFAULT_PANEL_BOOT,
   ENTRANCE_DESK_REM,
   ENTRANCE_FADE_MS,
   ENTRANCE_SHORT_MS,
   ENTRANCE_SLIDE_MS,
-  PANEL_BOOT_MODES,
   panelEntrance,
   panelHeldAtBoot,
 } from "./panelBoot";
 
-test("the modes, the default first", () => {
-  assert.deepEqual([...PANEL_BOOT_MODES], ["apres", "tout-de-suite"]);
-  assert.equal(DEFAULT_PANEL_BOOT, "apres");
-});
-
-test("held only while the curtain is up or not fading yet, on the page, under « Après le chargement »", () => {
+test("held only while the curtain is up or not fading yet, on the page", () => {
   const held = (booting: boolean, awaitingFade: boolean, preview = false) =>
-    panelHeldAtBoot({ mode: "apres", booting, awaitingFade, preview });
+    panelHeldAtBoot({ booting, awaitingFade, mapFailed: false, preview });
   assert.equal(held(true, false), true);
   // Told to leave, its fade not started yet (a heavy first map frame): still held.
   assert.equal(held(false, true), true);
-  // The curtain fading or gone, for whatever reason (ready, late, unavailable,
-  // the cap, the belt): the panel shows.
+  // The curtain fading or gone, for whatever reason (ready, late, the cap,
+  // the belt) but the map's fallback: the panel shows.
   assert.equal(held(false, false), false);
   // The home page's card shows no panel: nothing held.
   for (const booting of [true, false]) {
@@ -36,15 +29,18 @@ test("held only while the curtain is up or not fading yet, on the page, under «
       assert.equal(held(booting, awaitingFade, true), false);
     }
   }
-  // « Tout de suite »: never held, as before.
+});
+
+test("held while the map's fallback shows, whatever the boot says, never on the card", () => {
   for (const booting of [true, false]) {
     for (const awaitingFade of [true, false]) {
-      for (const preview of [true, false]) {
-        assert.equal(
-          panelHeldAtBoot({ mode: "tout-de-suite", booting, awaitingFade, preview }),
-          false,
-        );
-      }
+      const at = (mapFailed: boolean, preview: boolean) =>
+        panelHeldAtBoot({ booting, awaitingFade, mapFailed, preview });
+      assert.equal(at(true, false), true, `${booting} ${awaitingFade}`);
+      // The home page's card has no panel on show: nothing held.
+      assert.equal(at(true, true), false);
+      // The fallback gone (« Réessayer » brought the map): the boot's rule alone.
+      assert.equal(at(false, false), booting || awaitingFade, `${booting} ${awaitingFade}`);
     }
   }
 });

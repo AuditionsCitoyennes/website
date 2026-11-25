@@ -24,17 +24,12 @@
 // map's code, so the hand-over neither blinks nor fades it). The words are
 // said by the wrapper (GeoNav's curtain has role="status"); this only draws.
 //
-// `bare`: France alone, on no background (GeoDrillMap's « Carte
-// indisponible », over its own background): the fallback's France stands
-// where the curtain's stood.
+// `bare`: France alone, on no background (GeoDrillMap's fallback, over its
+// own background). With `centred` (the page's
+// fallback, which shows no panel), France as large as the curtain drew it,
+// in the middle of the whole box.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, type Component } from "vue";
-import {
-  CURTAIN_PEEK_PX,
-  curtainLayout,
-  type CurtainStage,
-  type Rect,
-} from "@/shared/boot/curtainFrame";
-import { bootPosterMode } from "@/shared/boot/bootPosterSwitch";
+import { CURTAIN_PEEK_PX, curtainLayout, type Rect } from "@/shared/boot/curtainFrame";
 import { deviceTier, probeRenderer, rendererKnown } from "@/shared/device/deviceTier";
 import { motionFor, prefersReducedMotion, type Motion } from "@/shared/device/motion";
 
@@ -43,10 +38,11 @@ const props = defineProps<{
   poster: Component | null;
   /** The home page's card. */
   preview?: boolean;
-  /** Which stage draws it, and that stage's live measures (for "avant"). */
-  from: CurtainStage;
   /** France alone: no background, no spinner, no words. */
   bare?: boolean;
+  /** France in the middle of the box (the map's fallback, with no panel
+   *  beside it), as large as on the curtain. */
+  centred?: boolean;
 }>();
 
 /** The map's entrance (features/map useMapCamera.beginIntro reads motionNow
@@ -56,10 +52,8 @@ const props = defineProps<{
 const entrance = (): Motion => motionFor(deviceTier(probeRenderer()), prefersReducedMotion());
 
 /** The entrance, once known (null: the probe waits for the visit's first
- *  curtain frame; a curtain after it asks at once). Only "carte" reads it. */
-const motion = shallowRef<Motion | null>(
-  bootPosterMode !== "carte" ? "short" : rendererKnown() || painted ? entrance() : null,
-);
+ *  curtain frame; a curtain after it asks at once). */
+const motion = shallowRef<Motion | null>(rendererKnown() || painted ? entrance() : null);
 
 /** France not there at the first render: it fades in when it comes, once
  *  (the stage moved from the card to the page re-inserts it, which would
@@ -115,22 +109,42 @@ onBeforeUnmount(() => {
   ro?.disconnect();
 });
 
-const SAME_FOR_BOTH: CurtainStage = { stage: "stage" };
+// France and the words are laid out where the camera frames them; `centred`
+// moves them whole (curtainLayout's centred drawing is that same drawing,
+// moved), as a transform: so a curtain told `centred` while it shows (GeoNav's,
+// the map's failure learned under it) glides there rather than jumping, and
+// is only then faded onto the fallback, which draws its France at the same
+// spot (GeoNav's `.boot-failed`).
 const layout = computed(() => {
   const b = box.value;
   if (!b || !(b.w > 0) || !(b.h > 0)) return null;
-  return curtainLayout({
+  const o = {
     w: b.w,
     h: b.h,
     desktop: b.desktop,
     preview: !!props.preview,
     peekPx: CURTAIN_PEEK_PX + b.safe,
-    mode: bootPosterMode,
     motion: motion.value ?? "short",
-    // Read only for "avant": the boot curtain's live measures, a new object
-    // at each of its renders, must not redraw the others.
-    from: bootPosterMode === "avant" ? props.from : SAME_FOR_BOTH,
-  });
+  };
+  const at = curtainLayout(o);
+  if (!props.centred) return { ...at, dx: 0, dy: 0 };
+  const mid = curtainLayout({ ...o, centred: true });
+  return { ...at, dx: mid.say.left - at.say.left, dy: mid.say.top - at.say.top };
+});
+
+/** `centred` turned on while France or the words show: they glide there
+ *  (the transition below), until its end. */
+const gliding = ref(false);
+watch(
+  () => !!props.centred,
+  (on, was) => {
+    if (on && !was && layout.value) gliding.value = true;
+  },
+  { flush: "pre" },
+);
+const moveStyle = computed(() => {
+  const l = layout.value;
+  return l && (l.dx || l.dy) ? { transform: `translate(${l.dx}px, ${l.dy}px)` } : undefined;
 });
 
 const rectStyle = (r: Rect) => ({
@@ -154,12 +168,21 @@ watch(spin, (el) => {
 <script lang="ts">
 /** A curtain frame has been painted in this visit. */
 let painted = false;
+/** The words under the spinner (also the map's fallback's, while a
+ *  « Réessayer » is on its way: features/map GeoDrillMap). */
+export const MAP_LOADING_TEXT = "Chargement de la carte…";
 </script>
 
 <template>
   <div ref="root" class="map-curtain" :class="{ bare }">
     <span ref="safe" class="curtain-safe" aria-hidden="true"></span>
-    <template v-if="layout">
+    <div
+      v-if="layout"
+      class="curtain-move"
+      :class="{ 'curtain-gliding': gliding }"
+      :style="moveStyle"
+      @transitionend.self="gliding = false"
+    >
       <component
         :is="poster"
         v-if="poster && motion"
@@ -169,9 +192,9 @@ let painted = false;
       />
       <div v-if="!bare" class="curtain-say" :style="rectStyle(layout.say)">
         <span ref="spin" class="spinner spinner-lg" aria-hidden="true"></span>
-        <p>Chargement de la carte…</p>
+        <p>{{ MAP_LOADING_TEXT }}</p>
       </div>
-    </template>
+    </div>
   </div>
 </template>
 
@@ -203,6 +226,24 @@ let painted = false;
 @media (prefers-reduced-motion: reduce) {
   .curtain-poster-late {
     animation: none;
+  }
+}
+
+/* France and the words, moved whole when `centred`. */
+.curtain-move {
+  position: absolute;
+  inset: 0;
+}
+
+/* Told `centred` while showing: the glide (GeoNav's failed curtain fades out
+   only once it is over: its .boot-failed waits as long). */
+.curtain-gliding {
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .curtain-gliding {
+    transition: none;
   }
 }
 

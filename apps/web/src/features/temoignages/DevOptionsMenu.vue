@@ -3,10 +3,9 @@
 // button over the map's bottom-right corner (GeoNav's `map-tools` slot: on a
 // desktop left of the panel, its width followed through --panel-cover, above
 // mapbox's attribution button; on a phone above the lowered sheet) opens
-// « Options de test », a row for each switch of devOptions.ts — the map's
-// fallback (map/fallbackSwitch), the height of a phone's raised sheet and
-// how a late list re-frames it (geo-nav/panel/sheetFitSwitch), when the panel
-// shows while the page loads (geo-nav/panelBootSwitch), the analyses' slabs
+// « Options de test », a row for each switch of devOptions.ts — how a
+// phone's late list re-frames the map above its sheet
+// (geo-nav/panel/sheetLateSwitch), the analyses' slabs
 // (analyses/devSwitch; their section only in a build with the analyses), the
 // device's tier (shared/device/deviceTier) with what the page knows of the
 // device listed under it, the map's pixel ratio and whether it times its
@@ -41,26 +40,8 @@ import {
   slabTextMode,
   slabTextScale,
 } from "@/features/analyses";
-import {
-  panelBootMode,
-  pinOpenMode,
-  setPanelBootMode,
-  setPinOpenMode,
-  setSheetFitMode,
-  setSheetLateMode,
-  sheetFitMode,
-  sheetLateMode,
-  setSheetMapMode,
-  sheetMapMode,
-} from "@/features/geo-nav";
-import {
-  dprChoice,
-  frameMeasure,
-  mapFallback,
-  setDprChoice,
-  setFrameMeasure,
-  setMapFallback,
-} from "@/features/map";
+import { setSheetLateMode, sheetLateMode } from "@/features/geo-nav";
+import { dprChoice, frameMeasure, setDprChoice, setFrameMeasure } from "@/features/map";
 import {
   DEV_CHANGED_MARK,
   DEV_DESCRIPTION,
@@ -75,7 +56,6 @@ import {
   type DevKey,
   type DevOption,
 } from "./devOptions";
-import { bootPosterMode, setBootPosterMode } from "@/shared/boot/bootPosterSwitch";
 
 type Binding = { now: () => string; set: (id: string) => void };
 /** A row's choice now and its switch's own setter (a choice's id is the switch's value). */
@@ -96,15 +76,9 @@ const BINDINGS: Record<DevKey, Binding> = {
   "ac:slab-size": share(() => slabTextScale.value, setSlabTextScale),
   "ac:ring-band": bind(() => ringBandMode.value, setRingBandMode),
   "ac:tier": bind(() => tierChoice, setTierChoice),
-  "ac:map-fallback": bind(() => mapFallback, setMapFallback),
-  "ac:boot-poster": bind(() => bootPosterMode, setBootPosterMode),
-  "ac:sheet-fit": bind(() => sheetFitMode.value, setSheetFitMode),
   "ac:sheet-late": bind(() => sheetLateMode.value, setSheetLateMode),
-  "ac:panel-boot": bind(() => panelBootMode, setPanelBootMode),
   "ac:dpr": bind(() => dprChoice, setDprChoice),
   "ac:frame-measure": bind(() => frameMeasure, setFrameMeasure),
-  "ac:sheet-map": bind(() => sheetMapMode.value, setSheetMapMode),
-  "ac:pin-open": bind(() => pinOpenMode.value, setPinOpenMode),
 };
 
 const now = (key: DevKey) => BINDINGS[key].now();
@@ -249,7 +223,9 @@ function close() {
   right: calc(var(--panel-cover, 0px) + 12px);
   bottom: 40px;
   z-index: 5;
-  transition: right 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  /* In one step to the corner where the map's fallback shows (GeoNav's
+     `--tools-ease`: no panel then). */
+  transition: right var(--tools-ease, 0.55s) cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -265,16 +241,17 @@ function close() {
      sheet's top and of the controls gone up with it (GeoNav's
      `--sheet-tools`, unset otherwise), moving as the sheet does: in one step
      when the sheet's refit is made in one (`--sheet-follow`, set by GeoNav),
-     eased otherwise. */
+     eased otherwise. With no sheet (the map's fallback: GeoNav's
+     `--tools-bottom`), low in the corner, moved there in one step. */
   .dev-options {
     right: 12px;
-    bottom: max(
-      calc(11.5rem + env(safe-area-inset-bottom)),
-      calc(var(--sheet-tools, -100vh) + 7rem)
+    bottom: var(
+      --tools-bottom,
+      max(calc(11.5rem + env(safe-area-inset-bottom)), calc(var(--sheet-tools, -100vh) + 7rem))
     );
     transition:
-      right 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-      bottom var(--sheet-follow, 0.35s) cubic-bezier(0.22, 1, 0.36, 1);
+      right var(--tools-ease, 0.55s) cubic-bezier(0.22, 1, 0.36, 1),
+      bottom var(--tools-ease, var(--sheet-follow, 0.35s)) cubic-bezier(0.22, 1, 0.36, 1);
   }
 }
 

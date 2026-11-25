@@ -3,7 +3,7 @@
 // that request fails, the map stays an empty dark box for good. Here the
 // style is asked again by itself, a bounded number of times with a growing
 // pause (STYLE_RETRY_WAITS_MS); after the last failure the map's box says so
-// ("down": GeoDrillMap shows the fallback (map/fallbackSwitch.ts) and a
+// ("down": GeoDrillMap shows the fallback (map/fallback.ts) and a
 // « Réessayer »), and from then on only the visitor's button, the browser
 // back online or the page shown again ask again — once each. The style
 // arriving at any moment ends it all ("in").

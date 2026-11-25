@@ -36,7 +36,7 @@ const { useSheetBand } = await import("./useSheetBand");
 type Inputs = Parameters<typeof useSheetBand>[0];
 type Insets = { top: number; bottom: number; left: number; right: number };
 
-/** A 360×740 phone under « Ajusté, centré », the sheet lowered, the map at
+/** A 360×740 phone, the sheet lowered, the map at
  *  rest; `cmds` counts the camera's commands, `inHook` is on while one runs
  *  its hooks (the only place the band may change with a command). */
 function setup(late: "rester" | "recentrer" = "rester") {
@@ -80,7 +80,6 @@ function setup(late: "rester" | "recentrer" = "rester") {
     } as unknown as Inputs["nav"];
     const b = useSheetBand({
       nav,
-      mode: () => "centre",
       late: () => late,
       dialogOpen: () => dialog.value,
       isDesktop: ref(false),

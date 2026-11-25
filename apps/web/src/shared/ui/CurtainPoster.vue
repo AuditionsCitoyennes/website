@@ -1,12 +1,11 @@
 <script setup lang="ts">
 // France on the map's loading curtain (MapCurtain.vue), where curtainFrame.ts
-// puts it: the flat poster in its box, or its outline as the map shows it,
-// flat on the globe or tilted (its points projected, drawn as plain paths: a
-// CSS 3D tilt rasterises blurry). Its own small file: the curtain is in every page's code, the
-// poster's outline is not (MapStage's StageLoading asks for it, GeoNav
-// imports it with the map's code). Decorative, as the poster.
+// puts it: its outline as the map shows it, flat on the globe or tilted (its
+// points projected, drawn as plain paths: a CSS 3D tilt rasterises blurry). Its
+// own small file: the curtain is in every page's code, the poster's outline is
+// not (MapStage's StageLoading asks for it, GeoNav imports it with the map's
+// code). Decorative, as the poster.
 import { computed, onBeforeUnmount, shallowRef, watch } from "vue";
-import FrancePoster from "./FrancePoster.vue";
 import { POSTER_REGIONS } from "./francePoster";
 import { posterRings, type PosterRing } from "./francePosterRings";
 import type { CurtainLayout, FranceAim } from "@/shared/boot/curtainFrame";
@@ -26,14 +25,7 @@ function allRings(): PosterRing[] {
   return rings;
 }
 
-const rectStyle = computed(() => {
-  const p = props.poster;
-  if (p.kind !== "rect") return undefined;
-  const r = p.rect;
-  return { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` };
-});
-
-type Projected = Extract<CurtainLayout["poster"], { kind: "carte" }>;
+type Projected = CurtainLayout["poster"];
 
 /** One path per région, as the poster. */
 function project(p: Projected): string[] {
@@ -67,18 +59,12 @@ let lastChange = 0;
 
 function draw() {
   const p = props.poster;
-  drawn.value = p.kind === "carte" ? { paths: project(p), aim: p.aim, flat: p.flat } : null;
+  drawn.value = { paths: project(p), aim: p.aim, flat: p.flat };
 }
 
 watch(
   () => props.poster,
   (p) => {
-    if (p.kind !== "carte") {
-      if (settle !== undefined) clearTimeout(settle);
-      settle = undefined;
-      drawn.value = null;
-      return;
-    }
     const now = performance.now();
     const busy = settle !== undefined || now - lastChange < SETTLE_MS;
     lastChange = now;
@@ -104,7 +90,7 @@ const tilted = computed(() => drawn.value?.paths ?? []);
 const tiltStyle = computed(() => {
   const d = drawn.value;
   const p = props.poster;
-  if (!d || p.kind !== "carte") return undefined;
+  if (!d) return undefined;
   const a = d.aim;
   const b = p.aim;
   if (a.x === b.x && a.y === b.y && a.width === b.width) return undefined;
@@ -117,9 +103,7 @@ const tiltStyle = computed(() => {
 </script>
 
 <template>
-  <FrancePoster v-if="poster.kind === 'rect'" class="curtain-poster" :style="rectStyle" />
   <svg
-    v-else
     class="curtain-poster curtain-tilted"
     :style="tiltStyle"
     aria-hidden="true"

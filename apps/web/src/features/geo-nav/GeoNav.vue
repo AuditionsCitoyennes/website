@@ -15,6 +15,7 @@ import { ancestorsOf, placeLabel, prefetchKind } from "@/features/geo";
 import { GeoDrillMap, type MapGestureSource } from "@/features/map";
 import { perfBegin, perfEnd } from "@/shared/perf/perf";
 import { deviceSignals, deviceTier } from "@/shared/device/deviceTier";
+import { prefersReducedMotion } from "@/shared/device/motion";
 import {
   analysisSummary,
   buildFactsIndex,
@@ -32,8 +33,7 @@ import SlowWaitNotice from "./panel/SlowWaitNotice.vue";
 import { slowWaitPlace } from "./model/retryNotice";
 import { createNavState, type Insets, type MapView } from "./navState";
 import { bootCurtainCover } from "./bootListSwitch";
-import { CURTAIN_FADE_BELT_MS, panelHeldAtBoot } from "./panelBoot";
-import { panelBootMode } from "./panelBootSwitch";
+import { CURTAIN_FADE_BELT_MS, HOLD_FADE_MS, panelHeldAtBoot } from "./panelBoot";
 import { useOutlineFiles } from "./data/useOutlineFiles";
 import { boundaryAttribution } from "./data/attribution";
 import { hoverPrefetch } from "./data/hoverPrefetch";
@@ -58,8 +58,7 @@ import {
   type PlateauBox,
 } from "./panel/sheetFit";
 import { useSheetBand } from "./panel/useSheetBand";
-import { sheetFitMode, sheetLateMode } from "./panel/sheetFitSwitch";
-import { sheetMapMode } from "./panel/sheetMapSwitch";
+import { sheetLateMode } from "./panel/sheetLateSwitch";
 import { testimoniesOf } from "./model/auditions";
 import { PANEL_BASE_PX, PHONE_SIDE_PX, usePanelLayout } from "./panel/usePanelLayout";
 import { useAnalysesRing } from "./ring/useAnalysesRing";
@@ -179,11 +178,27 @@ const { readingPlace, deriveScope, onViewChange, selectedPlace, breadcrumb, pane
 // does one past the loader's 6 s cap (`ready` "late": its files are drawn
 // when they land).
 const mapPresentable = ref(false);
+/** The map's box shows its fallback (GeoDrillMap's `fallback`: the map could
+ *  not start, or its style could not be had): the panel is held out of sight
+ *  meanwhile (panelBoot), and nothing covers the map's box. */
+const mapFailed = ref(false);
 const booting = ref(true);
+// On the page, a map that failed waits for nothing else: the panel those
+// reads were for does not show, so the fallback shows as soon as the failure
+// is known. The home page's card waits as for a map that came (its curtain
+// covers the card whole).
 watch(
-  () => !mapPresentable.value || props.loading || outlines.ready.value === "loading",
+  () =>
+    !mapPresentable.value ||
+    ((props.preview || !mapFailed.value) && (props.loading || outlines.ready.value === "loading")),
   (busy) => {
-    if (!busy) booting.value = false;
+    if (busy) return;
+    // A failure told in this same tick: the curtain first renders once more
+    // with its France told to the middle (MapCurtain `centred`: it glides
+    // there), since a leaving element keeps the props it had; then it fades
+    // onto the fallback's once the glide is over (`.boot-failed`).
+    if (mapFailed.value && !props.preview) void nextTick(() => (booting.value = false));
+    else booting.value = false;
   },
   { immediate: true },
 );
@@ -198,13 +213,15 @@ onBeforeUnmount(() => clearTimeout(bootCap));
 // What the curtain covers: the map's box alone, the panel over it
 // (bootListSwitch), or the whole card on the home page.
 const bootCover = computed(() => bootCurtainCover(props.preview));
-// Under that curtain the panel is held out of sight (panelBoot, the DEV
-// switch's « Après le chargement »), so that only the loading placeholder
+// Under that curtain the panel is held out of sight (panelBoot), so that
+// only the loading placeholder
 // shows, and comes in as the curtain's fade starts: the same latch, so
-// whatever lifts the curtain (the map ready or unavailable, the outlines late,
-// the testimonies failing, the cap) shows the panel, and it never stays
-// hidden. Held, it keeps its box: the sheet's measures and the camera's
-// padding run as once it shows (GeoPanel `held`).
+// whatever lifts the curtain (the map ready, the outlines late, the
+// testimonies failing, the cap) shows the panel. Except the map's fallback
+// (`mapFailed`): the panel stays out of sight while it shows, and comes in
+// the same way if a « Réessayer » brings the map. Held, it keeps its box:
+// the sheet's measures and the camera's padding run as once it shows
+// (GeoPanel `held`).
 //
 // Told to leave, the curtain only starts fading two frames later (Vue's
 // leave-to), and a heavy first map frame can stretch that to a second or more:
@@ -214,6 +231,20 @@ const bootCover = computed(() => bootCurtainCover(props.preview));
 // the fade go unseen), or on a belt (CURTAIN_FADE_BELT_MS); never set when the
 // curtain was not on screen (a warm map), so that panel shows at once.
 const bootEl = ref<HTMLElement | null>(null);
+/** The boot curtain has had a frame on screen. */
+let bootShown = false;
+watch(
+  bootEl,
+  (el) => {
+    if (el && !bootShown) requestAnimationFrame(() => (bootShown = true));
+  },
+  { flush: "post" },
+);
+/** The map's failure came while the curtain was on screen: its France and
+ *  its words glide to the middle of the box (MapCurtain `centred`) before
+ *  it fades (`.boot-failed`). One told before its first frame (no WebGL)
+ *  finds them there already: the curtain fades at once. */
+const failedInSight = ref(false);
 const awaitingFade = ref(false);
 let fadeBelt = 0;
 function endFadeWait() {
@@ -242,9 +273,9 @@ function onCurtainLeave(el: Element) {
 }
 const panelHeld = computed(() =>
   panelHeldAtBoot({
-    mode: panelBootMode,
     booting: booting.value,
     awaitingFade: awaitingFade.value,
+    mapFailed: mapFailed.value,
     preview: !!props.preview,
   }),
 );
@@ -339,6 +370,39 @@ const moreTestimoniesEl = computed(() => auditionsCmp.value?.moreTestimoniesEl ?
 
 // ---- The camera (model/useCamera): what GeoDrillMap is told to frame ----
 const mapCmp = ref<InstanceType<typeof GeoDrillMap> | null>(null);
+/** The map's fallback shows or goes (GeoDrillMap's `fallback`, told before
+ *  the render that would show the panel over it). A focus inside the panel,
+ *  which goes out of sight (inert), moves to the fallback's « Réessayer »,
+ *  the one control left, rather than to the page's body; one in the
+ *  fallback, which fades out (a « Réessayer » that brought the map), moves
+ *  to the panel coming back, on its trail's current crumb, without
+ *  scrolling anything. */
+function onMapFallback(shown: boolean) {
+  const focusIn = shown && !mapFailed.value && !!panelEl.value?.contains(document.activeElement);
+  const focusBack = !shown && mapFailed.value && !!mapCmp.value?.fallbackHasFocus();
+  // On screen until now (the map failing after the page was up): the panel
+  // fades out over the fallback (the card's own `panel-arrive` leave), out of
+  // reach at once (inert); at once under reduced motion.
+  const fadeOut = shown && !mapFailed.value && !panelHeld.value && !props.preview;
+  if (shown && booting.value && bootShown) failedInSight.value = true;
+  mapFailed.value = shown;
+  if (focusIn) void nextTick(() => mapCmp.value?.focusFallback());
+  if (fadeOut && !prefersReducedMotion())
+    void nextTick(() => {
+      const p = panelEl.value;
+      if (panelHeld.value && typeof p?.animate === "function")
+        p.animate([{ opacity: 1 }, { opacity: 0 }], { duration: HOLD_FADE_MS, easing: "ease" });
+    });
+  if (focusBack)
+    void nextTick(() => {
+      if (panelHeld.value) return;
+      const p = panelEl.value;
+      const to =
+        p?.querySelector<HTMLElement>(".crumb.current") ??
+        p?.querySelector<HTMLElement>("nav.crumbs");
+      to?.focus({ preventScroll: true });
+    });
+}
 /** The unit a tap left pending, "" when none (model/useTapPending, made
  *  further down: read when a unit is selected, never before). */
 let tappedUnit: () => string = () => "";
@@ -401,7 +465,7 @@ const { outline, scopePending, outlineReady, mapUnits } = useMapFeed({
 const pageEl = ref<HTMLElement | null>(null);
 
 // ---- The phone's sheet (panel/useBottomSheet), the panel's layout (panel/usePanelLayout) ----
-// A raised sheet as tall as its content (« Ajusté »), held while what it
+// A raised sheet as tall as its content, held while what it
 // shows loads and full while an open audition's text is on its way
 // (`sheetFitHold`, `sheetExpectFull`, made further down: read at a measure,
 // never before the page is set up).
@@ -413,7 +477,6 @@ const sheet = useBottomSheet({
   safeEl: sheetSafeEl,
   listEl: panelListEl,
   bodyEl: panelBodyEl,
-  fitMode: () => sheetFitMode.value,
   hold: () => sheetFitHold.value,
   expectFull: () => sheetExpectFull.value,
   waitText: () => sheetWaitText.value,
@@ -461,6 +524,9 @@ const sheetShownPx = computed(() =>
 const SHEET_TOOLS_ROOM_PX = 192;
 /** Where the testing tools' buttons sit above (`--sheet-tools`), or null:
  *  where they always were. */
+/** The testing tools' menu sits low in the corner: the map's fallback shows
+ *  on the page (no panel, no sheet). Always false outside testing builds. */
+const toolsLow = computed(() => __TEST_TOOLS__ && mapFailed.value && !props.preview);
 const sheetToolsPx = computed(() =>
   sheetShownPx.value > sheetPeekPx.value && sheet.sheetRaisedPx.value >= SHEET_TOOLS_ROOM_PX
     ? sheetShownPx.value
@@ -488,17 +554,17 @@ if (__TEST_TOOLS__) {
     root.removeProperty("--ac-sheet-tools-follow");
   });
 }
-/** « Ajusté, centré »: how much of the screen's bottom the camera keeps clear
+/** How much of the screen's bottom the camera keeps clear
  *  of an open lieu's pin (px), the sheet's rest top under a short sheet; null
  *  otherwise (sheetFit lieuAimPx, set further down, once the hold is made). */
 const sheetAimPx = ref<number | null>(null);
-/** « Ajusté, centré »: the map left above a short phone sheet, the territory
+/** The map left above a short phone sheet, the territory
  *  in scope framed there by the camera's padding (panel/useSheetBand, set up
  *  further down once the sheet's hold is made), or null. The ring stands
  *  aside meanwhile. */
 const sheetBand = shallowRef<Insets | null>(null);
-/** The sheet came down for the visitor's use of the map (« Carte touchée »,
- *  panel/sheetMap), no camera command since: the band stays as applied. */
+/** The sheet came down for the visitor's use of the map (panel/sheetMap),
+ *  no camera command since: the band stays as applied. */
 const sheetLoweredByMap = ref(false);
 const layout = usePanelLayout({
   nav,
@@ -517,7 +583,6 @@ const layout = usePanelLayout({
     band: sheetBand,
   },
   follows,
-  mapMode: () => sheetMapMode.value,
   loweredByMap: sheetLoweredByMap,
 });
 const {
@@ -591,9 +656,11 @@ const lieuFollow = createLieuFollow({
 });
 // Desktop: how much of the map's right edge the panel covers, which the
 // credit's top-left box (desktop) is kept clear of: the narrow width when
-// folded (the fold leaves it on screen), the wide one when open wide.
+// folded (the fold leaves it on screen), the wide one when open wide. None
+// while the map's fallback shows: the panel is out of sight, the fallback's
+// sentence is centred in the whole box.
 const panelCover = computed(() => {
-  if (props.preview || !isDesktop.value) return 0;
+  if (props.preview || !isDesktop.value || mapFailed.value) return 0;
   return panelWide.value && !panelFolded.value ? panelPx.value : PANEL_BASE_PX;
 });
 // Back on the map (or the lieu closed): the scope, held still meanwhile,
@@ -1185,7 +1252,6 @@ function onAudToggle(id: string) {
 watch(
   () =>
     lieuAimPx({
-      mode: sheetFitMode.value,
       lieuRaised: !isDesktop.value && Boolean(selectedPlace.value) && sheetOpen.value,
       fitted: sheetFitted.value,
       shownPx: sheetShownPx.value,
@@ -1198,75 +1264,46 @@ watch(
   (px) => (sheetAimPx.value = px),
   { immediate: true },
 );
-// ---- « Ajusté, centré »: the territory framed in the map left above a short
-// sheet (panel/useSheetBand) ----
-// The testing tools only: the switch never leaves « Ajusté » in a production
-// build, whose band is always none (the module is left out of it).
+// ---- The territory framed in the map left above a short sheet
+// (panel/useSheetBand) ----
 /** Where the raised plateau stood on screen at the last frame drawn (the
- *  map's frame bus), its unit's id with it ('' when none stands at full
- *  height): a late list that brings the sheet down leaves a territory that
- *  already clears the sheet's new top where it is (useSheetBand). Listened to
- *  only under « Ajusté, centré » on a phone. One object, rewritten in place. */
-const plateauSeen = { id: "", minX: 0, minY: 0, maxX: 0, maxY: 0, w: 0, h: 0 };
-if (__TEST_TOOLS__) {
-  watch(
-    () =>
-      sheetFitMode.value === "centre" && !isDesktop.value && !asCard.value ? mapCmp.value : null,
-    (m, _old, onCleanup) => {
-      plateauSeen.id = "";
-      if (!m) return;
-      onCleanup(
-        m.onFrame((f) => {
-          const b = f.box;
-          plateauSeen.id = b && f.rise >= 0.99 ? f.scopeId : "";
-          if (!b) return;
-          plateauSeen.minX = b.minX;
-          plateauSeen.minY = b.minY;
-          plateauSeen.maxX = b.maxX;
-          plateauSeen.maxY = b.maxY;
-          plateauSeen.w = f.w;
-          plateauSeen.h = f.h;
-        }),
-      );
-    },
-    { immediate: true },
-  );
-}
+ *  map's frame bus, read when asked: only a band decision reads it), when it
+ *  is the scope's and stands at full height: a late list that brings the
+ *  sheet down leaves a territory that already clears the sheet's new top
+ *  where it is (useSheetBand). A phone's page only. */
 function plateauBox(): PlateauBox | null {
-  return plateauSeen.id !== "" && plateauSeen.id === nav.currentScope.value.id
-    ? { ...plateauSeen }
-    : null;
+  if (isDesktop.value || asCard.value) return null;
+  const p = mapCmp.value?.plateauNow() ?? null;
+  if (!p || p.rise < 0.99 || p.scopeId === "" || p.scopeId !== nav.currentScope.value.id)
+    return null;
+  return { ...p.box, w: p.w, h: p.h };
 }
-const band = __TEST_TOOLS__
-  ? useSheetBand({
-      nav,
-      mode: () => sheetFitMode.value,
-      late: () => sheetLateMode.value,
-      dialogOpen: () => Boolean(props.filtersOpen),
-      isDesktop,
-      preview: asCard,
-      fitted: sheetFitted,
-      shownPx: sheetShownPx,
-      viewportH,
-      headerClearPx,
-      sidePx: () => PHONE_SIDE_PX,
-      hold: () => sheetFitHold.value,
-      readingPlace,
-      plateauBox,
-      listMode,
-      mapCmp,
-      applied: sheetBand,
-      loweredByMap: sheetLoweredByMap,
-      camera: cam,
-    })
-  : null;
+const band = useSheetBand({
+  nav,
+  late: () => sheetLateMode.value,
+  dialogOpen: () => Boolean(props.filtersOpen),
+  isDesktop,
+  preview: asCard,
+  fitted: sheetFitted,
+  shownPx: sheetShownPx,
+  viewportH,
+  headerClearPx,
+  sidePx: () => PHONE_SIDE_PX,
+  hold: () => sheetFitHold.value,
+  readingPlace,
+  plateauBox,
+  listMode,
+  mapCmp,
+  applied: sheetBand,
+  loweredByMap: sheetLoweredByMap,
+  camera: cam,
+});
 if (__TEST_TOOLS__) {
   // `window.__acSheet()`: the phone's sheet as measured last — raised or not,
-  // the fit's mode, the box, the content, the raised and lowered offsets,
+  // the box, the content, the raised and lowered offsets,
   // the hold (px; desktops have no sheet), and the camera's padding.
   const probe = () => ({
     open: sheetOpen.value,
-    mode: sheetFitMode.value,
     fullPx: sheet.sheetFullPx.value,
     contentPx: sheet.sheetContentPx.value,
     raisedPx: sheet.sheetRaisedPx.value,
@@ -1283,18 +1320,16 @@ if (__TEST_TOOLS__) {
     pinWait: pinTextWait.value,
     waitGrows: pinWaitDots.value,
     aimPx: sheetAimPx.value,
-    // What the camera is told to keep clear: the raised sheet's height only
-    // under « Ajusté, centré », for an open lieu (`aimPx`) or a territory
-    // (the band below).
+    // What the camera is told to keep clear: the raised sheet's height, for
+    // an open lieu (`aimPx`) or a territory (the band below).
     mapPadding: { ...mapPadding.value },
-    // « Carte touchée »: the rule, why the sheet came down for the map last
-    // (panel/sheetMap), and whether the band stays for it.
-    mapMode: sheetMapMode.value,
+    // Why the sheet came down for the map last (panel/sheetMap), and whether
+    // the band stays for it.
     mapLower: layout.lastMapLower.value,
     loweredByMap: sheetLoweredByMap.value,
-    // « Ajusté, centré »: the band above a short sheet asked for and the one
-    // the camera frames in (useSheetBand), and the last decision made.
-    band: band && {
+    // The band above a short sheet asked for and the one the camera frames
+    // in (useSheetBand), and the last decision made.
+    band: {
       wanted: band.wanted.value,
       applied: band.applied.value,
       last: band.last.value,
@@ -1367,11 +1402,15 @@ function retryAll() {
       '--sheet-tools': sheetToolsPx === null ? undefined : `${sheetToolsPx}px`,
       '--sheet-follow': sheetRefit ? '0s' : undefined,
       '--panel-cover': `${panelCover}px`,
+      // The map's fallback (no panel, no sheet): the testing tools' menu
+      // (map-tools) sits low in the corner, moved there in one step. Testing
+      // builds only: nothing else reads them.
+      '--tools-bottom': toolsLow ? 'calc(40px + env(safe-area-inset-bottom, 0px))' : undefined,
+      '--tools-ease': toolsLow ? '0s' : undefined,
     }"
   >
     <!-- Under a curtain over its box alone, the map takes no focus (inert): the
-         keyboard skips it. The panel is usable at once under the DEV switch's
-         « Tout de suite »; by default it is held (inert) until the curtain
+         keyboard skips it. The panel is held (inert) until the curtain
          leaves (`panelHeld`). -->
     <GeoDrillMap
       ref="mapCmp"
@@ -1391,6 +1430,7 @@ function retryAll() {
       :active-id="selectedPlaceId"
       :slabs="slabSpec"
       @ready="mapPresentable = true"
+      @fallback="onMapFallback"
       @unit-click="onMapUnitClick"
       @empty-tap="tapMap('empty')"
       @plateau-settled="onPlateauSettled"
@@ -1429,13 +1469,12 @@ function retryAll() {
     <!-- Boot curtain (see `booting`: lifts on its own, inert once gone). Over
          the map's box only (`bootCover` "map", bootListSwitch): no z-index of
          its own and before the panel in the page, so it lies under the panel,
-         which is held out of sight meanwhile (`panelHeld`; under the DEV
-         switch's « Tout de suite », usable as soon as its rows are in).
+         which is held out of sight meanwhile (`panelHeld`).
          France, the spinner and the words are drawn by shared/ui/MapCurtain:
          France where the camera frames it once the map is up, as MapStage's
          StageLoading drew it just before this curtain (the same rules, the
-         same inputs; "avant", the testing switch's, reads the live `cover`,
-         `peek` and `held` for the places used before). Over map
+         same inputs); once the map has failed, gliding to the middle of the
+         box, where the fallback it then fades onto draws it. Over map
          AND panel ("all": the card): above everything, so nothing
          half-built is on show. One element, so a card that becomes the page
          mid-boot only narrows it. -->
@@ -1444,22 +1483,14 @@ function retryAll() {
         v-if="booting"
         ref="bootEl"
         class="boot"
-        :class="{ 'boot-map': bootCover === 'map' }"
+        :class="{
+          'boot-map': bootCover === 'map',
+          'boot-failed': mapFailed && !preview && failedInSight,
+        }"
         role="status"
         aria-live="polite"
       >
-        <MapCurtain
-          :poster="curtainPoster"
-          :preview="preview"
-          :from="{
-            stage: 'geo',
-            mapOnly: bootCover === 'map',
-            sheet: !isDesktop,
-            cover: panelCover,
-            peek: sheetPeekPx,
-            held: panelHeld,
-          }"
-        />
+        <MapCurtain :poster="curtainPoster" :preview="preview" :centred="mapFailed && !preview" />
       </div>
     </Transition>
 
@@ -1617,6 +1648,20 @@ function retryAll() {
 
 .boot-leave-to {
   opacity: 0;
+}
+
+/* The map failed under the curtain: its France and its words glide to the
+   middle of the box first (MapCurtain `centred`, 0.4 s), where the fallback
+   draws them, then it fades onto the fallback: the two Frances meet in place
+   rather than crossing. */
+.boot.boot-failed.boot-leave-active {
+  transition-delay: 0.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot.boot-failed.boot-leave-active {
+    transition-delay: 0s;
+  }
 }
 
 .geo-page {

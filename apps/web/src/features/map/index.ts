@@ -5,8 +5,6 @@
 export { default as GeoDrillMap } from "./GeoDrillMap.vue";
 export * from "./types";
 export * from "./events";
-// What the map's box shows when the map cannot start: its DEV switch (the Témoignages page draws it).
-export { mapFallback, setMapFallback, MAP_FALLBACKS, type MapFallback } from "./fallbackSwitch";
 // What a tap on a territory is answered with while its plateau is on its way.
 export { TAP_MARK, type TapMark } from "./plateau/tapAnswerSwitch";
 // A real step of a tapped unit's data (GeoNav reports its outline file's).

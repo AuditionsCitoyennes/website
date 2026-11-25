@@ -1,4 +1,4 @@
-// « Ajusté, centré » (sheetFitSwitch) on a phone: while a short sheet stands
+// On a phone: while a short sheet stands
 // raised over a territory in scope, the territory is framed in the map left
 // between the header's tiles and the sheet's top (sheetFit sheetBandInsets),
 // not in the lowered sheet's frame, where it would stand half under the sheet.
@@ -28,30 +28,29 @@
 //   where the flight put it: one move per tap (« Recadrage tardif » =
 //   « Rester », the default; « Recentrer » frames it again); a territory the
 //   new top would cover is framed again whatever the switch says;
-// - a map the visitor has moved since the last command is left where they
-//   put it, the band with it, while the sheet stays raised; so it is in the
-//   lieu zone, where nothing is raised. Lowered (or gone full) there, the
-//   band goes alone ("drop"): the camera's padding eases back to the lowered
-//   frame's, as it eases for any padding, and what the visitor had centred
-//   above the sheet comes to the middle of the map now seen — not the band's
-//   padding under a lowered sheet (but for the map's own lowering, below),
-//   where the analyses' ring would stand under the header's tiles and the
-//   zoom buttons zoom about a point high on the map. Raised short again, the map stays the visitor's and
-//   the band does not come ("keep", as under « Ajusté »): a band eased in
-//   alone would shrink the rectangle the scope is read off, and a child
-//   filling most of the lowered map would become the scope at rest, the
-//   list swapping under the visitor's finger; the next command takes it;
-// - a sheet lowered by the visitor's own use of the map (« Carte touchée »,
-//   sheetMap.ts: a drag, a pinch, an empty spot tapped) keeps the band as
-//   the camera's padding ("keep"), the one case of a band under a lowered
-//   sheet: a padding changed under a hand kills the drag or the pinch in
-//   progress, and eased off once they let go it would slide the map by
-//   itself. The cost, until the next command (a tapped territory's own
-//   flight: its band, none under the lowered sheet) or a raise takes it
-//   off: the ring's room is left out of the padding although its plates
-//   are drawn again (useAnalysesRing's mapViewPadding), the scope is read
-//   off the band's upper rectangle while the whole map is in sight, and
-//   « + » zooms about a point high on the map;
+// - a map the visitor has moved since the last command is left where they put
+//   it, the band with it, while the sheet stays raised; so it is in the lieu
+//   zone, where nothing is raised. Lowered (or gone full) there, the band goes
+//   alone ("drop"): the camera's padding eases back to the lowered frame's, as
+//   it eases for any padding, and what the visitor had centred above the sheet
+//   comes to the middle of the map now seen — not the band's padding under a
+//   lowered sheet (but for the map's own lowering, below), where the analyses'
+//   ring would stand under the header's tiles and the zoom buttons zoom about a
+//   point high on the map. Raised short again, the map stays the visitor's and
+//   the band does not come ("keep"): a band eased in alone would shrink the
+//   rectangle the scope is read off, and a child filling most of the lowered
+//   map would become the scope at rest, the list swapping under the visitor's
+//   finger; the next command takes it;
+// - a sheet lowered by the visitor's own use of the map (sheetMap.ts: a drag, a
+//   pinch, an empty spot tapped) keeps the band as the camera's padding
+//   ("keep"), the one case of a band under a lowered sheet: a padding changed
+//   under a hand kills the drag or the pinch in progress, and eased off once
+//   they let go it would slide the map by itself. The cost, until the next
+//   command (a tapped territory's own flight: its band, none under the lowered
+//   sheet) or a raise takes it off: the ring's room is left out of the padding
+//   although its plates are drawn again (useAnalysesRing's mapViewPadding), the
+//   scope is read off the band's upper rectangle while the whole map is in
+//   sight, and « + » zooms about a point high on the map;
 // - any other lowered (or full) sheet takes the band off at once, whatever
 //   is still on its way: no band padding under it, no move by itself
 //   seconds later;
@@ -74,13 +73,11 @@ import {
   boxInBand,
   sheetBandInsets,
   type PlateauBox,
-  type SheetFitMode,
   type SheetLateMode,
 } from "./sheetFit";
 
 export interface SheetBandInputs {
   nav: NavState;
-  mode: () => SheetFitMode;
   /** A band that only grew under a landed map: left, or framed again. */
   late: () => SheetLateMode;
   /** The filters' dialog stands over the page. */
@@ -137,7 +134,6 @@ export function useSheetBand(inputs: SheetBandInputs) {
     preview.value
       ? null
       : sheetBandInsets({
-          mode: inputs.mode(),
           phone: !isDesktop.value,
           raised: sheetOpen.value,
           fitted: fitted.value,

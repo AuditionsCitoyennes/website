@@ -22,31 +22,22 @@ import {
   changedCount,
   changedOptions,
   clearOptions,
+  RETIRED_KEYS,
   tierFacts,
   type DevKey,
 } from "./devOptions";
 
 (globalThis as unknown as { __TEST_TOOLS__: boolean }).__TEST_TOOLS__ = false;
 const tier = await import("../../shared/device/deviceTier");
-const fallbackSwitch = await import("../map/fallbackSwitch");
 const graphics = await import("../map/graphicsSwitch");
 const sheetFit = await import("../geo-nav/panel/sheetFit");
-const panelBoot = await import("../geo-nav/panelBoot");
-const bootPoster = await import("../../shared/boot/bootPosterSwitch");
-const sheetMap = await import("../geo-nav/panel/sheetMap");
-const pinOpen = await import("../geo-nav/model/pinOpen");
 
 const MODULES = {
   relief: "../map/relief/reliefSwitch.ts",
   slabs: "../analyses/devSwitch.ts",
   tier: "../../shared/device/deviceTier.ts",
-  fallback: "../map/fallbackSwitch.ts",
-  sheetFit: "../geo-nav/panel/sheetFitSwitch.ts",
-  panelBoot: "../geo-nav/panelBootSwitch.ts",
-  bootPoster: "../../shared/boot/bootPosterSwitch.ts",
+  sheetLate: "../geo-nav/panel/sheetLateSwitch.ts",
   graphics: "../map/graphicsSwitch.ts",
-  sheetMap: "../geo-nav/panel/sheetMapSwitch.ts",
-  pinOpen: "../geo-nav/model/pinOpenSwitch.ts",
 } as const;
 const source = (m: keyof typeof MODULES) =>
   readFileSync(new URL(MODULES[m], import.meta.url), "utf8");
@@ -63,15 +54,9 @@ const KEYS: readonly DevKey[] = [
   "ac:slab-size",
   "ac:ring-band",
   "ac:tier",
-  "ac:map-fallback",
-  "ac:boot-poster",
-  "ac:sheet-fit",
   "ac:sheet-late",
-  "ac:panel-boot",
   "ac:dpr",
   "ac:frame-measure",
-  "ac:sheet-map",
-  "ac:pin-open",
 ];
 /** Measurement arms, kept in localStorage only, and the device tier's kept
  *  measure (not a choice: the dialog's reset forgets it apart): no row by design. */
@@ -84,15 +69,15 @@ const NO_ROW = [
 ];
 const row = (key: DevKey) => DEV_OPTIONS.find((o) => o.key === key)!;
 
-test("every switch key has exactly one row, in the four sections in order", () => {
-  assert.equal(DEV_OPTIONS.length, 15);
+test("every switch key has exactly one row, in the three sections in order", () => {
+  assert.equal(DEV_OPTIONS.length, 9);
   for (const key of KEYS) {
     assert.equal(DEV_OPTIONS.filter((o) => o.key === key).length, 1, key);
   }
   for (const o of DEV_OPTIONS) assert.ok(KEYS.includes(o.key), o.key);
   assert.deepEqual(
     DEV_SECTIONS.map((s) => s.title),
-    ["Carte", "Panneau", "Analyses", "Appareil"],
+    ["Panneau", "Analyses", "Appareil"],
   );
   const ids = DEV_SECTIONS.map((s) => s.id);
   const order = DEV_OPTIONS.map((o) => ids.indexOf(o.section));
@@ -112,6 +97,10 @@ test("every ac:* key a switch module reads is a row or a measurement arm", () =>
     assert.ok(KEYS.includes(k as DevKey) || NO_ROW.includes(k), `${k}: no row`);
   }
   for (const k of KEYS) assert.ok(seen.has(k), `${k}: read by no module`);
+  for (const k of RETIRED_KEYS) {
+    assert.ok(!seen.has(k), `${k}: retired, still read`);
+    assert.ok(!KEYS.includes(k as DevKey), `${k}: retired, still a row`);
+  }
 });
 
 const JARGON = /\b(dem|worker|float32array|lru|readback|hillshade|mesh)\b/i;
@@ -153,15 +142,9 @@ const SETTERS: Record<DevKey, [keyof typeof MODULES, string]> = {
   "ac:slab-size": ["slabs", "setSlabTextScale"],
   "ac:ring-band": ["slabs", "setRingBandMode"],
   "ac:tier": ["tier", "setTierChoice"],
-  "ac:map-fallback": ["fallback", "setMapFallback"],
-  "ac:boot-poster": ["bootPoster", "setBootPosterMode"],
-  "ac:sheet-fit": ["sheetFit", "setSheetFitMode"],
-  "ac:sheet-late": ["sheetFit", "setSheetLateMode"],
-  "ac:panel-boot": ["panelBoot", "setPanelBootMode"],
+  "ac:sheet-late": ["sheetLate", "setSheetLateMode"],
   "ac:dpr": ["graphics", "setDprChoice"],
   "ac:frame-measure": ["graphics", "setFrameMeasure"],
-  "ac:sheet-map": ["sheetMap", "setSheetMapMode"],
-  "ac:pin-open": ["pinOpen", "setPinOpenMode"],
 };
 
 /** A function's body, from `export function <name>(` to its closing brace. */
@@ -185,7 +168,7 @@ test("the reload mark is on exactly the rows whose setter reloads the page", () 
   }
   assert.deepEqual(
     DEV_OPTIONS.filter((o) => o.reloads).map((o) => o.label),
-    ["Carte indisponible", "Image d'attente", "Au chargement", "Niveau", "Finesse", "Mesure"],
+    ["Niveau", "Finesse", "Mesure"],
   );
 });
 
@@ -206,19 +189,13 @@ const constant = (name: string) => {
 
 test("the choices are the modules' own, in today's order", () => {
   assert.deepEqual(ids("ac:tier"), [...tier.TIER_CHOICES]);
-  assert.deepEqual(ids("ac:map-fallback"), [...fallbackSwitch.MAP_FALLBACKS]);
-  assert.deepEqual(ids("ac:boot-poster"), [...bootPoster.BOOT_POSTERS]);
   assert.deepEqual(ids("ac:dpr"), [...graphics.DPR_CHOICES]);
   assert.deepEqual(ids("ac:frame-measure"), [...graphics.FRAME_MEASURES]);
   assert.deepEqual(ids("ac:slab-lid-verre"), storedCall("slabs", "LID_KEY").ids);
   assert.deepEqual(ids("ac:slab-text"), storedCall("slabs", "TEXT_KEY").ids);
   assert.deepEqual(ids("ac:ring-band"), storedCall("slabs", "RING_KEY").ids);
   assert.deepEqual(ids("ac:analyses-pending"), storedCall("slabs", '"ac:analyses-pending"').ids);
-  assert.deepEqual(ids("ac:sheet-fit"), [...sheetFit.SHEET_FIT_MODES]);
   assert.deepEqual(ids("ac:sheet-late"), [...sheetFit.SHEET_LATE_MODES]);
-  assert.deepEqual(ids("ac:panel-boot"), [...panelBoot.PANEL_BOOT_MODES]);
-  assert.deepEqual(ids("ac:sheet-map"), [...sheetMap.SHEET_MAP_MODES]);
-  assert.deepEqual(ids("ac:pin-open"), [...pinOpen.PIN_OPEN_MODES]);
   const shares = /export const SCALE_CHOICES = \[([^\]]*)\]/.exec(code("slabs"))![1];
   const scale = shares.split(",").map((v) => pct(Number(v)));
   assert.deepEqual(ids("ac:slab-size"), scale);
@@ -232,35 +209,15 @@ test("the default marked in each sentence is the module's", () => {
     "ac:slab-size": pct(constant("TEXT_SCALE")),
     "ac:ring-band": storedCall("slabs", "RING_KEY").fallback,
     "ac:tier": tier.DEFAULT_TIER_CHOICE,
-    "ac:map-fallback": fallbackSwitch.DEFAULT_MAP_FALLBACK,
-    "ac:boot-poster": bootPoster.DEFAULT_BOOT_POSTER,
-    "ac:sheet-fit": sheetFit.DEFAULT_SHEET_FIT,
     "ac:sheet-late": sheetFit.DEFAULT_SHEET_LATE,
-    "ac:panel-boot": panelBoot.DEFAULT_PANEL_BOOT,
     "ac:dpr": graphics.DEFAULT_DPR,
     "ac:frame-measure": graphics.DEFAULT_FRAME_MEASURE,
-    "ac:sheet-map": sheetMap.DEFAULT_SHEET_MAP,
-    "ac:pin-open": pinOpen.DEFAULT_PIN_OPEN,
   };
   assert.match(code("slabs"), /storedShare\(SIZE_KEY, TEXT_SCALE\)/);
   // The stored choice's fallback and a production build's mode are the one constant.
   assert.match(
-    code("sheetFit"),
-    /\?\s*stored\(SHEET_FIT_KEY, SHEET_FIT_MODES, DEFAULT_SHEET_FIT\)\s*:\s*DEFAULT_SHEET_FIT/,
-  );
-  assert.match(
-    code("sheetFit"),
+    code("sheetLate"),
     /\?\s*stored\(SHEET_LATE_KEY, SHEET_LATE_MODES, DEFAULT_SHEET_LATE\)\s*:\s*DEFAULT_SHEET_LATE/,
-  );
-  assert.match(code("panelBoot"), /\?\s*storedPanelBoot\(\)\s*:\s*DEFAULT_PANEL_BOOT/);
-  assert.match(code("bootPoster"), /\?\s*storedBootPoster\(\)\s*:\s*DEFAULT_BOOT_POSTER/);
-  assert.match(
-    code("sheetMap"),
-    /\?\s*stored\(SHEET_MAP_KEY, SHEET_MAP_MODES, DEFAULT_SHEET_MAP\)\s*:\s*DEFAULT_SHEET_MAP/,
-  );
-  assert.match(
-    code("pinOpen"),
-    /\?\s*stored\(PIN_OPEN_KEY, PIN_OPEN_MODES, DEFAULT_PIN_OPEN\)\s*:\s*DEFAULT_PIN_OPEN/,
   );
   for (const o of DEV_OPTIONS) {
     assert.equal(o.defaultId, defaults[o.key], o.key);
@@ -298,9 +255,10 @@ test("the rows off their default are found, in the menu's order", () => {
   assert.equal(changedCount(2), "2 choix modifiés");
 });
 
-test("the reset removes the key of every row, and no other", () => {
+test("the reset removes the key of every row and the retired ones, and no other", () => {
   const kept = new Map<string, string>([
     ...KEYS.map((k): [string, string] => [k, "x"]),
+    ...RETIRED_KEYS.map((k): [string, string] => [k, "x"]),
     ...NO_ROW.map((k): [string, string] => [k, "x"]),
     ["sb-auth-token", "x"],
   ]);

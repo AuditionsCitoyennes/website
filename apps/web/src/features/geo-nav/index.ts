@@ -9,20 +9,8 @@ export { fetchFacets, retryable, retryWait, RETRIES, type CountsRequest } from "
 
 // `window.__acOutlines()`: the outline files in the page (testing tools only).
 if (__TEST_TOOLS__) void import("./data/outlinesProbe");
-// How tall a phone's raised sheet stands (the testing options menu's « Hauteur »).
-export {
-  sheetFitMode,
-  setSheetFitMode,
-  sheetLateMode,
-  setSheetLateMode,
-  type SheetFitMode,
-  type SheetLateMode,
-} from "./panel/sheetFitSwitch";
-// What a phone's raised sheet does when the map is used (the testing options menu's « Carte touchée »).
-export { sheetMapMode, setSheetMapMode, type SheetMapMode } from "./panel/sheetMapSwitch";
-// What a click on a lieu's pin opens (the testing options menu's « Clic sur une épingle »).
-export { pinOpenMode, setPinOpenMode, type PinOpenMode } from "./model/pinOpenSwitch";
-// When the panel shows while the page loads (the testing options menu's « Au chargement »).
-export { panelBootMode, setPanelBootMode, type PanelBootMode } from "./panelBootSwitch";
+// How a phone's camera re-frames a short sheet's late list (the testing
+// options menu's « Recadrage tardif »).
+export { sheetLateMode, setSheetLateMode, type SheetLateMode } from "./panel/sheetLateSwitch";
 // Which reads of the map page wait (the Filtres dialog's data).
 export { FILTERS_IDLE_CAP_MS, FILTERS_IDLE_MS, filtersDataWanted } from "./data/bootReadsSwitch";

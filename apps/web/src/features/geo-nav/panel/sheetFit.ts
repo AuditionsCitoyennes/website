@@ -1,10 +1,12 @@
-// How tall a phone's raised sheet stands (« Ajusté », sheetFitSwitch): as tall
-// as its head and its content need, up to the full panel. The panel's box
-// never changes (useBottomSheet, GeoPanel's phone `.panel`): a short sheet is
-// the full one slid down, so that only its content's height is left above the
-// screen's edge. This module holds the rules alone — the offset, how a refit
-// moves and where a released drag settles — on numbers measured by
-// useBottomSheet.
+// How tall a phone's raised sheet stands: as tall as its head and its content
+// need, up to the full panel. The panel's box never changes (useBottomSheet,
+// GeoPanel's phone `.panel`): a short sheet is the full one slid down, so
+// that only its content's height is left above the screen's edge. What the
+// map shows is aimed into the map left above a short sheet — an open lieu's
+// pin (`lieuAimPx`), the raised territory in scope otherwise
+// (`sheetBandInsets`, useSheetBand). This module holds the rules alone — the
+// offset, how a refit moves, where a released drag settles, the camera's aim
+// and band — on numbers measured by useBottomSheet.
 //
 // No import, nothing run at load: loadable under node (sheetFit.test.ts).
 
@@ -23,20 +25,7 @@ export const MAP_ROOM_MARGIN_REM = 0.5;
  *  buttons over mapbox's logo) when they cannot be measured yet. */
 export const MAP_CONTROLS_FALLBACK_REM = 6.5;
 
-/** "ajuste": as tall as the content, the camera framed as under a full
- *  sheet; "centre": as tall as the content, and what the map shows aimed into
- *  the map left above a short sheet — an open lieu's pin (`lieuAimPx`), the
- *  raised territory in scope otherwise (`sheetBandInsets`, useSheetBand);
- *  "plein": always full. */
-export type SheetFitMode = "ajuste" | "centre" | "plein";
-
-/** The switch's choices, in the DEV dialog's order (sheetFitSwitch). */
-export const SHEET_FIT_MODES: readonly SheetFitMode[] = ["ajuste", "centre", "plein"];
-
-/** The mode of a build without the testing tools, and the switch's default. */
-export const DEFAULT_SHEET_FIT: SheetFitMode = "ajuste";
-
-/** « Ajusté, centré », the sheet's height changing once a tap's flight has
+/** The sheet's height changing once a tap's flight has
  *  landed (its list came in late), the raised territory still all in sight
  *  above the sheet's new top (the map left there only grew, or the plateau
  *  as drawn last already clears it — a tap from a full list, say):
@@ -46,14 +35,13 @@ export const DEFAULT_SHEET_FIT: SheetFitMode = "ajuste";
  *  again whatever the switch says. */
 export type SheetLateMode = "rester" | "recentrer";
 
-/** The switch's choices, in the DEV dialog's order (sheetFitSwitch). */
+/** The switch's choices, in the DEV dialog's order (sheetLateSwitch). */
 export const SHEET_LATE_MODES: readonly SheetLateMode[] = ["rester", "recentrer"];
 
 /** The rule of a build without the testing tools, and the switch's default. */
 export const DEFAULT_SHEET_LATE: SheetLateMode = "rester";
 
 export interface RaisedOffsetInputs {
-  mode: SheetFitMode;
   /** The panel's box: today's raised (full) sheet. */
   fullPx: number;
   /** The head and the list's content, from the box's top, list paddings included. */
@@ -92,7 +80,7 @@ export interface RaisedOffsetInputs {
 /** How far down (px) the raised sheet is slid from the full box: 0 is today's
  *  full sheet. */
 export function raisedOffset(i: RaisedOffsetInputs): number {
-  if (i.mode === "plein" || !(i.fullPx > 0)) return 0;
+  if (!(i.fullPx > 0)) return 0;
   if (i.waitAt != null && i.waitAt >= 0) {
     const at = Math.min(i.waitAt, i.fullPx);
     if (!i.waitGrows) return Math.round(at);
@@ -131,7 +119,7 @@ export const TEXT_WAIT_DOTS_MS = 400;
 
 export interface TextWaitInputs {
   /** The open lieu was opened from its pin with an audition to open at once
-   *  (model/pinOpen's "premiere", or a lieu of one under it), and nothing has
+   *  (the top of its list, or a lieu's only one: model/lieuSingle), and nothing has
    *  ended the wait yet: the text in, another lieu, another audition opened
    *  or this one folded (its line, the lieu's crumb, the back arrow), the
    *  sheet dragged or lowered. */
@@ -204,7 +192,6 @@ export function sheetSettle(i: SheetSettleInputs): boolean {
 }
 
 export interface LieuAimInputs {
-  mode: SheetFitMode;
   /** A phone, a lieu open, its sheet raised. */
   lieuRaised: boolean;
   /** The raised sheet stands shorter than the full panel. */
@@ -219,14 +206,14 @@ export interface LieuAimInputs {
   prev: number | null;
 }
 
-/** « Ajusté, centré »: how much of the screen's bottom the camera keeps clear
+/** How much of the screen's bottom the camera keeps clear
  *  of an open lieu's pin (px), so that the pin stands in the map left above a
  *  short sheet — or null: the strip at the top of the map, as under a full
  *  sheet. Kept as it was while what the sheet shows loads (the sheet's height
  *  is not known yet: the map moves once, when it is); the top strip as soon as
  *  the sheet is to stand full. */
 export function lieuAimPx(i: LieuAimInputs): number | null {
-  if (i.mode !== "centre" || !i.lieuRaised || i.expectFull) return null;
+  if (!i.lieuRaised || i.expectFull) return null;
   if (i.hold) return i.prev;
   return i.fitted && i.shownPx > 0 ? Math.round(i.shownPx) : null;
 }
@@ -244,11 +231,10 @@ export interface BandInsets {
  *  header's tiles above, the sheet's top below. */
 export const BAND_MARGIN_PX = 12;
 /** A band shorter than this (rem) is no room to frame a territory in: the
- *  camera frames as under « Ajusté » then. */
+ *  camera frames as under the lowered sheet then. */
 export const MIN_BAND_REM = 10;
 
 export interface SheetBandInputs {
-  mode: SheetFitMode;
   /** Below the desktop line: the panel is a sheet. */
   phone: boolean;
   /** The sheet is raised (at rest or on its way there: never a drag). */
@@ -270,13 +256,13 @@ export interface SheetBandInputs {
   remPx: number;
 }
 
-/** « Ajusté, centré »: the rectangle a territory in scope is framed in while
- *  a short sheet stands raised — the map left between the header's tiles and
- *  the sheet's top, a margin inside each —, or null: framed as under
- *  « Ajusté » (the lowered sheet's frame, the analyses' ring's). Only a
- *  sheet's rest decides it: a drag changes nothing. */
+/** The rectangle a territory in scope is framed in while a short sheet
+ *  stands raised — the map left between the header's tiles and the sheet's
+ *  top, a margin inside each —, or null: framed as under the lowered sheet
+ *  (the analyses' ring's frame too). Only a sheet's rest decides it: a drag
+ *  changes nothing. */
 export function sheetBandInsets(i: SheetBandInputs): BandInsets | null {
-  if (i.mode !== "centre" || !i.phone || !i.raised || !i.fitted || i.lieuOpen) return null;
+  if (!i.phone || !i.raised || !i.fitted || i.lieuOpen) return null;
   if (!(i.shownPx > 0) || !(i.viewportH > 0)) return null;
   const top = Math.round(i.headerClearPx + BAND_MARGIN_PX);
   const bottom = Math.round(i.shownPx + BAND_MARGIN_PX);
