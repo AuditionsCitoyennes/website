@@ -471,12 +471,11 @@ export function useServerLists(inputs: ServerListsInputs) {
     return { rows: [], loading: !failed, failed };
   });
 
-  /** What the tree on screen says of a lieu's auditions — how many, the
-   *  newest, and the top of its list in the sort chosen — the moment it is
-   *  opened (model/lieuSingle); null: no row for it. */
+  /** What the tree on screen says of a lieu's auditions — how many, and the
+   *  newest — the moment it is opened (model/lieuSingle); null: no row for it. */
   function lieuAuditionsKnown(id: string): LieuAuditionsKnown | null {
     const row = tree.data()?.lieux.get(id);
-    return row ? knownFromRow(row, sortNow.value) : null;
+    return row ? knownFromRow(row) : null;
   }
 
   // ---- An audition's testimonies ------------------------------------------------

@@ -126,39 +126,26 @@ test("a long wait lets the raised sheet grow to show the line and its dots, neve
   assert.ok(TEXT_WAIT_DOTS_MS > 0 && TEXT_WAIT_DOTS_MS < 1000);
 });
 
-test("the sheet waits for a pin-opened audition while its text, or its lieu's list, is coming", () => {
-  const w = {
-    pinOpened: true,
-    auditionOpen: true,
-    textPending: true,
-    listPending: false,
-    capped: false,
-  };
+test("the sheet waits for a pin-opened audition while its text is coming", () => {
+  const w = { pinOpened: true, auditionOpen: true, textPending: true, capped: false };
   // However long the text takes (a slow link), up to the cap: held.
   assert.equal(textWait(w), "hold");
   // The text in (or its read failed: no longer on its way): no wait.
   assert.equal(textWait({ ...w, textPending: false }), null);
-  // Not opened from a pin, or the wait ended (a line pressed, the lieu's
-  // crumb or the back arrow, another lieu, the sheet dragged or lowered).
+  // Not opened from a pin, or the wait ended (its line pressed, another
+  // lieu, the sheet dragged or lowered).
   assert.equal(textWait({ ...w, pinOpened: false }), null);
   assert.equal(textWait({ ...w, pinOpened: false, capped: true }), null);
-  // Nothing open yet: only while the lieu's list comes (the lazy path).
-  assert.equal(textWait({ ...w, auditionOpen: false, listPending: true }), "hold");
-  assert.equal(textWait({ ...w, auditionOpen: false, listPending: false }), null);
+  // Nothing open: no wait (a lieu's list goes under the rule of any list).
+  assert.equal(textWait({ ...w, auditionOpen: false }), null);
+  assert.equal(textWait({ ...w, auditionOpen: false, textPending: false }), null);
 });
 
 test("past the cap the pin-opened sheet stands full, and stays full once the text is in", () => {
-  const w = {
-    pinOpened: true,
-    auditionOpen: true,
-    textPending: true,
-    listPending: false,
-    capped: true,
-  };
+  const w = { pinOpened: true, auditionOpen: true, textPending: true, capped: true };
   assert.equal(textWait(w), "full");
   // The text landing after the cap moves nothing: never full, then fitted.
   assert.equal(textWait({ ...w, textPending: false }), "full");
-  assert.equal(textWait({ ...w, auditionOpen: false, listPending: true }), "full");
   // As full under the rule as `expectFull` makes it, whatever the content.
   assert.equal(raisedOffset({ ...base, contentPx: 300, expectFull: true }), 0);
   // A long safety cap, not a short wait: a slow link keeps the sheet still.

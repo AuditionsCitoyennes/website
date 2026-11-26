@@ -1197,7 +1197,6 @@ const pinTextWait = computed(() => {
     pinOpened: true,
     auditionOpen: openAuditions.value.size > 0,
     textPending: openTextPending.value,
-    listPending: placeLoading.value,
     capped: pinWaitCapped.value,
   });
 });

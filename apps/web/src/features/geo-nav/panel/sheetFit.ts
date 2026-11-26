@@ -118,20 +118,15 @@ const WAIT_GROW_MIN_PX = 2;
 export const TEXT_WAIT_DOTS_MS = 400;
 
 export interface TextWaitInputs {
-  /** The open lieu was opened from its pin with an audition to open at once
-   *  (the top of its list, or a lieu's only one: model/lieuSingle), and nothing has
-   *  ended the wait yet: the text in, another lieu, another audition opened
-   *  or this one folded (its line, the lieu's crumb, the back arrow), the
-   *  sheet dragged or lowered. */
+  /** The open lieu was opened from its pin with its only audition open at
+   *  once (model/lieuSingle), and nothing has ended the wait yet: the text
+   *  in, another lieu, its line pressed, the sheet dragged or lowered. */
   pinOpened: boolean;
   /** One of its auditions is open. */
   auditionOpen: boolean;
   /** The open audition's text is on its way (its testimonies, or the lieu's
    *  list its line is in). A read that failed is no longer on its way. */
   textPending: boolean;
-  /** The lieu's list is on its way (the server's lazy path: its top opens
-   *  once it is listed, model/lieuSingle's AWAIT_LIST). */
-  listPending: boolean;
   /** TEXT_WAIT_CAP_MS has passed since the pin's tap. */
   capped: boolean;
 }
@@ -139,15 +134,13 @@ export interface TextWaitInputs {
 /** What the raised sheet does while the audition a pin opened is on its way:
  *  "hold" — it holds where it stands (`waitAt`): not knowing the text's
  *  height, it neither stands full first nor fits the line alone and rises
- *  again; it moves once, the text in (before the audition opens, only while
- *  its lieu's list is coming: the lazy path, its top opens once listed);
- *  "full" — past the cap, it stands full (`expectFull`), the text in or not:
- *  its one move, never full and then fitted; null — no wait, the sheet goes
- *  as for any open audition. */
+ *  again; it moves once, the text in; "full" — past the cap, it stands full
+ *  (`expectFull`), the text in or not: its one move, never full and then
+ *  fitted; null — no wait, the sheet goes as for any open audition. */
 export function textWait(i: TextWaitInputs): "hold" | "full" | null {
   if (!i.pinOpened) return null;
   if (i.capped) return "full";
-  return (i.auditionOpen ? i.textPending : i.listPending) ? "hold" : null;
+  return i.auditionOpen && i.textPending ? "hold" : null;
 }
 
 export interface RefitMotionInputs {
