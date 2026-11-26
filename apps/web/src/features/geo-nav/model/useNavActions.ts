@@ -148,6 +148,10 @@ export function useNavActions(inputs: NavActionsInputs) {
     // so that command aims with the panel as narrow as the list leaves it.
     if (u.levelKey === "place") {
       if (u.id === selectedPlaceId.value && foldToList.value) {
+        // The visitor's own fold: the sheet goes under the rule of any list
+        // from it on, no longer waiting on a pin-opened audition (a lieu's
+        // count can grow while it is open, so a one-audition pin can fold).
+        pinOpened.value = null;
         for (const open of [...openAuditions.value]) void toggleAud(open, false);
       }
       openPlace(u, "crumb");
