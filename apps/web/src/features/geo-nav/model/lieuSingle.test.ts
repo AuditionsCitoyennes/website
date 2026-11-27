@@ -8,7 +8,13 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { auditionToOpen, foldsToList, knownFromRow, type LieuAuditionsKnown } from "./lieuSingle";
+import {
+  auditionToOpen,
+  foldsToList,
+  knownFromRow,
+  waitsForText,
+  type LieuAuditionsKnown,
+} from "./lieuSingle";
 
 test("knownFromRow: the count, and the embedded list's first, else the newest (tie)", () => {
   assert.deepEqual(knownFromRow({ auditions: 1, tie: "a1" }), { count: 1, first: "a1" });
@@ -74,6 +80,18 @@ test("auditionToOpen: exactly #218's rule, every case", () => {
       const o = { newLieu, known };
       assert.equal(auditionToOpen(o), before(o));
     }
+  }
+});
+
+test("waitsForText: its one audition opened from its pin or its row waits", () => {
+  assert.equal(waitsForText({ only: "a1", via: "map" }), true);
+  assert.equal(waitsForText({ only: "a1", via: "panel" }), true);
+});
+
+test("waitsForText: its crumb, or no audition opened with the lieu: no wait", () => {
+  assert.equal(waitsForText({ only: "a1", via: "crumb" }), false);
+  for (const via of ["map", "panel", "crumb"] as const) {
+    assert.equal(waitsForText({ only: null, via }), false);
   }
 });
 

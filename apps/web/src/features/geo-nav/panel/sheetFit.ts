@@ -61,11 +61,11 @@ export interface RaisedOffsetInputs {
    *  from now on rather than fitting the line and rising again once the text
    *  is in (it settles down once in, if the text turns out short). */
   expectFull?: boolean;
-  /** An audition opened with its lieu from the lieu's pin (textWait's "hold"),
-   *  its text on its way: the offset the sheet stands at now — raised, its
-   *  raised offset; on its way up, its lowered one —, kept as it is, so that
-   *  the sheet moves once, when the text is in, straight to the height it
-   *  needs. It comes before `expectFull`. null: no wait. */
+  /** An audition opened with its lieu from the lieu's pin or its row
+   *  (textWait's "hold"), its text on its way: the offset the sheet stands at
+   *  now — raised, its raised offset; on its way up, its lowered one —, kept
+   *  as it is, so that the sheet moves once, when the text is in, straight
+   *  to the height it needs. It comes before `expectFull`. null: no wait. */
   waitAt?: number | null;
   /** That wait has lasted past TEXT_WAIT_DOTS_MS, the sheet raised (never on
    *  its lowered strip): it may grow — not shrink — so that the audition's
@@ -102,8 +102,8 @@ function fittedOffset(i: RaisedOffsetInputs): number {
 }
 
 /** The longest (ms) a sheet waits for the text of an audition its lieu's pin
- *  opened (textWait): a safety cap, as long as the page's other waits on the
- *  network (the boot's, the plateau's). Past it the sheet moves once, to
+ *  or its row opened (textWait): a safety cap, as long as the page's other
+ *  waits on the network (the boot's, the plateau's). Past it the sheet moves once, to
  *  where it is to stand then — full, the text still on its way — and stays
  *  there once the text is in. */
 export const TEXT_WAIT_CAP_MS = 8000;
@@ -112,29 +112,30 @@ export const TEXT_WAIT_CAP_MS = 8000;
 const WAIT_GROW_MIN_PX = 2;
 
 /** How long (ms) a raised sheet holds exactly where it stood for the text of
- *  an audition its lieu's pin opened before it may grow to bring that
- *  audition's line and its loading dots into view (`waitGrows`): a text in by
- *  then moves the sheet once; a slower one shows that it is coming. */
+ *  an audition its lieu's pin or its row opened before it may grow to bring
+ *  that audition's line and its loading dots into view (`waitGrows`): a text
+ *  in by then moves the sheet once; a slower one shows that it is coming. */
 export const TEXT_WAIT_DOTS_MS = 400;
 
 export interface TextWaitInputs {
-  /** The open lieu was opened from its pin with its only audition open at
-   *  once (model/lieuSingle), and nothing has ended the wait yet: the text
-   *  in, another lieu, its line pressed, the sheet dragged or lowered. */
+  /** The open lieu was opened from its pin or its row with its only audition
+   *  open at once (model/lieuSingle's waitsForText), and nothing has ended
+   *  the wait yet: the text in, another lieu, its line pressed, the sheet
+   *  dragged or lowered. */
   pinOpened: boolean;
   /** One of its auditions is open. */
   auditionOpen: boolean;
   /** The open audition's text is on its way (its testimonies, or the lieu's
    *  list its line is in). A read that failed is no longer on its way. */
   textPending: boolean;
-  /** TEXT_WAIT_CAP_MS has passed since the pin's tap. */
+  /** TEXT_WAIT_CAP_MS has passed since the pin's or the row's tap. */
   capped: boolean;
 }
 
-/** What the raised sheet does while the audition a pin opened is on its way:
- *  "hold" — it holds where it stands (`waitAt`): not knowing the text's
- *  height, it neither stands full first nor fits the line alone and rises
- *  again; it moves once, the text in; "full" — past the cap, it stands full
+/** What the raised sheet does while the audition a pin or a row opened is on
+ *  its way: "hold" — it holds where it stands (`waitAt`): not knowing the
+ *  text's height, it neither stands full first nor fits the line alone and
+ *  rises again; it moves once, the text in; "full" — past the cap, it stands full
  *  (`expectFull`), the text in or not: its one move, never full and then
  *  fitted; null — no wait, the sheet goes as for any open audition. */
 export function textWait(i: TextWaitInputs): "hold" | "full" | null {
@@ -169,7 +170,9 @@ export interface SheetSettleInputs {
   at: number;
   /** The finger's speed at the release (px/ms, down positive). */
   v: number;
-  /** The raised rest (raisedOffset). */
+  /** The raised rest (raisedOffset) when the drag began: a rest that moved
+   *  under the finger since (a text wait ended by the drag itself, the sheet
+   *  to stand full) does not change where the visitor's release goes. */
   raisedPx: number;
   /** The lowered rest. */
   loweredPx: number;

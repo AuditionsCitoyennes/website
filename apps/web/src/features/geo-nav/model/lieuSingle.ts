@@ -49,6 +49,17 @@ export function auditionToOpen(o: {
 }
 
 /**
+ * The phone's sheet waits for the text of the audition a lieu opened with
+ * (true; panel/sheetFit's textWait), so that it moves once, the text in:
+ * the lieu opened from its pin or from its row in the panel, with its one
+ * audition open at once. Its crumb never opens a lieu anew — it is the lieu
+ * already open — and leaves the sheet under the rule of any open audition.
+ */
+export function waitsForText(o: { only: string | null; via: "map" | "panel" | "crumb" }): boolean {
+  return o.only !== null && o.via !== "crumb";
+}
+
+/**
  * The lieu's crumb, or the back arrow, folds the audition being read back
  * into the lieu's list (true) — or the crumb only brings the map back to the
  * lieu and the arrow goes up to the territory (false): an audition read

@@ -203,6 +203,20 @@ test("a released drag settles on the nearer rest unless flicked", () => {
   assert.equal(sheetSettle({ at: 380, v: 0.3, raisedPx: 375, loweredPx: 610, flick }), true);
 });
 
+test("sheetSettle: a slow drag up from a waiting sheet stays raised", () => {
+  const flick = 0.4;
+  // 390×844, a row's lieu of one audition waiting for its text, the sheet
+  // held at 507 (top 572), pulled up 120 px slowly. The drag ends the wait:
+  // the rest it would go to is full (0) from then on. Against the rest the
+  // drag began from, the release is well above the middle: raised.
+  assert.equal(sheetSettle({ at: 387, v: -0.1, raisedPx: 507, loweredPx: 709, flick }), true);
+  // Against the full rest it would have gone down — the drag-start rest is
+  // what useBottomSheet passes.
+  assert.equal(sheetSettle({ at: 387, v: -0.1, raisedPx: 0, loweredPx: 709, flick }), false);
+  // Pulled down past the middle of those rests, lowered.
+  assert.equal(sheetSettle({ at: 620, v: 0.1, raisedPx: 507, loweredPx: 709, flick }), false);
+});
+
 // The band a territory in scope is framed in above a short sheet. A 360×740
 // phone, the header's tiles 51 px down, the camera's 36 px beside, a sheet of
 // 5 rows covering 316 px of the screen's bottom.

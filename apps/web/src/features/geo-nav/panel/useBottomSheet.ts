@@ -13,8 +13,8 @@
 // the list and its body), an audition unfolding or folding at the height its
 // tween goes to (ExpandTransition's `data-height-tween`); while something
 // loads (`hold`) it may only grow, and while an open audition's text is on
-// its way (`expectFull`) it stands full — unless a lieu's pin opened that
-// audition (`waitText`): the sheet then stays where it stands, raised or on
+// its way (`expectFull`) it stands full — unless a lieu's pin or its row
+// opened that audition (`waitText`): the sheet then stays where it stands, raised or on
 // its way up, and moves once, when the text is in — a raised one growing, on
 // a slow link, to show the audition's line and its loading dots
 // (`waitGrows`). A fit that would leave
@@ -57,7 +57,7 @@ export interface BottomSheetInputs {
   /** An open audition's testimonies are on their way: the sheet stands full
    *  (sheetFit's `expectFull`). Read and watched as `hold`. */
   expectFull: () => boolean;
-  /** The audition a lieu's pin opened is on its way (sheetFit's
+  /** The audition a lieu's pin or its row opened is on its way (sheetFit's
    *  textWait's "hold"): the sheet holds where it stands (`waitAt`), before
    *  `expectFull`. Read and watched as `hold`. */
   waitText?: () => boolean;
@@ -293,6 +293,10 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
     id: number;
     startY: number;
     from: number;
+    /** The raised rest when the finger went down: the release settles
+     *  against it, as the visitor saw it, even if the rest has moved under
+     *  the finger since (a drag ends a text wait: the rest goes full). */
+    raised: number;
     dragging: boolean;
     lastY: number;
     lastT: number;
@@ -308,6 +312,7 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
       id: e.pointerId,
       startY: e.clientY,
       from: sheetOpen.value ? sheetRaisedPx.value : sheetLoweredPx.value,
+      raised: sheetRaisedPx.value,
       dragging: false,
       lastY: e.clientY,
       lastT: e.timeStamp,
@@ -348,11 +353,12 @@ export function useBottomSheet(inputs: BottomSheetInputs) {
     sheetGesture = null;
     if (!g.dragging) return; // a tap: whatever button is under it gets its click
     const at = sheetDragPx.value ?? g.from;
-    // A flick decides by its direction; a slow release settles on the nearer rest.
+    // A flick decides by its direction; a slow release settles on the nearer
+    // rest, as they stood when the drag began.
     sheetOpen.value = sheetSettle({
       at,
       v: g.v,
-      raisedPx: sheetRaisedPx.value,
+      raisedPx: g.raised,
       loweredPx: sheetLoweredPx.value ?? 0,
       flick: SHEET_FLICK,
     });

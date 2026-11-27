@@ -7,7 +7,7 @@ import { perfBegin, perfOn } from "@/shared/perf/perf";
 import { perfTapAnswered, perfTapTargets } from "@/shared/perf/tapAnswer";
 import type { NavState } from "../navState";
 import type { PanelAudition } from "./auditions";
-import { auditionToOpen, foldsToList, type LieuAuditionsKnown } from "./lieuSingle";
+import { auditionToOpen, foldsToList, waitsForText, type LieuAuditionsKnown } from "./lieuSingle";
 import type { TapPending } from "./useTapPending";
 
 export interface NavActionsInputs {
@@ -64,10 +64,10 @@ export function useNavActions(inputs: NavActionsInputs) {
     });
   });
 
-  /** The lieu its pin opened with its only audition open at once
-   *  (model/lieuSingle), until GeoNav ends the wait for that audition's text:
-   *  the phone's sheet holds still meanwhile and moves once (panel/sheetFit's
-   *  textWait). */
+  /** The lieu its pin or its row opened with its only audition open at once
+   *  (model/lieuSingle's waitsForText), until GeoNav ends the wait for that
+   *  audition's text: the phone's sheet holds still meanwhile and moves once
+   *  (panel/sheetFit's textWait). */
   const pinOpened = ref<string | null>(null);
 
   /** The element the keys are on, when it was reached with them (Tab):
@@ -149,8 +149,9 @@ export function useNavActions(inputs: NavActionsInputs) {
     if (u.levelKey === "place") {
       if (u.id === selectedPlaceId.value && foldToList.value) {
         // The visitor's own fold: the sheet goes under the rule of any list
-        // from it on, no longer waiting on a pin-opened audition (a lieu's
-        // count can grow while it is open, so a one-audition pin can fold).
+        // from it on, no longer waiting on the audition its pin or its row
+        // opened (a lieu's count can grow while it is open, so a lieu opened
+        // with its one audition can fold).
         pinOpened.value = null;
         for (const open of [...openAuditions.value]) void toggleAud(open, false);
       }
@@ -239,7 +240,7 @@ export function useNavActions(inputs: NavActionsInputs) {
     // (a long text, a long list of lieux) would otherwise carry over, the new
     // content as tall when the audition's testimonies are already in.
     const only = auditionToOpen({ newLieu, known: newLieu ? lieuAuditionsOf(unit) : null });
-    if (newLieu) pinOpened.value = only && via === "map" ? unit.id : null;
+    if (newLieu) pinOpened.value = waitsForText({ only, via }) ? unit.id : null;
     if (only) {
       // Opened from the keys (its dot or its row reached with Tab, then Enter
       // or Space), the keys go on in the panel, on the audition's line — as
