@@ -126,39 +126,26 @@ test("a long wait lets the raised sheet grow to show the line and its dots, neve
   assert.ok(TEXT_WAIT_DOTS_MS > 0 && TEXT_WAIT_DOTS_MS < 1000);
 });
 
-test("the sheet waits for a pin-opened audition while its text, or its lieu's list, is coming", () => {
-  const w = {
-    pinOpened: true,
-    auditionOpen: true,
-    textPending: true,
-    listPending: false,
-    capped: false,
-  };
+test("the sheet waits for a pin-opened audition while its text is coming", () => {
+  const w = { pinOpened: true, auditionOpen: true, textPending: true, capped: false };
   // However long the text takes (a slow link), up to the cap: held.
   assert.equal(textWait(w), "hold");
   // The text in (or its read failed: no longer on its way): no wait.
   assert.equal(textWait({ ...w, textPending: false }), null);
-  // Not opened from a pin, or the wait ended (a line pressed, the lieu's
-  // crumb or the back arrow, another lieu, the sheet dragged or lowered).
+  // Not opened from a pin, or the wait ended (its line pressed, another
+  // lieu, the sheet dragged or lowered).
   assert.equal(textWait({ ...w, pinOpened: false }), null);
   assert.equal(textWait({ ...w, pinOpened: false, capped: true }), null);
-  // Nothing open yet: only while the lieu's list comes (the lazy path).
-  assert.equal(textWait({ ...w, auditionOpen: false, listPending: true }), "hold");
-  assert.equal(textWait({ ...w, auditionOpen: false, listPending: false }), null);
+  // Nothing open: no wait (a lieu's list goes under the rule of any list).
+  assert.equal(textWait({ ...w, auditionOpen: false }), null);
+  assert.equal(textWait({ ...w, auditionOpen: false, textPending: false }), null);
 });
 
 test("past the cap the pin-opened sheet stands full, and stays full once the text is in", () => {
-  const w = {
-    pinOpened: true,
-    auditionOpen: true,
-    textPending: true,
-    listPending: false,
-    capped: true,
-  };
+  const w = { pinOpened: true, auditionOpen: true, textPending: true, capped: true };
   assert.equal(textWait(w), "full");
   // The text landing after the cap moves nothing: never full, then fitted.
   assert.equal(textWait({ ...w, textPending: false }), "full");
-  assert.equal(textWait({ ...w, auditionOpen: false, listPending: true }), "full");
   // As full under the rule as `expectFull` makes it, whatever the content.
   assert.equal(raisedOffset({ ...base, contentPx: 300, expectFull: true }), 0);
   // A long safety cap, not a short wait: a slow link keeps the sheet still.
@@ -214,6 +201,20 @@ test("a released drag settles on the nearer rest unless flicked", () => {
   assert.equal(sheetSettle({ at: 600, v: -0.5, raisedPx: 375, loweredPx: 610, flick }), true);
   assert.equal(sheetSettle({ at: 380, v: 0.5, raisedPx: 375, loweredPx: 610, flick }), false);
   assert.equal(sheetSettle({ at: 380, v: 0.3, raisedPx: 375, loweredPx: 610, flick }), true);
+});
+
+test("sheetSettle: a slow drag up from a waiting sheet stays raised", () => {
+  const flick = 0.4;
+  // 390×844, a row's lieu of one audition waiting for its text, the sheet
+  // held at 507 (top 572), pulled up 120 px slowly. The drag ends the wait:
+  // the rest it would go to is full (0) from then on. Against the rest the
+  // drag began from, the release is well above the middle: raised.
+  assert.equal(sheetSettle({ at: 387, v: -0.1, raisedPx: 507, loweredPx: 709, flick }), true);
+  // Against the full rest it would have gone down — the drag-start rest is
+  // what useBottomSheet passes.
+  assert.equal(sheetSettle({ at: 387, v: -0.1, raisedPx: 0, loweredPx: 709, flick }), false);
+  // Pulled down past the middle of those rests, lowered.
+  assert.equal(sheetSettle({ at: 620, v: 0.1, raisedPx: 507, loweredPx: 709, flick }), false);
 });
 
 // The band a territory in scope is framed in above a short sheet. A 360×740

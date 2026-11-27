@@ -10,6 +10,10 @@
 // line after the frame that follows (`unitsChanged`), not in
 // the act's own task; until then the pins and the click targets are the
 // previous units'.
+// While the camera flies, the lieux' dots are followed frame by frame
+// (lib/pinTrail): a tap during the flight (a touch stops it) where a dot
+// just was, going slowly enough to be aimed at, opens that lieu, as a tap on
+// the dot at rest does.
 
 import mapboxgl from "mapbox-gl";
 import { lngNear, type Bounds } from "@/features/geo";
@@ -26,6 +30,16 @@ import {
 import type { PlateauWallLayer } from "../gl/PlateauWallLayer";
 import { createAfterFrame } from "../lib/afterFrame";
 import { canvasHoverGate } from "../lib/canvasHover";
+import {
+  pinOnTrail,
+  pushTrail,
+  TRAIL_AIM_SPEED,
+  TRAIL_KEEP_MS,
+  TRAIL_SLOP_PX,
+  TRAIL_WINDOW_MS,
+  type TrailPin,
+  type TrailSample,
+} from "../lib/pinTrail";
 import { altitudeAt, pointerLngLat, type PlateauLift } from "../plateau/lift";
 import type { MapUnit } from "../types";
 import type { useSlabOcclusion } from "./useSlabOcclusion";
@@ -581,10 +595,17 @@ export function useMapPins({
   function onCanvasPointer(e: PointerEvent) {
     hoverGate.pointerSeen(e.pointerType);
   }
+  /** The latest press on the map's box, and whether the map was moving then:
+   *  heard before mapbox's own (a touch's stops a flight). */
+  let press: { t: number; moving: boolean } | null = null;
+  function onCanvasPress(e: PointerEvent) {
+    hoverGate.pointerSeen(e.pointerType);
+    press = { t: performance.now(), moving: getMap()?.isMoving() ?? false };
+  }
   /** The canvas box's pointer events, which come before their compatibility
    *  mouse events; the box lives as long as the map, nothing to remove. */
   function attachPointerTracking(canvasBox: HTMLElement) {
-    canvasBox.addEventListener("pointerdown", onCanvasPointer, true);
+    canvasBox.addEventListener("pointerdown", onCanvasPress, true);
     canvasBox.addEventListener("pointermove", onCanvasPointer, true);
   }
 
@@ -650,10 +671,46 @@ export function useMapPins({
     onMapHover({ lng: -999, lat: -999 });
   }
 
+  /** Where the lieux' dots were drawn on the latest frames of a flight
+   *  (lib/pinTrail): the dots hidden under a slab left out. */
+  const trail: TrailSample[] = [];
+  /** A frame of a camera flight drawn (GeoDrillMap's `move`): its dots added
+   *  to the trail. */
+  function sampleTrail() {
+    const map = getMap();
+    if (!map) return;
+    const drawn: TrailPin[] = [];
+    for (const [id, e] of markerById) {
+      if (e.sig !== "leaf" || pinsUnderSlab.has(id)) continue;
+      const p = map.project(e.marker.getLngLat(), e.alt);
+      drawn.push({ id, x: p.x, y: p.y });
+    }
+    if (drawn.length) pushTrail(trail, { t: performance.now(), pins: drawn });
+  }
+
   /** The canvas `click`: inside a unit's boundary SELECTS the unit — the whole
-   *  territory is the click target, the pin is just its label. False: no unit
-   *  under it (GeoDrillMap's `emptyTap`). */
+   *  territory is the click target, the pin is just its label. A press made
+   *  while the map moved, where a lieu's dot passed just before it, is a
+   *  press on that dot (lib/pinTrail). False: no unit under it (GeoDrillMap's
+   *  `emptyTap`). */
   function onClick(e: mapboxgl.MapMouseEvent): boolean {
+    const pressed = press;
+    press = null;
+    // A press of a while ago is not this click's (one whose click never came
+    // here: a drag, a marker's own button).
+    if (pressed?.moving && performance.now() - pressed.t < TRAIL_KEEP_MS) {
+      const at = { x: e.point.x, y: e.point.y, t: pressed.t };
+      const hitPx = DOT_RADIUS_PX + TRAIL_SLOP_PX;
+      const lieu = pinOnTrail(trail, at, {
+        windowMs: TRAIL_WINDOW_MS,
+        hitPx,
+        aimSpeed: TRAIL_AIM_SPEED,
+      });
+      if (lieu && markerById.has(lieu)) {
+        onUnitClick(lieu);
+        return true;
+      }
+    }
     const ll = readPointer(e.lngLat, e.point);
     const id = unitAt(ll.lng, ll.lat, e.point);
     if (id) onUnitClick(id);
@@ -687,6 +744,8 @@ export function useMapPins({
     attachPointerTracking,
     onMouseOut,
     onClick,
+    /** A frame of a camera flight: where the lieux' dots were drawn on it. */
+    sampleTrail,
     scheduleSticky,
     yieldDrapedHover,
     restoreDrapedHover,

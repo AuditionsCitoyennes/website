@@ -18,9 +18,8 @@ export function bySort(
 }
 
 /** A lieu's auditions in the order its panel lists them (bySort; the sort is
- *  stable, so equal dates keep the server's order). The panel's list
- *  (usePanelAuditions' placeAuditions) and the audition a click on the lieu's
- *  pin opens (lieuSingle's `top`) are both read from this one order. */
+ *  stable, so equal dates keep the server's order): usePanelAuditions'
+ *  placeAuditions. */
 export function lieuListOrder<T extends { date: string | null }>(
   rows: readonly T[],
   sort: AuditionSort | undefined,

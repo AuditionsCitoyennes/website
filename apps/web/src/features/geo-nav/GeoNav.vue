@@ -1166,7 +1166,7 @@ const sheetFitHold = computed(
  *  model/lieuSingle): the phone's raised sheet stands full at once, as the
  *  text will most often make it, rather than fitting the line and the wait
  *  dots and rising again once the text is in (`sheetExpectFull`, below) —
- *  unless a lieu's pin opened it (`sheetWaitText`). An audition without
+ *  unless a lieu's pin or its row opened it (`sheetWaitText`). An audition without
  *  testimony has nothing to unfold. */
 const openTextPending = computed(() => {
   if (!listMode.value && !selectedPlace.value) return false;
@@ -1178,12 +1178,13 @@ const openTextPending = computed(() => {
   }
   return false;
 });
-/** TEXT_WAIT_CAP_MS has passed since the pin's tap, the wait not ended. */
+/** TEXT_WAIT_CAP_MS has passed since the pin's or the row's tap, the wait
+ *  not ended. */
 const pinWaitCapped = ref(false);
-/** TEXT_WAIT_DOTS_MS has passed since the pin's tap: a raised sheet still
+/** TEXT_WAIT_DOTS_MS has passed since that tap: a raised sheet still
  *  waiting may grow to show the audition's line and its loading dots. */
 const pinWaitDots = ref(false);
-/** The audition a lieu's pin opened is on its way (useNavActions'
+/** The audition a lieu's pin or its row opened is on its way (useNavActions'
  *  `pinOpened`, panel/sheetFit's textWait): the raised sheet holds where it
  *  stands — neither full first (its text may be short) nor fitted to its
  *  line alone — and moves once, the text in: straight to the height it
@@ -1197,7 +1198,6 @@ const pinTextWait = computed(() => {
     pinOpened: true,
     auditionOpen: openAuditions.value.size > 0,
     textPending: openTextPending.value,
-    listPending: placeLoading.value,
     capped: pinWaitCapped.value,
   });
 });
@@ -1243,8 +1243,8 @@ onBeforeUnmount(() => {
   window.clearTimeout(pinDotsTimer);
 });
 /** A line pressed (or reached with the keys) in the panel: the visitor's own
- *  open or fold, never the pin's — the sheet goes under the rule of any open
- *  audition from it on. */
+ *  open or fold, never the one the lieu opened with — the sheet goes under
+ *  the rule of any open audition from it on. */
 function onAudToggle(id: string) {
   pinOpened.value = null;
   void toggleAud(id);
@@ -1315,8 +1315,8 @@ if (__TEST_TOOLS__) {
     hold: sheetFitHold.value,
     expectFull: sheetExpectFull.value,
     waitText: sheetWaitText.value,
-    // The pin's wait: "hold", "full" (past its cap) or null; long enough for
-    // a raised sheet to grow and show the dots.
+    // The text wait (a pin's or a row's): "hold", "full" (past its cap) or
+    // null; long enough for a raised sheet to grow and show the dots.
     pinWait: pinTextWait.value,
     waitGrows: pinWaitDots.value,
     aimPx: sheetAimPx.value,
