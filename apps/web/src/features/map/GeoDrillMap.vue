@@ -1065,7 +1065,10 @@ function mountMap() {
       // Outside the programmaticCam guard on purpose — a flight crosses into the
       // globe just as readily as a drag, and the grey must change hands with it.
       mask.syncDrapedMask();
-      if (camera.programmatic()) return;
+      if (camera.programmatic()) {
+        pins.sampleTrail(); // where a tap stopping the flight finds a lieu's dot
+        return;
+      }
       const now = performance.now();
       if (now - lastMoveEmit > 250) {
         lastMoveEmit = now;
