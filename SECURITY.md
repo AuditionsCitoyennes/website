@@ -33,6 +33,10 @@ Sont particulièrement sensibles :
 - l'élévation de privilèges (accès admin) ;
 - les fuites de clés / secrets.
 
+## Secret poussé par erreur
+
+Un secret (clé, jeton, mot de passe, clé privée, export de données) poussé une fois dans le dépôt est considéré comme compromis, même sur une branche supprimée depuis : il est **révoqué et remplacé** aussitôt. Réécrire l'historique ne suffit jamais : le dépôt est public, un commit reste accessible par son identifiant et a pu être copié entre-temps.
+
 ## Données personnelles & RGPD
 
 Pour toute question relative aux données personnelles ou au RGPD (et non à une faille technique), contactez [privacy@auditionscitoyennes.com](mailto:privacy@auditionscitoyennes.com).
