@@ -18,11 +18,11 @@ password manager of both owners.
 
 The workflow reads its secrets (`PROD_DB_URL`, `SCW_ACCESS_KEY`,
 `SCW_SECRET_KEY`) from the GitHub environment `production-backup` (Settings →
-Environments), not from the repository's own secrets: only a workflow run from
-a branch that environment allows (`dev` and `main`) receives them. The
-environment asks for no reviewer, or the nightly run would wait for an
-approval. The job uses no action from another repository and no cache: the
-Supabase CLI is downloaded from its release page and checked against the
+Environments), not from the repository's own secrets. Set there: deployment
+branches `dev` and `main`, so that only a workflow run from one of them
+receives the secrets, and no required reviewer, or the nightly run would wait
+for an approval. The job uses no action from another repository and no cache:
+the Supabase CLI is downloaded from its release page and checked against the
 checksum written in the workflow.
 
 A run that never starts (a disabled workflow, a schedule GitHub paused) fails

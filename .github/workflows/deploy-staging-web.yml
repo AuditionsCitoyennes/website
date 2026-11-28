@@ -212,8 +212,8 @@ jobs:
             fi
             sleep 10
           done
-          # Without the pass: anything but the page. An open gate would leave
-          # the staging API's test outbox readable through this address.
+          # Without the pass: anything but the page. The gate is what keeps
+          # staging, and the test outbox its API serves, to the testers.
           for _ in 1 2 3; do
             anonymous=$(curl -4 -s --max-time 10 -o /dev/null -w '%{http_code}' "$URL/" || true)
             [ "$anonymous" != 000 ] && break
