@@ -20,6 +20,9 @@ accounts.env
 key.txt
 *.pem
 *.key
+id_rsa*
+id_ed25519*
+id_ecdsa*
 supabase/signing_keys.json
 
 # Database dumps and backups (docs/backups.md): a restore drill works outside

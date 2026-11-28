@@ -60,7 +60,7 @@ jobs:
         run: |
           changed=$(git diff --no-renames --diff-filter=MD --name-only HEAD^1 HEAD -- supabase/migrations)
           if [ -n "$changed" ]; then
-            echo "::error::Migrations already on ${{ github.base_ref }} were changed or removed: $changed"
+            echo "::error::Migrations already on $GITHUB_BASE_REF were changed or removed: $changed"
             exit 1
           fi
 
