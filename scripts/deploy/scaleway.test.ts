@@ -1,8 +1,9 @@
 // scripts/deploy/scaleway.sh against a stand-in for Scaleway's API on this
 // machine (SCW_API_URL), with made-up values: what the container is asked to
 // be, and where the key and the secret values travel — on no command line
-// (a curl shim on PATH records every argument list) and in no error line. No
-// network beyond 127.0.0.1.
+// (a curl shim on PATH records every argument list) and in no error line. The
+// stand-in takes the fields the Containers API v1 names and refuses any
+// other, as an API may. No network beyond 127.0.0.1.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -41,7 +42,42 @@ let seen: Seen[] = [];
 // What the stand-in answers a PATCH of the container with (default: accepted).
 let patchAnswer: { status: number; body: string } | null = null;
 let containerExists = false;
+// What the stand-in's container is: whether it accepts HTTPS only (as the
+// last accepted write set it), and its state.
+let httpsOnly = false;
+let containerState: { status: string; error_message?: string } = { status: "ready" };
+// A stand-in that accepts the HTTPS-only setting without applying it.
+let keepsPlainHttp = false;
 let api = "";
+
+// The fields of CreateContainerRequest and UpdateContainerRequest in
+// Scaleway's SDK for the Containers API v1 (api/container/v1). The two name
+// the HTTPS-only setting differently.
+const SHARED_FIELDS = [
+  "environment_variables",
+  "secret_environment_variables",
+  "min_scale",
+  "max_scale",
+  "memory_limit_bytes",
+  "mvcpu_limit",
+  "timeout",
+  "privacy",
+  "description",
+  "image",
+  "protocol",
+  "port",
+  "sandbox",
+  "local_storage_limit_bytes",
+  "scaling_option",
+  "liveness_probe",
+  "startup_probe",
+  "tags",
+  "private_network_id",
+  "command",
+  "args",
+];
+const CREATE_FIELDS = new Set([...SHARED_FIELDS, "namespace_id", "name", "https_connections_only"]);
+const UPDATE_FIELDS = new Set([...SHARED_FIELDS, "https_connection_only"]);
 
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   let raw = "";
@@ -49,11 +85,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   req.on("end", () => {
     const url = new URL(req.url ?? "/", "http://stand-in");
     const key = req.headers["x-auth-token"];
+    const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
     seen.push({
       method: req.method ?? "",
       path: url.pathname,
       key: typeof key === "string" ? key : undefined,
-      body: raw ? (JSON.parse(raw) as Record<string, unknown>) : null,
+      body,
     });
     const json = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -72,13 +109,30 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (p.endsWith("/containers") && req.method === "GET") {
       return json(200, { containers: containerExists ? [{ id: "c1", name: "toy-api" }] : [] });
     }
-    if (p.endsWith("/containers") && req.method === "POST") return json(200, { id: "c1" });
-    if (p.endsWith("/containers/c1") && req.method === "PATCH") {
-      if (patchAnswer) return json(patchAnswer.status, patchAnswer.body);
+    const created = p.endsWith("/containers") && req.method === "POST";
+    const updated = p.endsWith("/containers/c1") && req.method === "PATCH";
+    if (created || updated) {
+      if (updated && patchAnswer) return json(patchAnswer.status, patchAnswer.body);
+      const fields = created ? CREATE_FIELDS : UPDATE_FIELDS;
+      const unknown = Object.keys(body ?? {}).filter((name) => !fields.has(name));
+      if (unknown.length > 0) {
+        return json(400, {
+          type: "invalid_arguments",
+          message: "invalid argument(s)",
+          details: unknown.map((name) => ({ argument_name: name, reason: "unknown" })),
+        });
+      }
+      const setting = body?.[created ? "https_connections_only" : "https_connection_only"];
+      if (typeof setting === "boolean" && !keepsPlainHttp) httpsOnly = setting;
       return json(200, { id: "c1" });
     }
     if (p.endsWith("/containers/c1")) {
-      return json(200, { id: "c1", status: "ready", public_endpoint: api });
+      return json(200, {
+        id: "c1",
+        ...containerState,
+        public_endpoint: api,
+        https_connections_only: httpsOnly,
+      });
     }
     json(404, { message: "not found", type: "not_found" });
   });
@@ -108,6 +162,15 @@ interface Run {
   stdout: string;
   stderr: string;
   curlArguments: string;
+}
+
+/** The stand-in as a deploy finds it: a container or none, plain HTTP still accepted. */
+function standIn(existing: boolean): void {
+  containerExists = existing;
+  patchAnswer = null;
+  httpsOnly = false;
+  containerState = { status: "ready" };
+  keepsPlainHttp = false;
 }
 
 /** Runs the script (the stand-in answers from this process, so not spawnSync). */
@@ -167,16 +230,15 @@ test("registry: the endpoint, asked with the key in a header that is on no comma
   assert.ok(!r.curlArguments.includes(KEY));
 });
 
-test("deploy: the container is the image asked for, over HTTPS only, without empty settings", async () => {
-  containerExists = false;
-  patchAnswer = null;
+test("deploy: a new container is the image asked for, over HTTPS only, without empty settings", async () => {
+  standIn(false);
   const r = await run("deploy", CONTAINER_ENV);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), api);
   const created = seen.find((call) => call.method === "POST" && call.path.endsWith("/containers"));
   assert.ok(created?.body);
   assert.equal(created.body.image, IMAGE);
-  assert.equal(created.body.http_option, "redirected");
+  assert.equal(created.body.https_connections_only, true);
   assert.equal(created.body.name, "toy-api");
   assert.deepEqual(created.body.environment_variables, { APP_ENV: "staging" });
   assert.deepEqual(created.body.secret_environment_variables, {
@@ -189,8 +251,31 @@ test("deploy: the container is the image asked for, over HTTPS only, without emp
   assert.ok(!(r.stdout + r.stderr).includes(SERVICE_ROLE));
 });
 
+test("deploy: an existing container is updated to the same, under the update's own field name", async () => {
+  standIn(true);
+  const r = await run("deploy", CONTAINER_ENV);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), api);
+  const updated = seen.find((call) => call.method === "PATCH");
+  assert.ok(updated?.body);
+  assert.equal(updated.path.endsWith("/containers/c1"), true);
+  assert.equal(updated.body.image, IMAGE);
+  assert.equal(updated.body.https_connection_only, true);
+  assert.deepEqual(updated.body.environment_variables, { APP_ENV: "staging" });
+  assert.ok(!seen.some((call) => call.method === "POST"));
+});
+
+test("deploy: a container that still accepts plain HTTP afterwards fails the deploy", async () => {
+  standIn(true);
+  keepsPlainHttp = true;
+  const r = await run("deploy", CONTAINER_ENV);
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, "");
+  assert.match(r.stderr, /::error::the container still accepts plain HTTP/);
+});
+
 test("a refused update: one line with the type and the argument names, no value given back", async () => {
-  containerExists = true;
+  standIn(true);
   patchAnswer = {
     status: 400,
     body: JSON.stringify({
@@ -222,12 +307,49 @@ test("a refused update: one line with the type and the argument names, no value 
   assert.ok(!r.curlArguments.includes(SERVICE_ROLE));
 });
 
+test("a refusal that gives a value back escaped, in its message or an argument name: replaced all the same", async () => {
+  standIn(true);
+  // The same JSON text written two other ways: "/" as "\/", and every third
+  // character as \uXXXX.
+  const slashes = SERVICE_ROLE.replaceAll("/", "\\/");
+  const codes = [...SERVICE_ROLE]
+    .map((c, i) => (i % 3 === 0 ? `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}` : c))
+    .join("");
+  patchAnswer = {
+    status: 400,
+    body: `{"type":"invalid_arguments","message":"cannot store ${slashes}","details":[{"argument_name":"secret_environment_variables.${codes}"}]}`,
+  };
+  const r = await run("deploy", CONTAINER_ENV);
+  assert.equal(r.status, 1);
+  assert.match(
+    r.stderr,
+    /answered 400: \{"type":"invalid_arguments","message":"cannot store \*\*\*"/,
+  );
+  assert.match(r.stderr, /"arguments":\["secret_environment_variables\.\*\*\*"\]/);
+  assert.ok(!r.stderr.includes(SERVICE_ROLE));
+});
+
 test("a refusal that is not JSON: its status, none of its text", async () => {
-  containerExists = true;
+  standIn(true);
   patchAnswer = { status: 502, body: `<html>upstream said ${SERVICE_ROLE}</html>` };
   const r = await run("deploy", CONTAINER_ENV);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /answered 502: an answer that is not JSON/);
   assert.ok(!r.stderr.includes("upstream said"));
   assert.ok(!r.stderr.includes(SERVICE_ROLE));
+});
+
+test("a container in error: Scaleway's message on one line, no value given back", async () => {
+  standIn(true);
+  containerState = {
+    status: "error",
+    error_message: `start failed with SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE}\n::warning::a second line`,
+  };
+  const r = await run("deploy", CONTAINER_ENV);
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, "");
+  const lines = r.stderr.split("\n").filter((line) => line.startsWith("::"));
+  assert.deepEqual(lines, [
+    '::error::container error: "start failed with SUPABASE_SERVICE_ROLE_KEY=***\\n::warning::a second line"',
+  ]);
 });
