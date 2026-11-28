@@ -341,6 +341,7 @@ async function handleSignOut() {
 .secret {
   display: block;
   margin-top: 0.3rem;
+  font-family: inherit;
   font-weight: 600;
   letter-spacing: 0.08em;
   overflow-wrap: anywhere;

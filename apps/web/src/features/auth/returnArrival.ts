@@ -68,7 +68,13 @@ const accountLabel = (account: Account) => account.email ?? "sans adresse email"
 
 const deps: ReturnDeps = {
   async current() {
-    const user = (await supabase.auth.getSession()).data.session?.user;
+    let { data, error } = await supabase.auth.getSession();
+    // A kept session that Auth no longer knows is dropped by that read, and
+    // the next one finds nobody. A session that could not be renewed for want
+    // of an answer is still somebody's: the return is not settled over it.
+    if (error) ({ data, error } = await supabase.auth.getSession());
+    if (error) throw error;
+    const user = data.session?.user;
     return user ? { id: user.id, email: user.email ?? null } : null;
   },
   whoIs: accountOf,
@@ -90,12 +96,7 @@ const deps: ReturnDeps = {
     });
     if (isAuthRetryableFetchError(error)) throw error;
     if (error || !data.user) return null;
-    // The address the browser arrived at held this refresh token, and the
-    // browser's history list may keep that address: renewing the session now
-    // spends it, so what stays there opens nothing for long.
-    await supabase.auth.refreshSession();
-    const user = (await supabase.auth.getSession()).data.session?.user;
-    return user ? { id: user.id, email: user.email ?? null } : null;
+    return { id: data.user.id, email: data.user.email ?? null };
   },
 };
 
