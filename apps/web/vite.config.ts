@@ -99,11 +99,11 @@ function homeBootHtml(): Plugin {
 
 // The built site's response headers (shared/boot/csp.ts). Before anything is
 // built, the settings are checked: a staging or production build that could
-// not sign in or reach its API, or a mistyped VITE_CSP, stops there. Once the build has written
-// its files, dist/_headers is written again: public/_headers with the content
-// security policy of the built index.html, read from the disk so that the
-// inline scripts hashed are the ones served, whatever wrote them. A build
-// only: the dev server sends none of these headers.
+// not sign in or reach its API, or a mistyped VITE_CSP, stops there. Once the
+// build has written its files, dist/_headers is written again: public/_headers
+// with the content security policy of the built index.html, read from the disk
+// so that the inline scripts hashed are the ones served, whatever wrote them.
+// A build only: the dev server sends none of these headers.
 function responseHeaders(): Plugin {
   let env: Record<string, string | undefined> = {};
   let mode: PolicyMode = "enforce";
