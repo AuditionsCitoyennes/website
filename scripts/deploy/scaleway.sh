@@ -12,27 +12,52 @@
 # Environment: SCW_SECRET_KEY, SCW_PROJECT_ID, SCW_REGION, REGISTRY_NAMESPACE;
 # for deploy also CONTAINERS_NAMESPACE, CONTAINER_NAME, IMAGE, VERSION,
 # MIN_SCALE, MAX_SCALE, MEMORY_MB. Every ENV_<NAME> variable becomes the
-# container's <NAME>, every SECRET_<NAME> a secret one (left out when empty).
-# Secret values are only ever sent on stdin, never on a command line or a log.
+# container's <NAME>, every SECRET_<NAME> a secret one; one whose value is
+# empty is left out, so an option nobody set never reaches the container.
+# Secret values and the API key reach curl on file descriptors only, never on
+# a command line, and are taken out of the one line an API error prints.
 # SCW_API_URL points it at another API (a stand-in, to try it).
 set -euo pipefail
 
 API=${SCW_API_URL:-https://api.scaleway.com}
 : "${SCW_SECRET_KEY:?}" "${SCW_PROJECT_ID:?}" "${SCW_REGION:?}" "${REGISTRY_NAMESPACE:?}"
 
-# Scaleway's answer on stdout; on an error, its message on stderr and exit 1.
+# The API key as a curl config line (--config -): curl reads it on its stdin,
+# so the key is in no process's arguments.
+auth_config() {
+  local key=${SCW_SECRET_KEY//\\/\\\\}
+  printf 'header = "X-Auth-Token: %s"\n' "${key//\"/\\\"}"
+}
+
+# The text with every value this script holds as a secret replaced by "***".
+redacted() { # TEXT
+  local text=$1 name
+  for name in SCW_SECRET_KEY "${!SECRET_@}"; do
+    if [ -n "${!name}" ]; then text=${text//"${!name}"/***}; fi
+  done
+  printf '%s' "$text"
+}
+
+# Scaleway's answer on stdout; on an error, exit 1 and one line on stderr:
+# the status, the error's type and message, and the names of the arguments it
+# refuses, never the text it gives about their values. The secrets are taken
+# out of the answer before anything of it is cut or printed.
 call() { # METHOD PATH [-] — "-" sends stdin as the JSON body
-  local method=$1 path=$2 out status
+  local method=$1 path=$2 out status reason
   out=$(mktemp)
   if [ "${3:-}" = "-" ]; then
-    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" \
-      -H "X-Auth-Token: $SCW_SECRET_KEY" -H "Content-Type: application/json" --data-binary @-)
+    # The body moves to descriptor 3, the key takes stdin.
+    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" --config - \
+      -H "Content-Type: application/json" --data-binary @/dev/fd/3 3<&0 < <(auth_config))
   else
-    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" \
-      -H "X-Auth-Token: $SCW_SECRET_KEY")
+    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" --config - < <(auth_config))
   fi
   if [ "$status" -ge 300 ]; then
-    echo "::error::Scaleway $method ${path%%\?*} answered $status: $(jq -c '{message, type, details}' "$out" 2>/dev/null || head -c 300 "$out")" >&2
+    reason=$(redacted "$(cat "$out")" |
+      jq -c '{type: (.type // "" | tostring | .[:80]), message: (.message // "" | tostring | .[:200]),
+        arguments: [.details[]?.argument_name? | tostring | .[:80]]}' 2>/dev/null ||
+      echo "an answer that is not JSON")
+    echo "::error::Scaleway $method ${path%%\?*} answered $status: $reason" >&2
     rm -f "$out"
     return 1
   fi
@@ -109,7 +134,8 @@ deploy() {
   fi
 
   # What the container is, all of it, every deploy: nothing set by hand in
-  # the console survives, so nothing drifts from this file.
+  # the console survives, so nothing drifts from this file. A request over
+  # plain HTTP is redirected to HTTPS.
   body=$(jq -n \
     --arg image "$IMAGE" \
     --argjson min "$MIN_SCALE" --argjson max "$MAX_SCALE" \
@@ -122,7 +148,8 @@ deploy() {
       memory_limit_bytes: $memory,
       privacy: "public",
       protocol: "http1",
-      environment_variables: ($ENV | with_entries(select(.key | startswith("ENV_")) | .key |= .[4:])),
+      http_option: "redirected",
+      environment_variables: ($ENV | with_entries(select((.key | startswith("ENV_")) and .value != "") | .key |= .[4:])),
       secret_environment_variables: ($ENV | with_entries(select((.key | startswith("SECRET_")) and .value != "") | .key |= .[7:]))
     }')
 
