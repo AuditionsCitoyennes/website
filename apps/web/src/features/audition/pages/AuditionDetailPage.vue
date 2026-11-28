@@ -186,6 +186,13 @@ const testimonies = computed(() => {
   font-size: var(--text-ui); /* name · info, and the dot between them */
 }
 
+/* As on the testimony card: what the witness typed stays inside its line. */
+.t-name,
+.t-info {
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
 .t-name {
   font-weight: 600;
   color: hsl(var(--foreground));

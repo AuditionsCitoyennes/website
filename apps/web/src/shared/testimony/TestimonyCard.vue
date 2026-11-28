@@ -88,6 +88,15 @@ const themes = computed(() => themesOf(props.testimony.topics));
   font-size: var(--text-ui);
 }
 
+/* What the witness typed (the name, the information; the text itself in
+   TestimonyText) stays inside the card: a run without a space breaks where the
+   line ends, and its writing direction stops at its own edges. */
+.t-name,
+.t-info {
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
 .t-name {
   font-weight: 600;
   font-size: var(--text-ui);

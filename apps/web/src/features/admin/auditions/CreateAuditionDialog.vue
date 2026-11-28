@@ -111,10 +111,11 @@ function problemWith(t: DraftTestimony): string | null {
   if (!t.person_name.trim() || !t.content.trim()) return "le nom et le contenu sont requis";
   const parsed = testimonyInputSchema.safeParse(payloadOf(t));
   if (parsed.success) return null;
-  const field = parsed.error.issues[0]?.path[0];
-  if (field === "person_name") return "le nom est trop long (200 caractères au plus)";
-  if (field === "person_info") {
-    return "les informations sont trop longues (500 caractères au plus)";
+  const issue = parsed.error.issues[0];
+  // The schema's own sentence for the name, the information and the text
+  // (too long, a character they do not take); it follows « Témoignage n : ».
+  if (issue && issue.path[0] !== "email") {
+    return issue.message.charAt(0).toLowerCase() + issue.message.slice(1);
   }
   return "l'adresse email n'est pas valide";
 }

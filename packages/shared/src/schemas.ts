@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { AUDITION_QUESTIONS, ONLINE_ANSWER_MAX } from "./answers";
 import { BAN_PICK_TYPES } from "./auditions";
+import {
+  cleanLine,
+  cleanText,
+  isStorableText,
+  personInfoIssue,
+  personNameIssue,
+  TEXT_NOT_STORABLE,
+} from "./text";
 
 export const auditionStatusSchema = z.enum(["published", "draft"]);
 
@@ -10,21 +18,64 @@ export const auditionStatusSchema = z.enum(["published", "draft"]);
 // request.
 export const TESTIMONY_CONTENT_MAX = 20000;
 export const AUDITION_TESTIMONIES_MAX = 200;
+/** An audition's own text (its account, beside the testimonies). */
+export const AUDITION_CONTENT_MAX = 100_000;
+
+// Every text field starts from one of these two (the text policy, text.ts): a
+// text the database cannot hold is refused, any other is cleaned before its
+// length is measured. What a schema gives back is what gets stored.
+
+/** A text of several lines: a testimony, an answer, an audition's account.
+ *  `lineBreaks` for a field that keeps fewer of them than a text does. */
+export const storedText = (lineBreaks?: number) =>
+  z
+    .string()
+    .refine(isStorableText, TEXT_NOT_STORABLE)
+    .overwrite((text) => cleanText(text, lineBreaks));
+
+/** A text of one line: a name, an information, a title, a theme. */
+export const storedLine = () =>
+  z.string().refine(isStorableText, TEXT_NOT_STORABLE).overwrite(cleanLine);
+
+/** A rule of text.ts as a zod check: its sentence becomes the issue. */
+const ruled = (issueOf: (text: string) => string | null) => (ctx: z.core.ParsePayload<string>) => {
+  const message = issueOf(ctx.value);
+  if (message) ctx.issues.push({ code: "custom", message, input: ctx.value });
+};
+
+/** A witness's name as it is first written (its characters: personNameIssue). */
+const personName = (max: number) =>
+  storedLine()
+    .max(max, `Le nom est trop long (${max} caractères au plus)`)
+    .check(ruled(personNameIssue));
+
+/** A testimony's themes: one line each, a theme in which nothing is drawn
+ *  left out. */
+const storedTopics = () => z.array(storedLine()).overwrite((themes) => themes.filter(Boolean));
+
+/** An audition's place as it is typed. Not cleaned here: the service spells
+ *  it its own way (normalizeLocation) and compares it with the stored one, as
+ *  stored, to tell whether the audition moved. */
+const typedLocation = () => z.string().trim().refine(isStorableText, TEXT_NOT_STORABLE);
+
+/** The line of information beside it (its characters: personInfoIssue). */
+const personInfo = (max: number) =>
+  storedLine()
+    .max(max, `Les informations sont trop longues (${max} caractères au plus)`)
+    .check(ruled(personInfoIssue));
 
 // A testimony as entered by an admin (inline in the audition builder or standalone).
 export const testimonyInputSchema = z.object({
-  person_name: z.string().trim().min(1, "Le nom est requis").max(200),
-  person_info: z.string().trim().max(500).optional().nullable(),
-  content: z
-    .string()
-    .trim()
+  person_name: personName(200).min(1, "Le nom est requis"),
+  person_info: personInfo(500).optional().nullable(),
+  content: storedText()
     .min(1, "Le témoignage est requis")
     .max(
       TESTIMONY_CONTENT_MAX,
       `Le témoignage est trop long (${TESTIMONY_CONTENT_MAX} caractères au plus)`,
     ),
   email: z.string().trim().email("Email invalide").optional().nullable().or(z.literal("")),
-  topics: z.array(z.string()).optional().nullable(),
+  topics: storedTopics().optional().nullable(),
 });
 
 /**
@@ -42,12 +93,15 @@ export const createTestimonySchema = testimonyInputSchema.extend({
   consent_certified: consentCertified,
 });
 
+// An edit sends the whole form back, the name and the information as they are
+// stored when untouched: their characters are judged where the stored row is
+// known, and only when they change (editedText, then personNameIssue).
 export const updateTestimonySchema = z.object({
-  person_name: z.string().trim().min(1).max(200).optional(),
-  person_info: z.string().trim().max(500).nullable().optional(),
-  content: z.string().trim().min(1).max(TESTIMONY_CONTENT_MAX).optional(),
+  person_name: storedLine().min(1).max(200).optional(),
+  person_info: storedLine().max(500).nullable().optional(),
+  content: storedText().min(1).max(TESTIMONY_CONTENT_MAX).optional(),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
-  topics: z.array(z.string()).nullable().optional(),
+  topics: storedTopics().nullable().optional(),
 });
 
 /** An INSEE commune (or arrondissement) code: 69387, 2A004. */
@@ -73,19 +127,19 @@ export const placePickSchema = z.object(
   { error: PRECISE_ADDRESS_REQUIRED },
 );
 
+const AUDITION_CONTENT_TOO_LONG = `Le contexte de l'audition est trop long (${AUDITION_CONTENT_MAX} caractères au plus)`;
+
 export const createAuditionSchema = z
   .object({
-    title: z.string().trim().min(1, "Le titre est requis").max(300),
+    title: storedLine().min(1, "Le titre est requis").max(300),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date au format AAAA-MM-JJ"),
-    location: z
-      .string()
-      .trim()
+    location: typedLocation()
       .min(1, "Le lieu est requis")
       .max(300, "Le lieu est trop long (300 caractères au plus)"),
     // An in-person audition needs a precise address (the only kind created
     // here: online ones come from submit_online_testimony).
     place: placePickSchema,
-    content: z.string().trim().default(""),
+    content: storedText().max(AUDITION_CONTENT_MAX, AUDITION_CONTENT_TOO_LONG).default(""),
     status: auditionStatusSchema.default("published"),
     testimonies: z
       .array(testimonyInputSchema)
@@ -102,19 +156,17 @@ export const createAuditionSchema = z
   });
 
 export const updateAuditionSchema = z.object({
-  title: z.string().trim().min(1).max(300).optional(),
+  title: storedLine().min(1).max(300).optional(),
   date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
-  location: z
-    .string()
-    .trim()
+  location: typedLocation()
     .min(1)
     .max(300, "Le lieu est trop long (300 caractères au plus)")
     .optional(),
   place: placePickSchema.optional(),
-  content: z.string().trim().optional(),
+  content: storedText().max(AUDITION_CONTENT_MAX, AUDITION_CONTENT_TOO_LONG).optional(),
   status: auditionStatusSchema.optional(),
 });
 
@@ -123,6 +175,10 @@ export const updateAuditionSchema = z.object({
 // `commune_code` of the forms before it: the server resolves everything else
 // itself.
 export const ONLINE_TESTIMONY_MAX = 5000;
+/** Line breaks one answer keeps, the later ones read as spaces. The three
+ *  answers under their questions stay within what a whole text keeps
+ *  (boundLines), so the testimony composed from them is stored as composed. */
+export const ONLINE_ANSWER_LINE_BREAKS = 40;
 const onlineCommuneCode = z
   .string({ error: "Choisissez votre commune dans la liste" })
   .regex(INSEE_COMMUNE, "Choisissez votre commune dans la liste");
@@ -137,26 +193,15 @@ export const onlineTestimonySchema = z
       .min(1, "L'email est requis")
       .max(254, "Email invalide")
       .email("Email invalide"),
-    person_name: z
-      .string()
-      .trim()
-      .max(80, "Le nom est trop long (80 caractères au plus)")
-      .default(""),
-    person_info: z
-      .string()
-      .trim()
-      .max(300, "Les informations sont trop longues (300 caractères au plus)")
-      .default(""),
+    person_name: personName(80).default(""),
+    person_info: personInfo(300).default(""),
     // One answer per question (AUDITION_QUESTIONS), in order; at least one.
     answers: z
       .array(
-        z
-          .string()
-          .trim()
-          .max(
-            ONLINE_ANSWER_MAX,
-            `Une réponse est trop longue (${ONLINE_ANSWER_MAX} caractères au plus)`,
-          ),
+        storedText(ONLINE_ANSWER_LINE_BREAKS).max(
+          ONLINE_ANSWER_MAX,
+          `Une réponse est trop longue (${ONLINE_ANSWER_MAX} caractères au plus)`,
+        ),
         { error: "Répondez à au moins une des questions" },
       )
       .length(AUDITION_QUESTIONS.length, "Répondez à au moins une des questions")
