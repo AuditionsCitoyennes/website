@@ -7,15 +7,16 @@
 -- So do the foreign keys' own actions, which run as the table's owner: an
 -- account's deletion still clears created_by and consent_certified_by.
 --
+-- The status they may set is 'pending' or none: 'verified' is the witness's to
+-- give, through the link, and no other value means anything to the sites.
+--
 -- On insert:
---   - 'verified' is refused (42501): a testimony is validated by its witness,
---     through the link;
+--   - any other status is refused (42501);
 --   - created_by is the caller and created_at the current time;
 --   - a consent certification is the caller's own, dated now, or absent.
 -- On update:
---   - 'verified' is refused when the row was not validated already; a
---     validated row keeps its status through other changes (its themes), or
---     goes back to 'pending';
+--   - any other status is refused when it is a change: a validated row keeps
+--     'verified' through other changes (its themes), or goes back to 'pending';
 --   - audition_id, created_by, created_at and the two consent columns keep
 --     their values.
 --
@@ -31,16 +32,24 @@ create function public.testimonies_write_guard() returns trigger
   security invoker
   set search_path = ''
 as $$
+declare
+  v_sets_status boolean := true;
 begin
   if current_user not in ('anon', 'authenticated') then
     return new;
   end if;
 
+  if tg_op = 'UPDATE' then
+    v_sets_status := new.verification_status is distinct from old.verification_status;
+  end if;
+  if v_sets_status
+     and new.verification_status is not null
+     and new.verification_status <> 'pending' then
+    raise exception 'a signed-in account sets a testimony''s status to pending or to none: its witness validates it, through the emailed link'
+      using errcode = '42501';
+  end if;
+
   if tg_op = 'INSERT' then
-    if new.verification_status = 'verified' then
-      raise exception 'a testimony is validated by its witness, through the emailed link'
-        using errcode = '42501';
-    end if;
     new.created_by := auth.uid();
     new.created_at := pg_catalog.now();
     if new.consent_certified_by is null then
@@ -52,11 +61,6 @@ begin
     return new;
   end if;
 
-  if new.verification_status = 'verified'
-     and old.verification_status is distinct from 'verified' then
-    raise exception 'a testimony is validated by its witness, through the emailed link'
-      using errcode = '42501';
-  end if;
   new.audition_id := old.audition_id;
   new.created_by := old.created_by;
   new.created_at := old.created_at;

@@ -563,6 +563,9 @@ ${writes("admin: deletes an online testimony", `delete from public.testimonies w
 ${writes("admin: moves an own testimony to another audition", `update public.testimonies set audition_id = ${uuid(theirs)} where id = ${uuid(myPending)}`)}
 ${writes("admin: validates an own pending testimony", `update public.testimonies set verification_status = 'verified' where id = ${uuid(myPending)}`)}
 ${writes("admin: adds a testimony already validated", newTestimony(mine, ", 'verified'"))}
+${writes("admin: adds a testimony with a status of its own", newTestimony(mine, ", 'Verified'"))}
+${writes("admin: gives an own testimony a status of its own", `update public.testimonies set verification_status = 'checked' where id = ${uuid(myPending)}`)}
+${writes("admin: sends an own validated testimony back to pending", `update public.testimonies set verification_status = 'pending' where id = ${uuid(myValidated)}`)}
 ${writes(
   "admin: rewrites who wrote and certified an own testimony",
   `update public.testimonies
@@ -580,6 +583,13 @@ ${writes(
 )}
 ${writes("admin: adds an audition without an author", `insert into public.auditions (title, date, location, content) values ('x', current_date, 'Lyon', 'x')`)}
 ${writes("admin: hands an own audition to another admin", `update public.auditions set created_by = ${uuid(other)} where id = ${uuid(mine)}`)}
+${writes(
+  "admin: turns an own audition into an online one",
+  `update public.auditions
+      set audition_en_ligne = true, citycode = 'old-app-check-2', place = '{"insee": "old-app-check-2"}'::jsonb,
+          date = pg_catalog.date_trunc('month', current_date)::date
+    where id = ${uuid(mine)}`,
+)}
 ${calls("admin: a 'role_deleted' line", audit(admin, "role_deleted", other))}
 ${calls("admin: an 'account_deleted' line about another", audit(admin, "account_deleted", other))}
 ${calls("admin: a line in another's name", audit(other, "account_deleted", other))}
@@ -700,12 +710,16 @@ ${says(
     "admin: moves an own testimony to another audition": "rows 1",
     "admin: validates an own pending testimony": "refused 42501",
     "admin: adds a testimony already validated": "refused 42501",
+    "admin: adds a testimony with a status of its own": "refused 42501",
+    "admin: gives an own testimony a status of its own": "refused 42501",
+    "admin: sends an own validated testimony back to pending": "rows 1",
     // Written, and the four columns kept: see "who wrote and certified".
     "admin: rewrites who wrote and certified an own testimony": "rows 1",
     "admin: adds a testimony in another's name, dated and certified by another": "rows 1",
     "admin: adds an audition in another admin's name": "refused 42501",
     "admin: adds an audition without an author": "refused 42501",
     "admin: hands an own audition to another admin": "refused 42501",
+    "admin: turns an own audition into an online one": "refused 42501",
     "admin: a 'role_deleted' line": "refused 42501",
     "admin: an 'account_deleted' line about another": "refused 42501",
     "admin: a line in another's name": "refused 42501",

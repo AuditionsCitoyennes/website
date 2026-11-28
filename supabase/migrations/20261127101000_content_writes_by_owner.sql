@@ -3,7 +3,9 @@
 -- Six restrictive policies, beside the existing ones (which stay as they are:
 -- a restrictive policy only narrows):
 --   - auditions: inserted, updated and deleted by a super admin, or by the
---     account named in created_by (which an update cannot hand to another);
+--     account named in created_by (which an update cannot hand to another,
+--     nor turn its audition into an online one: those are filed by the
+--     server, one per town hall and month, and have no author);
 --   - testimonies: inserted by a super admin, or into an audition the caller
 --     created; updated and deleted by a super admin, by the account that
 --     created them, or by the one that created their audition.
@@ -49,7 +51,7 @@ create policy "Auditions are changed by their author and super admins"
   )
   with check (
     (select public.is_super_admin())
-    or created_by = (select auth.uid())
+    or (created_by = (select auth.uid()) and not audition_en_ligne)
   );
 
 create policy "Auditions are deleted by their author and super admins"

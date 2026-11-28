@@ -57,24 +57,29 @@ create function public.keep_one_super_admin() returns trigger
   set search_path = ''
 as $$
 begin
-  if old.role = 'super_admin'
-     and (tg_op = 'DELETE' or new.role is distinct from 'super_admin') then
-    -- One removal at a time: the second one waits here, then counts what the
-    -- first one left.
-    perform pg_catalog.pg_advisory_xact_lock(
-      pg_catalog.hashtextextended('public.user_roles:super_admin', 0));
-    if not exists (
-      select 1 from public.user_roles ur
-       where ur.role = 'super_admin' and ur.id <> old.id
-    ) then
-      raise exception 'the last super admin keeps their role'
-        using errcode = '23514';
+  if tg_op = 'UPDATE' then
+    if old.role <> 'super_admin' or new.role = 'super_admin' then
+      return new;
     end if;
-  end if;
-  if tg_op = 'DELETE' then
+  elsif old.role <> 'super_admin' then
     return old;
   end if;
-  return new;
+
+  -- A super admin's role is going. One removal at a time: the second one
+  -- waits here, then counts what the first one left.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('public.user_roles:super_admin', 0));
+  if not exists (
+    select 1 from public.user_roles ur
+     where ur.role = 'super_admin' and ur.id <> old.id
+  ) then
+    raise exception 'the last super admin keeps their role'
+      using errcode = '23514';
+  end if;
+  if tg_op = 'UPDATE' then
+    return new;
+  end if;
+  return old;
 end;
 $$;
 
