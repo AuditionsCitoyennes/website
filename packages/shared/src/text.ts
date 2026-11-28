@@ -20,6 +20,14 @@ const BLANKS = /[\t\u{2800}\u{3164}\u{115F}\u{1160}\u{FFA0}]/gu;
 /** The two joiners scripts and emoji are written with. */
 const JOINERS = "\u{200C}\u{200D}";
 
+/** A joiner that joins nothing draws nothing: one with, on each side, a
+ *  digit, a Latin letter, a sign of the keyboard, a space of any kind or an
+ *  end of the text. */
+const IDLE_JOINERS = new RegExp(
+  `(^|[\\u0000-\\u007F\\s])[${JOINERS}]+(?=$|[\\u0000-\\u007F\\s])`,
+  "gu",
+);
+
 /**
  * Characters no stored text keeps: they draw nothing, and some reorder or hide
  * what stands around them.
@@ -29,8 +37,9 @@ const JOINERS = "\u{200C}\u{200D}";
  *    isolates (U+200E, U+200F, U+061C, U+202A-202E, U+2066-2069), the
  *    zero-width space and its kin (U+200B, U+2060, U+FEFF), the soft hyphen,
  *    the tag characters and the rest of their class.
- * Kept from that class: the two joiners and the signs that are drawn (Arabic
- * and Syriac number and verse marks).
+ * Kept from that class: the two joiners (where they join something: see
+ * IDLE_JOINERS) and the signs that are drawn (Arabic and Syriac number and
+ * verse marks).
  */
 const DROPPED =
   /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\p{Cs}]|(?![\u{200C}\u{200D}\u{0600}-\u{0605}\u{06DD}\u{070F}\u{0890}\u{0891}\u{08E2}\u{110BD}\u{110CD}])\p{Cf}/gu;
@@ -49,19 +58,47 @@ const MARKS_OVER = new RegExp(
 /** Something a reader sees: a letter, a digit, a punctuation sign, a symbol. */
 const DRAWN = /[\p{L}\p{N}\p{P}\p{S}]/u;
 
+/** Line breaks any text may hold, however short it is. */
+const LINE_BREAKS_MIN = 150;
+
+/** Past that count, a text holds one line break for every so many characters. */
+const CHARACTERS_PER_LINE_BREAK = 40;
+
+/**
+ * `text` with at most `most` line breaks: every later one reads as a space.
+ * By default a text keeps 150 of them, or one for every 40 characters when
+ * that is more. Paragraphs, a list or a poem stay as typed; a text of one
+ * word to a line takes a few times the height of the same length in full
+ * lines, not one line for each word. The length does not change, so a text
+ * bounded once is left alone the next time.
+ */
+export function boundLines(
+  text: string,
+  most = Math.max(LINE_BREAKS_MIN, Math.floor(text.length / CHARACTERS_PER_LINE_BREAK)),
+): string {
+  let at = -1;
+  for (let kept = 0; kept <= most; kept++) {
+    at = text.indexOf("\n", at + 1);
+    if (at < 0) return text;
+  }
+  return text.slice(0, at) + text.slice(at).replace(/\n/g, " ");
+}
+
 /**
  * A text as the site stores it: composed (Unicode NFC), without the characters
  * of DROPPED, at most four combining marks on a letter, one kind of line break,
  * nothing but the break at the end of a line, a line in which nothing is drawn
  * counted as empty, at most one empty line in a row, no space around the
- * whole. What a reader sees of an ordinary text is unchanged; applying it twice
- * changes nothing more.
+ * whole, and no more line breaks than boundLines() keeps (`lineBreaks` for a
+ * field with a count of its own). What a reader sees of an ordinary text is
+ * unchanged; applying it twice changes nothing more.
  */
-export function cleanText(text: string): string {
-  return text
+export function cleanText(text: string, lineBreaks?: number): string {
+  const cleaned = text
     .replace(LINE_BREAKS, "\n")
     .replace(BLANKS, " ")
     .replace(DROPPED, "")
+    .replace(IDLE_JOINERS, "$1")
     .normalize("NFC")
     .replace(MARKS_OVER, (_, kept: string, over: string) => kept + over.replace(/\p{M}/gu, ""))
     .split("\n")
@@ -69,6 +106,7 @@ export function cleanText(text: string): string {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  return boundLines(cleaned, lineBreaks);
 }
 
 /** cleanText for a field of one line (a name, an information, a title, a

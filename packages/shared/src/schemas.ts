@@ -25,11 +25,15 @@ export const AUDITION_CONTENT_MAX = 100_000;
 // text the database cannot hold is refused, any other is cleaned before its
 // length is measured. What a schema gives back is what gets stored.
 
-/** A text of several lines: a testimony, an answer, an audition's account. */
-export const storedText = () =>
-  z.string().refine(isStorableText, TEXT_NOT_STORABLE).overwrite(cleanText);
+/** A text of several lines: a testimony, an answer, an audition's account.
+ *  `lineBreaks` for a field that keeps fewer of them than a text does. */
+export const storedText = (lineBreaks?: number) =>
+  z
+    .string()
+    .refine(isStorableText, TEXT_NOT_STORABLE)
+    .overwrite((text) => cleanText(text, lineBreaks));
 
-/** A text of one line: a name, an information, a title, a place, a theme. */
+/** A text of one line: a name, an information, a title, a theme. */
 export const storedLine = () =>
   z.string().refine(isStorableText, TEXT_NOT_STORABLE).overwrite(cleanLine);
 
@@ -44,6 +48,15 @@ const personName = (max: number) =>
   storedLine()
     .max(max, `Le nom est trop long (${max} caractères au plus)`)
     .check(ruled(personNameIssue));
+
+/** A testimony's themes: one line each, a theme in which nothing is drawn
+ *  left out. */
+const storedTopics = () => z.array(storedLine()).overwrite((themes) => themes.filter(Boolean));
+
+/** An audition's place as it is typed. Not cleaned here: the service spells
+ *  it its own way (normalizeLocation) and compares it with the stored one, as
+ *  stored, to tell whether the audition moved. */
+const typedLocation = () => z.string().trim().refine(isStorableText, TEXT_NOT_STORABLE);
 
 /** The line of information beside it (its characters: personInfoIssue). */
 const personInfo = (max: number) =>
@@ -62,7 +75,7 @@ export const testimonyInputSchema = z.object({
       `Le témoignage est trop long (${TESTIMONY_CONTENT_MAX} caractères au plus)`,
     ),
   email: z.string().trim().email("Email invalide").optional().nullable().or(z.literal("")),
-  topics: z.array(storedLine()).optional().nullable(),
+  topics: storedTopics().optional().nullable(),
 });
 
 /**
@@ -88,7 +101,7 @@ export const updateTestimonySchema = z.object({
   person_info: storedLine().max(500).nullable().optional(),
   content: storedText().min(1).max(TESTIMONY_CONTENT_MAX).optional(),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
-  topics: z.array(storedLine()).nullable().optional(),
+  topics: storedTopics().nullable().optional(),
 });
 
 /** An INSEE commune (or arrondissement) code: 69387, 2A004. */
@@ -120,7 +133,7 @@ export const createAuditionSchema = z
   .object({
     title: storedLine().min(1, "Le titre est requis").max(300),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date au format AAAA-MM-JJ"),
-    location: storedLine()
+    location: typedLocation()
       .min(1, "Le lieu est requis")
       .max(300, "Le lieu est trop long (300 caractères au plus)"),
     // An in-person audition needs a precise address (the only kind created
@@ -148,7 +161,7 @@ export const updateAuditionSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
-  location: storedLine()
+  location: typedLocation()
     .min(1)
     .max(300, "Le lieu est trop long (300 caractères au plus)")
     .optional(),
@@ -162,6 +175,10 @@ export const updateAuditionSchema = z.object({
 // `commune_code` of the forms before it: the server resolves everything else
 // itself.
 export const ONLINE_TESTIMONY_MAX = 5000;
+/** Line breaks one answer keeps, the later ones read as spaces. The three
+ *  answers under their questions stay within what a whole text keeps
+ *  (boundLines), so the testimony composed from them is stored as composed. */
+export const ONLINE_ANSWER_LINE_BREAKS = 40;
 const onlineCommuneCode = z
   .string({ error: "Choisissez votre commune dans la liste" })
   .regex(INSEE_COMMUNE, "Choisissez votre commune dans la liste");
@@ -181,7 +198,7 @@ export const onlineTestimonySchema = z
     // One answer per question (AUDITION_QUESTIONS), in order; at least one.
     answers: z
       .array(
-        storedText().max(
+        storedText(ONLINE_ANSWER_LINE_BREAKS).max(
           ONLINE_ANSWER_MAX,
           `Une réponse est trop longue (${ONLINE_ANSWER_MAX} caractères au plus)`,
         ),

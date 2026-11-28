@@ -1,6 +1,6 @@
 // The text policy (text.ts), the masking that follows it (sanitize.ts) and the
-// schemas that attach both (schemas.ts). Run with `node --import tsx --test`
-// (root "test:scripts").
+// schemas that attach both (schemas.ts). Run with
+// `node --import tsx --test packages/shared/src/text.test.ts`.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -9,12 +9,14 @@ import { editedText, sanitizeLine, sanitizeText } from "./sanitize";
 import {
   AUDITION_CONTENT_MAX,
   createAuditionSchema,
+  ONLINE_ANSWER_LINE_BREAKS,
   onlineTestimonySchema,
   testimonyInputSchema,
   updateAuditionSchema,
   updateTestimonySchema,
 } from "./schemas";
 import {
+  boundLines,
   cleanLine,
   cleanText,
   isStorableText,
@@ -46,6 +48,8 @@ const BYTE_ORDER_MARK = "\u{FEFF}";
 const TAG_LETTER_A = "\u{E0041}";
 const NO_BREAK_SPACE = "\u{00A0}";
 const NARROW_NO_BREAK_SPACE = "\u{202F}";
+const THIN_SPACE = "\u{2009}";
+const FIGURE_SPACE = "\u{2007}";
 const BRAILLE_BLANK = "\u{2800}";
 const HANGUL_FILLER = "\u{3164}";
 const HIGH_SURROGATE = "\uD800";
@@ -117,6 +121,21 @@ test("the joiners scripts and emoji are written with stay", () => {
   assert.equal(cleanText(persian), persian);
   const family = `\u{1F468}${ZERO_WIDTH_JOINER}\u{1F469}${ZERO_WIDTH_JOINER}\u{1F467}`;
   assert.equal(cleanText(family), family);
+  // A letter shown in its joining form before a full stop (an abbreviation).
+  const abbreviation = `\u{0647}${ZERO_WIDTH_JOINER}.\u{0634}`;
+  assert.equal(cleanText(abbreviation), abbreviation);
+});
+
+test("a joiner that joins nothing goes", () => {
+  // Between digits, Latin letters, signs, spaces, or at an end of the text.
+  assert.equal(cleanText(`06${ZERO_WIDTH_JOINER}12`), "0612");
+  assert.equal(
+    cleanText(`a${ZERO_WIDTH_NON_JOINER}${ZERO_WIDTH_JOINER}b c${ZERO_WIDTH_JOINER} d`),
+    "ab c d",
+  );
+  assert.equal(cleanText(`jean${ZERO_WIDTH_NON_JOINER}@example.org`), "jean@example.org");
+  assert.equal(cleanText(`${ZERO_WIDTH_JOINER}Zoe${ZERO_WIDTH_JOINER}`), "Zoe");
+  assert.equal(cleanLine(`3${NO_BREAK_SPACE}${ZERO_WIDTH_JOINER}l`), `3${NO_BREAK_SPACE}l`);
 });
 
 test("half a surrogate pair goes, a whole pair stays", () => {
@@ -162,6 +181,35 @@ test("at most one empty line in a row, nothing at the end of a line", () => {
   assert.equal(cleanText("  a\n  b  "), "a\n  b");
 });
 
+const lineBreaks = (text: string) => text.split("\n").length - 1;
+
+test("a text keeps 150 line breaks, or one for every 40 characters", () => {
+  // Paragraphs, a list, a poem: as typed.
+  const poem = Array.from({ length: 120 }, (_, i) => `vers ${i}`).join("\n");
+  assert.equal(cleanText(poem), poem);
+  const paragraphs = Array.from({ length: 70 }, (_, i) => `Paragraphe ${i}.`).join("\n\n");
+  assert.equal(cleanText(paragraphs), paragraphs);
+  // One character on each line: the first 150 breaks stay, the rest of the
+  // text follows on one line, every character still there.
+  const dots = Array.from({ length: 750 }, () => ".").join("\n");
+  const kept = cleanText(dots);
+  assert.equal(lineBreaks(kept), 150);
+  assert.equal(kept.length, dots.length);
+  assert.equal(kept.replace(/\s/g, ""), ".".repeat(750));
+  assert.ok(kept.endsWith(". . ."));
+  // A long text keeps its share: 20,000 characters, 500 breaks.
+  const long = Array.from({ length: 2000 }, () => "neuf lett").join("\n");
+  assert.equal(long.length, 19_999);
+  assert.equal(lineBreaks(cleanText(long)), 499);
+  const longer = Array.from({ length: 2000 }, () => "dix lettre").join("\n");
+  assert.equal(lineBreaks(cleanText(longer)), 549);
+  // A field with a count of its own.
+  assert.equal(cleanText("a\nb\nc\nd", 2), "a\nb\nc d");
+  assert.equal(boundLines("a\n\nb\n\nc", 3), "a\n\nb\n c");
+  assert.equal(boundLines("a\nb", 0), "a b");
+  assert.equal(boundLines("a\nb", 1), "a\nb");
+});
+
 test("a text in which nothing is drawn is empty", () => {
   for (const blank of [
     " \n\t ",
@@ -174,7 +222,8 @@ test("a text in which nothing is drawn is empty", () => {
     assert.equal(cleanText(blank), "", JSON.stringify(blank));
     assert.equal(cleanLine(blank), "", JSON.stringify(blank));
   }
-  assert.equal(cleanText(`${ZERO_WIDTH_JOINER}.`), `${ZERO_WIDTH_JOINER}.`);
+  assert.equal(cleanText(`${ZERO_WIDTH_JOINER}.`), ".");
+  assert.equal(cleanText(`${ZERO_WIDTH_JOINER}\u{0647}`), `${ZERO_WIDTH_JOINER}\u{0647}`);
 });
 
 test("cleaning twice changes nothing more", () => {
@@ -186,6 +235,13 @@ test("cleaning twice changes nothing more", () => {
     `06${ZERO_WIDTH_SPACE}12 34 56 78 ${FIRE}${EMOJI_SELECTOR}`,
     `Z${(TILDE.repeat(3) + ZERO_WIDTH_JOINER + ACUTE.repeat(3)).repeat(5)} fin`,
     `a \r\n${ZERO_WIDTH_SPACE}\n \n b${NO_BREAK_SPACE}${NO_BREAK_SPACE}c`,
+    // Past the line breaks a text keeps, with and without something to mask,
+    // a number cut where the lines are joined, and empty lines at the bound.
+    Array.from({ length: 400 }, (_, i) => `ligne ${i}`).join("\n"),
+    Array.from({ length: 400 }, (_, i) => (i % 7 ? "06 12 34" : "56 78")).join("\n"),
+    Array.from({ length: 400 }, (_, i) => (i % 3 ? "+32 470 12" : "34 56")).join("\n\n"),
+    Array.from({ length: 900 }, (_, i) => `zoe.martin${i}@example.org a`).join("\n"),
+    `${"x\n".repeat(149)}y\n\nz\n\n06 12\n34 56 78`,
   ];
   for (const sample of samples) {
     const once = cleanText(sample);
@@ -226,9 +282,13 @@ test("a long run of spaces, marks, digits or letters costs its length", () => {
     "06 12 34 56 7 ".repeat(n / 14),
     `+1${"(1)".repeat(12)}`.repeat(n / 38),
     `${"a".repeat(n)}@`,
+    "0690 12 34 5".repeat(n / 12),
+    "06  12  34  5".repeat(n / 13),
+    "(+33) (0) 6 ".repeat(n / 12),
+    `a${"\n.".repeat(n / 2)}`,
   ];
-  // Read once, each takes a few milliseconds; read again from every position,
-  // the first alone took several seconds at half this length.
+  // Read once, each takes a few milliseconds; a pattern that reads a run
+  // again from every position would take seconds.
   const started = performance.now();
   for (const run of runs) {
     cleanLine(run);
@@ -335,11 +395,20 @@ test("phone numbers become ***", () => {
     "06-12-34-56-78",
     "0612345678",
     `06${NO_BREAK_SPACE}12${NO_BREAK_SPACE}34${NO_BREAK_SPACE}56${NO_BREAK_SPACE}78`,
+    `06${THIN_SPACE}12${THIN_SPACE}34${THIN_SPACE}56${THIN_SPACE}78`,
+    `06${FIGURE_SPACE}12${NARROW_NO_BREAK_SPACE}34 56${NO_BREAK_SPACE}78`,
+    "06  12  34  56  78",
+    "06 12 34 56  78",
     "+33 6 12 34 56 78",
     "+33612345678",
     "+33 (0)6 12 34 56 78",
     "+33(0)612345678",
     "0033 6 12 34 56 78",
+    "00 33 6 12 34 56 78",
+    "(+33) 6 12 34 56 78",
+    "+ 33 6 12 34 56 78",
+    "+33 690 12 34 56",
+    "(+32) 470 12 34 56",
     "+1 (555) 123-4567",
     "+44 20 7946 0958",
     "+32 470 12 34 56",
@@ -357,13 +426,50 @@ test("phone numbers become ***", () => {
   assert.equal(sanitizeText("06 12 34 56 78 24 h sur 24"), "*** 24 h sur 24");
 });
 
-test("a number with its country code stays masked whatever numbers follow it", () => {
-  assert.equal(sanitizeText("+33 6 12 34 56 78 2024 2025"), "***");
+test("French numbers in the groupings of overseas and free numbers become ***", () => {
+  for (const phone of [
+    // Guadeloupe, Martinique, Guyane, La Réunion, Mayotte.
+    "0690 12 34 56",
+    "0590 12 34 56",
+    "0696 12 34 56",
+    "0596 12 34 56",
+    "0694 12 34 56",
+    "0262 12 34 56",
+    "0692 12 34 56",
+    "0639 12 34 56",
+    "0690.12.34.56",
+    "0262-12-34-56",
+    "0612 34 56 78",
+    "0612 345 678",
+    "0800 123 456",
+    "+33 612 345 678",
+  ]) {
+    assert.equal(sanitizeText(phone), "***", phone);
+    assert.equal(sanitizeText(`Joignable au ${phone} après 18 h.`), "Joignable au *** après 18 h.");
+  }
+});
+
+test("a French number ends where its ten digits end", () => {
+  assert.equal(sanitizeText("+33 6 12 34 56 78 10 personnes"), "*** 10 personnes");
+  assert.equal(sanitizeText("+33 6 12 34 56 78 2024 2025"), "*** 2024 2025");
+  assert.equal(sanitizeText("06 12 34 56 78\n10 rue de la Paix"), "***\n10 rue de la Paix");
+});
+
+test("a number with another country code stays masked whatever numbers follow it", () => {
+  assert.equal(sanitizeText("+32 470 12 34 56 2024 2025"), "***");
   assert.equal(
-    sanitizeText("+33 6 12 34 56 78 1 2 3 4 5 6 7 8 9"),
+    sanitizeText("+32 470 12 34 56 1 2 3 4 5 6 7 8 9"),
     // Ten runs of digits at most are one number.
-    "*** 5 6 7 8 9",
+    "*** 6 7 8 9",
   );
+});
+
+test("a number cut in two lines is one number", () => {
+  assert.equal(sanitizeText("Mon numéro : 06 12 34\n56 78."), "Mon numéro : ***.");
+  assert.equal(sanitizeText("+32 470 12\n34 56"), "***");
+  // Joined by the bound on line breaks or left on two lines: the same text.
+  const cut = `${"x\n".repeat(150)}06 12 34\n56 78`;
+  assert.equal(sanitizeText(cut), `${"x\n".repeat(150)}***`);
 });
 
 test("email addresses become ***", () => {
@@ -374,6 +480,8 @@ test("a number or an address cut by invisible characters is masked whole", () =>
   assert.equal(sanitizeText(["06", "12", "34", "56", "78"].join(ZERO_WIDTH_SPACE)), "***");
   assert.equal(sanitizeText(`jean.dupont@${ZERO_WIDTH_SPACE}example.org`), "***");
   assert.equal(sanitizeText(`06 12 34${SOFT_HYPHEN} 56 78`), "***");
+  assert.equal(sanitizeText(["06", "12", "34", "56", "78"].join(ZERO_WIDTH_JOINER)), "***");
+  assert.equal(sanitizeText(`jean.dupont${ZERO_WIDTH_NON_JOINER}@example.org`), "***");
 });
 
 test("years, dates, law numbers and amounts are not phone numbers", () => {
@@ -388,7 +496,17 @@ test("years, dates, law numbers and amounts are not phone numbers", () => {
     "12 345 678 habitants",
     "1 000 000 000 d'euros",
     "+2 000 emplois",
+    "+15 000 000 d'euros",
+    "+15 300 000 euros",
+    "+2 000 000 000",
+    "12 000 000 + 13 500 000 euros",
     "+15 % en 2024",
+    "06 12 2024",
+    "01 02 2025 10 personnes",
+    "en 0800 000 habitants",
+    "code 0123 45 67",
+    "00 00 00 00 00",
+    "SIRET 123 456 789 00012",
     "article L. 2121-29",
     "à 08 h 30, salle 12",
     "75011 Paris, 12 bis rue de la Paix",
@@ -506,6 +624,29 @@ test("the online form measures lengths on the cleaned text and wants one real an
   }
 });
 
+test("an answer keeps 40 line breaks, and three full answers are stored as composed", () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => `ligne ${i}`).join("\n");
+  const list = lines(ONLINE_ANSWER_LINE_BREAKS + 1);
+  assert.equal(online({ answers: [list, "", ""] }).data?.answers[0], list);
+  const dots = Array.from({ length: 750 }, () => ".").join("\n");
+  const parsed = online({ answers: [dots, dots, dots] });
+  assert.equal(parsed.success, true);
+  const answers = (parsed.data?.answers ?? []).map(sanitizeText);
+  for (const answer of answers) {
+    assert.equal(lineBreaks(answer), ONLINE_ANSWER_LINE_BREAKS);
+    assert.equal(answer.replace(/\s/g, ""), ".".repeat(750));
+  }
+  // Under their questions: what the form stores, and what a later reading of
+  // the stored text (an edit, the emailed page) leaves as it is.
+  const composed = composeAnswers(answers);
+  assert.equal(lineBreaks(composed), 3 * ONLINE_ANSWER_LINE_BREAKS + 7);
+  assert.equal(sanitizeText(composed), composed);
+  assert.deepEqual(
+    parseAnswers(composed)?.map((a) => a.answer),
+    answers,
+  );
+});
+
 test("answers composed from cleaned text are read back as answers", () => {
   const parsed = online({
     answers: [`Bien.${"\n".repeat(9)}Merci.`, `Bof${RIGHT_TO_LEFT_OVERRIDE}.`, ""],
@@ -543,6 +684,13 @@ test("a testimony typed by a volunteer follows the same rules", () => {
     "Les informations sont trop longues (500 caractères au plus)",
   );
   assert.equal(typed({ person_name: "Camille\nRoux" }).data?.person_name, "Camille Roux");
+  // A theme in which nothing is drawn is left out.
+  assert.deepEqual(
+    typed({ topics: ["logement", ZERO_WIDTH_SPACE, " ", "santé\nmentale"] }).data?.topics,
+    ["logement", "santé mentale"],
+  );
+  assert.deepEqual(updateTestimonySchema.safeParse({ topics: [BRAILLE_BLANK] }).data?.topics, []);
+  assert.equal(typed({ topics: null }).data?.topics, null);
 });
 
 test("an edit cleans and bounds, and leaves the name's characters to the stored row", () => {
@@ -578,6 +726,21 @@ test("an audition's fields are cleaned, bounded and storable", () => {
     TEXT_NOT_STORABLE,
   );
   assert.equal(audition({ title: "Audition\ndu marché" }).data?.title, "Audition du marché");
+  // The place is kept as typed, for the service to compare with the stored
+  // one: an audition saved without touching its place has not moved.
+  for (const stored of [
+    `Cafe${ACUTE} de la Mairie, Villeurbanne`,
+    `Café de la${ZERO_WIDTH_SPACE} Mairie, Villeurbanne`,
+    `Café de la Mai${SOFT_HYPHEN}rie, Villeurbanne`,
+  ]) {
+    assert.equal(updateAuditionSchema.safeParse({ location: stored }).data?.location, stored);
+    assert.equal(audition({ location: ` ${stored} ` }).data?.location, stored);
+  }
+  assert.equal(firstIssue(audition({ location: " " })), "Le lieu est requis");
+  assert.equal(
+    firstIssue(updateAuditionSchema.safeParse({ location: `Lyon${HIGH_SURROGATE}` })),
+    TEXT_NOT_STORABLE,
+  );
   assert.equal(audition({ content: "c".repeat(AUDITION_CONTENT_MAX) }).success, true);
   assert.equal(
     firstIssue(audition({ content: "c".repeat(AUDITION_CONTENT_MAX + 1) })),
