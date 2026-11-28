@@ -19,6 +19,13 @@ export const asAuthenticated = (admin: string) => `
 set local role authenticated;
 set local request.jwt.claims = ${lit(JSON.stringify({ sub: admin, role: "authenticated" }))};`;
 
+/** An admin as the old app has them: an account, then its role (which
+ *  references the account). The admin writes the auditions they create, so
+ *  each insert below names them in created_by, as the old app does. */
+const adminAccount = (admin: string) => `
+insert into auth.users (id) values (${lit(admin)});
+insert into public.user_roles (user_id, role) values (${lit(admin)}, 'admin');`;
+
 const asAnon = `
 set local role anon;
 set local request.jwt.claims = ${lit(JSON.stringify({ role: "anon" }))};`;
@@ -44,10 +51,10 @@ function checkLongWrite(): string[] {
   try {
     [rows] = sqlJson<DerivedRow[]>(`
 begin;
-insert into public.user_roles (user_id, role) values (${lit(admin)}, 'admin');
+${adminAccount(admin)}
 ${asAuthenticated(admin)}
-insert into public.auditions (id, title, date, location, content)
-values (${lit(audition)}, 'db:check', current_date, 'Lyon', 'Audition de contrôle');
+insert into public.auditions (id, title, date, location, content, created_by)
+values (${lit(audition)}, 'db:check', current_date, 'Lyon', 'Audition de contrôle', ${lit(admin)});
 set local statement_timeout = ${lit(LONG_TIMEOUT)};
 insert into public.testimonies (id, audition_id, person_name, content)
 values (${lit(id)}, ${lit(audition)}, 'Long', ${lit(LONG_TEXT)});
@@ -88,10 +95,10 @@ export function checkWrites(): string[] {
 
   const out = sqlJson<unknown>(`
 begin;
-insert into public.user_roles (user_id, role) values (${lit(admin)}, 'admin');
+${adminAccount(admin)}
 ${asAuthenticated(admin)}
-insert into public.auditions (id, title, date, location, content)
-values (${lit(audition)}, 'db:check', current_date, 'Lyon', 'Audition de contrôle');
+insert into public.auditions (id, title, date, location, content, created_by)
+values (${lit(audition)}, 'db:check', current_date, 'Lyon', 'Audition de contrôle', ${lit(admin)});
 insert into public.testimonies (id, audition_id, person_name, person_info, content, topics)
 values (${lit(tagged)}, ${lit(audition)}, 'Anne', '34 ans', 'Premier texte', array['démocratie', 'Énergie']);
 insert into public.testimonies (id, audition_id, person_name, content)

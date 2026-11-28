@@ -4,7 +4,7 @@
 //   DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run db:check
 //   PSQL="docker exec -i supabase_db_<project_id> psql -U postgres -d postgres" npm run db:check
 //
-//   npm run db:check -- grants parity      only some of them (grants, access, rpcs, parity, writes, places, paths, seed, backfill)
+//   npm run db:check -- grants parity      only some of them (grants, access, oldApp, oldAppLimits, rpcs, parity, writes, places, paths, seed, backfill)
 //   npm run db:check -- --allowlist        print allowlist.json as the database stands
 //
 // Local databases only (psql.ts). Every write happens in a rolled-back transaction.
@@ -12,6 +12,7 @@
 import { checkAccess } from "./access";
 import { checkBackfill } from "./backfill";
 import { checkGrants, currentAllowlist } from "./grants";
+import { checkOldApp, checkOldAppLimits } from "./oldApp";
 import { checkParity } from "./parity";
 import { checkPaths } from "./paths";
 import { checkRpcs } from "./rpcs";
@@ -22,7 +23,8 @@ import { checkWrites } from "./writes";
 const CHECKS: Record<string, { title: string; run: () => string[] }> = {
   grants: { title: "Grant guard", run: checkGrants },
   access: {
-    title: "Drafts read by admins only; audit entries by the server or their author",
+    title:
+      "Drafts read by their authors and super admins; audit entries written by the server, or by an admin for the admin pages' two",
     run: checkAccess,
   },
   rpcs: { title: "Read RPCs: the service role's alone, bounded", run: checkRpcs },
@@ -33,6 +35,11 @@ const CHECKS: Record<string, { title: string; run: () => string[] }> = {
       console.log(`  ${checked} rows compared (database and edge fixture)`);
       return errors;
     },
+  },
+  oldApp: { title: "The old app's pages keep working", run: checkOldApp },
+  oldAppLimits: {
+    title: "The old app's key and tokens do nothing past its pages",
+    run: checkOldAppLimits,
   },
   writes: { title: "Old-app-shaped writes keep the derived columns", run: checkWrites },
   places: {

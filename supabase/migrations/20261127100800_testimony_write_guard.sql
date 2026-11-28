@@ -4,6 +4,8 @@
 -- columns keep the server's value on those rows. It restricts the two public
 -- roles only: the service role, and the functions that run with their owner's
 -- rights (validation by the emailed link, the online form), write as before.
+-- So do the foreign keys' own actions, which run as the table's owner: an
+-- account's deletion still clears created_by and consent_certified_by.
 --
 -- On insert:
 --   - 'verified' is refused (42501): a testimony is validated by its witness,
