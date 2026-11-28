@@ -171,23 +171,23 @@ jobs:
           [ "$(jq -r .serviceRole <<<"$health")" = "true" ]
           # The Worker's secret, in a file curl reads its header from: it is
           # on no command line.
-          worker="$RUNNER_TEMP/worker.curl"
+          worker="$RUNNER_TEMP/worker.headers"
           trap 'rm -f "$worker"' EXIT
-          (umask 077 && printf 'header = "X-Proxy-Secret: %s"\n' "$PROXY_SECRET" > "$worker")
+          (umask 077 && printf 'X-Proxy-Secret: %s\n' "$PROXY_SECRET" > "$worker")
           # As the site's Worker: answered (the outbox is readable by the
           # service role only, so this also proves the database key).
-          curl -sS --fail --max-time 15 -o /dev/null --config "$worker" "$URL/api/outbox"
+          curl -sS --fail --max-time 15 -o /dev/null -H @"$worker" "$URL/api/outbox"
           # A place read, through the service role's read functions (never a
           # whole-table pull): the read RPC migration is on the database and
           # the key may call it.
-          facets=$(curl -sS --fail --max-time 30 --config "$worker" "$URL/api/places/facets")
+          facets=$(curl -sS --fail --max-time 30 -H @"$worker" "$URL/api/places/facets")
           jq -e '.themes | type == "array"' <<<"$facets" >/dev/null
           # The map, from the stored places: its groups carry lieuId. Without
           # them it fell back to the geocoder's build — geo_units unreadable
           # (the place migration not pushed to staging, or the key refused).
           # Past 5,000 published auditions it refuses whole (503, "Liste trop
           # longue"): the load-test data, nothing to check then.
-          code=$(curl -sS -o "$RUNNER_TEMP/map.json" -w '%{http_code}' --max-time 30 --config "$worker" "$URL/api/map")
+          code=$(curl -sS -o "$RUNNER_TEMP/map.json" -w '%{http_code}' --max-time 30 -H @"$worker" "$URL/api/map")
           if [ "$code" = 503 ] && jq -e '.message | startswith("Liste trop longue")' "$RUNNER_TEMP/map.json" >/dev/null; then
             echo "::notice::/api/map refuses whole at this size; not checked"
           elif [ "$code" != 200 ]; then
