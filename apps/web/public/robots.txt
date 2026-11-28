@@ -1,0 +1,11 @@
+# The public pages are open to search engines. The sign-in and administration
+# pages and the API are not for them. A witness's personal link is not listed
+# here: a crawler reads a page's X-Robots-Tag: noindex header (public/_headers)
+# only when it may fetch the page, and that header is what keeps the link's
+# address out of search engines. The staging deploy replaces this file with
+# one that turns every crawler away.
+User-agent: *
+Disallow: /admin
+Disallow: /auth
+Disallow: /reset-password
+Disallow: /api/
