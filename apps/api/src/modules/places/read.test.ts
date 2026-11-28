@@ -565,7 +565,7 @@ test("a visitor's reads are bounded in bytes fetched from the database: per minu
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const { BYTES_PER_MINUTE, BYTES_PER_HOUR } = await import("./readRoutes");
   assert.equal(BYTES_PER_MINUTE, 16 * 1024 * 1024);
-  assert.equal(BYTES_PER_HOUR, 4 * BYTES_PER_MINUTE);
+  assert.equal(BYTES_PER_HOUR, 16 * BYTES_PER_MINUTE);
   // Every unit's answer weighs 1.5 MB.
   const pad = "x".repeat(1_500_000);
   stub("place_counts_many", (a) => (a.p_units as string[]).map((unit) => ({ unit, pad })));
@@ -585,8 +585,10 @@ test("a visitor's reads are bounded in bytes fetched from the database: per minu
   // An allowance is counted once an answer is read: the answer that passes it is served.
   const perMinute = Math.floor(BYTES_PER_MINUTE / size) + 1;
   const perHour = Math.floor(BYTES_PER_HOUR / size) + 1;
+  // The minutes read to the full before the hour's allowance is passed.
+  const fullMinutes = Math.floor((perHour - 1) / perMinute);
   try {
-    for (let minute = 0; minute < 3; minute++) {
+    for (let minute = 0; minute < fullMinutes; minute++) {
       const { served, refused } = await untilRefused();
       assert.equal(served, perMinute, `minute ${minute}`);
       assert.equal(refused.statusCode, 429);
@@ -595,11 +597,12 @@ test("a visitor's reads are bounded in bytes fetched from the database: per minu
       // The minute over, the visitor reads again.
       t.mock.timers.tick(61_000);
     }
-    // The fourth minute passes the hour's allowance: refused until the hour ends.
+    // The next minute passes the hour's allowance: refused until the hour ends,
+    // and told to ask again within a minute (what the site waits before a retry).
     const { served, refused } = await untilRefused();
-    assert.equal(served, perHour - 3 * perMinute);
+    assert.equal(served, perHour - fullMinutes * perMinute);
     assert.equal(refused.statusCode, 429);
-    assert.ok(Number(refused.headers["retry-after"]) > 60);
+    assert.equal(refused.headers["retry-after"], "60");
     assert.equal(refused.json().message, "Trop de requêtes. Réessayez plus tard.");
     const fetched = calls.place_counts_many.length;
     assert.equal(fetched, perHour, "a refused miss fetches nothing");
@@ -623,6 +626,8 @@ test("a visitor's reads are bounded in bytes fetched from the database: per minu
     assert.equal(stale.headers["x-cache"], "stale");
     await sleep(50);
     assert.equal(calls.place_counts_many.length, fetched, "no refill for a spent allowance");
+    // That minute later a miss of theirs is still refused: the hour has not ended.
+    assert.equal((await get(`/api/places?unit=fr:com:${unit++}`, {}, ip)).statusCode, 429);
     // Another visitor's request refills it, on that visitor's allowance.
     assert.equal((await get(lastServed, {}, "10.249.0.2")).headers["x-cache"], "stale");
     for (let i = 0; i < 200 && calls.place_counts_many.length === fetched; i++) await sleep(5);
@@ -632,6 +637,79 @@ test("a visitor's reads are bounded in bytes fetched from the database: per minu
     assert.equal((await get(`/api/places?unit=fr:com:${unit++}`, {}, ip)).statusCode, 200);
   } finally {
     stub("place_counts_many", (a) => (a.p_units as string[]).map((u) => countsOf(u, a)));
+  }
+});
+
+test("an answer refused as too heavy counts for the read limit in the visitor's bytes", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const { READ_ANSWER_MAX_BYTES } = await import("./read");
+  const { BYTES_PER_MINUTE } = await import("./readRoutes");
+  const tooHeavy = { pad: "x".repeat(READ_ANSWER_MAX_BYTES) };
+  // The allowance is passed by the refusal that crosses it: the next read is not made.
+  const refusals = Math.floor(BYTES_PER_MINUTE / READ_ANSWER_MAX_BYTES) + 1;
+  /** Asks `url` until it is no longer answered 400: how many times it was, and the answer then. */
+  const untilNot400 = async (url: string, ip: string) => {
+    for (let refused = 0; ; refused++) {
+      const res = await get(url, {}, ip);
+      if (res.statusCode !== 400) return { refused, res };
+      assert.equal(res.json().message, "Réponse trop volumineuse : précisez la demande.");
+    }
+  };
+  stub("testimony_page", () => tooHeavy);
+  try {
+    // A later page, read straight through.
+    const later = await untilNot400(
+      `/api/auditions/${AUDITION}/testimonies?limit=100&after=,${AUDITION}`,
+      "10.248.0.1",
+    );
+    assert.equal(later.refused, refusals);
+    assert.equal(later.res.statusCode, 429);
+    assert.ok(Number(later.res.headers["retry-after"]) <= 60);
+    assert.equal(calls.testimony_page.length, refusals, "a refused read reaches no database");
+    // Their other misses are refused too; another visitor's are not.
+    assert.equal((await get("/api/places?unit=fr:com:67000", {}, "10.248.0.1")).statusCode, 429);
+    assert.equal((await get("/api/places?unit=fr:com:67000", {}, "10.248.0.9")).statusCode, 200);
+    // A first page (never kept: each request reads it again).
+    calls = {};
+    const first = await untilNot400(`/api/auditions/${AUDITION}/testimonies`, "10.248.0.2");
+    assert.equal(first.refused, refusals);
+    assert.equal(first.res.statusCode, 429);
+    assert.equal(calls.testimony_page.length, refusals);
+  } finally {
+    stub("testimony_page", (a) => ({ testimonies: [], next: null, echo: a }));
+  }
+
+  // units=: the call of three, then each unit's own, four refused answers a request.
+  stub("place_counts_many", (a) => (a.p_units as string[]).map((unit) => ({ unit, ...tooHeavy })));
+  try {
+    const batch = await untilNot400(
+      "/api/places?units=fr:reg:84,fr:reg:11,fr:reg:52",
+      "10.248.0.3",
+    );
+    assert.equal(batch.refused, Math.ceil(refusals / 4));
+    assert.equal(batch.res.statusCode, 429);
+  } finally {
+    plainUnits();
+  }
+
+  // A refill behind a stale reply that ends refused is counted as well.
+  const url = "/api/places?unit=fr:com:67100";
+  const ip = "10.248.0.4";
+  assert.equal((await get(url, {}, ip)).statusCode, 200);
+  t.mock.timers.tick(61_000);
+  stub("place_counts_many", (a) => (a.p_units as string[]).map((unit) => ({ unit, ...tooHeavy })));
+  try {
+    calls = {};
+    assert.equal((await get(url, {}, ip)).headers["x-cache"], "stale");
+    for (let i = 0; i < 200 && !calls.place_counts_many; i++) await sleep(5);
+    await sleep(50);
+    assert.equal(calls.place_counts_many.length, 1, "the refill ran");
+    // One refused answer already counted: one fewer than a visitor who starts whole.
+    const after = await untilNot400("/api/places?unit=fr:com:67101", ip);
+    assert.equal(after.refused, refusals - 1);
+    assert.equal(after.res.statusCode, 429);
+  } finally {
+    plainUnits();
   }
 });
 

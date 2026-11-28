@@ -56,6 +56,7 @@ import {
   lieuAuditions,
   placeCountsMany,
   placeFacets,
+  READ_ANSWER_MAX_BYTES,
   testimonyPage,
   UNITS_PER_CALL,
   type CountsArgs,
@@ -74,9 +75,11 @@ import {
 //
 // What the visitor's reads bring from the database is counted in bytes too
 // (the JSON of each answer fetched for them, on a miss or on a refill behind
-// a stale reply): past BYTES_PER_MINUTE or BYTES_PER_HOUR their misses are
-// refused (429) and their requests start no refill until the window ends —
-// what the caches hold is still served to them.
+// a stale reply; an answer refused as heavier than a read may bring back
+// counts for that limit, the part of it that was read): past BYTES_PER_MINUTE
+// or BYTES_PER_HOUR their misses are refused (429) and their requests start
+// no refill until the window ends — what the caches hold is still served to
+// them.
 //
 // A response assembled from cached answers (a units= batch, an answer with
 // "textIgnored") is kept too, in a family of its own (assembledCache: it
@@ -109,10 +112,24 @@ const BYTES_COLD_DRILL = 295_299;
 /**
  * The bytes a visitor's reads may bring from the database per minute: 3
  * times what a cold-cache drill of the map from France down to a commune
- * fetches (BYTES_COLD_DRILL), and 16 MB at least. Per hour: 4 times that.
+ * fetches (BYTES_COLD_DRILL), and 16 MB at least.
  */
 export const BYTES_PER_MINUTE = Math.max(16 * 1024 * 1024, 3 * BYTES_COLD_DRILL);
-export const BYTES_PER_HOUR = 4 * BYTES_PER_MINUTE;
+/**
+ * Per hour: 16 times that. An address is often a whole room (a venue's
+ * Wi-Fi during an audition, a mobile carrier's gateway): thirty visitors
+ * behind one, each opening a lieu every 30 to 60 s, fetched 21 MB an hour
+ * over a corpus the seed's size (measured 2026-11-28, 40 minutes), about a
+ * twelfth of it.
+ */
+export const BYTES_PER_HOUR = 16 * BYTES_PER_MINUTE;
+/**
+ * The longest Retry-After a refusal carries, in seconds. The site's reads
+ * wait that long before each of their three retries: past an hour's
+ * allowance the true wait would leave its panel loading, where three short
+ * ones bring its error line.
+ */
+const RETRY_AFTER_MAX_S = 60;
 
 const PAGE_DEFAULT = 50;
 const PAGE_MAX = 100;
@@ -365,13 +382,23 @@ async function fetchedFor(req: FastifyRequest, value: unknown): Promise<Prebuilt
   return new Prebuilt(res);
 }
 
+/**
+ * A read made for the visitor failed: when its answer was heavier than a
+ * read may bring back, the limit is what was read of it before it was
+ * dropped, and what counts against their allowances of bytes.
+ */
+function spendRefused(req: FastifyRequest, err: unknown): void {
+  if (err instanceof DbTooLargeError) spendBytes(req, READ_ANSWER_MAX_BYTES);
+}
+
 /** A read failed: what the visitor is told (anything unmapped is a 500, see server.ts). */
 function replyError(req: FastifyRequest, reply: FastifyReply, err: unknown): FastifyReply {
   reply.header("Cache-Control", "no-store");
   // Set when the body was about to be built (sendDerived): not the error's.
   reply.removeHeader("ETag");
   if (err instanceof RateLimitedError) {
-    reply.header("Retry-After", String(Math.max(1, Math.ceil(err.waitMs / 1000))));
+    const seconds = Math.max(1, Math.ceil(err.waitMs / 1000));
+    reply.header("Retry-After", String(Math.min(RETRY_AFTER_MAX_S, seconds)));
     return reply.tooManyRequests(err.message);
   }
   if (err instanceof DbBusyError) {
@@ -496,17 +523,21 @@ const NOT_CHARGED: Charging = { extra: () => () => undefined, refused: () => und
  * visitor whose miss it was, after the fact): a unit is refused for its own
  * answer alone, never for the company it was fetched in — what a units=
  * request gets does not depend on which of its units were cached already.
- * A call the gate turns away is given back to the visitor.
+ * A call the gate turns away is given back to the visitor; every call that
+ * fails is told to `failed` (the bytes of an answer too heavy are counted
+ * for the visitor, on a refill too).
  */
 async function countsSplitting(
   units: string[],
   args: CountsArgs,
   timing: DbTiming,
   charging: Charging,
+  failed: (err: unknown) => void,
 ): Promise<unknown[]> {
   try {
     return await placeCountsMany(units, args, timing);
   } catch (err) {
+    failed(err);
     if (err instanceof DbBusyError) charging.refused();
     if (!(err instanceof DbTooLargeError) || units.length === 1) throw err;
     const refund = charging.extra(units.length);
@@ -515,6 +546,7 @@ async function countsSplitting(
     );
     return alone.map((r) => {
       if (r.status === "fulfilled") return r.value;
+      failed(r.reason);
       if (r.reason instanceof DbBusyError) refund(1);
       return new KeyFailure(r.reason);
     });
@@ -531,7 +563,8 @@ interface CachedRead {
  * One read: from its family when it has a key (a first page, a lieu…), else
  * straight through (later pages), charged to the visitor when it reaches
  * the database — its calls before it runs (given back when the gate turns
- * it away), its bytes once fetched.
+ * it away), its bytes once fetched (those of an answer refused as too heavy
+ * as well).
  */
 async function serveRead(
   req: FastifyRequest,
@@ -549,6 +582,7 @@ async function serveRead(
       return await read.fetch(timing);
     } catch (err) {
       if (err instanceof DbBusyError) refund?.();
+      spendRefused(req, err);
       throw err;
     }
   };
@@ -629,6 +663,7 @@ export default async function placeReadRoutes(app: FastifyInstance) {
             args,
             timing,
             refill ? NOT_CHARGED : charging,
+            (err) => spendRefused(req, err),
           );
           return Promise.all(
             answers.map((a) => (a instanceof KeyFailure ? a : fetchedFor(req, a))),
