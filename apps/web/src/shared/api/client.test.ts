@@ -99,8 +99,8 @@ test("a path the browser would read as another one is not sendable", () => {
     "/api/verify/..%2Fhealth",
     "/api/verify/a%2fb",
     // Another host, an empty identifier, a fragment.
-    "//127.0.0.1:4079/x",
-    "/api/admin/auditions/..//127.0.0.1:4079/x?y",
+    "//other.invalid/x",
+    "/api/admin/auditions/..//other.invalid/x?y",
     "/api/auditions/",
     "/api/auditions//testimonies",
     `/api/auditions/${ID}#x`,
