@@ -1,4 +1,6 @@
 import { getKnownCoordinates } from "@ac/shared";
+import { z } from "zod";
+import { upstreamFetch } from "../../lib/cappedFetch";
 import {
   arrondissementFromCitycode,
   isHomonyms,
@@ -15,6 +17,62 @@ import {
 // and a lieu's lookup from their answers. No cache, no throttle and no
 // configuration here: geocode.ts adds them for the API, the backfill
 // generator (scripts/place-backfill) its own.
+//
+// An answer is read within lib/cappedFetch.ts's limit, never through a
+// redirect, and checked before anything is made of it: what it says ends up
+// on auditions and in geo_units, where nothing corrects it afterwards. A
+// feature that is not what the BAN documents — a point outside the globe, a
+// code that is no INSEE code, a name of several lines or pages — is left
+// out, as if the BAN had not returned it; an answer none of whose features
+// can be read is a failed call (BanAnswerError), not "no such place".
+
+/** One line of text: no control character, no line or paragraph separator. */
+const ONE_LINE = /^[^\p{Cc}\u2028\u2029]*$/u;
+
+/** A line of at most `max` characters. */
+export const lineOf = (max: number) => z.string().max(max).regex(ONE_LINE);
+
+/** A name as stored and shown (a commune, a département, a région): one line, 1 to 100 characters. */
+export const placeName = lineOf(100).min(1);
+
+/** An INSEE commune code: five digits, or 2A/2B and three digits in Corsica. */
+export const inseeCode = z.string().regex(/^(?:\d{2}|2[AB])\d{3}$/);
+
+/** A GeoJSON position, [longitude, latitude], on the globe. */
+export const lngLat = z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]);
+
+const searchFeature = z.object({
+  geometry: z.object({ coordinates: lngLat }),
+  properties: z
+    .object({
+      score: z.number().nullish(),
+      type: lineOf(40).nullish(),
+      name: lineOf(200).nullish(),
+      city: placeName.nullish(),
+      citycode: inseeCode.nullish(),
+      postcode: z
+        .string()
+        .regex(/^\d{5}$/)
+        .nullish(),
+      context: lineOf(200).nullish(),
+      population: z.number().nullish(),
+    })
+    .nullish(),
+});
+
+const reverseProperties = z.object({
+  citycode: inseeCode.nullish(),
+  context: lineOf(200).nullish(),
+  city: placeName.nullish(),
+});
+
+/** The features of an answer, as given: an answer without a list of them has none. */
+function featuresOf(data: unknown): unknown[] {
+  const features = (data as { features?: unknown } | null)?.features;
+  return Array.isArray(features) ? features : [];
+}
+
+const banFetch = upstreamFetch();
 
 type Coords = [number, number];
 
@@ -26,6 +84,14 @@ export class BanError extends Error {
   ) {
     super(`BAN ${what} ${status}`);
     this.name = "BanError";
+  }
+}
+
+/** BAN answered features, none of them readable: not an answer to keep, the call is to make again. */
+export class BanAnswerError extends Error {
+  constructor(what: string) {
+    super(`BAN ${what}: answer refused`);
+    this.name = "BanAnswerError";
   }
 }
 
@@ -43,22 +109,6 @@ export interface BanClient {
   reverse(coords: Coords): Promise<BanReverseHit | null>;
 }
 
-interface BanResponse {
-  features?: {
-    geometry: { coordinates: [number, number] };
-    properties?: {
-      score?: number;
-      type?: string;
-      name?: string;
-      city?: string;
-      citycode?: string;
-      postcode?: string;
-      context?: string;
-      population?: number;
-    };
-  }[];
-}
-
 /** The BAN under `baseUrl` (no trailing slash); every call gives up after `timeoutMs`. */
 export function banClient(baseUrl: string, timeoutMs: number): BanClient {
   return {
@@ -66,40 +116,47 @@ export function banClient(baseUrl: string, timeoutMs: number): BanClient {
       const params = new URLSearchParams({ q, limit: String(opts.limit ?? 5) });
       if (opts.municipality) params.set("type", "municipality");
       if (opts.postcode) params.set("postcode", opts.postcode);
-      const res = await fetch(`${baseUrl}/search/?${params}`, {
+      const res = await banFetch(`${baseUrl}/search/?${params}`, {
         headers: { "User-Agent": "AuditionsCitoyennes/1.0" },
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) throw new BanError(res.status, "search");
-      const data = (await res.json()) as BanResponse;
-      return (data.features ?? []).map((f) => {
-        const p = f.properties ?? {};
+      const given = featuresOf(await res.json());
+      const features = given.flatMap((feature): BanFeature[] => {
+        const parsed = searchFeature.safeParse(feature);
+        if (!parsed.success) return [];
+        const p = parsed.data.properties ?? {};
         // BAN returns [lon, lat]; we store [lat, lon].
-        const [lon, lat] = f.geometry.coordinates;
-        return {
-          coords: [lat, lon],
-          score: p.score ?? 0,
-          type: p.type ?? "",
-          name: p.name ?? "",
-          city: p.city ?? null,
-          citycode: p.citycode ?? null,
-          postcode: p.postcode ?? null,
-          context: p.context ?? null,
-          population: p.population ?? null,
-        };
+        const [lon, lat] = parsed.data.geometry.coordinates;
+        return [
+          {
+            coords: [lat, lon],
+            score: p.score ?? 0,
+            type: p.type ?? "",
+            name: p.name ?? "",
+            city: p.city ?? null,
+            citycode: p.citycode ?? null,
+            postcode: p.postcode ?? null,
+            context: p.context ?? null,
+            population: p.population ?? null,
+          },
+        ];
       });
+      if (given.length > 0 && features.length === 0) throw new BanAnswerError("search");
+      return features;
     },
     async reverse([lat, lon]: Coords): Promise<BanReverseHit | null> {
-      const res = await fetch(`${baseUrl}/reverse/?lat=${lat}&lon=${lon}`, {
+      const res = await banFetch(`${baseUrl}/reverse/?lat=${lat}&lon=${lon}`, {
         headers: { "User-Agent": "AuditionsCitoyennes/1.0" },
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) throw new BanError(res.status, "reverse");
-      const data = (await res.json()) as {
-        features?: { properties?: { context?: string; city?: string; citycode?: string } }[];
-      };
-      const p = data.features?.[0]?.properties;
-      if (!p) return null;
+      const [nearest] = featuresOf(await res.json());
+      const parsed = reverseProperties.safeParse(
+        (nearest as { properties?: unknown } | null | undefined)?.properties,
+      );
+      if (!parsed.success) return null;
+      const p = parsed.data;
       return { citycode: p.citycode ?? null, context: p.context ?? null, city: p.city ?? null };
     },
   };

@@ -15,6 +15,8 @@ import {
   type PlaceCandidate,
   type PlacePick,
 } from "@ac/shared";
+import { z } from "zod";
+import { inseeCode, lineOf, placeName } from "../geo/ban";
 import {
   isHomonyms,
   pickHomonym,
@@ -50,7 +52,9 @@ import { onlinePlaceOf } from "./lieu";
 //   5. else the geocoder, as before (geo/geocode.ts, geo/match.ts), its
 //      same-named communes settled against the lieux already placed.
 // The units come from the official commune API (fr.ts). A geocoder or commune
-// API that does not answer leaves the row to be placed later ('retry').
+// API that does not answer leaves the row to be placed later ('retry'). What
+// the geocoder says is checked once more before it is stored (storable): its
+// cache file outlives the checks its answers passed when they arrived.
 
 /** The first 8 hex of the sha256 of LOCATION_RULES: what a placement was computed under (auditions.placed_rules). */
 export function rulesHash(rules: unknown = LOCATION_RULES): string {
@@ -268,6 +272,22 @@ function withReadOptions(deps: PlaceDeps, opts: PlaceOptions): PlaceDeps {
   };
 }
 
+/**
+ * What the geocoder says of a place, as it may be stored: a point on the
+ * globe, an INSEE code if any, one-line names — the commune's of at most 100
+ * characters (it names a unit of the map when the commune API lacks it).
+ */
+const storableEntry = z.object({
+  coords: z.tuple([z.number().min(-90).max(90), z.number().min(-180).max(180)]),
+  citycode: inseeCode.nullable(),
+  city: placeName.nullable(),
+  depCode: lineOf(3).nullable(),
+  depName: lineOf(200).nullable(),
+  region: lineOf(200).nullable(),
+});
+
+const storable = (entry: GeoEntry) => storableEntry.safeParse(entry).success;
+
 async function placeByGeocoder(
   location: string,
   key: string,
@@ -278,6 +298,8 @@ async function placeByGeocoder(
   if (v === "retry") throw new RetryLater(`geocoder: ${key}`);
   if (v === null) return unplaced(location, key, null);
   if (!isHomonyms(v)) return placeEntry(location, key, v, null, deps);
+  // Candidates are stored with the row: all of them storable, or none kept.
+  if (!v.homonyms.every(storable)) return unplaced(location, key, null);
   const candidates = v.homonyms.map(toCandidate);
   if (!settle) return { ...unplaced(location, key, candidates), homonyms: candidates };
   const settled = pickHomonym(v, await deps.support());
@@ -314,6 +336,7 @@ async function placeEntry(
   candidates: PlaceCandidate[] | null,
   deps: PlaceDeps,
 ): Promise<Placement> {
+  if (!storable(entry)) return unplaced(location, key, candidates);
   const chain = await chainOfEntry(entry, deps);
   if (!chain) return unplaced(location, key, candidates);
   const known = getKnownCoordinates(key);
