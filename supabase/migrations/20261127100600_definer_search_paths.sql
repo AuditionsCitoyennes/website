@@ -2,7 +2,7 @@
 --
 -- is_admin(), is_super_admin(), has_role(), get_audit_log() and
 -- verify_testimony() name every object with its schema, so an empty
--- search_path changes nothing in what they do: they no longer depend on the
+-- search_path changes nothing in what they do: they do not depend on the
 -- caller's. (get_pending_registrations() and get_user_roles_with_details()
 -- got theirs in 20261127100300.)
 --

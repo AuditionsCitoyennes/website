@@ -11,8 +11,8 @@
 // It holds on every schema from the one before the access rules to the
 // current one, so it can be run after each migration of that set.
 //
-// checkOldAppLimits: what its key and its tokens no longer do past those
-// pages, on the current schema. The public key reads published content and
+// checkOldAppLimits: what its key and its tokens do not do past those pages,
+// on the current schema. The public key reads published content and
 // calls the three by-token functions, nothing else; an admin neither reads
 // nor writes another admin's content; an account whose role was removed reads
 // none of its drafts; nobody validates a testimony or rewrites who wrote and
@@ -463,7 +463,7 @@ export function checkOldAppLimits(): string[] {
   const [superAdmin, admin, other, former, pending] = Array.from({ length: 5 }, () => randomUUID());
   // The admin's own audition: a pending testimony and a validated, certified one.
   const mine = randomUUID();
-  const [myPending, myValidated, forged] = [randomUUID(), randomUUID(), randomUUID()];
+  const [myPending, myValidated, inAnothersName] = [randomUUID(), randomUUID(), randomUUID()];
   // The other admin's: a published audition and a draft.
   const [theirs, theirDraft] = [randomUUID(), randomUUID()];
   const [theirTestimony, theirDraftTestimony] = [randomUUID(), randomUUID()];
@@ -575,7 +575,7 @@ ${writes(
 ${writes(
   "admin: adds a testimony in another's name, dated and certified by another",
   `insert into public.testimonies (id, audition_id, person_name, content, created_by, created_at, consent_certified_by, consent_certified_at)
-   values (${lit(forged)}, ${lit(mine)}, 'Témoin', 'Un témoignage', ${lit(other)}, '2019-01-01', ${lit(other)}, '2019-01-01')`,
+   values (${lit(inAnothersName)}, ${lit(mine)}, 'Témoin', 'Un témoignage', ${lit(other)}, '2019-01-01', ${lit(other)}, '2019-01-01')`,
 )}
 ${writes(
   "admin: adds an audition in another admin's name",
@@ -617,7 +617,7 @@ ${says(
   "who wrote and certified the testimony added in another's name",
   `(select (created_by = ${uuid(admin)} and consent_certified_by = ${uuid(admin)}
             and created_at = pg_catalog.now() and consent_certified_at = pg_catalog.now())
-     from public.testimonies where id = ${uuid(forged)})`,
+     from public.testimonies where id = ${uuid(inAnothersName)})`,
 )}
 
 -- An account whose role was removed.

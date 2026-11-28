@@ -3,13 +3,13 @@
 -- 1. admin_testimonies(), the admin read that includes the witnesses' email
 --    addresses: a super admin gets every testimony asked for, an admin those
 --    they created and those of the auditions they created. Same columns, same
---    order, same refusals. It now sets an empty search_path.
+--    order, same refusals. It sets an empty search_path.
 -- 2. A draft audition is read by a super admin, or by the admin who created
 --    it. The testimonies of a draft audition are read by a super admin, by the
 --    admin who created the audition, or by the admin who created the
 --    testimony. An account whose role was removed reads neither. Published
 --    content is read as before. The two restrictive policies keep their place
---    and take the names of what they now say.
+--    and take the names of what they say.
 --
 -- To undo: run again the `CREATE OR REPLACE FUNCTION "public"."admin_testimonies"`
 -- of 20261021175021_baseline.sql (execute for authenticated and service_role),

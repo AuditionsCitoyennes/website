@@ -7,9 +7,8 @@
 -- 80 characters and the presentation to 600: the sign-up forms accept 50 and
 -- 500.
 --
--- Both now set their search_path and are executable by signed-in accounts and
--- the service role only: called with the public key alone they answered
--- nothing.
+-- Both set their search_path and are executable by signed-in accounts and the
+-- service role.
 --
 -- To undo: run again the two `CREATE OR REPLACE FUNCTION` of
 -- 20261021175021_baseline.sql, then
