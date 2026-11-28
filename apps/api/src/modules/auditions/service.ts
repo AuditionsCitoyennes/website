@@ -78,8 +78,8 @@ export async function fetchPublishedAuditions(): Promise<AuditionWithCount[]> {
 
   // The counts come from the audition_testimony_counts view: the public API
   // may only read some columns of testimonies, which an embedded
-  // `testimonies(count)` does not survive. One row per audition that has
-  // testimonies (drafts included).
+  // `testimonies(count)` does not survive. One row per published audition
+  // that has testimonies.
   const { data: countRows, error: countError } = await selectAll(
     (last?: { audition_id: string | null }) => {
       // The audition-less row is of no use here, and as a page's last row it

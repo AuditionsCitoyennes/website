@@ -36,8 +36,7 @@ begin
 end;
 $$;
 
--- Added unchecked, then checked: the check reads the rows without holding
--- auth.users against writes.
+-- Added unchecked, then checked, as two steps.
 alter table public.user_roles
   add constraint user_roles_user_id_fkey
   foreign key (user_id) references auth.users (id) on delete cascade
