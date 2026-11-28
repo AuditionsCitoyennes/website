@@ -13,4 +13,5 @@ export * from "./places";
 export * from "./sanitize";
 export * from "./schemas";
 export * from "./testimonies";
+export * from "./text";
 export * from "./themes";
