@@ -16,6 +16,20 @@ A run fails, and GitHub emails the owner, if the dump has no auditions or no
 testimonies. The key, if lost, makes every backup unreadable: keep it in the
 password manager of both owners.
 
+The workflow reads its secrets (`PROD_DB_URL`, `SCW_ACCESS_KEY`,
+`SCW_SECRET_KEY`) from the GitHub environment `production-backup` (Settings →
+Environments), not from the repository's own secrets: only a workflow run from
+a branch that environment allows (`dev` and `main`) receives them. The
+environment asks for no reviewer, or the nightly run would wait for an
+approval. The job uses no action from another repository and no cache: the
+Supabase CLI is downloaded from its release page and checked against the
+checksum written in the workflow.
+
+A run that never starts (a disabled workflow, a schedule GitHub paused) fails
+nothing and emails nobody. Optional: a monitor outside GitHub that expects a
+call every night and alerts when none came for 36 hours; put its URL in the
+environment's secret `BACKUP_PING_URL` and each finished backup calls it.
+
 ## Restore drill (do it after setup, then every few months)
 
 On your machine, into the **local** stack only. The decrypted files hold real

@@ -5,10 +5,18 @@ name: Backup
 # owners hold, and uploaded to Scaleway Object Storage in Paris. The Supabase
 # Free plan keeps no backup of its own.
 #
-# Secrets: PROD_DB_URL (session pooler URI), SCW_ACCESS_KEY / SCW_SECRET_KEY
-# (an IAM application that may only write objects in the prod project: it
-# cannot read, list or delete backups). Variables: BACKUP_BUCKET,
-# BACKUP_AGE_RECIPIENT (the age public key). Restoring: docs/backups.md.
+# Secrets, read from the environment `production-backup` (GitHub → Settings →
+# Environments: the branches allowed to use it are set there): PROD_DB_URL
+# (session pooler URI), SCW_ACCESS_KEY / SCW_SECRET_KEY (an IAM application
+# that may only write objects in the prod project: it cannot read, list or
+# delete backups) and, optional, BACKUP_PING_URL (a monitor outside GitHub,
+# told of every finished backup: it alerts when none came). Variables:
+# BACKUP_BUCKET, BACKUP_AGE_RECIPIENT (the age public key). Restoring:
+# docs/backups.md.
+#
+# No action from another repository and no cache run in this job: the tools
+# come from Ubuntu's and PostgreSQL's package repositories, and the Supabase
+# CLI from its release page, checked against the checksum written below.
 
 on:
   schedule:
@@ -27,12 +35,25 @@ jobs:
     # Pinned: the PostgreSQL apt repository may lag behind a new Ubuntu,
     # and ubuntu-latest moves to Ubuntu 26 from October 2026.
     runs-on: ubuntu-24.04
+    environment: production-backup
     timeout-minutes: 30
     steps:
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v3
-        with:
-          version: 2.75.0
+      # A new version: both lines change together, the checksum being the one
+      # of supabase_linux_amd64.tar.gz in the release's checksums file.
+      - name: Install the Supabase CLI
+        env:
+          CLI_VERSION: 2.75.0
+          CLI_SHA256: e5597462f865d5ac72af0453358e37ecb0d85962ad6914a114a53de847303bde
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL --retry 3 --max-time 120 -o supabase.tar.gz \
+            "https://github.com/supabase/cli/releases/download/v$CLI_VERSION/supabase_linux_amd64.tar.gz"
+          echo "$CLI_SHA256  supabase.tar.gz" | sha256sum --check --strict
+          mkdir supabase-cli
+          tar -xzf supabase.tar.gz -C supabase-cli
+          rm supabase.tar.gz
+          supabase-cli/supabase --version
+          echo "$RUNNER_TEMP/supabase-cli" >> "$GITHUB_PATH"
 
       # pg_dump 17 runs on the runner itself. The CLI's own way runs it from
       # Supabase's postgres image, and pulling that image from GitHub's shared
@@ -76,15 +97,18 @@ jobs:
             -x "storage.buckets_vectors" -x "storage.vector_indexes"
 
       # A dump that came out empty must fail the run, not be kept as a backup.
+      # The log says which table is empty, never how many rows one holds.
       - name: Check the dump
         run: |
           grep -q 'CREATE TABLE IF NOT EXISTS "public"."testimonies"' backup/schema.sql
           count() { awk -v t="COPY \"$1\".\"$2\"" 'index($0, t) == 1 { on = 1; next } $0 == "\\." { on = 0 } on' backup/data.sql | wc -l; }
-          auditions=$(count public auditions)
-          testimonies=$(count public testimonies)
-          users=$(count auth users)
-          echo "auditions: $auditions, testimonies: $testimonies, accounts: $users"
-          test "$auditions" -gt 0 && test "$testimonies" -gt 0
+          for table in auditions testimonies; do
+            if [ "$(count public "$table")" -eq 0 ]; then
+              echo "::error::the dump holds no row of public.$table"
+              exit 1
+            fi
+          done
+          echo "The dump holds auditions and testimonies."
 
       - name: Encrypt
         env:
@@ -105,3 +129,18 @@ jobs:
         run: >-
           aws s3 cp "$NAME" "s3://$BUCKET/prod/$NAME"
           --endpoint-url https://s3.fr-par.scw.cloud --only-show-errors
+
+      # Optional. A run that fails emails the owners; a run that never starts
+      # (a disabled workflow, a schedule GitHub paused) tells nobody. The
+      # monitor behind BACKUP_PING_URL expects this call every night and
+      # alerts when it does not come. The URL reaches curl on its stdin.
+      - name: Tell the monitor a backup was made
+        env:
+          PING_URL: ${{ secrets.BACKUP_PING_URL }}
+        run: |
+          if [ -z "$PING_URL" ]; then
+            echo "BACKUP_PING_URL is not set: no monitor to tell."
+            exit 0
+          fi
+          curl -sS --fail --retry 3 --max-time 15 -o /dev/null --config - <<<"url = \"$PING_URL\"" ||
+            echo "::warning::the backup is uploaded, but the monitor could not be told"
