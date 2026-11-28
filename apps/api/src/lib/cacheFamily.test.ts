@@ -514,3 +514,65 @@ test("fetchMany is told a refill from a miss (a refill is nobody's to pay for)",
   assert.deepEqual(seen, [false, true]);
   assert.equal(f.stats().fills, 2);
 });
+
+test("by default a value is served stale for 30 s past its TTL, and held 5 min more for an outage", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const f = family({ ttlMs: 60_000 });
+  class Timeout extends Error {}
+  const outage = { transient: (e: unknown) => e instanceof Timeout };
+  let n = 0;
+  const fn = async () => ++n;
+  await f.get("k", fn);
+  t.mock.timers.tick(59_000);
+  assert.equal((await f.get("k", fn)).state, "hit");
+  // Stale for 30 s: served at once, refilled behind the reply.
+  t.mock.timers.tick(2_000);
+  assert.equal((await f.get("k", fn)).state, "stale");
+  for (let i = 0; i < 100 && n < 2; i++) await tick(5);
+  assert.equal(n, 2);
+  // 91 s after a fill nobody asked about since: a miss, the old value is not served.
+  await tick(20);
+  t.mock.timers.tick(91_000);
+  const later = await f.get("k", fn);
+  assert.equal(later.state, "miss");
+  assert.equal(JSON.parse(later.res.json.toString()), 3);
+  // While the upstream is in distress the value held still answers, for 5 minutes more.
+  const fail = async () => {
+    throw new Timeout("57014");
+  };
+  t.mock.timers.tick(91_000 + 4 * 60_000);
+  assert.equal((await f.get("k", fail, outage)).state, "stale");
+  t.mock.timers.tick(61_000);
+  await assert.rejects(f.get("k", fail, outage), Timeout);
+});
+
+test("mayRefill: false leaves a stale entry as it is (served all the same) for a later get to refill", async () => {
+  const f = family({ ttlMs: 20 });
+  let fills = 0;
+  let asked = 0;
+  const fetchMany = async (keys: string[]) => {
+    fills++;
+    return keys.map((k) => k);
+  };
+  const spent = {
+    mayRefill: () => {
+      asked++;
+      return false;
+    },
+  };
+  // A miss is not a refill: nothing is asked.
+  await f.getMany(["a", "b"], fetchMany, { ...spent, chunk: 2 });
+  assert.deepEqual([fills, asked], [1, 0]);
+  await tick(30);
+  const served = await f.getMany(["a", "b"], fetchMany, { ...spent, chunk: 2 });
+  assert.deepEqual(
+    served.map((h) => h.state),
+    ["stale", "stale"],
+  );
+  await tick(20);
+  assert.deepEqual([fills, asked], [1, 1], "asked once for the whole get, nothing fetched");
+  // Without the refusal (or with a yes) the same entries are refilled.
+  assert.equal((await f.get("a", async () => "a", { mayRefill: () => true })).state, "stale");
+  for (let i = 0; i < 100 && f.stats().fills < 2; i++) await tick(5);
+  assert.equal(f.stats().fills, 2);
+});

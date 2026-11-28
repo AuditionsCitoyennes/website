@@ -33,8 +33,15 @@ export interface CachedResponse {
   etag: string;
 }
 
-/** How long a value is still served past its TTL while it is being refilled. */
-const STALE_FOR_MS = 5 * 60_000;
+/**
+ * How long a value is still served past its TTL while it is being refilled.
+ * Short: a write the API did not make itself (the old app's, a statement in
+ * the database) invalidates nothing here, so what it removed is served for
+ * the TTL and at most this much longer.
+ */
+const STALE_FOR_MS = 30_000;
+/** How long past its stale window a value still answers a transient error. */
+const HOLD_FOR_MS = 5 * 60_000;
 const BACKOFF_MIN_MS = 5_000;
 const BACKOFF_MAX_MS = 60_000;
 
@@ -82,7 +89,7 @@ export async function responseOf(json: Buffer, etag?: string): Promise<CachedRes
 // (backing off when it fails: 5 s, doubling to 60 s, logged once per
 // outage), and a write that wins over a fill in flight.
 // When the database is in distress (a timeout, a full gate), an entry past
-// its stale window still answers for one more window (`holdForMs`), as
+// its stale window still answers for a while longer (`holdForMs`), as
 // stale; after that it is dropped, and the error is the answer.
 // Writes invalidate a whole family at once: invalidate() bumps its one
 // generation counter, and a fill started under an older generation is not
@@ -112,7 +119,7 @@ export interface CacheFamilyOptions {
   staleForMs?: number;
   /**
    * How long past its stale window a value still answers a transient error
-   * (a timeout, a full gate) instead of that error. Default: staleForMs.
+   * (a timeout, a full gate) instead of that error. Default: 5 minutes.
    */
   holdForMs?: number;
   /** The heaviest entry kept; heavier ones are served uncached. Default: a quarter of maxBytes. */
@@ -175,6 +182,12 @@ export interface FamilyGetOptions {
   transient?: (err: unknown) => boolean;
   /** Keep the value on the entry (value() reads it without parsing the JSON again). */
   keepValue?: boolean;
+  /**
+   * Asked once when this get finds stale entries to refill: false leaves
+   * them as they are (served stale all the same), for a later get to refill
+   * — a caller whose allowance is spent starts no upstream call.
+   */
+  mayRefill?: () => boolean;
 }
 
 export interface CacheFamilyStats {
@@ -251,7 +264,7 @@ export class CacheFamily {
     this.maxBytes = opts.maxBytes;
     this.ttlMs = opts.ttlMs;
     this.staleForMs = opts.staleForMs ?? STALE_FOR_MS;
-    this.holdForMs = opts.holdForMs ?? this.staleForMs;
+    this.holdForMs = opts.holdForMs ?? HOLD_FOR_MS;
     this.refuseOversize = opts.refuseOversize;
     this.remembers = opts.remembers;
     this.maxEntryBytes = opts.maxEntryBytes ?? Math.floor(opts.maxBytes / 4);
@@ -380,7 +393,7 @@ export class CacheFamily {
         for (const at of m.at) out[at] = served;
       });
     }
-    const stale = [...refills];
+    const stale = refills.size > 0 && (opts.mayRefill?.() ?? true) ? [...refills] : [];
     for (let i = 0; i < stale.length; i += chunk) {
       this.refill(stale.slice(i, i + chunk), fetchMany, ttlMs);
     }
