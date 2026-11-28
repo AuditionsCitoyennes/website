@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type { Session, User } from "@supabase/supabase-js";
 import { api } from "@/shared/api/client";
 import {
@@ -8,6 +8,7 @@ import {
   whenSupabase,
   type AuthClientInstance,
 } from "@/shared/api/supabaseLazy";
+import { owesSecondFactor } from "./lib/secondFactor";
 
 interface MeResponse {
   user: { id: string; email: string | null; metadata: Record<string, unknown> };
@@ -21,6 +22,9 @@ export const useAuthStore = defineStore("auth", () => {
   const isAdmin = ref(false);
   const isSuperAdmin = ref(false);
   const loading = ref(true);
+  /** The account has a second factor this session has not given yet: the
+   *  admin area sends it to the page that asks for the code. */
+  const secondFactorOwed = computed(() => owesSecondFactor(session.value));
   let initialized = false;
 
   async function refreshRoles() {
@@ -50,9 +54,9 @@ export const useAuthStore = defineStore("auth", () => {
     const { data } = await client.auth.getSession();
     session.value = data.session;
     user.value = data.session?.user ?? null;
-    await refreshRoles();
-    loading.value = false;
 
+    // Followed from here on, before the roles are read: a session that changes
+    // meanwhile (a second factor given, a token renewed) is not missed.
     client.auth.onAuthStateChange((event, newSession) => {
       // INITIAL_SESSION replays the session we just loaded above — skip it
       // to avoid a duplicate /api/me roundtrip on every app start.
@@ -61,6 +65,9 @@ export const useAuthStore = defineStore("auth", () => {
       user.value = newSession?.user ?? null;
       refreshRoles();
     });
+
+    await refreshRoles();
+    loading.value = false;
   }
 
   async function init() {
@@ -94,5 +101,15 @@ export const useAuthStore = defineStore("auth", () => {
     isSuperAdmin.value = false;
   }
 
-  return { user, session, isAdmin, isSuperAdmin, loading, init, refreshRoles, signOut };
+  return {
+    user,
+    session,
+    isAdmin,
+    isSuperAdmin,
+    loading,
+    secondFactorOwed,
+    init,
+    refreshRoles,
+    signOut,
+  };
 });

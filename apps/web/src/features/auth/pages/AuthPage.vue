@@ -10,7 +10,7 @@ import { useToast } from "@/shared/ui/toast/useToast";
 import { ROUTE } from "@/shared/routes";
 import { passwordSchema } from "../lib/password";
 import { authCode, emailRequestError, mapAuthError } from "../authErrors";
-import { secondFactorDue } from "../secondFactor";
+import { owesSecondFactor } from "../lib/secondFactor";
 import OAuthButtons from "../components/OAuthButtons.vue";
 import UsernamePromptDialog from "../components/UsernamePromptDialog.vue";
 import AuthCard from "../components/AuthCard.vue";
@@ -92,18 +92,20 @@ async function handleAuth(type: "login" | "signup") {
     loading.value = true;
     const proof = await captcha.proof(() => void handleAuth("login"));
     if (!proof) return;
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: validated.email,
       password: validated.password,
       options: { captchaToken: proof.token },
     });
     if (error) throw error;
 
-    // An account with a second factor is asked for its code next (the admin
-    // route's guard): it is welcomed once in.
-    if (!(await secondFactorDue())) {
-      toast({ title: "Connexion réussie!", description: "Bienvenue" });
+    // An account with a second factor is asked for its code next: it is
+    // welcomed once in.
+    if (owesSecondFactor(data.session)) {
+      router.push(ROUTE.secondFactor.path);
+      return;
     }
+    toast({ title: "Connexion réussie!", description: "Bienvenue" });
     router.push("/admin");
   } catch (error) {
     if (error instanceof z.ZodError) {

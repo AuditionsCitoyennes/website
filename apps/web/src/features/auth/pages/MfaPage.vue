@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { supabase } from "@/shared/api/supabase";
 import { CONTACT_EMAIL } from "@/shared/contact";
 import { ROUTE } from "@/shared/routes";
 import { useToast } from "@/shared/ui/toast/useToast";
 import { secondFactorError } from "../authErrors";
+import { owesSecondFactor } from "../lib/secondFactor";
 import { useAuthStore } from "../store";
 import AuthCard from "../components/AuthCard.vue";
 import SecondFactorCode from "../components/SecondFactorCode.vue";
@@ -13,7 +15,7 @@ import SecondFactorCode from "../components/SecondFactorCode.vue";
 // « Double authentification »: the signed-in account's second factor, a code
 // from an authenticator app (TOTP). One page for its whole life:
 // - `challenge`: the account has one and this session has not given its code
-//   yet (the admin route's guard and the API's `mfa_required` lead here);
+//   yet (the admin page and the API's `mfa_required` lead here);
 // - `offer`: the account has none, and may add one;
 // - `enrol`: one is being added (the QR code, then its first code);
 // - `active`: the account has one and the session gave its code: it may be
@@ -54,9 +56,32 @@ async function load() {
     return;
   }
   factorId.value = factors.totp[0]?.id ?? null;
+  if (!factorId.value) {
+    // The kept session still lists a factor the account no longer has (it
+    // was removed from another device, or by the team): the admin page sent
+    // it here for a code nobody can give. A renewed session says what the
+    // account is now, and the admin area opens again.
+    if (owesSecondFactor(kept.session)) {
+      const { data: renewed, error: renewal } = await supabase.auth.refreshSession();
+      if (isAuthRetryableFetchError(renewal)) {
+        view.value = "failed";
+        return;
+      }
+      // A session Auth no longer renews was dropped by that call.
+      if (renewal) {
+        router.replace(ROUTE.auth.path);
+        return;
+      }
+      if (!required && !owesSecondFactor(renewed.session)) {
+        router.replace(ROUTE.admin.path);
+        return;
+      }
+    }
+    view.value = "offer";
+    return;
+  }
   const { data: level } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (!factorId.value) view.value = "offer";
-  else view.value = level?.currentLevel === "aal2" ? "active" : "challenge";
+  view.value = level?.currentLevel === "aal2" ? "active" : "challenge";
 }
 
 onMounted(load);
@@ -188,6 +213,15 @@ async function handleSignOut() {
         <RouterLink :to="ROUTE.admin.path" class="btn-ghost-block link-block">
           Retour à l'administration
         </RouterLink>
+        <!-- The admin area is closed to this session meanwhile. -->
+        <button
+          v-if="required || auth.secondFactorOwed"
+          type="button"
+          class="btn-ghost-block"
+          @click="handleSignOut"
+        >
+          Se déconnecter
+        </button>
       </div>
     </AuthCard>
 

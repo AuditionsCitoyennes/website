@@ -7,7 +7,6 @@
 import type { AuthArrival } from "@/shared/api/authArrival";
 
 export { useAuthStore } from "./store";
-export { secondFactorGate } from "./secondFactor";
 export { acceptsAuthReturn } from "./lib/authReturn";
 export const AuthPage = () => import("./pages/AuthPage.vue");
 export const ResetPasswordPage = () => import("./pages/ResetPasswordPage.vue");

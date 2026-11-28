@@ -1,6 +1,7 @@
 import { createClient, isAuthError, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { captchaToken } from "@/shared/captcha/turnstile";
 import { supabase } from "@/shared/api/supabase";
+import { tokenClaims } from "./lib/tokenClaims";
 
 // Checking the CURRENT password before letting it be changed.
 //
@@ -116,21 +117,12 @@ export function hasPassword(user: User | null, accessToken?: string | null): boo
 
 /** How the session was opened is written in its token (the `amr` claim). */
 function signedInWithPassword(accessToken?: string | null): boolean {
-  try {
-    const payload = accessToken?.split(".")[1];
-    if (!payload) return false;
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const claims = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="))) as {
-      amr?: unknown;
-    };
-    return (
-      Array.isArray(claims.amr) &&
-      claims.amr.some(
-        (entry) =>
-          entry === "password" || (entry as { method?: unknown } | null)?.method === "password",
-      )
-    );
-  } catch {
-    return false;
-  }
+  const amr = tokenClaims(accessToken)?.amr;
+  return (
+    Array.isArray(amr) &&
+    amr.some(
+      (entry) =>
+        entry === "password" || (entry as { method?: unknown } | null)?.method === "password",
+    )
+  );
 }
