@@ -6,7 +6,8 @@ import { after, test } from "node:test";
 import { FakeGeoApi, fakeEnv, installFakes } from "../../testing/fakes";
 
 // frChain and its kin against a fake geo.api.gouv.fr, answers trimmed from
-// the real ones (2026-10-26).
+// the real ones (2026-10-26). What becomes of an answer that is not one —
+// oversized, redirected, of the wrong shape — is in modules/upstreams.test.ts.
 
 const cacheDir = await mkdtemp(join(tmpdir(), "ac-fr-"));
 fakeEnv(cacheDir);
@@ -176,4 +177,37 @@ test("an unknown code is null (and remembered); a commune API down is a 503 Plac
   // Tried twice.
   assert.equal(geo.calls.length, known + 2);
   geo.failWith = null;
+});
+
+test("an answer about another commune, or under a département that does not exist, is no such code", async (t) => {
+  const warned = t.mock.method(console, "warn", () => {});
+  // Asked for 05001, answered about Serres; a commune of the Rhône filed under "9Z".
+  geo.communes["05001"] = geo.communes["05166"];
+  geo.communes["69999"] = {
+    nom: "Fauxville",
+    code: "69999",
+    departement: { code: "9Z", nom: "Fausse" },
+    region: ARA,
+    centre: [45.7, 4.8],
+  };
+  try {
+    assert.equal(await fr.frChain("05001"), null);
+    assert.equal(await fr.frChain("69999"), null);
+    // Said once each, with the field refused and nothing of the answer's values.
+    assert.deepEqual(
+      warned.mock.calls.map((c) => [c.arguments[0], (c.arguments[1] as { field: string }).field]),
+      [
+        ["geo.api.gouv.fr: answer refused", "code"],
+        ["geo.api.gouv.fr: answer refused", "departement.code"],
+      ],
+    );
+    assert.ok(!JSON.stringify(warned.mock.calls.map((c) => c.arguments)).includes("Fauxville"));
+    // Kept as unknown for an hour: not asked again.
+    const asked = geo.calls.length;
+    assert.equal(await fr.frChain("69999"), null);
+    assert.equal(geo.calls.length, asked);
+  } finally {
+    delete geo.communes["05001"];
+    delete geo.communes["69999"];
+  }
 });

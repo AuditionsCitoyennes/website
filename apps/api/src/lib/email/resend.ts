@@ -1,4 +1,5 @@
 import { config, emailMode } from "../../config";
+import { upstreamFetch } from "../cappedFetch";
 import { captureEmails } from "./outbox";
 
 // Resend email service — templates ported verbatim from the previous
@@ -108,6 +109,22 @@ function redirected(email: OutgoingEmail): OutgoingEmail {
   };
 }
 
+/** How long Resend may take to answer one call. */
+const RESEND_TIMEOUT_MS = 15_000;
+/** What is kept of a refusal's body: enough to read Resend's reason, whatever it sent. */
+const ERROR_BODY_MAX_CHARS = 300;
+
+const resendFetch = upstreamFetch();
+
+/** A refusal as its callers read it: its status, its Retry-After, its body cut short. */
+async function shortened(res: Response): Promise<Response> {
+  const text = (await res.text()).slice(0, ERROR_BODY_MAX_CHARS);
+  const headers = new Headers({ "Content-Type": "text/plain; charset=utf-8" });
+  const retryAfter = res.headers.get("retry-after");
+  if (retryAfter) headers.set("Retry-After", retryAfter);
+  return new Response(text, { status: res.status, statusText: res.statusText, headers });
+}
+
 /**
  * Every email goes through here (one, or a batch on "/emails/batch"), so
  * EMAIL_MODE holds everywhere: "redirect" sends an email to its own
@@ -115,11 +132,18 @@ function redirected(email: OutgoingEmail): OutgoingEmail {
  * otherwise; "outbox" and "log" send nothing and answer as Resend would —
  * "outbox" with the ids of the emails it kept, or a 503 when it could not
  * keep them.
+ *
+ * Resend's answer is read whole here, within lib/cappedFetch.ts's limit (a
+ * heavier one, or a redirect, fails the call), and a refusal's body comes
+ * back cut to 300 characters: what a caller logs, or reports per recipient,
+ * stays small whatever Resend sent. `signal` ends the call sooner than its
+ * own 15 s (a caller's deadline).
  */
 export async function resendPost(
   path: string,
   body: unknown,
   idempotencyKey?: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const batch = path === "/emails/batch";
   const emails = (batch ? body : [body]) as OutgoingEmail[];
@@ -146,7 +170,8 @@ export async function resendPost(
     const out = emails.map((e) => (allAllowed(e) ? e : redirected(e)));
     body = batch ? out : out[0];
   }
-  return fetch(`https://api.resend.com${path}`, {
+  const limit = AbortSignal.timeout(RESEND_TIMEOUT_MS);
+  const res = await resendFetch(`https://api.resend.com${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${requireKey()}`,
@@ -155,8 +180,9 @@ export async function resendPost(
       ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15_000),
+    signal: signal ? AbortSignal.any([signal, limit]) : limit,
   });
+  return res.ok ? res : shortened(res);
 }
 
 export function wrapBrandedEmail(title: string, bodyHtml: string): string {

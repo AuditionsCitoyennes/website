@@ -9,6 +9,10 @@ import { TooLongError } from "./guards";
 // so the budgets below add up to the 74 MB. A change to auditions or
 // testimonies can move any of them (the map groups, the auditions list and
 // every place count carry testimony counts), so a write invalidates them all.
+// A write this process did not make (the old app's, a statement run in the
+// database) invalidates nothing: what it removed leaves these reads once
+// its entries have aged — the TTL below, then lib/cache.ts's stale window:
+// about a minute and a half.
 
 const MB = 1024 * 1024;
 const MINUTE = 60_000;

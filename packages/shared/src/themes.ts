@@ -106,10 +106,19 @@ export const THEME_KEY_TABLE: readonly { key: string; index: number; approx: boo
   ...BY_KEY,
 ].map(([key, { theme, match }]) => ({ key, index: ORDER.get(theme)!, approx: match === "approx" }));
 
+// The tags already read. The stored vocabulary is a few dozen tags: past
+// TAG_CACHE_MAX the rest are read each time, so the map never grows with
+// whatever tags it is shown.
+const TAG_CACHE_MAX = 1000;
 const tagCache = new Map<string, { theme: AuditionTheme; match: ThemeMatch } | null>();
 
-/** One raw tag → its place in the 16-theme grid (AUDITION_THEMES), or null ("hors grille"). */
+/**
+ * One raw tag → its place in the 16-theme grid (AUDITION_THEMES), or null
+ * ("hors grille"). Anything that is not a text (a NULL of the topics array,
+ * a value of another type) is hors grille too.
+ */
 export function normalizeTheme(tag: string): { theme: AuditionTheme; match: ThemeMatch } | null {
+  if (typeof tag !== "string") return null;
   // Written in the grid, exactly. Checked before the folded key: the old
   // "fiscalité", "retraites", "logement"… fold to the same key as the grid's
   // names, and must not be counted as written by the current tagging.
@@ -117,7 +126,7 @@ export function normalizeTheme(tag: string): { theme: AuditionTheme; match: Them
   let hit = tagCache.get(tag);
   if (hit === undefined) {
     hit = BY_KEY.get(themeKey(tag)) ?? null;
-    tagCache.set(tag, hit);
+    if (tagCache.size < TAG_CACHE_MAX) tagCache.set(tag, hit);
   }
   return hit;
 }

@@ -341,6 +341,81 @@ test("a commune the commune API does not know: filed under its département, wit
   assert.equal(p.columns.place_precision, "commune");
 });
 
+test("what the geocoder says is stored only if it can be: a point on the globe, an INSEE code, one-line names", async () => {
+  const embrun = MUNICIPALITIES.Embrun[0];
+  const entry = (over: Record<string, unknown>) => ({
+    coords: embrun.coords,
+    city: "Embrun",
+    citycode: "05046",
+    arrondissement: null,
+    depCode: "05",
+    depName: "Hautes-Alpes",
+    region: "Provence-Alpes-Côte d'Azur",
+    level: "commune" as const,
+    ...over,
+  });
+  // As an older cache file may hold them: kept before the BAN's answers were checked.
+  const unfit = [
+    entry({ coords: [999, -999] }),
+    entry({ coords: ["44.56", "6.49"] }),
+    entry({ coords: null }),
+    entry({ citycode: "0504" }),
+    entry({ citycode: { a: 1 } }),
+    entry({ city: `<b>Joyeuse</b>${"A".repeat(10_000)}` }),
+    entry({ city: "Embrun\nParis" }),
+    entry({ depName: "x".repeat(300) }),
+    entry({ region: 42 }),
+  ];
+  for (const found of unfit) {
+    const { deps: d, calls } = deps({ locate: async () => found as never });
+    const p = placed(await placeLieu("Embrun", { deps: d }));
+    assert.equal(p.columns.place_precision, "unplaced", JSON.stringify(found).slice(0, 80));
+    assert.equal(p.columns.place_path, null);
+    assert.deepEqual(p.units, []);
+    assert.deepEqual(calls.commune, [], "the commune API is not asked about it");
+  }
+  // One unfit commune among same-named ones: no candidate of that answer is kept.
+  const { deps: d } = deps({
+    locate: async () => ({
+      homonyms: [
+        { ...entry({}), population: 6000 },
+        { ...entry({ coords: [999, 999], citycode: "11339" }), population: 500 },
+      ] as never,
+    }),
+  });
+  const p = placed(await placeLieu("Embrun", { deps: d }));
+  assert.equal(p.columns.place_precision, "unplaced");
+  assert.equal(p.columns.place_candidates, null);
+  // The same entry, fit: placed.
+  const fit = deps({ locate: async () => entry({}) });
+  assert.equal(
+    placed(await placeLieu("Embrun", { deps: fit.deps })).columns.place_unit,
+    "fr:com:05046",
+  );
+  // Stored candidates settled later are checked the same way: the commune
+  // that wins by its population has no point on the globe.
+  const candidate = (citycode: string, lat: number, population: number) => ({
+    name: "Embrun",
+    departementCode: citycode.slice(0, 2),
+    citycode,
+    arrondissement: null,
+    departementName: "Hautes-Alpes",
+    region: "Provence-Alpes-Côte d'Azur",
+    lat,
+    lng: 6.49,
+    level: "commune" as const,
+    population,
+  });
+  const settled = await settleCandidates(
+    "Embrun",
+    "Embrun",
+    [candidate("05046", 999, 6000), candidate("11339", 43.2, 500)],
+    deps().deps,
+  );
+  assert.ok(settled && settled !== "retry");
+  assert.equal(settled.columns.place_precision, "unplaced");
+});
+
 test("an upstream that does not answer: 'retry'", async () => {
   const geocoderDown = deps({ locate: async () => "retry" });
   assert.equal(await placeLieu("Embrun", { deps: geocoderDown.deps }), "retry");

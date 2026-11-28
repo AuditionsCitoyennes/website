@@ -81,7 +81,11 @@ export interface PassReport {
 }
 
 export interface PassOptions {
-  /** Report what would be written, write nothing (same-named communes: settled against the support already stored). */
+  /**
+   * Report what would be written, write nothing (same-named communes:
+   * settled against the support already stored). A place the table's checks
+   * would refuse is counted as failed, as the real pass counts it.
+   */
   dryRun?: boolean;
   /** Run the rules pass. */
   rules?: boolean;
@@ -179,6 +183,47 @@ async function writePlace(
   return true;
 }
 
+const PRECISIONS = new Set([
+  "address",
+  "commune",
+  "locality",
+  "departement",
+  "region",
+  "country",
+  "unplaced",
+]);
+
+const onGlobe = (lat: number, lng: number) =>
+  Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+
+/**
+ * The check of the auditions table that would refuse these place columns
+ * (supabase/migrations/20261026100100_audition_places.sql), or null when
+ * they pass them all: what a dry run knows of a write it does not make.
+ */
+export function refusingCheck(c: PlaceColumns): string | null {
+  const path = c.place_path;
+  if (c.place_precision !== null && !PRECISIONS.has(c.place_precision)) {
+    return "auditions_place_precision";
+  }
+  if ((c.lat === null) !== (c.lng === null)) return "auditions_place_point";
+  if (c.lat !== null && c.lng !== null && !onGlobe(c.lat, c.lng)) return "auditions_place_point";
+  if ((path === null) !== (c.place_unit === null)) return "auditions_place_path";
+  if (path) {
+    const shaped =
+      path.length >= 1 &&
+      path.length <= 8 &&
+      path.every((id) => typeof id === "string") &&
+      path[path.length - 1] === c.place_unit &&
+      /^[A-Z]{2}$/.test(path[0]);
+    if (!shaped) return "auditions_place_path";
+  }
+  const unplaced = c.place_precision === null || c.place_precision === "unplaced";
+  if (unplaced !== (path === null)) return "auditions_place_placed";
+  if (path && (c.lieu_key === null || c.lat === null)) return "auditions_place_lieu";
+  return null;
+}
+
 /** A placement stored: its units, then the row (counted under `counter`, or by what it is). */
 async function store(
   row: JobRow,
@@ -189,7 +234,11 @@ async function store(
 ): Promise<void> {
   const kind: Counter = counter ?? (placement.columns.place_path ? "placed" : "unplaced");
   if (opts.dryRun) {
-    report[kind]++;
+    const check = refusingCheck(placement.columns);
+    if (check) {
+      report.failed++;
+      opts.log?.error({ audition: row.id, check }, "placement: the write would be refused");
+    } else report[kind]++;
     return;
   }
   try {

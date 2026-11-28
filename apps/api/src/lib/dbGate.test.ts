@@ -11,7 +11,11 @@ import {
   isTransientDbError,
   newTiming,
 } from "./dbGate";
-import { AnswerTooLargeError, cappedFetch } from "./cappedFetch";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
+import { AnswerTooLargeError, answerFault, cappedFetch, upstreamFetch } from "./cappedFetch";
 import { forceHits, refundHits, takeHits } from "./rateLimit";
 
 // The database gate (lib/dbGate.ts): so many calls at once, so many waiting
@@ -211,6 +215,20 @@ test("takeHits: all or none, and how long until the refusing window ends", () =>
   assert.equal(takeHits([{ key: "t:c", n: 31, max: 30, windowMs: w }]), w);
 });
 
+test("takeHits of nothing: whether a key's window is already past its max, counting nothing", () => {
+  const w = 60_000;
+  const room = (key: string) => takeHits([{ key, n: 0, max: 100, windowMs: w }]);
+  assert.equal(room("t:z"), 0, "no window yet");
+  forceHits([{ key: "t:z", n: 100, max: 100, windowMs: w }]);
+  assert.equal(room("t:z"), 0, "at the max, not past it");
+  forceHits([{ key: "t:z", n: 1, max: 100, windowMs: w }]);
+  const wait = room("t:z");
+  assert.ok(wait > 59_000 && wait <= w, `${wait}`);
+  // Asking counts nothing, and a large count costs no more than a small one.
+  forceHits([{ key: "t:y", n: 2_000_000_000, max: 100, windowMs: w }]);
+  assert.ok(room("t:y") > 0);
+});
+
 test("forceHits: counted past the max (work under way), refused from the next take on", () => {
   const w = 10_000;
   assert.equal(takeHits([{ key: "t:f", n: 28, max: 30, windowMs: w }]), 0);
@@ -287,6 +305,149 @@ test("cappedFetch: an answer within the limit as it came; past it, cut unread", 
     globalThis.fetch = (async () =>
       new Response("x", { headers: { "content-length": "401" } })) as typeof fetch;
     await assert.rejects(cappedFetch(400)("http://db.test/rpc/f"), AnswerTooLargeError);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("cappedFetch: the call's signal ends the reading of a body, whatever the fetch below does", async () => {
+  const real = globalThis.fetch;
+  let cancelled = 0;
+  // A body that sends a first chunk and then nothing, under a fetch deaf to the signal.
+  const stalled = () =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new Uint8Array(10));
+      },
+      cancel() {
+        cancelled++;
+      },
+    });
+  try {
+    globalThis.fetch = (async () => new Response(stalled())) as typeof fetch;
+    const started = performance.now();
+    await assert.rejects(
+      cappedFetch(400)("http://api.test/", { signal: AbortSignal.timeout(50) }),
+      (e: Error) => e.name === "TimeoutError",
+    );
+    assert.ok(performance.now() - started < 1000);
+    assert.equal(cancelled, 1, "the rest of the body is dropped");
+    // A controller's abort, with its reason; and a signal that had aborted already.
+    const ac = new AbortController();
+    const call = cappedFetch(400)("http://api.test/", { signal: ac.signal });
+    const why = new Error("deadline");
+    setTimeout(() => ac.abort(why), 20);
+    await assert.rejects(call, (e: unknown) => e === why);
+    await assert.rejects(
+      cappedFetch(400)("http://api.test/", { signal: ac.signal }),
+      (e: unknown) => e === why,
+    );
+    assert.equal(cancelled, 3);
+    // A body that ends in time is read whole, the signal left without a listener's work to do.
+    globalThis.fetch = (async () => new Response("x".repeat(300))) as typeof fetch;
+    const quick = new AbortController();
+    const ok = await cappedFetch(400)("http://api.test/", { signal: quick.signal });
+    quick.abort();
+    assert.equal((await ok.text()).length, 300);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("upstreamFetch: a time limit holds while the body comes a byte at a time, garbage collected or not", async () => {
+  // The collector, as `node --expose-gc` gives it: once the request object
+  // is collected, Node's fetch may no longer pass the abort on to the body.
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc") as () => void;
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.write("[");
+    const drip = setInterval(() => res.write(" "), 50);
+    const end = setTimeout(() => res.end("]"), 3000);
+    res.on("close", () => {
+      clearInterval(drip);
+      clearTimeout(end);
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const collecting = setInterval(gc, 20);
+  try {
+    const started = performance.now();
+    await assert.rejects(
+      upstreamFetch()(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`, {
+        method: "POST",
+        body: "{}",
+        signal: AbortSignal.timeout(300),
+      }),
+      (e: Error) => e.name === "TimeoutError",
+    );
+    assert.ok(performance.now() - started < 1500, "ended by the limit, not by the body's end");
+  } finally {
+    clearInterval(collecting);
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
+test("upstreamFetch: a redirect is refused, not followed — nothing reaches where it points", async () => {
+  // Two real servers: one answers every call with a redirect to the other.
+  let reached = 0;
+  const target = createServer((_req, res) => {
+    reached++;
+    res.end("{}");
+  });
+  const origin = createServer((req, res) => {
+    const port = (target.address() as AddressInfo).port;
+    res.writeHead(Number(req.url?.slice(1)), { location: `http://127.0.0.1:${port}/taken` });
+    res.end();
+  });
+  await Promise.all(
+    [target, origin].map((s) => new Promise<void>((done) => s.listen(0, "127.0.0.1", done))),
+  );
+  const base = `http://127.0.0.1:${(origin.address() as AddressInfo).port}`;
+  try {
+    for (const status of [301, 302, 303, 307, 308]) {
+      await assert.rejects(
+        upstreamFetch()(`${base}/${status}`, {
+          method: "POST",
+          headers: { "x-api-key": "secret", "content-type": "application/json" },
+          body: "{}",
+        }),
+        // Told apart from a network failure, for the log.
+        (e: unknown) => e instanceof TypeError && answerFault(e) === "redirect refused",
+        String(status),
+      );
+    }
+    assert.equal(reached, 0);
+    // The same call through a plain fetch is followed: the refusal is upstreamFetch's.
+    await fetch(`${base}/307`, { method: "POST", body: "{}" });
+    assert.equal(reached, 1);
+  } finally {
+    target.close();
+    origin.close();
+  }
+});
+
+test("answerFault: a redirect, a size, a body that is not JSON; nothing for what passes by itself", async () => {
+  assert.match(answerFault(new AnswerTooLargeError(300, 256)) ?? "", /over 256 bytes/);
+  const notJson = await new Response("<html>").json().catch((e: unknown) => e);
+  assert.equal(answerFault(notJson), "answer is not JSON");
+  // The network, the clock, a status: not the answer's fault.
+  const refused = new TypeError("fetch failed", { cause: new Error("connect ECONNREFUSED") });
+  assert.equal(answerFault(refused), null);
+  assert.equal(answerFault(new DOMException("The operation timed out", "TimeoutError")), null);
+  assert.equal(answerFault(new Error("BAN search 503")), null);
+});
+
+test("upstreamFetch: 256 kB of answer by default, or the limit given", async () => {
+  const real = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response("x".repeat(256 * 1024))) as typeof fetch;
+    assert.equal((await (await upstreamFetch()("http://api.test/")).text()).length, 256 * 1024);
+    globalThis.fetch = (async () => new Response("x".repeat(256 * 1024 + 1))) as typeof fetch;
+    await assert.rejects(upstreamFetch()("http://api.test/"), AnswerTooLargeError);
+    globalThis.fetch = (async () => new Response("x".repeat(65_537))) as typeof fetch;
+    await assert.rejects(upstreamFetch(64 * 1024)("http://api.test/"), AnswerTooLargeError);
   } finally {
     globalThis.fetch = real;
   }

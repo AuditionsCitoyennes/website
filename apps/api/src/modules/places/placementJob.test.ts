@@ -30,7 +30,7 @@ after(async () => {
 
 const { LOCATION_RULES } = await import("@ac/shared");
 const { locate } = await import("../geo/match");
-const { runPlacementPass, forgetFailures } = await import("./placementJob");
+const { runPlacementPass, forgetFailures, refusingCheck } = await import("./placementJob");
 const { rulesHash } = await import("./placeLieu");
 const { forgetGeoUnits } = await import("./geoUnits");
 
@@ -575,6 +575,106 @@ test("a dry run reports what a pass would write, and writes nothing", async () =
   assert.ok(rows().every((r) => r.place_stale === true));
   assert.equal(db.tables.geo_units.length, 0);
   assert.ok(!db.requests.some((r) => r.method !== "GET" && !r.url.pathname.includes("/rpc/")));
+});
+
+test("a dry run counts a place the table's checks would refuse as failed, as the pass does", async () => {
+  // An online row whose stored point is on no globe: the table refuses its place.
+  const online = (lat: number, lng: number) =>
+    legacy("Mairie de Villeurbanne (69)", {
+      audition_en_ligne: true,
+      citycode: "69266",
+      place: {
+        insee: "69266",
+        commune: "Villeurbanne",
+        arrondissement: null,
+        departementCode: "69",
+        departementName: "Rhône",
+        region: "Auvergne-Rhône-Alpes",
+        lat,
+        lng,
+      },
+    });
+  db.insert("auditions", [online(999, -999), legacy("Embrun")]);
+  const notes: { obj: object; msg: string }[] = [];
+  const log = {
+    info() {},
+    warn() {},
+    error: (obj: object, msg: string) => notes.push({ obj, msg }),
+  };
+  const dry = await runPlacementPass({ deps, dryRun: true, log });
+  assert.deepEqual([dry.placed, dry.failed], [1, 1]);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].msg, "placement: the write would be refused");
+  assert.equal((notes[0].obj as { check: string }).check, "auditions_place_point");
+  assert.ok(rows().every((r) => r.place_stale === true));
+  // The pass itself: the table's refusal, counted the same (the fake database
+  // has no range check: it refuses that write as the table would).
+  db.refuse = (method, _url, body) =>
+    method === "PATCH" && (body as Row).lat === 999
+      ? { status: 400, code: "23514", message: 'violates check constraint "auditions_place_point"' }
+      : null;
+  try {
+    const real = await runPlacementPass({ deps });
+    assert.deepEqual([real.placed, real.failed], [dry.placed, dry.failed]);
+  } finally {
+    db.refuse = () => null;
+  }
+});
+
+test("refusingCheck: each check of the table, on the columns a placement would write", () => {
+  const placed = {
+    place_unit: "fr:com:05046",
+    place_path: ["FR", "fr:reg:93", "fr:dep:05", "fr:com:05046"],
+    locality_id: "fr:com:05046",
+    lieu_key: "Embrun",
+    lat: 44.5638,
+    lng: 6.4958,
+    place_precision: "commune",
+    place_candidates: null,
+    placed_location: "Embrun",
+    placed_rules: rulesHash(),
+    geo_release: "geoapi-2026",
+  };
+  const unplaced = {
+    ...placed,
+    place_unit: null,
+    place_path: null,
+    locality_id: null,
+    lat: null,
+    lng: null,
+    place_precision: "unplaced",
+    geo_release: null,
+  };
+  assert.equal(refusingCheck(placed), null);
+  assert.equal(refusingCheck(unplaced), null);
+  // The poles and the antimeridian are on the globe.
+  assert.equal(refusingCheck({ ...placed, lat: -90, lng: 180 }), null);
+  const refused: [Partial<typeof placed> | Record<string, unknown>, string][] = [
+    [{ lat: 90.01 }, "auditions_place_point"],
+    [{ lng: -180.5 }, "auditions_place_point"],
+    [{ lat: Number.NaN }, "auditions_place_point"],
+    [{ lng: null }, "auditions_place_point"],
+    [{ place_precision: "street" }, "auditions_place_precision"],
+    [{ place_unit: null }, "auditions_place_path"],
+    [{ place_unit: "fr:com:05166" }, "auditions_place_path"],
+    [{ place_path: ["fr:com:05046"] }, "auditions_place_path"],
+    [{ place_path: [] }, "auditions_place_path"],
+    [
+      { place_path: ["FR", "a", "b", "c", "d", "e", "f", "g", "fr:com:05046"] },
+      "auditions_place_path",
+    ],
+    [{ place_path: ["FR", null, "fr:com:05046"] }, "auditions_place_path"],
+    [{ place_precision: "unplaced" }, "auditions_place_placed"],
+    [{ place_precision: null }, "auditions_place_placed"],
+    [{ lieu_key: null }, "auditions_place_lieu"],
+  ];
+  for (const [over, check] of refused) {
+    assert.equal(refusingCheck({ ...placed, ...over } as never), check, JSON.stringify(over));
+  }
+  assert.equal(
+    refusingCheck({ ...unplaced, place_precision: "commune" } as never),
+    "auditions_place_placed",
+  );
 });
 
 test("a write the table refuses is counted, and the row stays stale", async () => {

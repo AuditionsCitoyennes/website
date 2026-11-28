@@ -8,7 +8,7 @@ import type { GeoUnitWrite } from "./fr";
 // authenticated): read and written through the service role alone.
 
 // The ids written by this process: a unit already there is not sent again.
-// A unit is never renamed in place (a remap inserts a new one), so a hit
+// An id is never changed in place (a remap inserts a new unit), so a hit
 // stays good — but for a database reset under a running API: the foreign
 // key then refuses a child of a unit believed written, and all are sent.
 const written = new Set<string>();
@@ -24,26 +24,74 @@ let lastMissRead = 0;
 
 /**
  * Make sure these units exist, root first (ancestors before descendants).
- * One that exists already is left as it is: an id is never updated (C7).
- * Throws on a database error.
+ * One that exists already keeps its id, its parent and its level (C7); its
+ * name, code and point follow the unit arriving when that one is of a newer
+ * release of the same source (refreshUnits). Throws on a database error.
  */
 export async function upsertGeoUnits(units: readonly GeoUnitWrite[]): Promise<void> {
   const unique = [...new Map(units.map((u) => [u.id, u])).values()];
   const missing = unique.filter((u) => !written.has(u.id));
   if (missing.length === 0) return;
-  let { error } = await insertUnits(missing);
+  let sent = missing;
+  let { data, error } = await insertUnits(sent);
   if (error?.code === "23503") {
     written.clear();
-    ({ error } = await insertUnits(unique));
+    sent = unique;
+    ({ data, error } = await insertUnits(sent));
   }
   if (error) throw new Error(`geo_units: ${error.message}`);
+  const inserted = new Set((data ?? []).map((u) => u.id));
+  await refreshUnits(sent.filter((u) => !inserted.has(u.id)));
   for (const u of unique) written.add(u.id);
   // The units the reads keep are short of these now.
   unitsRead = null;
 }
 
+/** The units not there yet, inserted: the answer names them. */
 function insertUnits(units: GeoUnitWrite[]) {
-  return adminClient.from("geo_units").upsert(units, { onConflict: "id", ignoreDuplicates: true });
+  return adminClient
+    .from("geo_units")
+    .upsert(units, { onConflict: "id", ignoreDuplicates: true })
+    .select("id");
+}
+
+/**
+ * The units that were there already, brought to the release arriving when
+ * theirs is older: a release's corrected name, code or point replaces the
+ * stored one. Releases of one source sort as text ("geoapi-2026" before
+ * "geoapi-2027"); a unit of another source, or of the same or a newer
+ * release, is left as it is. Guarded by the release read: of two processes
+ * arriving together, one writes.
+ */
+async function refreshUnits(units: GeoUnitWrite[]): Promise<void> {
+  if (units.length === 0) return;
+  const { data, error } = await adminClient
+    .from("geo_units")
+    .select("id, source, geo_release")
+    .in(
+      "id",
+      units.map((u) => u.id),
+    );
+  if (error) throw new Error(`geo_units: ${error.message}`);
+  const stored = new Map(data.map((u) => [u.id, u]));
+  for (const u of units) {
+    const old = stored.get(u.id);
+    if (!old || old.source !== u.source || old.geo_release >= u.geo_release) continue;
+    // A unit arriving without a point (an area above the leaf) keeps the stored one.
+    const point = u.lat !== null && u.lng !== null ? { lat: u.lat, lng: u.lng } : {};
+    const { error: refused } = await adminClient
+      .from("geo_units")
+      .update({
+        name: u.name,
+        code: u.code,
+        ...point,
+        geo_release: u.geo_release,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", u.id)
+      .eq("geo_release", old.geo_release);
+    if (refused) throw new Error(`geo_units: ${refused.message}`);
+  }
 }
 
 /** Forget what was written and read (tests: a fresh database). */

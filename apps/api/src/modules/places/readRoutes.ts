@@ -56,6 +56,7 @@ import {
   lieuAuditions,
   placeCountsMany,
   placeFacets,
+  READ_ANSWER_MAX_BYTES,
   testimonyPage,
   UNITS_PER_CALL,
   type CountsArgs,
@@ -69,7 +70,16 @@ import {
 // sent as is: pre-gzipped, with an ETag, `no-cache` (a client revalidates and
 // is told 304 until a write). Cache misses cost the visitor: 30 RPC calls per
 // 10 s, 20 of them with a text (429 with Retry-After past that); every call
-// goes through the database gate (lib/dbGate.ts).
+// goes through the database gate (lib/dbGate.ts), and a call the gate turns
+// away is given back to the visitor: only work that ran is counted.
+//
+// What the visitor's reads bring from the database is counted in bytes too
+// (the JSON of each answer fetched for them, on a miss or on a refill behind
+// a stale reply; an answer refused as heavier than a read may bring back
+// counts for that limit, the part of it that was read): past BYTES_PER_MINUTE
+// or BYTES_PER_HOUR their misses are refused (429) and their requests start
+// no refill until the window ends — what the caches hold is still served to
+// them.
 //
 // A response assembled from cached answers (a units= batch, an answer with
 // "textIgnored") is kept too, in a family of its own (assembledCache: it
@@ -89,6 +99,37 @@ const NO_SERVICE_ROLE = "Les lieux ne sont pas disponibles pour le moment.";
 const MISS_LIMIT = 30;
 const SEARCH_LIMIT = 20;
 const LIMIT_WINDOW_MS = 10_000;
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+/**
+ * What a drill of the map fetches from the database when no cache holds any
+ * of it — the Témoignages page opened, then France down to a commune and one
+ * of its lieux — measured in headless Chrome over the seed's corpus (214
+ * auditions, 800 testimonies) on 2026-11-28: six reads, 295 kB of JSON.
+ */
+const BYTES_COLD_DRILL = 295_299;
+/**
+ * The bytes a visitor's reads may bring from the database per minute: 3
+ * times what a cold-cache drill of the map from France down to a commune
+ * fetches (BYTES_COLD_DRILL), and 16 MB at least.
+ */
+export const BYTES_PER_MINUTE = Math.max(16 * 1024 * 1024, 3 * BYTES_COLD_DRILL);
+/**
+ * Per hour: 16 times that. An address is often a whole room (a venue's
+ * Wi-Fi during an audition, a mobile carrier's gateway): thirty visitors
+ * behind one, each opening a lieu every 30 to 60 s, fetched 21 MB an hour
+ * over a corpus the seed's size (measured 2026-11-28, 40 minutes), about a
+ * twelfth of it.
+ */
+export const BYTES_PER_HOUR = 16 * BYTES_PER_MINUTE;
+/**
+ * The longest Retry-After a refusal carries, in seconds. The site's reads
+ * wait that long before each of their three retries: past an hour's
+ * allowance the true wait would leave its panel loading, where three short
+ * ones bring its error line.
+ */
+const RETRY_AFTER_MAX_S = 60;
 
 const PAGE_DEFAULT = 50;
 const PAGE_MAX = 100;
@@ -230,11 +271,15 @@ function firstIssue(error: z.ZodError): string {
 
 // ---- Limits, errors, timing ------------------------------------------------------
 
-/** Past a visitor's miss or search limit: 429 with Retry-After. */
+/** Past a visitor's miss or search limit, or their allowance of bytes: 429 with Retry-After. */
 export class RateLimitedError extends Error {
   readonly statusCode = 429;
   constructor(readonly waitMs: number) {
-    super("Trop de requêtes. Réessayez dans un instant.");
+    super(
+      waitMs > MINUTE_MS
+        ? "Trop de requêtes. Réessayez plus tard."
+        : "Trop de requêtes. Réessayez dans un instant.",
+    );
     this.name = "RateLimitedError";
   }
 }
@@ -261,21 +306,89 @@ function limitsOf(req: FastifyRequest, calls: number, search: boolean): HitRule[
   return rules;
 }
 
+/** Gives back calls counted for work that never ran: all of them, or `calls`. */
+type Refund = (calls?: number) => void;
+
 /**
  * Counts `calls` RPC calls against the visitor's limits, or throws
  * RateLimitedError; returns how to give them back (work that never ran).
  */
-function charge(req: FastifyRequest, calls: number, search: boolean): () => void {
-  const rules = limitsOf(req, calls, search);
-  const waitMs = takeHits(rules);
+function charge(req: FastifyRequest, calls: number, search: boolean): Refund {
+  const waitMs = takeHits(limitsOf(req, calls, search));
   if (waitMs > 0) throw new RateLimitedError(waitMs);
   const takenAt = Date.now();
-  return () => refundHits(rules, takenAt);
+  return (n = calls) => refundHits(limitsOf(req, n, search), takenAt);
 }
 
 /** Counts calls already under way (a split batch): never refused, paid from the next request on. */
-function chargeAfter(req: FastifyRequest, calls: number, search: boolean): void {
+function chargeAfter(req: FastifyRequest, calls: number, search: boolean): Refund {
   forceHits(limitsOf(req, calls, search));
+  const takenAt = Date.now();
+  return (n = calls) => refundHits(limitsOf(req, n, search), takenAt);
+}
+
+/** The visitor's allowances of bytes that `bytes` fetched count against. */
+function byteLimitsOf(req: FastifyRequest, bytes: number): HitRule[] {
+  const who = clientKey(visitorIp(req));
+  return [
+    {
+      key: `${who}:places-bytes-minute`,
+      n: bytes,
+      max: BYTES_PER_MINUTE * rateLimitFactor,
+      windowMs: MINUTE_MS,
+    },
+    {
+      key: `${who}:places-bytes-hour`,
+      n: bytes,
+      max: BYTES_PER_HOUR * rateLimitFactor,
+      windowMs: HOUR_MS,
+    },
+  ];
+}
+
+/** How long until the visitor's reads may fetch from the database again (0: they may now). */
+function bytesWaitMs(req: FastifyRequest): number {
+  return takeHits(byteLimitsOf(req, 0));
+}
+
+/**
+ * Counts the bytes of an answer fetched for the visitor. They are known once
+ * it is read, so nothing is refused here: the requests after an allowance is
+ * passed are (chargeRead, mayRefill). The reads already under way when it is
+ * passed still end — at most the calls of one 10 s window (MISS_LIMIT).
+ */
+function spendBytes(req: FastifyRequest, bytes: number): void {
+  forceHits(byteLimitsOf(req, bytes));
+}
+
+/**
+ * Before `calls` database reads on the visitor's account: refused
+ * (RateLimitedError) while an allowance of bytes is spent, else counted as
+ * charge() counts them.
+ */
+function chargeRead(req: FastifyRequest, calls: number, search: boolean): Refund {
+  const waitMs = bytesWaitMs(req);
+  if (waitMs > 0) throw new RateLimitedError(waitMs);
+  return charge(req, calls, search);
+}
+
+/**
+ * An answer fetched for the visitor, as the caches keep it (built once
+ * here), its JSON counted against their allowances of bytes.
+ */
+async function fetchedFor(req: FastifyRequest, value: unknown): Promise<Prebuilt> {
+  const res = await buildResponse(value);
+  spendBytes(req, res.json.length);
+  return new Prebuilt(res);
+}
+
+/**
+ * A read made for the visitor failed: when its answer was heavier than a
+ * read may bring back, the limit is what was read of it before it was
+ * dropped, and what counts against their allowances of bytes.
+ */
+function spendRefused(req: FastifyRequest, err: unknown): void {
+  if (err instanceof DbTooLargeError) spendBytes(req, READ_ANSWER_MAX_BYTES);
 }
 
 /** A read failed: what the visitor is told (anything unmapped is a 500, see server.ts). */
@@ -284,7 +397,8 @@ function replyError(req: FastifyRequest, reply: FastifyReply, err: unknown): Fas
   // Set when the body was about to be built (sendDerived): not the error's.
   reply.removeHeader("ETag");
   if (err instanceof RateLimitedError) {
-    reply.header("Retry-After", String(Math.max(1, Math.ceil(err.waitMs / 1000))));
+    const seconds = Math.max(1, Math.ceil(err.waitMs / 1000));
+    reply.header("Retry-After", String(Math.min(RETRY_AFTER_MAX_S, seconds)));
     return reply.tooManyRequests(err.message);
   }
   if (err instanceof DbBusyError) {
@@ -392,28 +506,50 @@ function sendOne(
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
+/** How a fill's calls are counted for the visitor it runs for. */
+interface Charging {
+  /** Calls started after the fact (a split batch): counted, never refused. */
+  extra(calls: number): Refund;
+  /** One call counted before it ran, that the gate then turned away. */
+  refused(): void;
+}
+
+/** A refill behind a stale reply is the cache's upkeep: no call of it is counted. */
+const NOT_CHARGED: Charging = { extra: () => () => undefined, refused: () => undefined };
+
 /**
  * place_counts_many for `units`. A call whose answer is heavier than a read
  * may bring back is made again unit by unit (the extra calls charged to the
  * visitor whose miss it was, after the fact): a unit is refused for its own
  * answer alone, never for the company it was fetched in — what a units=
  * request gets does not depend on which of its units were cached already.
+ * A call the gate turns away is given back to the visitor; every call that
+ * fails is told to `failed` (the bytes of an answer too heavy are counted
+ * for the visitor, on a refill too).
  */
 async function countsSplitting(
   units: string[],
   args: CountsArgs,
   timing: DbTiming,
-  chargeExtra: (calls: number) => void,
+  charging: Charging,
+  failed: (err: unknown) => void,
 ): Promise<unknown[]> {
   try {
     return await placeCountsMany(units, args, timing);
   } catch (err) {
+    failed(err);
+    if (err instanceof DbBusyError) charging.refused();
     if (!(err instanceof DbTooLargeError) || units.length === 1) throw err;
-    chargeExtra(units.length);
+    const refund = charging.extra(units.length);
     const alone = await Promise.allSettled(
       units.map(async (u) => (await placeCountsMany([u], args, timing))[0]),
     );
-    return alone.map((r) => (r.status === "fulfilled" ? r.value : new KeyFailure(r.reason)));
+    return alone.map((r) => {
+      if (r.status === "fulfilled") return r.value;
+      failed(r.reason);
+      if (r.reason instanceof DbBusyError) refund(1);
+      return new KeyFailure(r.reason);
+    });
   }
 }
 
@@ -426,7 +562,9 @@ interface CachedRead {
 /**
  * One read: from its family when it has a key (a first page, a lieu…), else
  * straight through (later pages), charged to the visitor when it reaches
- * the database.
+ * the database — its calls before it runs (given back when the gate turns
+ * it away), its bytes once fetched (those of an answer refused as too heavy
+ * as well).
  */
 async function serveRead(
   req: FastifyRequest,
@@ -436,23 +574,39 @@ async function serveRead(
 ): Promise<FastifyReply> {
   const timing = newTiming();
   const started = performance.now();
+  const search = f.needle !== "";
+  // Set by a miss; a refill behind a stale reply was charged no call.
+  let refund: Refund | undefined;
+  const fetched = async () => {
+    try {
+      return await read.fetch(timing);
+    } catch (err) {
+      if (err instanceof DbBusyError) refund?.();
+      spendRefused(req, err);
+      throw err;
+    }
+  };
   try {
     if ("family" in read) {
-      const hit = await read.family.get(read.key, () => read.fetch(timing), {
-        beforeFill: (calls) => void charge(req, calls, f.needle !== ""),
+      const hit = await read.family.get(read.key, async () => fetchedFor(req, await fetched()), {
+        beforeFill: (calls) => {
+          refund = chargeRead(req, calls, search);
+        },
+        mayRefill: () => bytesWaitMs(req) === 0,
         transient: isTransientDbError,
       });
       timed(reply, hit.state, timing, performance.now() - started);
       return await sendOne(req, reply, hit.res, f, timing);
     }
-    charge(req, 1, f.needle !== "");
-    const value = await read.fetch(timing);
+    refund = chargeRead(req, 1, search);
+    const value = await fetched();
     // Built for this reply alone (a later page), its textIgnored with it.
     const res = await buildResponse(
       f.textIgnored && isRecord(value)
         ? { textIgnored: true, minChars: config.SEARCH_MIN_CHARS, ...value }
         : value,
     );
+    spendBytes(req, res.json.length);
     timed(reply, "miss", timing, performance.now() - started);
     return sendCached(req, reply, res, "no-cache");
   } catch (err) {
@@ -494,20 +648,33 @@ export default async function placeReadRoutes(app: FastifyInstance) {
     const started = performance.now();
     const search = f.needle !== "";
     let hits: FamilyHit[];
+    // Set when this request's misses are charged: one call per chunk of them.
+    let refund: Refund | undefined;
+    const charging: Charging = {
+      extra: (calls) => chargeAfter(req, calls, search),
+      refused: () => refund?.(1),
+    };
     try {
       hits = await placesCache.getMany(
         units.map(keyOf),
-        (keys, { refill }) =>
-          countsSplitting(
+        async (keys, { refill }) => {
+          const answers = await countsSplitting(
             keys.map((k) => unitOfKey.get(k)!),
             args,
             timing,
-            // A refill behind a stale reply is the cache's upkeep: never charged.
-            (calls) => (refill ? undefined : chargeAfter(req, calls, search)),
-          ),
+            refill ? NOT_CHARGED : charging,
+            (err) => spendRefused(req, err),
+          );
+          return Promise.all(
+            answers.map((a) => (a instanceof KeyFailure ? a : fetchedFor(req, a))),
+          );
+        },
         {
           chunk: UNITS_PER_CALL,
-          beforeFill: (calls) => void charge(req, calls, search),
+          beforeFill: (calls) => {
+            refund = chargeRead(req, calls, search);
+          },
+          mayRefill: () => bytesWaitMs(req) === 0,
           transient: isTransientDbError,
         },
       );

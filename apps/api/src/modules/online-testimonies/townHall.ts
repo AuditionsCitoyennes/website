@@ -40,9 +40,9 @@ function deCommune(name: string): string {
  * so the place's name on the map: it must be unique. Town halls of communes
  * carry their département ("Mairie de Saint-Denis (93)" is not Réunion's).
  */
-function mairieLabel(commune: GeoCommune, key: string): string {
+function mairieLabel(commune: GeoCommune, departementCode: string, key: string): string {
   const split = splitCityOfArrondissement(key);
-  if (!split) return `Mairie ${deCommune(commune.nom)} (${commune.departement?.code ?? "?"})`;
+  if (!split) return `Mairie ${deCommune(commune.nom)} (${departementCode})`;
   if (key === "75103") return "Mairie de Paris Centre";
   const sector = [key, ...Object.keys(SHARED_MAIRIE).filter((c) => SHARED_MAIRIE[c] === key)]
     .map((c) => Number(c) - split.base)
@@ -78,17 +78,22 @@ export async function resolveTownHall(insee: string): Promise<OnlineTownHall> {
     throw new PlaceError("Les collectivités d'outre-mer ne sont pas encore prises en charge.", 400);
   }
   const point = commune.mairie?.coordinates ?? commune.centre?.coordinates;
-  if (!point) throw new PlaceError("La mairie de cette commune est introuvable.", 400);
+  // A commune answered without its département has no place on the map, and
+  // no label of its own: the town hall's name carries the département's code.
+  const departement = commune.departement;
+  if (!point || !departement) {
+    throw new PlaceError("La mairie de cette commune est introuvable.", 400);
+  }
   const split = splitCityOfArrondissement(key);
   return {
     key,
-    location: mairieLabel(commune, key),
+    location: mairieLabel(commune, departement.code, key),
     place: {
       insee: key,
       commune: split?.name ?? commune.nom,
       arrondissement: arrondissementFromCitycode(key),
-      departementCode: commune.departement?.code ?? null,
-      departementName: commune.departement?.nom ?? null,
+      departementCode: departement.code,
+      departementName: departement.nom,
       region: commune.region?.nom ?? null,
       lat: point[1],
       lng: point[0],

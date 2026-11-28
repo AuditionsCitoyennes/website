@@ -71,11 +71,19 @@ const bucket = (): Row => ({
 let app: FastifyInstance;
 let invalidatePublicCaches: () => void;
 let forgetGeoUnits: () => void;
+/** The lines the requests wrote at the "info" level, whatever LOG_LEVEL keeps. */
+let logged: { obj: Record<string, unknown>; msg: string }[] = [];
 before(async () => {
   const { buildServer } = await import("../../server");
   ({ invalidatePublicCaches } = await import("../../lib/publicCache"));
   ({ forgetGeoUnits } = await import("./geoUnits"));
   app = buildServer();
+  app.addHook("onRequest", (req, _reply, done) => {
+    req.log.info = ((obj: Record<string, unknown>, msg: string) => {
+      logged.push({ obj, msg });
+    }) as typeof req.log.info;
+    done();
+  });
   await app.ready();
 });
 after(async () => {
@@ -93,6 +101,7 @@ beforeEach(() => {
   db.requests = [];
   db.serviceKey = "service";
   db.refuse = () => null;
+  logged = [];
   invalidatePublicCaches();
   forgetGeoUnits();
 });
@@ -167,11 +176,27 @@ test("the sweep's dry run reports and writes nothing; the sweep then places", as
   assert.equal(db.tables.auditions[0].place_stale, true);
   assert.equal(db.tables.geo_units.length, 0);
 
+  // A dry run writes nothing, and no line either.
+  assert.equal(logged.length, 0);
+
   const real = await sweep("", SUPER);
   assert.equal(real.statusCode, 200, real.body);
   assert.equal(real.json().placed, 1);
   assert.equal(db.tables.auditions[0].place_stale, false);
   assert.equal(db.tables.auditions[0].place_unit, "fr:com:69029");
+  // A real sweep says who asked for it, and what it did.
+  assert.equal(logged.length, 1);
+  assert.equal(logged[0].msg, "placement sweep");
+  assert.equal(logged[0].obj.userId, SUPER);
+  assert.deepEqual([logged[0].obj.placed, logged[0].obj.unplaced, logged[0].obj.failed], [1, 0, 0]);
+});
+
+test("the sweep's dry run counts a place the table would refuse as the sweep does", async () => {
+  // The bucket's stored point is on no globe.
+  (db.tables.auditions[0].place as Row).lat = 999;
+  const dry = await sweep("?dryRun=1", SUPER);
+  assert.equal(dry.statusCode, 200, dry.body);
+  assert.deepEqual([dry.json().placed, dry.json().failed], [0, 1]);
 });
 
 test("a dryRun the sweep does not know is refused: a typo never runs a real sweep", async () => {

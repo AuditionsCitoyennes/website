@@ -380,8 +380,8 @@ test("a database out of reach: 503 to try again, a value still held served inste
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const first = await get("/api/places?unit=world");
   assert.equal(first.statusCode, 200);
-  // Past the TTL and the stale window: a miss, and the database fails it.
-  t.mock.timers.tick(6 * 60_000 + 1000);
+  // Past the TTL and the stale window (1 min + 30 s): a miss, and the database fails it.
+  t.mock.timers.tick(91_000);
   const outages: [string, () => void][] = [
     [
       "Kong's 502",
@@ -479,13 +479,247 @@ test("later pages are misses too: they count against the visitor's limit", async
   assert.equal(calls.testimony_page, undefined);
 });
 
+test("a miss the database gate turns away is given back: only a read that ran is counted", async () => {
+  const { dbGate } = await import("../../lib/dbGate");
+  let release!: () => void;
+  const blocker = new Promise<void>((resolve) => (release = resolve));
+  // The gate full: its six slots taken, fifty calls waiting.
+  const held = Array.from({ length: 56 }, () => dbGate.run(() => blocker).catch(() => undefined));
+  const page = `/api/places/results?after=2025-05-01,2025-05-02,${TIE},${AUDITION}`;
+  const reads = [
+    (i: number) => `/api/places/results?from=2020-01-${String(i + 1).padStart(2, "0")}`,
+    (i: number) => `/api/places/lieu?id=${LIEU}&from=2020-01-${String(i + 1).padStart(2, "0")}`,
+    (i: number) => `/api/places?unit=fr:com:${61000 + i}`,
+    (i: number) => `/api/places?units=fr:com:${62000 + i},fr:com:${63000 + i}`,
+    () => page,
+  ];
+  try {
+    assert.deepEqual(dbGate.stats(), { active: 6, held: 0, waiting: 50 });
+    // Thirty misses of each kind, all refused at once: 503, "retry in 1 s".
+    for (const [k, read] of reads.entries()) {
+      for (let i = 0; i < 30; i++) {
+        const refused = await get(read(i), {}, `10.251.${k}.1`);
+        assert.equal(refused.statusCode, 503, `${read(i)}: ${refused.body}`);
+        assert.equal(refused.headers["retry-after"], "1");
+      }
+    }
+    assert.equal(calls.audition_results, undefined);
+    assert.equal(calls.place_counts_many, undefined);
+  } finally {
+    release();
+    await Promise.all(held);
+  }
+  // None of them cost its visitor anything: the 30 misses of each are whole.
+  for (const [k, read] of reads.entries()) {
+    for (let i = 0; i < 30; i++) {
+      const res = await get(read(i), {}, `10.251.${k}.1`);
+      assert.equal(res.statusCode, 200, `${read(i)}: ${res.body}`);
+    }
+    assert.equal((await get("/api/places?unit=fr:com:64999", {}, `10.251.${k}.1`)).statusCode, 429);
+  }
+});
+
+test("a batch split unit by unit: the calls the gate turns away are given back", async () => {
+  const { dbGate } = await import("../../lib/dbGate");
+  const { READ_ANSWER_MAX_BYTES } = await import("./read");
+  // Together past a call's limit: the call splits into one per unit (3 more calls).
+  const three = heavyUnits(Math.floor(READ_ANSWER_MAX_BYTES * 0.4));
+  let release!: () => void;
+  const blocker = new Promise<void>((resolve) => (release = resolve));
+  let held: Promise<unknown>[] = [];
+  // The gate fills while the first call is under way — five slots taken, a
+  // sixth call waiting for the one it holds — and takes no more waiters: the
+  // three calls of the split are refused at once.
+  const gate = dbGate.opts as { queue: number };
+  const queue = gate.queue;
+  const fakeNow = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (held.length === 0 && url.endsWith("/rpc/place_counts_many")) {
+      held = Array.from({ length: 6 }, () => dbGate.run(() => blocker));
+      gate.queue = 0;
+    }
+    return fakeNow(input, init);
+  }) as typeof fetch;
+  const ip = "10.250.0.1";
+  try {
+    const refused = await get(`/api/places?units=${three.join(",")}`, {}, ip);
+    assert.equal(refused.statusCode, 503, refused.body);
+    assert.equal(refused.headers["retry-after"], "1");
+    assert.equal(calls.place_counts_many.length, 1, "the split's calls never ran");
+  } finally {
+    globalThis.fetch = fakeNow;
+    gate.queue = queue;
+    release();
+    await Promise.all(held);
+    plainUnits();
+  }
+  // The one call that ran is counted; the three the gate refused are not.
+  for (let i = 0; i < 29; i++) {
+    assert.equal((await get(`/api/places?unit=fr:com:${65000 + i}`, {}, ip)).statusCode, 200);
+  }
+  assert.equal((await get("/api/places?unit=fr:com:65999", {}, ip)).statusCode, 429);
+});
+
+test("a visitor's reads are bounded in bytes fetched from the database: per minute, per hour", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const { BYTES_PER_MINUTE, BYTES_PER_HOUR } = await import("./readRoutes");
+  assert.equal(BYTES_PER_MINUTE, 16 * 1024 * 1024);
+  assert.equal(BYTES_PER_HOUR, 16 * BYTES_PER_MINUTE);
+  // Every unit's answer weighs 1.5 MB.
+  const pad = "x".repeat(1_500_000);
+  stub("place_counts_many", (a) => (a.p_units as string[]).map((unit) => ({ unit, pad })));
+  const size = Buffer.byteLength(JSON.stringify({ unit: "fr:com:66000", pad }));
+  const ip = "10.249.0.1";
+  let unit = 66000;
+  let lastServed = "";
+  /** Misses until one is refused: how many were served, and the refusal. */
+  const untilRefused = async () => {
+    for (let served = 0; ; served++) {
+      const url = `/api/places?unit=fr:com:${unit++}`;
+      const res = await get(url, {}, ip);
+      if (res.statusCode !== 200) return { served, refused: res };
+      lastServed = url;
+    }
+  };
+  // An allowance is counted once an answer is read: the answer that passes it is served.
+  const perMinute = Math.floor(BYTES_PER_MINUTE / size) + 1;
+  const perHour = Math.floor(BYTES_PER_HOUR / size) + 1;
+  // The minutes read to the full before the hour's allowance is passed.
+  const fullMinutes = Math.floor((perHour - 1) / perMinute);
+  try {
+    for (let minute = 0; minute < fullMinutes; minute++) {
+      const { served, refused } = await untilRefused();
+      assert.equal(served, perMinute, `minute ${minute}`);
+      assert.equal(refused.statusCode, 429);
+      assert.ok(Number(refused.headers["retry-after"]) <= 60);
+      assert.equal(refused.json().message, "Trop de requêtes. Réessayez dans un instant.");
+      // The minute over, the visitor reads again.
+      t.mock.timers.tick(61_000);
+    }
+    // The next minute passes the hour's allowance: refused until the hour ends,
+    // and told to ask again within a minute (what the site waits before a retry).
+    const { served, refused } = await untilRefused();
+    assert.equal(served, perHour - fullMinutes * perMinute);
+    assert.equal(refused.statusCode, 429);
+    assert.equal(refused.headers["retry-after"], "60");
+    assert.equal(refused.json().message, "Trop de requêtes. Réessayez plus tard.");
+    const fetched = calls.place_counts_many.length;
+    assert.equal(fetched, perHour, "a refused miss fetches nothing");
+    // Lists and later pages are refused the same.
+    assert.equal((await get(`/api/places/lieu?id=${LIEU}`, {}, ip)).statusCode, 429);
+    assert.equal(
+      (await get(`/api/places/results?after=2025-05-01,2025-05-02,${TIE},${AUDITION}`, {}, ip))
+        .statusCode,
+      429,
+    );
+    assert.equal(calls.lieu_auditions, undefined);
+    assert.equal(calls.audition_results, undefined);
+    // What the caches hold is still theirs to read: a hit fetches nothing.
+    const hit = await get(lastServed, {}, ip);
+    assert.equal(hit.statusCode, 200);
+    assert.equal(hit.headers["x-cache"], "hit");
+    // Past its TTL the entry is served stale to them, and their request starts no refill.
+    t.mock.timers.tick(61_000);
+    const stale = await get(lastServed, {}, ip);
+    assert.equal(stale.statusCode, 200);
+    assert.equal(stale.headers["x-cache"], "stale");
+    await sleep(50);
+    assert.equal(calls.place_counts_many.length, fetched, "no refill for a spent allowance");
+    // That minute later a miss of theirs is still refused: the hour has not ended.
+    assert.equal((await get(`/api/places?unit=fr:com:${unit++}`, {}, ip)).statusCode, 429);
+    // Another visitor's request refills it, on that visitor's allowance.
+    assert.equal((await get(lastServed, {}, "10.249.0.2")).headers["x-cache"], "stale");
+    for (let i = 0; i < 200 && calls.place_counts_many.length === fetched; i++) await sleep(5);
+    assert.equal(calls.place_counts_many.length, fetched + 1);
+    // The hour over, the first visitor reads again.
+    t.mock.timers.tick(60 * 60_000);
+    assert.equal((await get(`/api/places?unit=fr:com:${unit++}`, {}, ip)).statusCode, 200);
+  } finally {
+    stub("place_counts_many", (a) => (a.p_units as string[]).map((u) => countsOf(u, a)));
+  }
+});
+
+test("an answer refused as too heavy counts for the read limit in the visitor's bytes", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const { READ_ANSWER_MAX_BYTES } = await import("./read");
+  const { BYTES_PER_MINUTE } = await import("./readRoutes");
+  const tooHeavy = { pad: "x".repeat(READ_ANSWER_MAX_BYTES) };
+  // The allowance is passed by the refusal that crosses it: the next read is not made.
+  const refusals = Math.floor(BYTES_PER_MINUTE / READ_ANSWER_MAX_BYTES) + 1;
+  /** Asks `url` until it is no longer answered 400: how many times it was, and the answer then. */
+  const untilNot400 = async (url: string, ip: string) => {
+    for (let refused = 0; ; refused++) {
+      const res = await get(url, {}, ip);
+      if (res.statusCode !== 400) return { refused, res };
+      assert.equal(res.json().message, "Réponse trop volumineuse : précisez la demande.");
+    }
+  };
+  stub("testimony_page", () => tooHeavy);
+  try {
+    // A later page, read straight through.
+    const later = await untilNot400(
+      `/api/auditions/${AUDITION}/testimonies?limit=100&after=,${AUDITION}`,
+      "10.248.0.1",
+    );
+    assert.equal(later.refused, refusals);
+    assert.equal(later.res.statusCode, 429);
+    assert.ok(Number(later.res.headers["retry-after"]) <= 60);
+    assert.equal(calls.testimony_page.length, refusals, "a refused read reaches no database");
+    // Their other misses are refused too; another visitor's are not.
+    assert.equal((await get("/api/places?unit=fr:com:67000", {}, "10.248.0.1")).statusCode, 429);
+    assert.equal((await get("/api/places?unit=fr:com:67000", {}, "10.248.0.9")).statusCode, 200);
+    // A first page (never kept: each request reads it again).
+    calls = {};
+    const first = await untilNot400(`/api/auditions/${AUDITION}/testimonies`, "10.248.0.2");
+    assert.equal(first.refused, refusals);
+    assert.equal(first.res.statusCode, 429);
+    assert.equal(calls.testimony_page.length, refusals);
+  } finally {
+    stub("testimony_page", (a) => ({ testimonies: [], next: null, echo: a }));
+  }
+
+  // units=: the call of three, then each unit's own, four refused answers a request.
+  stub("place_counts_many", (a) => (a.p_units as string[]).map((unit) => ({ unit, ...tooHeavy })));
+  try {
+    const batch = await untilNot400(
+      "/api/places?units=fr:reg:84,fr:reg:11,fr:reg:52",
+      "10.248.0.3",
+    );
+    assert.equal(batch.refused, Math.ceil(refusals / 4));
+    assert.equal(batch.res.statusCode, 429);
+  } finally {
+    plainUnits();
+  }
+
+  // A refill behind a stale reply that ends refused is counted as well.
+  const url = "/api/places?unit=fr:com:67100";
+  const ip = "10.248.0.4";
+  assert.equal((await get(url, {}, ip)).statusCode, 200);
+  t.mock.timers.tick(61_000);
+  stub("place_counts_many", (a) => (a.p_units as string[]).map((unit) => ({ unit, ...tooHeavy })));
+  try {
+    calls = {};
+    assert.equal((await get(url, {}, ip)).headers["x-cache"], "stale");
+    for (let i = 0; i < 200 && !calls.place_counts_many; i++) await sleep(5);
+    await sleep(50);
+    assert.equal(calls.place_counts_many.length, 1, "the refill ran");
+    // One refused answer already counted: one fewer than a visitor who starts whole.
+    const after = await untilNot400("/api/places?unit=fr:com:67101", ip);
+    assert.equal(after.refused, refusals - 1);
+    assert.equal(after.res.statusCode, 429);
+  } finally {
+    plainUnits();
+  }
+});
+
 test("a timeout: the value still held, as stale, for a while; then, or with nothing held, 503", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const first = await get("/api/places?unit=world");
   const lieu = await get(`/api/places/lieu?id=${LIEU}`);
   assert.equal(first.headers["x-cache"], "miss");
-  // Past the TTL and the stale window (1 min + 5 min): a miss, read again.
-  t.mock.timers.tick(6 * 60_000 + 1000);
+  // Past the TTL and the stale window (1 min + 30 s): a miss, read again.
+  t.mock.timers.tick(91_000);
   db.refuse = (_m, url) =>
     /\/rpc\/(place_counts_many|lieu_auditions)$/.test(url.pathname)
       ? { status: 500, code: "57014", message: "canceling statement due to statement timeout" }
@@ -1241,12 +1475,19 @@ test("/api/health?details=1 (testing tools): the memory budget", async () => {
     details.families.map((f: { name: string }) => f.name),
     ["places", "assembled", "lieu", "results", "tpage", "audition", "legacy"],
   );
-  // Design A19: 74 MB of Buffers (64 of answers, 10 assembled from them); no
-  // heap store today.
+  // Design A19: 74 MB of Buffers (64 of answers, 10 assembled from them); on
+  // the heap, the commune API's answers (modules/places/fr.ts): 8 MB at most.
   assert.equal(details.budgetMb.familiesMax, 74);
-  assert.equal(details.budgetMb.heapStoresMax, 0);
+  assert.equal(details.budgetMb.heapStoresMax, 8);
   assert.equal(details.budgetMb.externalStoresMax, 0);
-  assert.deepEqual(details.lrus, []);
+  assert.deepEqual(
+    details.lrus.map((l: { name: string; resident: string; maxMb: number }) => [
+      l.name,
+      l.resident,
+      l.maxMb,
+    ]),
+    [["geo-api", "heap", 8]],
+  );
   assert.equal(details.staticResponses, undefined);
   assert.equal(details.boundariesOnDisk, undefined);
   assert.deepEqual(details.dbGate, { active: 0, held: 0, waiting: 0 });
