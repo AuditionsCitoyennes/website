@@ -21,7 +21,16 @@ function take(): AuthArrival | null {
   const { ret, search, hash } = readAuthReturn(window.location.search, window.location.hash);
   if (!ret) return null;
   const path = window.location.pathname;
-  window.history.replaceState(window.history.state, "", `${path}${search}${hash}`);
+  // The whole address, origin included: a path that begins with two slashes
+  // would otherwise be read as another host. And an address the browser will
+  // not write stays as it is: the return is kept all the same, and the site
+  // starts.
+  try {
+    const clean = `${window.location.origin}${path}${search}${hash}`;
+    window.history.replaceState(window.history.state, "", clean);
+  } catch {
+    /* the address stays as it came */
+  }
   return { ret, path };
 }
 
