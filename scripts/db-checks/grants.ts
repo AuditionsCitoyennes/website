@@ -1,6 +1,12 @@
 // The grant guard: what anon and authenticated (the public key, and any
 // signed-in user through PostgREST) can read and run stays what it is today.
 //
+// - the privileges they hold on the tables, views and sequences of schema
+//   public equal relationPrivileges: what the two applications use through
+//   PostgREST, and none of TRUNCATE, REFERENCES, TRIGGER or MAINTAIN, which
+//   row level security does not govern;
+// - what postgres creates in schema public is granted to neither by default:
+//   a migration grants what it means to;
 // - testimonies: SELECT on exactly the nine columns of allowlist.json (no email,
 //   no verification token, none of the derived columns);
 // - the functions of the project's schemas they can EXECUTE equal the
@@ -10,8 +16,8 @@
 //   that keep it so (a function gets EXECUTE for PUBLIC when created), and the
 //   generated helpers, replaced as a later migration would replace them, keep
 //   their grants (rolled back);
-// - every SECURITY DEFINER function sets search_path, but the baseline's seven
-//   listed under securityDefinerWithoutSearchPath;
+// - every SECURITY DEFINER function sets search_path
+//   (securityDefinerWithoutSearchPath is empty, and stays so);
 // - the tables of serverOnlyTables (geo_units among them) are the ones anon
 //   and authenticated hold no privilege on, and cannot read: RLS on, the
 //   service role reads and writes them;
@@ -23,8 +29,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { derivedSql } from "../sql-gen/derived";
 import { runSql, sqlJson } from "./psql";
 
+type RelationPrivileges = Record<string, string[]>;
+
 export interface Allowlist {
   schemas: string[];
+  relationPrivileges: Record<"anon" | "authenticated", RelationPrivileges>;
   testimoniesSelect: string[];
   executable: Record<"anon" | "authenticated", string[]>;
   securityDefinerWithoutSearchPath: string[];
@@ -47,6 +56,9 @@ const functions = (inSchemas: string) => `
     where ${inSchemas})`;
 
 interface Observed {
+  relationPrivileges: Record<string, RelationPrivileges>;
+  /** "<role>: <privilege> on new <tables | sequences | functions>". */
+  defaultPrivileges: string[];
   testimoniesSelect: Record<string, string[]>;
   executable: Record<string, string[]>;
   securityDefinerWithoutSearchPath: string[];
@@ -58,7 +70,7 @@ interface Observed {
 }
 
 /** Every privilege a role may hold on a table, and on its columns. */
-const ANY_TABLE = "'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'";
+const ANY_TABLE = "'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN'";
 const ANY_COLUMN = "'SELECT, INSERT, UPDATE, REFERENCES'";
 
 /** The grants as the database has them now, over the given schemas. */
@@ -75,6 +87,29 @@ with server_tables as (
         where pg_catalog.has_table_privilege(r, c.oid, ${ANY_TABLE})
            or pg_catalog.has_any_column_privilege(r, c.oid, ${ANY_COLUMN})))
 select pg_catalog.jsonb_build_object(
+  'relationPrivileges', (
+    select pg_catalog.jsonb_object_agg(r, coalesce(relations, '{}'::jsonb)) from (
+      select r, (
+        select pg_catalog.jsonb_object_agg(x.name, x.privileges) from (
+          select c.oid::pg_catalog.regclass::text as name,
+                 pg_catalog.jsonb_agg(a.privilege_type order by a.privilege_type) as privileges
+            from pg_catalog.pg_class c
+           cross join lateral pg_catalog.aclexplode(c.relacl) a
+           where c.relnamespace = 'public'::pg_catalog.regnamespace
+             and c.relkind in ('r', 'p', 'v', 'm', 'S')
+             and a.grantee = r::pg_catalog.regrole
+           group by c.oid) x) as relations
+        from pg_catalog.unnest(${roles}) as r) y),
+  'defaultPrivileges', coalesce((
+    select pg_catalog.jsonb_agg(a.grantee::pg_catalog.regrole::text || ': ' || a.privilege_type || ' on new '
+             || case d.defaclobjtype when 'r' then 'tables' when 'S' then 'sequences' else 'functions' end
+             order by 1)
+      from pg_catalog.pg_default_acl d
+     cross join lateral pg_catalog.aclexplode(d.defaclacl) a
+     where d.defaclnamespace = 'public'::pg_catalog.regnamespace
+       and d.defaclrole = 'postgres'::pg_catalog.regrole
+       and d.defaclobjtype in ('r', 'S', 'f')
+       and a.grantee = any (${roles}::pg_catalog.regrole[])), '[]'::jsonb),
   'testimoniesSelect', (
     select pg_catalog.jsonb_object_agg(r, cols) from (
       select r, pg_catalog.jsonb_agg(a.attname order by a.attname) filter (
@@ -190,6 +225,11 @@ export function checkGrants(): string[] {
   const seen = observe(allow.schemas);
   const errors: string[] = [];
   for (const r of ROLES) {
+    const want = allow.relationPrivileges[r];
+    const have = seen.relationPrivileges[r] ?? {};
+    for (const relation of new Set([...Object.keys(want), ...Object.keys(have)])) {
+      errors.push(...diff(`${r} on ${relation}`, want[relation] ?? [], have[relation] ?? []));
+    }
     errors.push(
       ...diff(
         `${r} SELECT on testimonies`,
@@ -202,6 +242,9 @@ export function checkGrants(): string[] {
       if (fn.startsWith("ac.")) errors.push(`${r} can execute ${fn}`);
     }
     if (seen.acUsage[r]) errors.push(`${r} has USAGE on schema ac`);
+  }
+  for (const granted of seen.defaultPrivileges) {
+    errors.push(`default privileges of postgres in schema public grant ${granted}`);
   }
   errors.push(
     ...diff(
@@ -264,6 +307,10 @@ export function currentAllowlist(): Allowlist {
   }
   return {
     schemas,
+    relationPrivileges: {
+      anon: seen.relationPrivileges.anon ?? {},
+      authenticated: seen.relationPrivileges.authenticated ?? {},
+    },
     testimoniesSelect: cols.anon ?? [],
     executable: {
       anon: seen.executable.anon ?? [],

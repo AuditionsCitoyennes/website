@@ -117,13 +117,23 @@ for (const account of ACCOUNTS) {
     if (error) throw error;
     id = data.user.id;
   }
-  // Roles are reset to exactly the account's own (the service key bypasses RLS).
-  const { error: clearError } = await admin.from("user_roles").delete().eq("user_id", id);
-  if (clearError) throw clearError;
+  // Roles are reset to exactly the account's own (the service key bypasses
+  // RLS): its role first, when it does not hold it yet, then every other one
+  // goes. In that order: the database keeps the last super admin's role, so
+  // removing it before giving it back would be refused.
+  let others = admin.from("user_roles").delete().eq("user_id", id);
   if (account.role) {
-    const { error } = await admin.from("user_roles").insert({ user_id: id, role: account.role });
+    const { error } = await admin
+      .from("user_roles")
+      .upsert(
+        { user_id: id, role: account.role },
+        { onConflict: "user_id,role", ignoreDuplicates: true },
+      );
     if (error) throw error;
+    others = others.neq("role", account.role);
   }
+  const { error: clearError } = await others;
+  if (clearError) throw clearError;
   console.log(
     `${account.email.padEnd(26)} ${account.role ?? (account.confirmed ? "pending registration" : "unconfirmed")}`,
   );
