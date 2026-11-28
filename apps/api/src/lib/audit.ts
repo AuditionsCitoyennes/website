@@ -1,6 +1,8 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuditAction, Database, Json } from "@ac/shared";
+import { hasServiceRole } from "../config";
+import { adminClient } from "./supabase";
 
 export interface AuditEntry {
   /** Who did it. Null when nobody is signed in: a witness acting through the
@@ -25,14 +27,22 @@ export interface AuditEntry {
  * that did not happen. It never throws and never fails the request: an action
  * that went through must not be reported to the user as failed because its log
  * line could not be written. A failure is logged server-side instead.
+ *
+ * The entry is written with the service role whenever its key is configured,
+ * whichever client the caller holds: the database takes any entry from the
+ * server, and from a signed-in account only the two lines the admin pages
+ * write from the browser. Without the key (a developer's setup) the caller's
+ * client is used, and the database refuses most entries: the failure is
+ * logged, as any other.
  */
 export async function logAudit(
   client: SupabaseClient<Database>,
   log: FastifyBaseLogger,
   entry: AuditEntry,
 ): Promise<void> {
+  const writer = hasServiceRole ? adminClient : client;
   try {
-    const { error } = await client.rpc("insert_audit_log", {
+    const { error } = await writer.rpc("insert_audit_log", {
       // The column is nullable; the generated type does not say so.
       p_user_id: entry.actorId as string,
       p_action: entry.action,
