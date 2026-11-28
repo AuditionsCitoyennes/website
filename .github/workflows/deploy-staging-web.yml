@@ -5,6 +5,11 @@ name: Deploy staging site
 # request gets its own preview, pr-<number>-auditions-staging.<account>.workers.dev,
 # linked from the pull request's checks ("Staging preview"). Both talk to the
 # staging API through the Worker's /api. Setup: docs/staging.md.
+#
+# The deploy job runs in the GitHub environment `staging` and reads its
+# secrets there; each one is given to the steps that use it, so neither the
+# install nor the build has any. Wrangler is the version package-lock.json
+# pins.
 on:
   push:
     branches: [dev]
@@ -32,36 +37,44 @@ concurrency:
 
 permissions:
   contents: read
-  statuses: write
 
 env:
-  WRANGLER: wrangler@4.152.0
   WORKER: auditions-staging
   SITE: https://staging.auditionscitoyennes.com
-  CLOUDFLARE_API_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 
 jobs:
   deploy:
-    # Pull requests from a fork, and Dependabot's, get no secrets: no preview
-    # for them (the repository is public, so anyone may open one).
+    # Pull requests from a fork get no secrets (the repository is public, so
+    # anyone may open one): no preview for them. None either for a pull
+    # request Dependabot opened, whoever pushed the last commit to its branch:
+    # the versions it proposes are built here once merged.
     if: >-
-      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
+    environment: staging
     timeout-minutes: 25
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The steps that talk to GitHub are given a token themselves: none
+          # is left in the clone.
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
 
+      # Only whether each secret is set comes here, not its value.
       - name: Check the settings
         env:
-          PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN != '' && 'set' || '' }}
+          PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET != '' && 'set' || '' }}
         run: |
           missing=""
           for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID PROXY_SECRET; do
@@ -72,7 +85,10 @@ jobs:
             exit 1
           fi
 
-      - run: npm ci --no-audit --no-fund
+      # No package's install script runs: the build and wrangler need none
+      # (the native parts of esbuild, rolldown and lightningcss are packages
+      # of their own).
+      - run: npm ci --ignore-scripts --no-audit --no-fund
 
       # The outline build apps/web/outlines.lock.json names, from its GitHub
       # release (docs/map-outlines.md "Hosting"): fetched before the build, so
@@ -95,7 +111,15 @@ jobs:
           VITE_API_URL: ""
           VITE_MAPBOX_TOKEN: ${{ vars.MAPBOX_TOKEN }}
           VITE_MAPBOX_STYLE: ${{ vars.MAPBOX_STYLE }}
+          # Options that are off until their repository variable is given a
+          # value (docs/feature-flags.md).
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.STAGING_VITE_TURNSTILE_SITE_KEY }}
+          VITE_CSP: ${{ vars.STAGING_VITE_CSP }}
         run: |
+          # An option nobody set is left out of the build, not passed empty.
+          for name in VITE_TURNSTILE_SITE_KEY VITE_CSP; do
+            [ -n "${!name}" ] || unset "$name"
+          done
           npm run build --workspace=@ac/web
           # Staging is not for search engines. Appended: the build's own
           # _headers (apps/web/public/_headers: the cache rule of /assets/*)
@@ -113,24 +137,29 @@ jobs:
         id: deploy
         working-directory: apps/web
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
           PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          # The wrangler npm ci installed: the version and the files
+          # package-lock.json names, nothing fetched here.
+          wrangler="$GITHUB_WORKSPACE/node_modules/.bin/wrangler"
           secrets="$RUNNER_TEMP/secrets.env"
           trap 'rm -f "$secrets"' EXIT
-          printf 'PROXY_SECRET=%s\n' "$PROXY_SECRET" > "$secrets"
+          (umask 077 && printf 'PROXY_SECRET=%s\n' "$PROXY_SECRET" > "$secrets")
 
           # A preview is a version of the Worker: the very first run, from a
-          # pull request, creates the Worker first (404: none yet).
-          exists=$(curl -s -o /dev/null -w '%{http_code}' \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/settings")
+          # pull request, creates the Worker first (404: none yet). curl reads
+          # the token on its stdin: it is on no command line.
+          exists=$(curl -s -o /dev/null -w '%{http_code}' --config - \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/settings" \
+            <<<"header = \"Authorization: Bearer $CLOUDFLARE_API_TOKEN\"")
           if [ -z "$PR" ] || [ "$exists" = 404 ]; then
-            npx --yes "$WRANGLER" deploy --secrets-file "$secrets" --message "$GITHUB_SHA"
+            "$wrangler" deploy --secrets-file "$secrets" --message "$GITHUB_SHA"
           fi
 
           if [ -n "$PR" ]; then
-            out=$(npx --yes "$WRANGLER" versions upload --preview-alias "pr-$PR" \
+            out=$("$wrangler" versions upload --preview-alias "pr-$PR" \
               --secrets-file "$secrets" --message "PR #$PR $GITHUB_SHA")
             echo "$out"
             url=$(grep -oE "https://pr-$PR-$WORKER\.[a-z0-9-]+\.workers\.dev" <<<"$out" | head -1)
@@ -146,7 +175,9 @@ jobs:
       # The site answers, its pages are the app's, and its /api reaches the
       # API with the visitor's address: Cloudflare's /cdn-cgi/trace says what
       # address it saw, /api/health what the API saw — the same, or the rate
-      # limits would put every visitor together.
+      # limits would put every visitor together. And it answers the deploy's
+      # pass only: the same page asked without it must not be served, on the
+      # staging domain as on a preview's address.
       - name: Check the site
         env:
           URL: ${{ steps.deploy.outputs.url }}
@@ -157,9 +188,15 @@ jobs:
           ACCESS_ID: ${{ secrets.STAGING_ACCESS_CLIENT_ID }}
           ACCESS_SECRET: ${{ secrets.STAGING_ACCESS_CLIENT_SECRET }}
         run: |
+          # The pass, in a file curl reads its headers from: it is on no
+          # command line.
+          pass="$RUNNER_TEMP/access.curl"
+          trap 'rm -f "$pass"' EXIT
+          (umask 077 && printf 'header = "CF-Access-Client-Id: %s"\nheader = "CF-Access-Client-Secret: %s"\n' \
+            "$ACCESS_ID" "$ACCESS_SECRET" > "$pass")
           get() {
             if [ -n "$ACCESS_ID" ]; then
-              curl -4 -H "CF-Access-Client-Id: $ACCESS_ID" -H "CF-Access-Client-Secret: $ACCESS_SECRET" "$@"
+              curl -4 --config "$pass" "$@"
             else
               curl -4 "$@"
             fi
@@ -175,6 +212,20 @@ jobs:
             fi
             sleep 10
           done
+          # Without the pass: anything but the page. An open gate would leave
+          # the staging API's test outbox readable through this address.
+          for _ in 1 2 3; do
+            anonymous=$(curl -4 -s --max-time 10 -o /dev/null -w '%{http_code}' "$URL/" || true)
+            [ "$anonymous" != 000 ] && break
+            sleep 5
+          done
+          if [ "$anonymous" = 200 ]; then
+            echo "::error::$URL answers 200 without the gate's pass: Cloudflare Access does not cover it (docs/staging.md \"The gate\")"
+            exit 1
+          elif [ "$anonymous" = 000 ]; then
+            echo "::error::$URL gave no answer without the gate's pass: the gate could not be checked"
+            exit 1
+          fi
           get -sSf --max-time 10 "$URL/" | grep -q '<div id="app"'
           get -sSf --max-time 10 "$URL/temoignages" | grep -q '<div id="app"'
           seen=$(get -sSf --max-time 10 "$URL/cdn-cgi/trace" | sed -n 's/^ip=//p')
@@ -268,11 +319,22 @@ jobs:
             echo "$row" >> "$GITHUB_STEP_SUMMARY"
           done
 
+  # The link to the preview is written on the pull request's commit by a job
+  # of its own: the only one allowed to write a status, and it runs none of
+  # the repository's code.
+  preview-link:
+    name: Link the preview from the pull request
+    needs: deploy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
       - name: Link the preview from the pull request
-        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-          URL: ${{ steps.deploy.outputs.url }}
+          URL: ${{ needs.deploy.outputs.url }}
           SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
