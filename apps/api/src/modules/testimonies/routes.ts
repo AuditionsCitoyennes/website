@@ -107,6 +107,7 @@ export default async function testimonyRoutes(app: FastifyInstance) {
       if (result.kind === "notFound")
         return reply.notFound("Témoignage introuvable ou accès refusé");
       if (result.kind === "locked") return reply.conflict(VERIFIED_LOCKED);
+      if (result.kind === "refused") return reply.badRequest(result.message);
       if (result.kind === "dbError") return reply.badRequest(result.message);
       const { testimony, reverificationSent, needsReverification } = result;
       return { testimony, reverificationSent, needsReverification };

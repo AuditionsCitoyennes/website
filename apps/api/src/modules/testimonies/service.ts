@@ -3,6 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
+  editedText,
+  personInfoIssue,
+  personNameIssue,
+  sanitizeLine,
   sanitizeText,
   type AdminTestimony,
   type createTestimonySchema,
@@ -236,6 +240,8 @@ export type UpdateTestimonyResult =
   | { kind: "notFound" }
   /** Its witness verified it: nobody — super admins included — may change it. */
   | { kind: "locked" }
+  /** A name or an information line changed into one the text policy refuses. */
+  | { kind: "refused"; message: string }
   | FetchFailed
   | DbError;
 
@@ -268,16 +274,21 @@ export async function updateTestimony(
         .maybeSingle()
     : { data: null };
 
+  // A field sent as it is stored keeps its stored text (editedText): a row
+  // from before the text policy is not seen as changed by an edit of the rest.
   const next = {
     person_name:
-      input.person_name !== undefined ? sanitizeText(input.person_name) : existing.person_name,
+      input.person_name !== undefined
+        ? editedText(input.person_name, existing.person_name, sanitizeLine)
+        : existing.person_name,
     person_info:
       input.person_info !== undefined
         ? input.person_info
-          ? sanitizeText(input.person_info)
+          ? editedText(input.person_info, existing.person_info, sanitizeLine)
           : null
         : existing.person_info,
-    content: input.content !== undefined ? sanitizeText(input.content) : existing.content,
+    content:
+      input.content !== undefined ? editedText(input.content, existing.content) : existing.content,
     email: input.email !== undefined ? input.email || null : existing.email,
     topics:
       input.topics !== undefined
@@ -293,6 +304,14 @@ export async function updateTestimony(
     next.person_name !== existing.person_name ||
     (next.person_info ?? "") !== (existing.person_info ?? "");
   if (changed && existing.verification_status === "verified") return { kind: "locked" };
+  // The name and the information line are judged only when they change: a
+  // stored one the text policy would refuse today stays, and its row editable.
+  const refused =
+    (next.person_name !== existing.person_name ? personNameIssue(next.person_name) : null) ??
+    (next.person_info && next.person_info !== existing.person_info
+      ? personInfoIssue(next.person_info)
+      : null);
+  if (refused) return { kind: "refused", message: refused };
   const needsReverification = Boolean(next.email) && changed;
   const newToken = needsReverification ? randomUUID() : null;
 
