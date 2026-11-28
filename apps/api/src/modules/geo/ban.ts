@@ -1,6 +1,6 @@
 import { getKnownCoordinates } from "@ac/shared";
 import { z } from "zod";
-import { upstreamFetch } from "../../lib/cappedFetch";
+import { answerFault, upstreamFetch } from "../../lib/cappedFetch";
 import {
   arrondissementFromCitycode,
   isHomonyms,
@@ -24,7 +24,9 @@ import {
 // feature that is not what the BAN documents — a point outside the globe, a
 // code that is no INSEE code, a name of several lines or pages — is left
 // out, as if the BAN had not returned it; an answer none of whose features
-// can be read is a failed call (BanAnswerError), not "no such place".
+// can be read is a failed call (BanAnswerError), not "no such place". A call
+// that fails for what the BAN answered — a redirect, an answer too heavy or
+// unreadable — says so in the log: its caller only tries again later.
 
 /** One line of text: no control character, no line or paragraph separator. */
 const ONE_LINE = /^[^\p{Cc}\u2028\u2029]*$/u;
@@ -95,6 +97,21 @@ export class BanAnswerError extends Error {
   }
 }
 
+/**
+ * `call`, a failure that is the BAN's answer (a redirect, an answer past the
+ * limit, not JSON, or with no readable feature) said in the log, then thrown
+ * as it is.
+ */
+async function reported<T>(what: string, call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (e) {
+    const fault = e instanceof BanAnswerError ? "no readable feature" : answerFault(e);
+    if (fault) console.warn("BAN: call failed", { what, fault });
+    throw e;
+  }
+}
+
 /** The BAN admin fields of the address nearest a point. */
 export interface BanReverseHit {
   citycode: string | null;
@@ -111,7 +128,7 @@ export interface BanClient {
 
 /** The BAN under `baseUrl` (no trailing slash); every call gives up after `timeoutMs`. */
 export function banClient(baseUrl: string, timeoutMs: number): BanClient {
-  return {
+  const ban: BanClient = {
     async search(q: string, opts: BanQuery = {}): Promise<BanFeature[]> {
       const params = new URLSearchParams({ q, limit: String(opts.limit ?? 5) });
       if (opts.municipality) params.set("type", "municipality");
@@ -159,6 +176,10 @@ export function banClient(baseUrl: string, timeoutMs: number): BanClient {
       const p = parsed.data;
       return { citycode: p.citycode ?? null, context: p.context ?? null, city: p.city ?? null };
     },
+  };
+  return {
+    search: (q, opts) => reported("search", () => ban.search(q, opts)),
+    reverse: (coords) => reported("reverse", () => ban.reverse(coords)),
   };
 }
 

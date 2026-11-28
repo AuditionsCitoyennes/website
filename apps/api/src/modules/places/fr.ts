@@ -1,7 +1,7 @@
 import { arrondissementFromCitycode, splitCityOfArrondissement, type GeoUnit } from "@ac/shared";
 import { z } from "zod";
 import { ByteLru } from "../../lib/byteLru";
-import { upstreamFetch } from "../../lib/cappedFetch";
+import { answerFault, upstreamFetch } from "../../lib/cappedFetch";
 import { inseeCode, lineOf, lngLat, placeName } from "../geo/ban";
 import { FR_DEPARTMENTS } from "../geo/frDepartments";
 
@@ -20,7 +20,10 @@ import { FR_DEPARTMENTS } from "../geo/frDepartments";
 // redirect, and checked before it is used or kept — the code answered is the
 // code asked, an INSEE code; the département and the région are ones that
 // exist; names are one line of at most 100 characters; points are on the
-// globe. An answer that fails is "no such code": nothing is made of it.
+// globe. An answer that fails is "no such code": nothing is made of it. A
+// région, and a département of the static table (geo/frDepartments.ts), are
+// named by this file and that table, and such a département sits under the
+// région the table gives: of those, an answer only says which.
 
 const GEO = "https://geo.api.gouv.fr";
 const COMMUNE_FIELDS = "nom,code,type,codeParent,departement,region,mairie,centre,zone";
@@ -46,12 +49,30 @@ export class PlaceError extends Error {
  */
 const COLLECTIVITES = ["975", "977", "978", "984", "986", "987", "988", "989"];
 const DEPARTEMENT_CODES = new Set([...Object.keys(FR_DEPARTMENTS), ...COLLECTIVITES]);
-/** The régions (the five DROM first), and the collectivités, each its own. */
-const REGION_CODES = new Set([
-  ...["01", "02", "03", "04", "06"],
-  ...["11", "24", "27", "28", "32", "44", "52", "53", "75", "76", "84", "93", "94"],
-  ...COLLECTIVITES,
-]);
+/** The régions by their code (the five DROM first), named as FR_DEPARTMENTS names them. */
+const FR_REGIONS: Record<string, string> = {
+  "01": "Guadeloupe",
+  "02": "Martinique",
+  "03": "Guyane",
+  "04": "La Réunion",
+  "06": "Mayotte",
+  "11": "Île-de-France",
+  "24": "Centre-Val de Loire",
+  "27": "Bourgogne-Franche-Comté",
+  "28": "Normandie",
+  "32": "Hauts-de-France",
+  "44": "Grand Est",
+  "52": "Pays de la Loire",
+  "53": "Bretagne",
+  "75": "Nouvelle-Aquitaine",
+  "76": "Occitanie",
+  "84": "Auvergne-Rhône-Alpes",
+  "93": "Provence-Alpes-Côte d'Azur",
+  "94": "Corse",
+};
+const REGION_CODE_OF = new Map(Object.entries(FR_REGIONS).map(([code, name]) => [name, code]));
+/** The régions, and the collectivités, each its own. */
+const REGION_CODES = new Set([...Object.keys(FR_REGIONS), ...COLLECTIVITES]);
 
 /** A field geo.api may leave out (or null): undefined then. */
 const optional = <T extends z.ZodType>(schema: T) =>
@@ -61,6 +82,32 @@ const areaOf = (codes: ReadonlySet<string>) =>
   z.object({ code: z.string().refine((code) => codes.has(code)), nom: placeName });
 const departementRef = areaOf(DEPARTEMENT_CODES);
 const regionRef = areaOf(REGION_CODES);
+
+interface Area {
+  code: string;
+  nom: string;
+}
+
+/** A région under its name here; a collectivité, which this file does not name, under the answer's. */
+const namedRegion = (r: Area): Area => ({ code: r.code, nom: FR_REGIONS[r.code] ?? r.nom });
+
+/** A département under the static table's name; one the table lacks, under the answer's. */
+const namedDepartement = (d: Area): Area => ({
+  code: d.code,
+  nom: FR_DEPARTMENTS[d.code]?.name ?? d.nom,
+});
+
+/**
+ * The région above a département: the table's for a département it holds
+ * (none above a collectivité, its own région), whatever the answer said;
+ * the answer's for the others.
+ */
+function regionAbove(dep: Area | undefined, answered: Area | undefined): Area | undefined {
+  const known = dep && FR_DEPARTMENTS[dep.code];
+  if (!known) return answered && namedRegion(answered);
+  const code = REGION_CODE_OF.get(known.region);
+  return code ? { code, nom: known.region } : undefined;
+}
 
 interface GeoPoint {
   type: "Point";
@@ -115,11 +162,19 @@ const communeAnswer: z.ZodType<GeoCommune> = z
       return !c.codeParent || !city || c.codeParent === city.commune;
     },
     { path: ["codeParent"] },
-  );
-const departementAnswer: z.ZodType<GeoDepartement> = departementRef.extend({
-  region: optional(regionRef),
-});
-const regionsAnswer: z.ZodType<GeoRegion[]> = z.array(regionRef).max(40);
+  )
+  .transform((c) => ({
+    ...c,
+    departement: c.departement && namedDepartement(c.departement),
+    region: regionAbove(c.departement, c.region),
+  }));
+const departementAnswer: z.ZodType<GeoDepartement> = departementRef
+  .extend({ region: optional(regionRef) })
+  .transform((d) => ({ ...namedDepartement(d), region: regionAbove(d, d.region) }));
+const regionsAnswer: z.ZodType<GeoRegion[]> = z
+  .array(regionRef)
+  .max(40)
+  .transform((regions) => regions.map(namedRegion));
 
 // Units hardly move: kept a month (a code that does not exist, an hour).
 // Bounded: 8 MB of answers as checked (a commune's weighs a few hundred
@@ -155,7 +210,8 @@ const geoFetch = upstreamFetch();
 /**
  * One geo.api read, cached; null for a 404, and for an answer `schema`
  * refuses (said in the log: a lieu left unplaced for it is to look at).
- * Throws a 503 PlaceError when the API does not answer, twice — or,
+ * Throws a 503 PlaceError when the API does not answer, twice (said in the
+ * log when the failure is its answer: a redirect, a size, not JSON) — or,
  * `cachedOnly`, when the cache does not hold it.
  */
 async function geoGet<T>(
@@ -195,6 +251,10 @@ async function geoGet<T>(
       lastError = e;
     }
   }
+  // A failure that is the API's answer (a redirect, an answer too heavy or
+  // not JSON) does not pass by itself: said in the log.
+  const fault = answerFault(lastError);
+  if (fault) console.warn("geo.api.gouv.fr: call failed", { path, fault });
   throw unavailable(lastError);
 }
 

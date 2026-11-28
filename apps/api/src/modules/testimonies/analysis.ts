@@ -81,13 +81,16 @@ const anthropicFetch = upstreamFetch(ANALYSIS_ANSWER_MAX_BYTES);
 
 /**
  * The themes of the grid a model answer names, in the grid's order: the JSON
- * list it holds, read item by item (anything that is not a theme's name is
- * left out), or, when it holds no such list, the grid's names its text spells.
+ * list it holds (from its first "[" to its last "]"), read item by item
+ * (anything that is not a theme's name is left out), or, when it holds no
+ * such list, the grid's names its text spells.
  */
 export function themesOfAnswer(text: string): string[] {
   let listed: unknown = null;
   try {
-    listed = JSON.parse(/\[[\s\S]*\]/.exec(text)?.[0] ?? "null");
+    const from = text.indexOf("[");
+    const to = text.lastIndexOf("]");
+    listed = JSON.parse(from >= 0 && to > from ? text.slice(from, to + 1) : "null");
   } catch {
     // Not a list: the names its text spells.
     const lower = text.toLowerCase();

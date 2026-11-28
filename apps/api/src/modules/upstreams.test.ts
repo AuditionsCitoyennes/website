@@ -105,6 +105,57 @@ test("none of the four clients follows a redirect: the call fails, nothing goes 
   );
 });
 
+test("a BAN or commune call that fails for what was answered says so in the log", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const lines = () => warn.mock.calls.map((c) => c.arguments as [string, Record<string, string>]);
+  const faults: [string, () => Response, RegExp][] = [
+    ["a redirect", () => redirectTo(ELSEWHERE), /^redirect refused$/],
+    ["too heavy", () => heavy(300_000, { features: [] }), /^answer over 262144 bytes/],
+    ["not JSON", () => new Response("<html>Moved</html>"), /^answer is not JSON$/],
+  ];
+  for (const [what, answer, fault] of faults) {
+    warn.mock.resetCalls();
+    up.answers.ban = answer;
+    await assert.rejects(ban.search("Villeurbanne"), Error, what);
+    await assert.rejects(ban.reverse([45.76, 4.83]), Error, what);
+    assert.deepEqual(
+      lines().map(([msg, said]) => [msg, said.what]),
+      [
+        ["BAN: call failed", "search"],
+        ["BAN: call failed", "reverse"],
+      ],
+      what,
+    );
+    for (const [, said] of lines()) assert.match(said.fault, fault, what);
+
+    // The commune API: one line for the read, tried twice.
+    warn.mock.resetCalls();
+    up.answers.geo = answer;
+    await assert.rejects(fr.fetchCommune("38185"), fr.PlaceError, what);
+    assert.equal(up.of("geo").length % 2, 0);
+    assert.equal(lines().length, 1, what);
+    assert.equal(lines()[0][0], "geo.api.gouv.fr: call failed");
+    assert.match(lines()[0][1].fault, fault, what);
+    assert.equal(lines()[0][1].path.startsWith("/communes/38185"), true);
+  }
+  // Features none of which can be read.
+  warn.mock.resetCalls();
+  up.answers.ban = () => Response.json({ features: [{ geometry: { coordinates: [999, 0] } }] });
+  await assert.rejects(ban.search("x"), BanAnswerError);
+  assert.deepEqual(lines(), [
+    ["BAN: call failed", { what: "search", fault: "no readable feature" }],
+  ]);
+  // What passes by itself (a 503, a 429) is the caller's to try again: no line.
+  warn.mock.resetCalls();
+  for (const status of [503, 429]) {
+    up.answers.ban = () => new Response("busy", { status });
+    await assert.rejects(ban.search("x"), Error);
+  }
+  up.answers.geo = () => new Response("busy", { status: 503 });
+  await assert.rejects(fr.fetchCommune("38186"), fr.PlaceError);
+  assert.deepEqual(lines(), []);
+});
+
 test("an answer past the size limit is dropped unread, whoever sent it", async () => {
   // 256 kB for the BAN, the commune API and Resend; 64 kB for the model.
   up.answers.ban = () => heavy(300_000, { features: [] });
@@ -505,6 +556,68 @@ test("départements and régions: the code asked, of those that exist", async (t
   assert.equal(await fr.frRegionChain("Fausse région"), null);
 });
 
+test("régions and the table's départements keep their name and their place in the tree, whatever is answered", async () => {
+  // The régions list an earlier test left refused is read again.
+  byteLrus()
+    .find((l) => l.name === "geo-api")
+    ?.delete("/regions?fields=nom,code");
+  const answers: Record<string, unknown> = {
+    "/communes/39998": commune("39998", {
+      nom: "Lons-le-Saunier",
+      departement: { code: "39", nom: "Département inventé" },
+      region: { code: "11", nom: "Région inventée" },
+    }),
+    "/communes/97502": commune("97502", {
+      nom: "Saint-Pierre",
+      departement: { code: "975", nom: "Ailleurs" },
+      region: { code: "11", nom: "Ailleurs" },
+    }),
+    "/departements/15": { nom: "Ailleurs", code: "15", region: { code: "93", nom: "Ailleurs" } },
+    // Answered without its région; and a collectivité the table does not hold.
+    "/departements/976": { nom: "Mayotte", code: "976" },
+    "/departements/987": { nom: "Polynésie française", code: "987" },
+    "/regions": [
+      { nom: "Bretagne", code: "11" },
+      { nom: "Occitanie", code: "53" },
+    ],
+  };
+  up.answers.geo = (call) =>
+    call.url.pathname in answers
+      ? Response.json(answers[call.url.pathname])
+      : new Response("{}", { status: 404 });
+  const tree = (chain: Awaited<ReturnType<typeof fr.frChain>>) =>
+    chain?.units.slice(1).map((u) => [u.id, u.parent_id, u.name]);
+
+  assert.deepEqual(tree(await fr.frChain("39998")), [
+    ["fr:reg:27", "FR", "Bourgogne-Franche-Comté"],
+    ["fr:dep:39", "fr:reg:27", "Jura"],
+    ["fr:com:39998", "fr:dep:39", "Lons-le-Saunier"],
+  ]);
+  const { place } = await resolveTownHall("39998");
+  assert.equal(place.departementName, "Jura");
+  assert.equal(place.region, "Bourgogne-Franche-Comté");
+  assert.deepEqual(tree(await fr.frChain("97502")), [
+    ["fr:reg:975", "FR", "Saint-Pierre-et-Miquelon"],
+    ["fr:dep:975", "fr:reg:975", "Saint-Pierre-et-Miquelon"],
+    ["fr:com:97502", "fr:dep:975", "Saint-Pierre"],
+  ]);
+  assert.deepEqual(tree(await fr.frDepartementChain("15")), [
+    ["fr:reg:84", "FR", "Auvergne-Rhône-Alpes"],
+    ["fr:dep:15", "fr:reg:84", "Cantal"],
+  ]);
+  assert.deepEqual(tree(await fr.frDepartementChain("976")), [
+    ["fr:reg:06", "FR", "Mayotte"],
+    ["fr:dep:976", "fr:reg:06", "Mayotte"],
+  ]);
+  assert.deepEqual(tree(await fr.frDepartementChain("987")), [
+    ["fr:reg:987", "FR", "Polynésie française"],
+    ["fr:dep:987", "fr:reg:987", "Polynésie française"],
+  ]);
+  // A région is found by the name of its code, not by the label answered beside it.
+  assert.deepEqual(tree(await fr.frRegionChain("Bretagne")), [["fr:reg:53", "FR", "Bretagne"]]);
+  assert.equal(await fr.frRegionChain("Occitanie"), null);
+});
+
 test("the commune answers kept are bounded: 2,000 entries, 8 MB, the least recently read first out", async () => {
   const store = byteLrus().find((l) => l.name === "geo-api");
   assert.ok(store);
@@ -838,6 +951,12 @@ test("of a model answer only the grid's themes are kept: each once, 16 at most",
   assert.deepEqual(themesOfAnswer("Aucun thème."), []);
   assert.deepEqual(themesOfAnswer("[Logement, puis les retraites]"), ["Logement", "Retraites"]);
   assert.deepEqual(themesOfAnswer('{"themes": "Logement"}'), []);
+  assert.deepEqual(themesOfAnswer("] Logement ["), []);
+  // A list never closed, as long as an answer may be: read in one pass.
+  const started = performance.now();
+  assert.deepEqual(themesOfAnswer("[".repeat(60_000)), []);
+  assert.deepEqual(themesOfAnswer(`${"[".repeat(60_000)}"Logement"]`), ["Logement"]);
+  assert.ok(performance.now() - started < 250);
 });
 
 test("the analysis: an answer that is not one is a 502, a slow one a 504, never a 500", async () => {

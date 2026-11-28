@@ -13,7 +13,9 @@ import {
 } from "./dbGate";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { AnswerTooLargeError, cappedFetch, upstreamFetch } from "./cappedFetch";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
+import { AnswerTooLargeError, answerFault, cappedFetch, upstreamFetch } from "./cappedFetch";
 import { forceHits, refundHits, takeHits } from "./rateLimit";
 
 // The database gate (lib/dbGate.ts): so many calls at once, so many waiting
@@ -308,6 +310,85 @@ test("cappedFetch: an answer within the limit as it came; past it, cut unread", 
   }
 });
 
+test("cappedFetch: the call's signal ends the reading of a body, whatever the fetch below does", async () => {
+  const real = globalThis.fetch;
+  let cancelled = 0;
+  // A body that sends a first chunk and then nothing, under a fetch deaf to the signal.
+  const stalled = () =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new Uint8Array(10));
+      },
+      cancel() {
+        cancelled++;
+      },
+    });
+  try {
+    globalThis.fetch = (async () => new Response(stalled())) as typeof fetch;
+    const started = performance.now();
+    await assert.rejects(
+      cappedFetch(400)("http://api.test/", { signal: AbortSignal.timeout(50) }),
+      (e: Error) => e.name === "TimeoutError",
+    );
+    assert.ok(performance.now() - started < 1000);
+    assert.equal(cancelled, 1, "the rest of the body is dropped");
+    // A controller's abort, with its reason; and a signal that had aborted already.
+    const ac = new AbortController();
+    const call = cappedFetch(400)("http://api.test/", { signal: ac.signal });
+    const why = new Error("deadline");
+    setTimeout(() => ac.abort(why), 20);
+    await assert.rejects(call, (e: unknown) => e === why);
+    await assert.rejects(
+      cappedFetch(400)("http://api.test/", { signal: ac.signal }),
+      (e: unknown) => e === why,
+    );
+    assert.equal(cancelled, 3);
+    // A body that ends in time is read whole, the signal left without a listener's work to do.
+    globalThis.fetch = (async () => new Response("x".repeat(300))) as typeof fetch;
+    const quick = new AbortController();
+    const ok = await cappedFetch(400)("http://api.test/", { signal: quick.signal });
+    quick.abort();
+    assert.equal((await ok.text()).length, 300);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("upstreamFetch: a time limit holds while the body comes a byte at a time, garbage collected or not", async () => {
+  // The collector, as `node --expose-gc` gives it: once the request object
+  // is collected, Node's fetch may no longer pass the abort on to the body.
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc") as () => void;
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.write("[");
+    const drip = setInterval(() => res.write(" "), 50);
+    const end = setTimeout(() => res.end("]"), 3000);
+    res.on("close", () => {
+      clearInterval(drip);
+      clearTimeout(end);
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const collecting = setInterval(gc, 20);
+  try {
+    const started = performance.now();
+    await assert.rejects(
+      upstreamFetch()(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`, {
+        method: "POST",
+        body: "{}",
+        signal: AbortSignal.timeout(300),
+      }),
+      (e: Error) => e.name === "TimeoutError",
+    );
+    assert.ok(performance.now() - started < 1500, "ended by the limit, not by the body's end");
+  } finally {
+    clearInterval(collecting);
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
 test("upstreamFetch: a redirect is refused, not followed — nothing reaches where it points", async () => {
   // Two real servers: one answers every call with a redirect to the other.
   let reached = 0;
@@ -332,7 +413,8 @@ test("upstreamFetch: a redirect is refused, not followed — nothing reaches whe
           headers: { "x-api-key": "secret", "content-type": "application/json" },
           body: "{}",
         }),
-        TypeError,
+        // Told apart from a network failure, for the log.
+        (e: unknown) => e instanceof TypeError && answerFault(e) === "redirect refused",
         String(status),
       );
     }
@@ -344,6 +426,17 @@ test("upstreamFetch: a redirect is refused, not followed — nothing reaches whe
     target.close();
     origin.close();
   }
+});
+
+test("answerFault: a redirect, a size, a body that is not JSON; nothing for what passes by itself", async () => {
+  assert.match(answerFault(new AnswerTooLargeError(300, 256)) ?? "", /over 256 bytes/);
+  const notJson = await new Response("<html>").json().catch((e: unknown) => e);
+  assert.equal(answerFault(notJson), "answer is not JSON");
+  // The network, the clock, a status: not the answer's fault.
+  const refused = new TypeError("fetch failed", { cause: new Error("connect ECONNREFUSED") });
+  assert.equal(answerFault(refused), null);
+  assert.equal(answerFault(new DOMException("The operation timed out", "TimeoutError")), null);
+  assert.equal(answerFault(new Error("BAN search 503")), null);
 });
 
 test("upstreamFetch: 256 kB of answer by default, or the limit given", async () => {
