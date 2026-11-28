@@ -1,4 +1,6 @@
 import { createClient, isAuthError, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { captchaToken } from "@/shared/captcha/turnstile";
+import { supabase } from "@/shared/api/supabase";
 
 // Checking the CURRENT password before letting it be changed.
 //
@@ -30,25 +32,24 @@ function verifierClient(): SupabaseClient {
 
 export type PasswordCheck = "ok" | "wrong" | "rate-limited" | "failed";
 
-/**
- * Is `password` the current password of the account `userId`, which signs in
- * with `email`? The id is checked too: the password must open THIS account,
- * not merely some account that has the address.
- */
-export async function checkCurrentPassword(
+/** One sign-in with the account's password on `client`, its answer read: the
+ *  password is right only if it opens THIS account (`userId`), not merely
+ *  some account that has the address. */
+async function passwordSignIn(
+  client: Pick<SupabaseClient, "auth">,
   email: string,
   password: string,
   userId: string,
 ): Promise<PasswordCheck> {
-  const client = verifierClient();
   try {
-    const { data, error } = await client.auth.signInWithPassword({ email, password });
-    if (!error) {
-      // Close the session that check just opened — that one only ("local"),
-      // not the one the user is working in.
-      await client.auth.signOut({ scope: "local" });
-      return data.user?.id === userId ? "ok" : "failed";
-    }
+    // A build with a captcha: Auth asks one of every password sign-in.
+    const proof = await captchaToken();
+    const { data, error } = await client.auth.signInWithPassword({
+      email,
+      password,
+      options: { captchaToken: proof },
+    });
+    if (!error) return data.user?.id === userId ? "ok" : "failed";
     if (isAuthError(error)) {
       if (error.status === 429 || error.code === "over_request_rate_limit") return "rate-limited";
       // Only THIS answer means a wrong password; anything else (network, the
@@ -59,6 +60,37 @@ export async function checkCurrentPassword(
   } catch {
     return "failed";
   }
+}
+
+/**
+ * Is `password` the current password of the account `userId`, which signs in
+ * with `email`? Checked on the throwaway client: the session in use is left
+ * exactly as it is.
+ */
+export async function checkCurrentPassword(
+  email: string,
+  password: string,
+  userId: string,
+): Promise<PasswordCheck> {
+  const client = verifierClient();
+  const check = await passwordSignIn(client, email, password, userId);
+  // Close the session that check may have opened — that one only ("local"),
+  // not the one the user is working in.
+  await client.auth.signOut({ scope: "local" }).catch(() => undefined);
+  return check;
+}
+
+/**
+ * The account signed in again with its password, in the session in use: what
+ * the API asks before an irreversible step (deleting the account), a sign-in
+ * of the last few minutes.
+ */
+export function signInAgain(
+  email: string,
+  password: string,
+  userId: string,
+): Promise<PasswordCheck> {
+  return passwordSignIn(supabase, email, password, userId);
 }
 
 /**

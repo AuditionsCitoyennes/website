@@ -2,7 +2,7 @@ import type { RouteRecordRaw, RouteRecordRedirectOption } from "vue-router";
 import { ROUTE } from "@/shared/routes";
 import { HomePage } from "@/features/home";
 import { AuditionDetailPage } from "@/features/audition";
-import { AuthPage, ResetPasswordPage } from "@/features/auth";
+import { AuthPage, MfaPage, ResetPasswordPage, secondFactorGate } from "@/features/auth";
 import { AdminPage } from "@/features/admin";
 import { VerifyTestimonyPage } from "@/features/testify";
 import { StagePage } from "@/features/map-stage";
@@ -52,7 +52,14 @@ export const routes: RouteRecordRaw[] = [
   // land on that part of it.
   { path: "/participer", redirect: { path: ROUTE.home.path, hash: "#auditions-publiques" } },
   { path: ROUTE.auth.path, name: ROUTE.auth.name, component: AuthPage },
-  { path: ROUTE.admin.path, name: ROUTE.admin.name, component: AdminPage },
+  {
+    path: ROUTE.admin.path,
+    name: ROUTE.admin.name,
+    component: AdminPage,
+    // An account with a second factor gives its code first.
+    beforeEnter: secondFactorGate,
+  },
+  { path: ROUTE.secondFactor.path, name: ROUTE.secondFactor.name, component: MfaPage },
   {
     path: ROUTE.verifyTestimony.path,
     name: ROUTE.verifyTestimony.name,

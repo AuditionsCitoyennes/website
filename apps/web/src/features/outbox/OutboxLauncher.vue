@@ -74,8 +74,10 @@ async function refresh() {
   }
 }
 
-/** "Name <a@b.c>" or "a@b.c" → "a@b.c", lowercased. */
-function addressOf(recipient: string): string {
+/** "Name <a@b.c>" or "a@b.c" → "a@b.c", lowercased; null for a recipient
+ *  that is not text (a row written past the API's own capture). */
+function addressOf(recipient: unknown): string | null {
+  if (typeof recipient !== "string") return null;
   const angled = /<([^>]+)>/.exec(recipient);
   return (angled ? angled[1] : recipient).trim().toLowerCase();
 }
@@ -91,7 +93,10 @@ const myAddresses = computed(() => {
 function isMine(e: EmailSummary): boolean {
   if (e.viewer === outboxViewer()) return true;
   if (auth.user && e.user_id === auth.user.id) return true;
-  return e.recipients.some((r) => myAddresses.value.has(addressOf(r)));
+  return e.recipients.some((r) => {
+    const address = addressOf(r);
+    return address !== null && myAddresses.value.has(address);
+  });
 }
 
 const mine = computed(() => emails.value.filter(isMine));
