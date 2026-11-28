@@ -1,0 +1,10 @@
+# The public pages are open to search engines. The sign-in and administration
+# pages, a witness's personal link and the API are not for them (the pages
+# also answer with X-Robots-Tag: noindex, public/_headers). The staging deploy
+# replaces this file with one that turns every crawler away.
+User-agent: *
+Disallow: /admin
+Disallow: /auth
+Disallow: /reset-password
+Disallow: /verifier/
+Disallow: /api/
