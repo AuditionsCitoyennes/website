@@ -99,7 +99,7 @@ function homeBootHtml(): Plugin {
 
 // The built site's response headers (shared/boot/csp.ts). Before anything is
 // built, the settings are checked: a staging or production build that could
-// not sign in, or a mistyped VITE_CSP, stops there. Once the build has written
+// not sign in or reach its API, or a mistyped VITE_CSP, stops there. Once the build has written
 // its files, dist/_headers is written again: public/_headers with the content
 // security policy of the built index.html, read from the disk so that the
 // inline scripts hashed are the ones served, whatever wrote them. A build
@@ -117,7 +117,7 @@ function responseHeaders(): Plugin {
       const missing = missingDeploySettings(env);
       if (missing.length) {
         throw new Error(
-          `A ${env.VITE_APP_ENV} build needs ${missing.join(" and ")}: sign-in asks for the Supabase project's URL (http or https) and its publishable key.`,
+          `A ${env.VITE_APP_ENV} build needs ${missing.join(", ")}. Sign-in asks for the Supabase project's URL (http or https, a plain host name) and its publishable key; VITE_API_URL is empty when the API is the site's own /api, else the API's URL.`,
         );
       }
       mode = policyMode(env.VITE_CSP);

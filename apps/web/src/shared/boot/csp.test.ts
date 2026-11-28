@@ -188,6 +188,29 @@ test("a setting reaches the policy as an origin, never as its own text", () => {
   for (const none of [undefined, "", "/map-data/", "ref.supabase.co", "javascript:alert(1)"]) {
     assert.equal(originOf(none), null);
   }
+  // A host `URL` accepts and a policy would read as something else: the end
+  // of a directive, the end of the header's value, any host. And one a policy
+  // cannot name.
+  for (const host of [
+    "https://ref.supabase.co;script-src-elem",
+    "https://ref.supabase.co%3bscript-src-elem",
+    "http://ref.supabase.co,other",
+    "https://*",
+    "https://*.supabase.co",
+    "https://ref.supabase.co'",
+    "http://[::1]:54321",
+  ]) {
+    assert.equal(originOf(host), null, host);
+  }
+  assert.equal(originOf("https://REF.Supabase.co:8443/auth"), "https://ref.supabase.co:8443");
+  assert.equal(originOf("http://127.0.0.1:54321"), "http://127.0.0.1:54321");
+  const elsewhere = contentSecurityPolicy("", {
+    supabaseUrl: "https://ref.supabase.co;script-src-elem",
+    apiUrl: "http://api.example,other",
+    mapDataBase: "https://*",
+  });
+  assert.doesNotMatch(elsewhere, /script-src-elem|,|https:\/\/\* /);
+  assert.equal(sources(elsewhere, "connect-src")[1], "https://api.mapbox.com");
   const policy = contentSecurityPolicy("", { supabaseUrl: "https://a.example/; script-src *" });
   assert.deepEqual(sources(policy, "script-src"), ["'self'", "'wasm-unsafe-eval'"]);
   assert.doesNotMatch(policy, /[\r\n]/);
@@ -290,8 +313,12 @@ test("the headers file: one `/*` block, or the build stops", () => {
   );
 });
 
-test("a staging or production build needs the Supabase settings; another build none", () => {
-  const set = { VITE_SUPABASE_URL: "https://ref.supabase.co", VITE_SUPABASE_PUBLISHABLE_KEY: "k" };
+test("a staging or production build needs its Supabase and API settings; another build none", () => {
+  const set = {
+    VITE_SUPABASE_URL: "https://ref.supabase.co",
+    VITE_SUPABASE_PUBLISHABLE_KEY: "k",
+    VITE_API_URL: "",
+  };
   assert.deepEqual(missingDeploySettings({}), []);
   assert.deepEqual(missingDeploySettings({ VITE_APP_ENV: "local" }), []);
   assert.deepEqual(missingDeploySettings({ VITE_APP_ENV: "staging", ...set }), []);
@@ -299,17 +326,31 @@ test("a staging or production build needs the Supabase settings; another build n
   assert.deepEqual(missingDeploySettings({ VITE_APP_ENV: "production" }), [
     "VITE_SUPABASE_URL",
     "VITE_SUPABASE_PUBLISHABLE_KEY",
+    "VITE_API_URL",
   ]);
   assert.deepEqual(
     missingDeploySettings({ VITE_APP_ENV: "staging", ...set, VITE_SUPABASE_PUBLISHABLE_KEY: "" }),
     ["VITE_SUPABASE_PUBLISHABLE_KEY"],
   );
+  for (const url of ["ref.supabase.co", "https://ref.supabase.co;script-src-elem"]) {
+    assert.deepEqual(
+      missingDeploySettings({ VITE_APP_ENV: "staging", ...set, VITE_SUPABASE_URL: url }),
+      ["VITE_SUPABASE_URL"],
+      url,
+    );
+  }
+
+  // The API's address: said empty (the site's own /api) or as an http(s) URL.
+  const production = { VITE_APP_ENV: "production", ...set };
   assert.deepEqual(
-    missingDeploySettings({
-      VITE_APP_ENV: "staging",
-      ...set,
-      VITE_SUPABASE_URL: "ref.supabase.co",
-    }),
-    ["VITE_SUPABASE_URL"],
+    missingDeploySettings({ ...production, VITE_API_URL: "https://api.example.org" }),
+    [],
   );
+  for (const url of [undefined, "api.example.org", "/api", "https://api.example.org,other"]) {
+    assert.deepEqual(
+      missingDeploySettings({ ...production, VITE_API_URL: url }),
+      ["VITE_API_URL"],
+      String(url),
+    );
+  }
 });

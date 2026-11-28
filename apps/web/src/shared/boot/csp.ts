@@ -22,7 +22,7 @@ export const MAX_HEADER_LINE = 2000;
 export interface PolicySettings {
   /** VITE_SUPABASE_URL: sign-in talks to it. */
   supabaseUrl?: string;
-  /** VITE_API_URL: empty or unset when the API is the site's own /api. */
+  /** VITE_API_URL: empty when the API is the site's own /api. */
   apiUrl?: string;
   /** VITE_MAP_DATA_BASE: unset when the outline files are the site's own. */
   mapDataBase?: string;
@@ -47,15 +47,26 @@ const ADDRESS_SEARCH = ["https://api-adresse.data.gouv.fr", "https://data.geopf.
 const PHOTOS = ["https://images.unsplash.com", "https://images.pexels.com"];
 
 /**
- * The origin of an absolute http(s) URL, null for anything else (unset, empty,
- * a path, another scheme). Only what `URL` itself normalised reaches the
- * header, never the setting's own text.
+ * A host a policy source can name: letters, digits, hyphens and dots (a
+ * domain name or an IPv4 address). `URL` also accepts hosts holding `;`, `,`
+ * or `*`, which a policy reads as the end of a directive, the end of a header
+ * value, or any host; and a bracketed IPv6 address, which a policy cannot
+ * name at all.
+ */
+const POLICY_HOST = /^[a-z0-9.-]+$/;
+
+/**
+ * The origin of an absolute http(s) URL whose host a policy can name, null
+ * for anything else (unset, empty, a path, another scheme, another kind of
+ * host). Only what `URL` itself normalised reaches the header, never the
+ * setting's own text.
  */
 export function originOf(url: string | undefined): string | null {
   if (!url) return null;
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.origin : null;
+    const web = parsed.protocol === "https:" || parsed.protocol === "http:";
+    return web && POLICY_HOST.test(parsed.hostname) ? parsed.origin : null;
   } catch {
     return null;
   }
@@ -171,8 +182,11 @@ export function headersFile(
 
 /**
  * The settings a deployed build (VITE_APP_ENV staging or production) cannot do
- * without, by name: sign-in needs the Supabase project's URL (an http(s) URL,
- * which the policy must allow) and its publishable key. A build with any
+ * without, by name. Sign-in needs the Supabase project's URL (an http(s) URL
+ * the policy can allow) and its publishable key. The API's address has to be
+ * said: empty when the API is the site's own /api, else an http(s) URL the
+ * policy can allow; left unset, the app would call the local development
+ * address (shared/api/client.ts), which the policy refuses. A build with any
  * other VITE_APP_ENV (local work, CI's plain build) needs none.
  */
 export function missingDeploySettings(env: Record<string, string | undefined>): string[] {
@@ -180,5 +194,7 @@ export function missingDeploySettings(env: Record<string, string | undefined>): 
   const missing: string[] = [];
   if (!originOf(env.VITE_SUPABASE_URL)) missing.push("VITE_SUPABASE_URL");
   if (!env.VITE_SUPABASE_PUBLISHABLE_KEY) missing.push("VITE_SUPABASE_PUBLISHABLE_KEY");
+  const api = env.VITE_API_URL;
+  if (api === undefined || (api !== "" && !originOf(api))) missing.push("VITE_API_URL");
   return missing;
 }
