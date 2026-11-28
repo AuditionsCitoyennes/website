@@ -155,6 +155,10 @@ test("at most one empty line in a row, nothing at the end of a line", () => {
   assert.equal(cleanText("a  \n \n\t\n\nb   "), "a\n\nb");
   // Lines of characters that draw nothing are empty lines too.
   assert.equal(cleanText(`a\n${BRAILLE_BLANK}\n${HANGUL_FILLER}\n${NO_BREAK_SPACE}\nb`), "a\n\nb");
+  const unseen = [ZERO_WIDTH_JOINER, ZERO_WIDTH_NON_JOINER, EMOJI_SELECTOR, ` ${ACUTE}`];
+  for (const ch of unseen) {
+    assert.equal(cleanText(`a${`\n${ch}`.repeat(700)}\nb`), "a\n\nb", JSON.stringify(ch));
+  }
   assert.equal(cleanText("  a\n  b  "), "a\n  b");
 });
 

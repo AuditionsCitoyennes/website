@@ -52,24 +52,23 @@ const DRAWN = /[\p{L}\p{N}\p{P}\p{S}]/u;
 /**
  * A text as the site stores it: composed (Unicode NFC), without the characters
  * of DROPPED, at most four combining marks on a letter, one kind of line break,
- * nothing but the break at the end of a line, at most one empty line in a row,
- * no space around the whole; empty when nothing in it is drawn. What a reader
- * sees of an ordinary text is unchanged; applying it twice changes nothing
- * more.
+ * nothing but the break at the end of a line, a line in which nothing is drawn
+ * counted as empty, at most one empty line in a row, no space around the
+ * whole. What a reader sees of an ordinary text is unchanged; applying it twice
+ * changes nothing more.
  */
 export function cleanText(text: string): string {
-  const cleaned = text
+  return text
     .replace(LINE_BREAKS, "\n")
     .replace(BLANKS, " ")
     .replace(DROPPED, "")
     .normalize("NFC")
     .replace(MARKS_OVER, (_, kept: string, over: string) => kept + over.replace(/\p{M}/gu, ""))
     .split("\n")
-    .map((line) => line.trimEnd())
+    .map((line) => (DRAWN.test(line) ? line.trimEnd() : ""))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return DRAWN.test(cleaned) ? cleaned : "";
 }
 
 /** cleanText for a field of one line (a name, an information, a title, a
