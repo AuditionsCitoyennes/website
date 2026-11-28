@@ -20,6 +20,34 @@ export interface AuditEntry {
   metadata?: { [key: string]: Json | undefined };
 }
 
+/** The longest text an entry keeps for one metadata value: the API's own
+ *  limit for a title or a place. */
+export const AUDIT_TEXT_MAX = 300;
+
+/**
+ * The metadata as it is stored: every text in it holds at most AUDIT_TEXT_MAX
+ * characters, a longer one being cut and ended with "…". A title, a place or
+ * a name read back from the database may be longer than the API accepts (a
+ * row written past it), and the database refuses an entry over 16 kB: the
+ * entry is shortened rather than lost.
+ */
+export function boundedMetadata(value: Json | undefined): Json | undefined {
+  if (typeof value === "string") {
+    if (value.length <= AUDIT_TEXT_MAX) return value;
+    // Never half of a surrogate pair: the database refuses a lone one.
+    const last = value.charCodeAt(AUDIT_TEXT_MAX - 2);
+    const end = last >= 0xd800 && last <= 0xdbff ? AUDIT_TEXT_MAX - 2 : AUDIT_TEXT_MAX - 1;
+    return `${value.slice(0, end)}…`;
+  }
+  if (Array.isArray(value)) return value.map((item) => boundedMetadata(item) ?? null);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, boundedMetadata(item)]),
+    );
+  }
+  return value;
+}
+
 /**
  * Append one entry to the audit log.
  *
@@ -34,6 +62,8 @@ export interface AuditEntry {
  * write from the browser. Without the key (a developer's setup) the caller's
  * client is used, and the database refuses most entries: the failure is
  * logged, as any other.
+ *
+ * Long texts of the metadata are cut first (boundedMetadata).
  */
 export async function logAudit(
   client: SupabaseClient<Database>,
@@ -48,7 +78,7 @@ export async function logAudit(
       p_action: entry.action,
       p_target_type: entry.targetType,
       p_target_id: entry.targetId,
-      p_metadata: entry.metadata ?? {},
+      p_metadata: boundedMetadata(entry.metadata) ?? {},
     });
     if (error) log.warn({ err: error, action: entry.action }, "audit log write failed");
   } catch (err) {

@@ -26,7 +26,7 @@ beforeEach(() => {
 const warnings: unknown[] = [];
 const log = { warn: (...args: unknown[]) => warnings.push(args) } as unknown as FastifyBaseLogger;
 
-const { logAudit } = await import("./audit");
+const { AUDIT_TEXT_MAX, boundedMetadata, logAudit } = await import("./audit");
 const { clientForToken, publicClient } = await import("./supabase");
 
 const keysUsed = () =>
@@ -79,4 +79,57 @@ test("a refused entry is logged as a warning and never thrown", async () => {
   }
   assert.equal(warnings.length, 1);
   assert.equal(written.length, 0);
+});
+
+test("a text of the metadata longer than the API's own limit is cut, the rest is kept as is", () => {
+  const long = "é".repeat(20_000);
+  const bounded = boundedMetadata({
+    title: long,
+    location: "Place du marché",
+    date: "2026-11-27",
+    testimonies: 3,
+    emptied: true,
+    absent: undefined,
+    nothing: null,
+    fields: ["title", long],
+    nested: { name: long },
+  }) as Record<string, unknown>;
+  const cut = `${"é".repeat(AUDIT_TEXT_MAX - 1)}…`;
+  assert.deepEqual(bounded, {
+    title: cut,
+    location: "Place du marché",
+    date: "2026-11-27",
+    testimonies: 3,
+    emptied: true,
+    absent: undefined,
+    nothing: null,
+    fields: ["title", cut],
+    nested: { name: cut },
+  });
+  assert.equal(boundedMetadata("a".repeat(AUDIT_TEXT_MAX)), "a".repeat(AUDIT_TEXT_MAX));
+  assert.equal(boundedMetadata(undefined), undefined);
+});
+
+test("a cut never leaves half of a character behind", () => {
+  // The pair sits across the cut: its first half goes with it.
+  const text = `${"a".repeat(AUDIT_TEXT_MAX - 2)}😀${"a".repeat(10)}`;
+  assert.equal(boundedMetadata(text), `${"a".repeat(AUDIT_TEXT_MAX - 2)}…`);
+  // The pair ends right at the cut: it stays whole.
+  const whole = `${"a".repeat(AUDIT_TEXT_MAX - 3)}😀${"a".repeat(10)}`;
+  assert.equal(boundedMetadata(whole), `${"a".repeat(AUDIT_TEXT_MAX - 3)}😀…`);
+});
+
+test("an entry about an audition with an oversized title is written, shortened", async () => {
+  await logAudit(publicClient, log, {
+    actorId: ACTOR,
+    action: "audition_deleted",
+    targetType: "audition",
+    targetId: "00000000-0000-4000-8000-000000000004",
+    metadata: { title: "T".repeat(40_000), location: "L".repeat(40_000), testimonies: 2 },
+  });
+  assert.equal(written.length, 1);
+  const metadata = written[0].p_metadata as { title: string; location: string };
+  assert.equal(metadata.title.length, AUDIT_TEXT_MAX);
+  assert.equal(metadata.location.length, AUDIT_TEXT_MAX);
+  assert.ok(JSON.stringify(metadata).length < 2048);
 });
