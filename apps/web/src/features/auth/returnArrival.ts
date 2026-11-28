@@ -6,10 +6,9 @@
 import { ref } from "vue";
 import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { supabase } from "@/shared/api/supabase";
-import { authArrival, type AuthArrival } from "@/shared/api/authArrival";
+import type { AuthArrival } from "@/shared/api/authArrival";
 import { useToast } from "@/shared/ui/toast/useToast";
 import {
-  acceptsAuthReturn,
   isResetPage,
   settleAuthReturn,
   type Account,
@@ -28,8 +27,9 @@ export type RecoveryHandOver =
 export const recoveryHandOver = ref<RecoveryHandOver>({ state: "none" });
 
 /** Whether this page load's return is still being settled: main.ts stops
- *  waiting for a slow Auth, and the pages then show their loader meanwhile. */
-export const returnPending = ref(authArrival !== null && acceptsAuthReturn(authArrival.path));
+ *  waiting for a slow Auth, and the sign-in and password pages then show
+ *  their loader meanwhile. */
+export const returnPending = ref(false);
 
 /** The new password is set: the recovery is over. */
 export function endRecovery() {
@@ -104,6 +104,7 @@ const deps: ReturnDeps = {
 };
 
 export async function consumeAuthReturn(arrival: AuthArrival): Promise<void> {
+  returnPending.value = true;
   try {
     say(await settleAuthReturn(arrival.ret, deps), isResetPage(arrival.path));
   } finally {

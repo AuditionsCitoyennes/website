@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { z } from "zod";
 import { supabase } from "@/shared/api/supabase";
@@ -11,6 +11,7 @@ import { ROUTE } from "@/shared/routes";
 import { passwordSchema } from "../lib/password";
 import { authCode, emailRequestError, mapAuthError } from "../authErrors";
 import { owesSecondFactor } from "../lib/secondFactor";
+import { returnPending } from "../returnArrival";
 import OAuthButtons from "../components/OAuthButtons.vue";
 import UsernamePromptDialog from "../components/UsernamePromptDialog.vue";
 import AuthCard from "../components/AuthCard.vue";
@@ -56,10 +57,18 @@ const showProfileDialog = ref(false);
 let pendingSignup: { email: string; password: string } | null = null;
 let cooldownTimer: ReturnType<typeof setInterval> | null = null;
 
-onMounted(async () => {
-  const { data } = await supabase.auth.getSession();
-  if (data.session) router.replace("/admin");
-});
+// Somebody already signed in goes on to the admin area. A return from Auth
+// still being settled (main.ts stopped waiting for a slow Auth) is waited for
+// first, behind the loader: the session it leaves decides.
+watch(
+  returnPending,
+  async (pending) => {
+    if (pending) return;
+    const { data } = await supabase.auth.getSession();
+    if (data.session) router.replace("/admin");
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(() => {
   if (cooldownTimer) clearInterval(cooldownTimer);
@@ -219,8 +228,11 @@ async function handleForgotPassword() {
 
 <template>
   <div class="auth-page">
+    <!-- A return from Auth still being settled -->
+    <AuthCard v-if="returnPending" loading />
+
     <!-- "Vérifiez votre email" screen after signup -->
-    <AuthCard v-if="signupDone">
+    <AuthCard v-else-if="signupDone">
       <div class="icon-wrap">
         <svg
           viewBox="0 0 24 24"

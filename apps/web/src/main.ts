@@ -48,8 +48,9 @@ const start = () => {
 // A return from Supabase Auth (an email link, Google) is read on the pages
 // that accept one, and settled before they mount, so that each finds the
 // session as it will stay; anywhere else it was dropped with the address.
-// A slow Auth does not hold the site back for long: the pages then show
-// their own loader until the return is settled.
+// A slow Auth does not hold the site back for long: the sign-in page and the
+// password page then show their loader until the return is settled, and the
+// admin page leads to the sign-in page when nobody is signed in yet.
 const RETURN_WAIT_MS = 10_000;
 if (authArrival && acceptsAuthReturn(authArrival.path)) {
   const settled = consumeAuthReturn(authArrival).catch(() => undefined);
