@@ -16,23 +16,39 @@ A run fails, and GitHub emails the owner, if the dump has no auditions or no
 testimonies. The key, if lost, makes every backup unreadable: keep it in the
 password manager of both owners.
 
+The workflow reads its secrets (`PROD_DB_URL`, `SCW_ACCESS_KEY`,
+`SCW_SECRET_KEY`) from the GitHub environment `production-backup` (Settings →
+Environments), not from the repository's own secrets. Set there: deployment
+branches `dev` and `main`, so that only a workflow run from one of them
+receives the secrets, and no required reviewer, or the nightly run would wait
+for an approval. The job uses no action from another repository and no cache:
+the Supabase CLI is downloaded from its release page and checked against the
+checksum written in the workflow.
+
+A run that never starts (a disabled workflow, a schedule GitHub paused) fails
+nothing and emails nobody. Optional: a monitor outside GitHub that expects a
+call every night and alerts when none came for 36 hours; put its URL in the
+environment's secret `BACKUP_PING_URL` and each finished backup calls it.
+
 ## Restore drill (do it after setup, then every few months)
 
 On your machine, into the **local** stack only. The decrypted files hold real
-personal data: delete them at the end.
+personal data: they go to a temporary folder outside the repository, the
+private key is never written to a file, and both are gone at the end.
 
 1. Scaleway console → project `auditions-citoyennes-prod` → Object Storage →
    the bucket → `prod/` → download the latest `prod-….tar.gz.age`.
-2. Put the private key from the password manager in a file, then decrypt:
+2. Decrypt it into a temporary folder. `--identity -` reads the private key
+   from the terminal: paste it from the password manager, press Enter, then
+   Ctrl-D.
 
    ```sh
-   mkdir restore
-   age --decrypt --identity key.txt prod-….tar.gz.age | tar -xzf - -C restore
-   rm key.txt
+   drill=$(mktemp -d)
+   age --decrypt --identity - ~/Downloads/prod-….tar.gz.age | tar -xzf - -C "$drill"
    ```
 
-3. Load the data into a local database that has the same structure
-   (migrations, no fake data):
+3. In the same terminal, at the repository's root, load the data into a local
+   database that has the same structure (migrations, no fake data):
 
    ```sh
    npm run db:start
@@ -41,13 +57,13 @@ personal data: delete them at the end.
    until docker ps | grep -q 'supabase_auth_auditions-citoyennes.*(healthy)'; do sleep 2; done
    docker exec -i supabase_db_auditions-citoyennes psql -U postgres \
      --single-transaction -v ON_ERROR_STOP=1 \
-     -c 'SET session_replication_role = replica' -f - < restore/data.sql
+     -c 'SET session_replication_role = replica' -f - < "$drill/data.sql"
    ```
 
 4. Compare with production (Studio at http://127.0.0.1:54323, or counts of
    `auditions`, `testimonies`, `auth.users`).
-5. Clean up: `npm run db:reset` (back to fake data), then delete `restore/`
-   and the downloaded file.
+5. Clean up: `npm run db:reset` (back to fake data), then
+   `rm -rf "$drill" ~/Downloads/prod-….tar.gz.age`.
 
 ## Real restore
 

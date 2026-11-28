@@ -12,27 +12,58 @@
 # Environment: SCW_SECRET_KEY, SCW_PROJECT_ID, SCW_REGION, REGISTRY_NAMESPACE;
 # for deploy also CONTAINERS_NAMESPACE, CONTAINER_NAME, IMAGE, VERSION,
 # MIN_SCALE, MAX_SCALE, MEMORY_MB. Every ENV_<NAME> variable becomes the
-# container's <NAME>, every SECRET_<NAME> a secret one (left out when empty).
-# Secret values are only ever sent on stdin, never on a command line or a log.
+# container's <NAME>, every SECRET_<NAME> a secret one; one whose value is
+# empty is left out, so an option nobody set never reaches the container.
+# Secret values and the API key reach curl on file descriptors only, never on
+# a command line, and are replaced by "***" in whatever is printed of an
+# answer of Scaleway's.
 # SCW_API_URL points it at another API (a stand-in, to try it).
 set -euo pipefail
 
 API=${SCW_API_URL:-https://api.scaleway.com}
 : "${SCW_SECRET_KEY:?}" "${SCW_PROJECT_ID:?}" "${SCW_REGION:?}" "${REGISTRY_NAMESPACE:?}"
 
-# Scaleway's answer on stdout; on an error, its message on stderr and exit 1.
+# The API key as a curl config line (--config -): curl reads it on its stdin,
+# so the key is in no process's arguments.
+auth_config() {
+  local key=${SCW_SECRET_KEY//\\/\\\\}
+  printf 'header = "X-Auth-Token: %s"\n' "${key//\"/\\\"}"
+}
+
+# jq -c with one more function, `redacted`: its input text with every value
+# this script holds as a secret (the API key, each SECRET_<NAME>) replaced by
+# "***". jq reads the values in its environment and works on the decoded
+# text, so a value that comes back escaped inside JSON is replaced like any
+# other.
+jq_redacted() { # FILTER [FILE]
+  local filter=$1
+  shift
+  jq -c 'def redacted: reduce ($ENV | to_entries[]
+      | select((.key == "SCW_SECRET_KEY" or (.key | startswith("SECRET_"))) and .value != "") | .value) as $secret
+    (.; split($secret) | join("***")); '"$filter" "$@"
+}
+
+# Scaleway's answer on stdout; on an error, exit 1 and one line on stderr:
+# the status, the error's type and message, and the names of the arguments it
+# refuses, never the text it gives about their values. Each is decoded, has
+# the secrets replaced, is cut, then is written again as JSON: one line,
+# whatever it holds.
 call() { # METHOD PATH [-] — "-" sends stdin as the JSON body
-  local method=$1 path=$2 out status
+  local method=$1 path=$2 out status reason
   out=$(mktemp)
   if [ "${3:-}" = "-" ]; then
-    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" \
-      -H "X-Auth-Token: $SCW_SECRET_KEY" -H "Content-Type: application/json" --data-binary @-)
+    # The body moves to descriptor 3, the key takes stdin.
+    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" --config - \
+      -H "Content-Type: application/json" --data-binary @/dev/fd/3 3<&0 < <(auth_config))
   else
-    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" \
-      -H "X-Auth-Token: $SCW_SECRET_KEY")
+    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" --config - < <(auth_config))
   fi
   if [ "$status" -ge 300 ]; then
-    echo "::error::Scaleway $method ${path%%\?*} answered $status: $(jq -c '{message, type, details}' "$out" 2>/dev/null || head -c 300 "$out")" >&2
+    reason=$(jq_redacted '{type: (.type // "" | tostring | redacted | .[:80]),
+        message: (.message // "" | tostring | redacted | .[:200]),
+        arguments: [.details[]?.argument_name? | tostring | redacted | .[:80]]}' "$out" 2>/dev/null ||
+      echo "an answer that is not JSON")
+    echo "::error::Scaleway $method ${path%%\?*} answered $status: $reason" >&2
     rm -f "$out"
     return 1
   fi
@@ -60,16 +91,18 @@ registry() {
   echo "$endpoint"
 }
 
-# Waits while Scaleway is busy with the container; fails on "error".
+# Waits while Scaleway is busy with the container; fails on "error", with
+# Scaleway's message as one JSON string (the secrets replaced, cut).
 wait_ready() { # CONTAINER-ID
-  local base="/containers/v1/regions/$SCW_REGION/containers/$1" container status
+  local base="/containers/v1/regions/$SCW_REGION/containers/$1" container status message
   for _ in $(seq 1 90); do
     container=$(call GET "$base")
     status=$(jq -r .status <<<"$container")
     case "$status" in
       ready) return 0 ;;
       error | locked)
-        echo "::error::container $status: $(jq -r '.error_message // "no message"' <<<"$container")" >&2
+        message=$(jq_redacted '.error_message // "no message" | tostring | redacted | .[:300]' <<<"$container")
+        echo "::error::container $status: $message" >&2
         return 1
         ;;
     esac
@@ -94,7 +127,7 @@ wait_version() { # URL
 deploy() {
   : "${CONTAINERS_NAMESPACE:?}" "${CONTAINER_NAME:?}" "${IMAGE:?}" "${VERSION:?}"
   : "${MIN_SCALE:?}" "${MAX_SCALE:?}" "${MEMORY_MB:?}"
-  local base="/containers/v1/regions/$SCW_REGION" ns id body url
+  local base="/containers/v1/regions/$SCW_REGION" ns id body container url
   ns=$(call GET "$base/namespaces?project_id=$SCW_PROJECT_ID&name=$CONTAINERS_NAMESPACE&page_size=100" |
     named namespaces id "$CONTAINERS_NAMESPACE")
   if [ -z "$ns" ]; then
@@ -122,23 +155,33 @@ deploy() {
       memory_limit_bytes: $memory,
       privacy: "public",
       protocol: "http1",
-      environment_variables: ($ENV | with_entries(select(.key | startswith("ENV_")) | .key |= .[4:])),
+      environment_variables: ($ENV | with_entries(select((.key | startswith("ENV_")) and .value != "") | .key |= .[4:])),
       secret_environment_variables: ($ENV | with_entries(select((.key | startswith("SECRET_")) and .value != "") | .key |= .[7:]))
     }')
 
   id=$(call GET "$base/containers?namespace_id=$ns&name=$CONTAINER_NAME&page_size=100" |
     named containers id "$CONTAINER_NAME")
+  # The container accepts HTTPS connections only. Scaleway's API names that
+  # setting https_connections_only when it creates a container and reads one
+  # back, https_connection_only when it updates one.
   if [ -z "$id" ]; then
     echo "Creating the container $CONTAINER_NAME" >&2
-    id=$(jq --arg ns "$ns" --arg name "$CONTAINER_NAME" '. + {namespace_id: $ns, name: $name}' <<<"$body" |
+    id=$(jq --arg ns "$ns" --arg name "$CONTAINER_NAME" \
+      '. + {namespace_id: $ns, name: $name, https_connections_only: true}' <<<"$body" |
       call POST "$base/containers" - | jq -r .id)
   else
     echo "Updating the container $CONTAINER_NAME" >&2
-    call PATCH "$base/containers/$id" - <<<"$body" >/dev/null
+    jq '. + {https_connection_only: true}' <<<"$body" | call PATCH "$base/containers/$id" - >/dev/null
   fi
 
   wait_ready "$id"
-  url=$(call GET "$base/containers/$id" | jq -r .public_endpoint)
+  container=$(call GET "$base/containers/$id")
+  # Read back, not assumed: a setting Scaleway did not take fails the deploy.
+  if [ "$(jq -r .https_connections_only <<<"$container")" != "true" ]; then
+    echo "::error::the container still accepts plain HTTP: Scaleway does not report https_connections_only as true" >&2
+    return 1
+  fi
+  url=$(jq -r .public_endpoint <<<"$container")
   case "$url" in http://* | https://*) ;; *) url="https://$url" ;; esac
   # An update that left the old instances serving: roll them over once.
   if ! wait_version "$url"; then

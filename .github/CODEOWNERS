@@ -1,9 +1,12 @@
 # Code owners — automatically requested for review on matching files.
 # https://docs.github.com/en/repositories/managing-your-repos-settings-and-features/customizing-your-repository/about-code-owners
 
+# Owners are named by their login: a team is only taken into account once it
+# has write access to the repository.
+
 # Default owners for everything in the repo
-*                       @AuditionsCitoyennes/maintainers
+*                       @FlorentGrea
 
 # CI / governance / security-sensitive paths
-/.github/               @AuditionsCitoyennes/maintainers
-/supabase/migrations/   @AuditionsCitoyennes/maintainers
+/.github/               @FlorentGrea
+/supabase/migrations/   @FlorentGrea

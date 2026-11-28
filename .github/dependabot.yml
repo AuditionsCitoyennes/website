@@ -20,6 +20,8 @@ updates:
         update-types: ["version-update:semver-major"]
 
   # Mises à jour des GitHub Actions, regroupées en une seule PR
+  # The workflows name each action by a full commit SHA, its version in a
+  # comment on the same line: Dependabot rewrites both.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -32,6 +34,8 @@ updates:
   # seulement. Une version majeure de Node se choisit à la main, et seulement
   # une LTS (paire) : Dependabot proposerait aussi les impaires, sans support
   # long (node:25 a fini le sien en juin 2026).
+  # The Dockerfile names the image by tag and digest: Dependabot proposes the
+  # tag's new digest.
   - package-ecosystem: "docker"
     directory: "/apps/api"
     schedule:

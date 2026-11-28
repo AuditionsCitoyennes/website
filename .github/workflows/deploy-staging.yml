@@ -5,6 +5,9 @@ name: Deploy staging API
 # Container is created or updated with it, and the deploy waits until that
 # version answers and reaches its database. Also runnable by hand (Actions →
 # Deploy staging API → Run workflow). Setup and secrets: docs/staging.md.
+#
+# The job runs in the GitHub environment `staging` and reads its secrets
+# there; each one is given to the steps that use it, not to the whole job.
 on:
   push:
     branches: [dev]
@@ -29,7 +32,6 @@ permissions:
 env:
   SCW_REGION: fr-par
   SCW_PROJECT_ID: ${{ vars.STAGING_SCW_PROJECT_ID }}
-  SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY }}
   REGISTRY_NAMESPACE: ${{ vars.STAGING_SCW_REGISTRY_NAMESPACE }}
   CONTAINERS_NAMESPACE: staging
   # Scaleway: 4 to 34 characters.
@@ -39,13 +41,19 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-24.04
+    environment: staging
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No later step talks to GitHub: the token is not left in the clone.
+          persist-credentials: false
 
+      # Only whether each secret is set comes here, not its value.
       - name: Check the settings
         env:
-          SUPABASE_SECRET: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
+          SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY != '' && 'set' || '' }}
+          SUPABASE_SECRET: ${{ secrets.STAGING_SUPABASE_SECRET_KEY != '' && 'set' || '' }}
         run: |
           missing=""
           for name in SCW_PROJECT_ID SCW_SECRET_KEY REGISTRY_NAMESPACE SUPABASE_SECRET; do
@@ -58,6 +66,8 @@ jobs:
 
       - name: Registry
         id: registry
+        env:
+          SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY }}
         # Assigned first: a failing script then fails the step (an echo of
         # its output would succeed whatever happened).
         run: |
@@ -66,19 +76,33 @@ jobs:
 
       # Docker Hub (the node base image) throttles shared runners at times:
       # three tries. The layers come back from the registry's build cache.
+      # The step gives back the image by its digest, as the registry received
+      # it: that is what the container is set to, whatever a tag points at
+      # later.
       - name: Build and push the image
+        id: image
         env:
+          SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY }}
           REGISTRY: ${{ steps.registry.outputs.endpoint }}
         run: |
           echo "$SCW_SECRET_KEY" | docker login "${REGISTRY%%/*}" -u nologin --password-stdin
           docker buildx create --use --name ci >/dev/null
           for attempt in 1 2 3; do
-            docker buildx build . --file apps/api/Dockerfile \
+            if docker buildx build . --file apps/api/Dockerfile \
               --build-arg APP_VERSION="$VERSION" \
               --tag "$REGISTRY/api:$VERSION" \
               --cache-from "type=registry,ref=$REGISTRY/api:buildcache" \
               --cache-to "type=registry,ref=$REGISTRY/api:buildcache,mode=max" \
-              --push && exit 0
+              --metadata-file "$RUNNER_TEMP/image.json" \
+              --push; then
+              digest=$(jq -r '."containerimage.digest" // empty' "$RUNNER_TEMP/image.json")
+              if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "::error::the build gave no digest for the pushed image"
+                exit 1
+              fi
+              echo "ref=$REGISTRY/api@$digest" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "::warning::build attempt $attempt failed"
             sleep $((attempt * 20))
           done
@@ -87,7 +111,8 @@ jobs:
       - name: Deploy
         id: deploy
         env:
-          IMAGE: ${{ steps.registry.outputs.endpoint }}/api:${{ github.sha }}
+          SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY }}
+          IMAGE: ${{ steps.image.outputs.ref }}
           # One instance, always on: Supabase Auth gives its email hook 5 s,
           # less than a cold start (~€7 a month at 512 MB). The rate limits
           # are per process, hence one instance at most.
@@ -95,7 +120,7 @@ jobs:
           MAX_SCALE: 1
           MEMORY_MB: 512
           # The container's environment (apps/api/.env.example). Public
-          # values only here; secrets below, from the repository's secrets.
+          # values only here; secrets below, from the environment's secrets.
           ENV_APP_ENV: staging
           ENV_EMAIL_MODE: outbox
           ENV_LOG_LEVEL: info
@@ -122,6 +147,14 @@ jobs:
           # The API answers the site's Worker only (behind the gate), apart
           # from /health and Supabase Auth's signed hook.
           ENV_REQUIRE_PROXY: "true"
+          # Options that are off until their variable (or secret) is given a
+          # value in GitHub's settings: an empty one is left out of the
+          # container, which then keeps the API's own default
+          # (docs/feature-flags.md).
+          ENV_ADMIN_MFA: ${{ vars.STAGING_ADMIN_MFA }}
+          ENV_JWT_ALGS: ${{ vars.STAGING_JWT_ALGS }}
+          ENV_JWT_ISSUER: ${{ vars.STAGING_JWT_ISSUER }}
+          SECRET_TURNSTILE_SECRET_KEY: ${{ secrets.STAGING_TURNSTILE_SECRET_KEY }}
         run: |
           url=$(scripts/deploy/scaleway.sh deploy)
           echo "url=$url" >> "$GITHUB_OUTPUT"
@@ -136,20 +169,25 @@ jobs:
           health=$(curl -sS --fail --max-time 15 "$URL/health")
           echo "$health" | jq .
           [ "$(jq -r .serviceRole <<<"$health")" = "true" ]
+          # The Worker's secret, in a file curl reads its header from: it is
+          # on no command line.
+          worker="$RUNNER_TEMP/worker.headers"
+          trap 'rm -f "$worker"' EXIT
+          (umask 077 && printf 'X-Proxy-Secret: %s\n' "$PROXY_SECRET" > "$worker")
           # As the site's Worker: answered (the outbox is readable by the
           # service role only, so this also proves the database key).
-          curl -sS --fail --max-time 15 -o /dev/null -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/outbox"
+          curl -sS --fail --max-time 15 -o /dev/null -H @"$worker" "$URL/api/outbox"
           # A place read, through the service role's read functions (never a
           # whole-table pull): the read RPC migration is on the database and
           # the key may call it.
-          facets=$(curl -sS --fail --max-time 30 -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/places/facets")
+          facets=$(curl -sS --fail --max-time 30 -H @"$worker" "$URL/api/places/facets")
           jq -e '.themes | type == "array"' <<<"$facets" >/dev/null
           # The map, from the stored places: its groups carry lieuId. Without
           # them it fell back to the geocoder's build — geo_units unreadable
           # (the place migration not pushed to staging, or the key refused).
           # Past 5,000 published auditions it refuses whole (503, "Liste trop
           # longue"): the load-test data, nothing to check then.
-          code=$(curl -sS -o "$RUNNER_TEMP/map.json" -w '%{http_code}' --max-time 30 -H "X-Proxy-Secret: $PROXY_SECRET" "$URL/api/map")
+          code=$(curl -sS -o "$RUNNER_TEMP/map.json" -w '%{http_code}' --max-time 30 -H @"$worker" "$URL/api/map")
           if [ "$code" = 503 ] && jq -e '.message | startswith("Liste trop longue")' "$RUNNER_TEMP/map.json" >/dev/null; then
             echo "::notice::/api/map refuses whole at this size; not checked"
           elif [ "$code" != 200 ]; then
@@ -179,5 +217,6 @@ jobs:
       - name: Keep the 10 latest images
         continue-on-error: true
         env:
+          SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY }}
           KEEP_TAGS: 10
         run: scripts/deploy/scaleway.sh prune

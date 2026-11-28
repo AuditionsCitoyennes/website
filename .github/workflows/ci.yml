@@ -22,61 +22,87 @@ concurrency:
   group: ci-${{ github.ref }}${{ github.event.action == 'edited' && !github.event.changes.base && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    name: Typecheck & build
-    # An edit that leaves the base as it is runs nothing.
-    if: github.event.action != 'edited' || github.event.changes.base
+    # "Typecheck & build" is the check dev and main require: only a run that
+    # checked the commit reports under that name. An edit that leaves the base
+    # as it is (title, description) has nothing to check; its run takes
+    # another name and its steps are skipped, so it neither stands for the
+    # check of the commit nor hides it.
+    name: ${{ (github.event.action != 'edited' || github.event.changes.base) && 'Typecheck & build' || 'Edit that keeps the base (nothing to check)' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - name: Is there something to check?
+        id: decide
+        env:
+          CHECK: ${{ (github.event.action != 'edited' || github.event.changes.base) && 'true' || 'false' }}
+        run: |
+          [ "$CHECK" = true ] || echo "An edit that leaves the base as it is: nothing to check."
+          echo "check=$CHECK" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.decide.outputs.check == 'true'
         with:
           # The whole history (a few MB), for the sign-off check below. A pull
           # request is checked out as its merge commit: its first parent is the
           # base branch.
           fetch-depth: 0
+          # No later step talks to GitHub: the token is not left in the clone.
+          persist-credentials: false
 
       # A migration on the base branch has run on staging and prod, where an
       # edit to it would never apply: a change is a new migration.
       - name: Migrations of the base branch are left as they are
-        if: github.event_name == 'pull_request'
+        if: steps.decide.outputs.check == 'true' && github.event_name == 'pull_request'
         run: |
           changed=$(git diff --no-renames --diff-filter=MD --name-only HEAD^1 HEAD -- supabase/migrations)
           if [ -n "$changed" ]; then
-            echo "::error::Migrations already on ${{ github.base_ref }} were changed or removed: $changed"
+            echo "::error::Migrations already on $GITHUB_BASE_REF were changed or removed: $changed"
             exit 1
           fi
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        if: steps.decide.outputs.check == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: "npm"
 
       - name: Install dependencies
+        if: steps.decide.outputs.check == 'true'
         run: npm ci
 
       - name: Lint
+        if: steps.decide.outputs.check == 'true'
         run: npm run lint
 
       - name: Format check
+        if: steps.decide.outputs.check == 'true'
         run: npm run format:check
 
       - name: Typecheck
+        if: steps.decide.outputs.check == 'true'
         run: npm run typecheck
 
       - name: Test (API cache)
+        if: steps.decide.outputs.check == 'true'
         run: npm run test --workspace=@ac/api
 
       - name: Test (scripts)
+        if: steps.decide.outputs.check == 'true'
         run: npm run test:scripts
 
       # The SQL helpers of the testimonies' derived columns are generated from
       # @ac/shared: a change on one side only fails here.
       - name: Generated SQL matches @ac/shared
+        if: steps.decide.outputs.check == 'true'
         run: npm run db:sql-gen -- --check
 
       - name: Build
+        if: steps.decide.outputs.check == 'true'
         run: npm run build
 
       # Vérifie que chaque commit d'une PR porte une ligne "Signed-off-by"
@@ -85,7 +111,7 @@ jobs:
       # 2026 it was a workflow of its own (dco.yml): a 6-second job, billed as
       # a full minute on every push of every pull request.
       - name: Every commit is signed off (DCO)
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && steps.decide.outputs.check == 'true' && github.event_name == 'pull_request' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
