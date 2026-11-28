@@ -66,10 +66,10 @@ jobs:
 
       - name: Registry
         id: registry
-        # Assigned first: a failing script then fails the step (an echo of
-        # its output would succeed whatever happened).
         env:
           SCW_SECRET_KEY: ${{ secrets.STAGING_SCW_SECRET_KEY }}
+        # Assigned first: a failing script then fails the step (an echo of
+        # its output would succeed whatever happened).
         run: |
           endpoint=$(scripts/deploy/scaleway.sh registry)
           echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
