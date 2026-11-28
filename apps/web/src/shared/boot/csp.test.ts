@@ -265,6 +265,13 @@ test("the headers file: a witness's link sends no referrer; private pages are no
   }
 });
 
+test("robots.txt lets a crawler fetch a witness's link, whose noindex header it then reads", () => {
+  const robots = readFileSync(new URL("../../../public/robots.txt", import.meta.url), "utf8");
+  const disallowed = [...robots.matchAll(/^Disallow:\s*(\S+)/gm)].map(([, path]) => path ?? "");
+  assert.deepEqual(disallowed, ["/admin", "/auth", "/reset-password", "/api/"]);
+  assert.ok(!disallowed.some((path) => "/verifier/0f8fad5b".startsWith(path)));
+});
+
 test("the headers file: report-only and staging's noindex", () => {
   const file = headersFile(PUBLIC_HEADERS, {
     policy: "default-src 'self'",
