@@ -14,6 +14,7 @@ import {
   settleAuthReturn,
   type Account,
   type ReturnDeps,
+  type Settled,
 } from "./lib/authReturn";
 
 /** What the password page finds when it opens (ResetPasswordPage.vue): a
@@ -72,7 +73,9 @@ const deps: ReturnDeps = {
     // A kept session that Auth no longer knows is dropped by that read, and
     // the next one finds nobody. A session that could not be renewed for want
     // of an answer is still somebody's: the return is not settled over it.
-    if (error) ({ data, error } = await supabase.auth.getSession());
+    if (error && !isAuthRetryableFetchError(error)) {
+      ({ data, error } = await supabase.auth.getSession());
+    }
     if (error) throw error;
     const user = data.session?.user;
     return user ? { id: user.id, email: user.email ?? null } : null;
@@ -101,9 +104,17 @@ const deps: ReturnDeps = {
 };
 
 export async function consumeAuthReturn(arrival: AuthArrival): Promise<void> {
+  try {
+    say(await settleAuthReturn(arrival.ret, deps), isResetPage(arrival.path));
+  } finally {
+    returnPending.value = false;
+  }
+}
+
+/** What the visitor is told of a settled return, and what the password page
+ *  is handed. */
+function say(settled: Settled, onResetPage: boolean) {
   const { toast } = useToast();
-  const onResetPage = isResetPage(arrival.path);
-  const settled = await settleAuthReturn(arrival.ret, deps);
   switch (settled.outcome) {
     case "signed-in":
       if (onResetPage && settled.type === "recovery") {
@@ -150,5 +161,4 @@ export async function consumeAuthReturn(arrival: AuthArrival): Promise<void> {
     case "nothing":
       break;
   }
-  returnPending.value = false;
 }
