@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import {
   mapPreloadFiles,
@@ -8,6 +9,13 @@ import {
   type PlanChunk,
 } from "./src/shared/boot/mapPreloadPlan";
 import { afterCharset, homeBootScript, homePreloadFiles } from "./src/shared/boot/homeBootPlan";
+import {
+  contentSecurityPolicy,
+  headersFile,
+  missingDeploySettings,
+  policyMode,
+  type PolicyMode,
+} from "./src/shared/boot/csp";
 
 // The outline build the site reads (features/geo-nav/data/useOutlineFiles):
 // the lock's, read once at start, so a lock bump needs a dev-server restart.
@@ -89,8 +97,56 @@ function homeBootHtml(): Plugin {
   };
 }
 
+// The built site's response headers (shared/boot/csp.ts). Before anything is
+// built, the settings are checked: a staging or production build that could
+// not sign in, or a mistyped VITE_CSP, stops there. Once the build has written
+// its files, dist/_headers is written again: public/_headers with the content
+// security policy of the built index.html, read from the disk so that the
+// inline scripts hashed are the ones served, whatever wrote them. A build
+// only: the dev server sends none of these headers.
+function responseHeaders(): Plugin {
+  let env: Record<string, string | undefined> = {};
+  let mode: PolicyMode = "enforce";
+  let publicFile = "";
+  let outDir = "";
+  return {
+    name: "ac-response-headers",
+    apply: "build",
+    configResolved(config) {
+      env = config.env;
+      const missing = missingDeploySettings(env);
+      if (missing.length) {
+        throw new Error(
+          `A ${env.VITE_APP_ENV} build needs ${missing.join(" and ")}: sign-in asks for the Supabase project's URL (http or https) and its publishable key.`,
+        );
+      }
+      mode = policyMode(env.VITE_CSP);
+      publicFile = join(config.publicDir, "_headers");
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    writeBundle: {
+      order: "post",
+      handler() {
+        const html = readFileSync(join(outDir, "index.html"), "utf8");
+        const policy = contentSecurityPolicy(html, {
+          supabaseUrl: env.VITE_SUPABASE_URL,
+          apiUrl: env.VITE_API_URL,
+          mapDataBase: env.VITE_MAP_DATA_BASE,
+          turnstileSiteKey: env.VITE_TURNSTILE_SITE_KEY,
+        });
+        // Staging is not for search engines (noIndex).
+        const noIndex = env.VITE_APP_ENV === "staging";
+        writeFileSync(
+          join(outDir, "_headers"),
+          headersFile(readFileSync(publicFile, "utf8"), { policy, mode, noIndex }),
+        );
+      },
+    },
+  };
+}
+
 export default defineConfig(({ command, mode }) => ({
-  plugins: [vue(), mapPreloadHtml(), homeBootHtml()],
+  plugins: [vue(), mapPreloadHtml(), homeBootHtml(), responseHeaders()],
   define: {
     // Every component is `<script setup>`, so the Options API runtime is dead
     // weight — flagging it lets the minifier drop that branch of Vue.

@@ -12,6 +12,12 @@ interface ImportMetaEnv {
   readonly VITE_MAP_DATA_BASE?: string;
   /** "on" builds the Analyses in (vite.config's __ANALYSES__): staging; unset in production. */
   readonly VITE_ANALYSES?: "on";
+  /** How a build sends its content security policy (vite.config, shared/boot/csp.ts): unset
+   *  applies it; "report-only" only reports what it would block, in the browser's console. */
+  readonly VITE_CSP?: "report-only";
+  /** Cloudflare Turnstile's site key: set, the forms show the challenge and the content
+   *  security policy allows its script and frame; unset, neither. */
+  readonly VITE_TURNSTILE_SITE_KEY?: string;
 }
 
 /** Whether this build has the testing tools: the outbox, the DEV switches (see vite.config). */
