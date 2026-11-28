@@ -1,8 +1,15 @@
-import { ANALYSIS_MODEL, AUDITION_THEMES } from "@ac/shared";
+import { ANALYSIS_MODEL, AUDITION_THEMES, themesOf } from "@ac/shared";
 import { config } from "../../config";
+import { AnswerTooLargeError, upstreamFetch } from "../../lib/cappedFetch";
 
-// Thematic analysis of testimonies via Claude — ported verbatim from the
-// previous analyze-audition edge function (same model, prompt, parameters).
+// Thematic analysis of testimonies via Claude — ported from the previous
+// analyze-audition edge function (same model, prompt, parameters).
+//
+// The model reads a text anyone may have written, so its answer is taken for
+// what it is asked to be and nothing more: read within a size limit, never
+// through a redirect, and only the themes of the grid are kept of it
+// (AUDITION_THEMES: 16 at most, each once) — whatever else the answer holds,
+// and however much of it, is dropped before anything is stored.
 
 export class AnalysisDisabledError extends Error {
   constructor() {
@@ -67,14 +74,47 @@ Réponse : ["Retraites", "Justice sociale et inégalités", "Emploi et condition
 // Claude answers a testimony in a few seconds. A call that never answered
 // held the admin's sequential "analyser tout" loop until undici gave up (300 s).
 const ANALYSIS_TIMEOUT_MS = 60_000;
+/** The heaviest answer read: a list of the 16 themes and its envelope weigh about 1 kB. */
+const ANALYSIS_ANSWER_MAX_BYTES = 64 * 1024;
+
+const anthropicFetch = upstreamFetch(ANALYSIS_ANSWER_MAX_BYTES);
+
+/**
+ * The themes of the grid a model answer names, in the grid's order: the JSON
+ * list it holds, read item by item (anything that is not a theme's name is
+ * left out), or, when it holds no such list, the grid's names its text spells.
+ */
+export function themesOfAnswer(text: string): string[] {
+  let listed: unknown = null;
+  try {
+    listed = JSON.parse(/\[[\s\S]*\]/.exec(text)?.[0] ?? "null");
+  } catch {
+    // Not a list: the names its text spells.
+    const lower = text.toLowerCase();
+    return AUDITION_THEMES.filter((theme) => lower.includes(theme.toLowerCase()));
+  }
+  return Array.isArray(listed) ? [...themesOf(listed as string[])] : [];
+}
+
+/** The text of a Messages API answer; null when the body is not one. */
+function answerText(body: unknown): string | null {
+  const content = (body as { content?: unknown } | null)?.content;
+  const text = Array.isArray(content) ? (content[0] as { text?: unknown } | null)?.text : null;
+  return typeof text === "string" ? text : null;
+}
+
+/** An answer too heavy to read, or that is not a Messages API answer. */
+const unreadable = () =>
+  new AnalysisError("L'API Anthropic a renvoyé une réponse illisible, réessayez.", 502);
 
 /** Analyze a testimony's content; returns the identified theme names. */
 export async function analyzeContent(content: string): Promise<string[]> {
   if (!config.ANTHROPIC_API_KEY) throw new AnalysisDisabledError();
 
+  // The call and the reading of its answer, under one limit of time and size.
   let aiResponse: Response;
   try {
-    aiResponse = await fetch("https://api.anthropic.com/v1/messages", {
+    aiResponse = await anthropicFetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "x-api-key": config.ANTHROPIC_API_KEY,
@@ -96,6 +136,7 @@ export async function analyzeContent(content: string): Promise<string[]> {
       signal: AbortSignal.timeout(ANALYSIS_TIMEOUT_MS),
     });
   } catch (e) {
+    if (e instanceof AnswerTooLargeError) throw unreadable();
     const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
     throw new AnalysisError(
       timedOut
@@ -115,21 +156,7 @@ export async function analyzeContent(content: string): Promise<string[]> {
     throw new AnalysisError(`Erreur API Anthropic: ${aiResponse.status}`, 502);
   }
 
-  const aiData = (await aiResponse.json()) as { content: { text: string }[] };
-  const analysisText = aiData.content[0].text;
-
-  let topics: string[] = [];
-  try {
-    const jsonMatch = analysisText.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      topics = JSON.parse(jsonMatch[0]) as string[];
-    }
-  } catch {
-    // Fallback: keyword-match the known themes in the raw response.
-    topics = AUDITION_THEMES.filter((theme) =>
-      analysisText.toLowerCase().includes(theme.toLowerCase()),
-    );
-  }
-
-  return topics;
+  const text = answerText(await aiResponse.json().catch(() => null));
+  if (text === null) throw unreadable();
+  return themesOfAnswer(text);
 }
