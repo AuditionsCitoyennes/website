@@ -29,7 +29,10 @@ export default async function placeRoutes(app: FastifyInstance) {
       );
     }
     try {
-      return { dryRun, ...(await sweepPlacements(dryRun)) };
+      const report = await sweepPlacements(dryRun);
+      // A real sweep rewrites places across the whole table: who asked, and what it did.
+      if (!dryRun) req.log.info({ userId: req.user.id, ...report }, "placement sweep");
+      return { dryRun, ...report };
     } catch (err) {
       req.log.error({ err }, "placement sweep failed");
       return reply.serviceUnavailable("Le placement des auditions a échoué. Réessayez.");
