@@ -11,7 +11,9 @@ import {
   isTransientDbError,
   newTiming,
 } from "./dbGate";
-import { AnswerTooLargeError, cappedFetch } from "./cappedFetch";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { AnswerTooLargeError, cappedFetch, upstreamFetch } from "./cappedFetch";
 import { forceHits, refundHits, takeHits } from "./rateLimit";
 
 // The database gate (lib/dbGate.ts): so many calls at once, so many waiting
@@ -211,6 +213,20 @@ test("takeHits: all or none, and how long until the refusing window ends", () =>
   assert.equal(takeHits([{ key: "t:c", n: 31, max: 30, windowMs: w }]), w);
 });
 
+test("takeHits of nothing: whether a key's window is already past its max, counting nothing", () => {
+  const w = 60_000;
+  const room = (key: string) => takeHits([{ key, n: 0, max: 100, windowMs: w }]);
+  assert.equal(room("t:z"), 0, "no window yet");
+  forceHits([{ key: "t:z", n: 100, max: 100, windowMs: w }]);
+  assert.equal(room("t:z"), 0, "at the max, not past it");
+  forceHits([{ key: "t:z", n: 1, max: 100, windowMs: w }]);
+  const wait = room("t:z");
+  assert.ok(wait > 59_000 && wait <= w, `${wait}`);
+  // Asking counts nothing, and a large count costs no more than a small one.
+  forceHits([{ key: "t:y", n: 2_000_000_000, max: 100, windowMs: w }]);
+  assert.ok(room("t:y") > 0);
+});
+
 test("forceHits: counted past the max (work under way), refused from the next take on", () => {
   const w = 10_000;
   assert.equal(takeHits([{ key: "t:f", n: 28, max: 30, windowMs: w }]), 0);
@@ -287,6 +303,58 @@ test("cappedFetch: an answer within the limit as it came; past it, cut unread", 
     globalThis.fetch = (async () =>
       new Response("x", { headers: { "content-length": "401" } })) as typeof fetch;
     await assert.rejects(cappedFetch(400)("http://db.test/rpc/f"), AnswerTooLargeError);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("upstreamFetch: a redirect is refused, not followed — nothing reaches where it points", async () => {
+  // Two real servers: one answers every call with a redirect to the other.
+  let reached = 0;
+  const target = createServer((_req, res) => {
+    reached++;
+    res.end("{}");
+  });
+  const origin = createServer((req, res) => {
+    const port = (target.address() as AddressInfo).port;
+    res.writeHead(Number(req.url?.slice(1)), { location: `http://127.0.0.1:${port}/taken` });
+    res.end();
+  });
+  await Promise.all(
+    [target, origin].map((s) => new Promise<void>((done) => s.listen(0, "127.0.0.1", done))),
+  );
+  const base = `http://127.0.0.1:${(origin.address() as AddressInfo).port}`;
+  try {
+    for (const status of [301, 302, 303, 307, 308]) {
+      await assert.rejects(
+        upstreamFetch()(`${base}/${status}`, {
+          method: "POST",
+          headers: { "x-api-key": "secret", "content-type": "application/json" },
+          body: "{}",
+        }),
+        TypeError,
+        String(status),
+      );
+    }
+    assert.equal(reached, 0);
+    // The same call through a plain fetch is followed: the refusal is upstreamFetch's.
+    await fetch(`${base}/307`, { method: "POST", body: "{}" });
+    assert.equal(reached, 1);
+  } finally {
+    target.close();
+    origin.close();
+  }
+});
+
+test("upstreamFetch: 256 kB of answer by default, or the limit given", async () => {
+  const real = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response("x".repeat(256 * 1024))) as typeof fetch;
+    assert.equal((await (await upstreamFetch()("http://api.test/")).text()).length, 256 * 1024);
+    globalThis.fetch = (async () => new Response("x".repeat(256 * 1024 + 1))) as typeof fetch;
+    await assert.rejects(upstreamFetch()("http://api.test/"), AnswerTooLargeError);
+    globalThis.fetch = (async () => new Response("x".repeat(65_537))) as typeof fetch;
+    await assert.rejects(upstreamFetch(64 * 1024)("http://api.test/"), AnswerTooLargeError);
   } finally {
     globalThis.fetch = real;
   }

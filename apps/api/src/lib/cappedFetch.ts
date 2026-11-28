@@ -3,6 +3,8 @@
 // read.ts) go through it, so that what one read costs the heap — the body,
 // its string, the parsed value, each part serialised again — is bounded by
 // the answer, whatever the request asked (a depth, a batch of large units).
+// The third parties the API calls (the BAN, geo.api.gouv.fr, Resend,
+// Anthropic) go through upstreamFetch: the same limit, and no redirect.
 
 /** The name of the error thrown past the limit; supabase-js reports it as "<name>: <message>". */
 export const ANSWER_TOO_LARGE = "AnswerTooLargeError";
@@ -49,4 +51,18 @@ export function cappedFetch(
       headers: res.headers,
     });
   };
+}
+
+/** The heaviest answer read from the BAN, geo.api.gouv.fr or Resend (theirs weigh a few kB). */
+export const UPSTREAM_ANSWER_MAX_BYTES = 256 * 1024;
+
+/**
+ * A fetch for a third party's API: its answer cut at `maxBytes`, and a
+ * redirect refused (the call fails) instead of followed — none of these
+ * APIs redirects, and a followed one would carry the request, its key
+ * header and its body to wherever the answer points.
+ */
+export function upstreamFetch(maxBytes: number = UPSTREAM_ANSWER_MAX_BYTES): typeof fetch {
+  const capped = cappedFetch(maxBytes);
+  return (input, init) => capped(input, { ...init, redirect: "error" });
 }
