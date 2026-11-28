@@ -44,7 +44,7 @@ export function whenSupabase(run: (client: AuthClientInstance) => void) {
 }
 
 /** Whether this visit may have a signed-in account (authPresence.ts), from
- *  this browser's storage and address. */
+ *  this browser's storage. */
 export function visitMayHaveSession(): boolean {
   let keys: string[] = [];
   try {
@@ -52,5 +52,11 @@ export function visitMayHaveSession(): boolean {
   } catch {
     /* storage blocked: no session can be kept either */
   }
-  return mayHaveSession(keys, window.location.search, window.location.hash);
+  return mayHaveSession(keys);
+}
+
+/** The client for a visit that may be signed in; null for any other, and
+ *  nothing is downloaded for it. */
+export async function clientIfSignedIn(): Promise<AuthClientInstance | null> {
+  return made ?? (visitMayHaveSession() ? loadSupabase() : null);
 }

@@ -1,8 +1,10 @@
-import { loadSupabase, supabaseIfMade, visitMayHaveSession } from "./supabaseLazy";
+import { clientIfSignedIn } from "./supabaseLazy";
 import { outboxNudge, outboxViewer } from "./outbox";
 import { readWithin } from "./readTimeout";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+/** Where the API is: read when a request leaves, so that this module also
+ *  loads under node (client.test.ts). */
+const baseUrl = (): string => import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
 interface ApiOptions extends RequestInit {
   /** Attach the current Supabase access token as a Bearer header. */
@@ -16,9 +18,68 @@ export class ApiError extends Error {
     /** How long the server asked to wait before trying again (Retry-After),
      *  in seconds; null when it did not say. */
     public retryAfter: number | null = null,
+    /** The refusal's `code`, when the API names it (`mfa_required`,
+     *  `recent_sign_in_required`…): what the site acts on, the message being
+     *  for the reader. */
+    public code: string | null = null,
   ) {
     super(message);
     this.name = "ApiError";
+  }
+}
+
+/** Told when the API refuses an admin route for want of a second factor
+ *  (`mfa_required`): main.ts leads to the page that gives one. */
+let secondFactorWanted: (() => void) | null = null;
+export function onSecondFactorWanted(run: (() => void) | null) {
+  secondFactorWanted = run;
+}
+
+/** The refusal a failed answer carries. Fastify/sensible errors put the human
+ *  text in `message` and the HTTP reason phrase in `error`; hand-rolled
+ *  payloads only set `error`. */
+export async function refusalFrom(res: Response): Promise<ApiError> {
+  let fields: { message?: unknown; error?: unknown; code?: unknown } = {};
+  try {
+    fields = ((await res.json()) ?? {}) as typeof fields;
+  } catch {
+    /* non-JSON error body */
+  }
+  const text = [fields.message, fields.error].find((t) => typeof t === "string" && t !== "");
+  const code = typeof fields.code === "string" ? fields.code : null;
+  if (code === "mfa_required") secondFactorWanted?.();
+  return new ApiError(
+    (text as string | undefined) ?? res.statusText,
+    res.status,
+    retryAfterOf(res.headers.get("Retry-After")),
+    code,
+  );
+}
+
+/**
+ * Whether a path is sent as it was built. The pages build their paths around
+ * identifiers they received (a route parameter, a stored id): one that holds
+ * dot segments, a backslash, an encoded slash, a fragment or a second host
+ * would make the browser ask for another path than the one written, so such a
+ * path is not sent at all. The query, after the first `?`, is the caller's.
+ */
+export function isSendablePath(path: string): boolean {
+  const mark = path.indexOf("?");
+  const route = mark === -1 ? path : path.slice(0, mark);
+  if (!route.startsWith("/") || path.includes("#")) return false;
+  if (/\\|%5c|%2f/i.test(route)) return false;
+  // An empty segment: `//host`, or an identifier that was empty.
+  if (route.slice(1).split("/").includes("")) return false;
+  try {
+    // The browser's own reading of it: dot segments resolved (encoded ones
+    // too), tabs and line breaks dropped. It must name the same segments.
+    const read = new URL(path, "http://site.invalid");
+    return (
+      read.host === "site.invalid" &&
+      decodeURIComponent(read.pathname) === decodeURIComponent(route)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -33,6 +94,8 @@ function retryAfterOf(value: string | null): number | null {
 }
 
 export async function apiFetch<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
+  if (!isSendablePath(path)) throw new ApiError("Adresse de requête invalide.", 400);
+
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -41,7 +104,7 @@ export async function apiFetch<T = unknown>(path: string, options: ApiOptions = 
   if (options.auth) {
     // No client made and no session kept: nobody is signed in, and the
     // client is not downloaded for that (supabaseLazy.ts).
-    const client = supabaseIfMade() ?? (visitMayHaveSession() ? await loadSupabase() : null);
+    const client = await clientIfSignedIn();
     const token = client ? (await client.auth.getSession()).data.session?.access_token : undefined;
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
@@ -52,22 +115,10 @@ export async function apiFetch<T = unknown>(path: string, options: ApiOptions = 
   if (write) headers.set("X-Outbox-Viewer", outboxViewer());
 
   const send = async (signal: AbortSignal | null | undefined): Promise<T> => {
-    const res = await fetch(`${BASE_URL}${path}`, { ...options, headers, signal });
+    const res = await fetch(`${baseUrl()}${path}`, { ...options, headers, signal });
     if (write) outboxNudge.value++;
 
-    if (!res.ok) {
-      let message = res.statusText;
-      try {
-        const body = await res.json();
-        // Fastify/sensible errors put the human text in `message` and the HTTP
-        // reason phrase in `error` — prefer the former; hand-rolled payloads
-        // only set `error`.
-        message = body.message || body.error || message;
-      } catch {
-        /* non-JSON error body */
-      }
-      throw new ApiError(message, res.status, retryAfterOf(res.headers.get("Retry-After")));
-    }
+    if (!res.ok) throw await refusalFrom(res);
 
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;

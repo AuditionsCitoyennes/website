@@ -1,8 +1,15 @@
 import { z } from "zod";
 
+/** The shortest password a form accepts for a NEW password (sign-up, reset,
+ *  change). Signing in asks for no length: older passwords stay valid. */
+export const PASSWORD_MIN_LENGTH = 12;
+
 export const passwordSchema = z
   .string()
-  .min(8, "Le mot de passe doit contenir au moins 8 caractères")
+  .min(
+    PASSWORD_MIN_LENGTH,
+    `Le mot de passe doit contenir au moins ${PASSWORD_MIN_LENGTH} caractères`,
+  )
   .regex(/[a-z]/, "Le mot de passe doit contenir au moins une minuscule")
   .regex(/[A-Z]/, "Le mot de passe doit contenir au moins une majuscule")
   .regex(/[0-9]/, "Le mot de passe doit contenir au moins un chiffre")
@@ -13,7 +20,10 @@ export const passwordSchema = z
   );
 
 export const PASSWORD_REQUIREMENTS = [
-  { label: "Au moins 8 caractères", test: (p: string) => p.length >= 8 },
+  {
+    label: `Au moins ${PASSWORD_MIN_LENGTH} caractères`,
+    test: (p: string) => p.length >= PASSWORD_MIN_LENGTH,
+  },
   { label: "Une lettre minuscule", test: (p: string) => /[a-z]/.test(p) },
   { label: "Une lettre majuscule", test: (p: string) => /[A-Z]/.test(p) },
   { label: "Un chiffre", test: (p: string) => /[0-9]/.test(p) },

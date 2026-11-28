@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { noteOutboxAddress } from "@/shared/api/outbox";
+import { supabase } from "@/shared/api/supabase";
+import { ROUTE } from "@/shared/routes";
 import { useAuthStore } from "@/features/auth";
-import { PasswordRequirements } from "@/features/auth/account";
+import { hasPassword, PasswordRequirements, signInAgain } from "@/features/auth/account";
 import { ApiError } from "@/shared/api/client";
 import { useToast } from "@/shared/ui/toast/useToast";
 import ModalDialog from "@/shared/ui/dialog/ModalDialog.vue";
@@ -80,15 +82,29 @@ async function updateEmail() {
   }
 }
 
+// Deleting the account asks for a sign-in of the last few minutes: when the
+// API says this session's is older (`recent_sign_in_required`), the section
+// asks to sign in again — the password here, or Google's own page — and the
+// deletion is then sent again.
+const reauthOpen = ref(false);
+const reauthPassword = ref("");
+const reauthing = ref(false);
+const signsInWithPassword = computed(() => hasPassword(auth.user, auth.session?.access_token));
+
 async function handleDeleteAccount() {
   if (
     !confirm("Êtes-vous sûr de vouloir supprimer votre compte ? Cette action est irréversible.")
   ) {
     return;
   }
+  await sendDeletion();
+}
+
+async function sendDeletion() {
   deleting.value = true;
   try {
     await deleteAccount();
+    reauthOpen.value = false;
     await auth.signOut();
     toast({
       title: "Compte supprimé",
@@ -96,6 +112,11 @@ async function handleDeleteAccount() {
     });
     router.push("/");
   } catch (e) {
+    if (e instanceof ApiError && e.code === "recent_sign_in_required") {
+      reauthPassword.value = "";
+      reauthOpen.value = true;
+      return;
+    }
     toast({
       title: "Erreur",
       description: e instanceof ApiError ? e.message : "La suppression a échoué",
@@ -103,6 +124,53 @@ async function handleDeleteAccount() {
     });
   } finally {
     deleting.value = false;
+  }
+}
+
+async function confirmWithPassword() {
+  const account = auth.user;
+  if (!account?.email || reauthing.value) return;
+  if (!reauthPassword.value) {
+    toast({
+      title: "Erreur",
+      description: "Veuillez entrer votre mot de passe",
+      variant: "destructive",
+    });
+    return;
+  }
+  reauthing.value = true;
+  const check = await signInAgain(account.email, reauthPassword.value, account.id);
+  reauthing.value = false;
+  if (check !== "ok") {
+    toast({
+      title: "Erreur",
+      description:
+        check === "wrong"
+          ? "Mot de passe incorrect"
+          : check === "rate-limited"
+            ? "Trop de tentatives, veuillez réessayer plus tard"
+            : "La connexion n'a pas pu être vérifiée, veuillez réessayer",
+      variant: "destructive",
+    });
+    return;
+  }
+  reauthPassword.value = "";
+  await sendDeletion();
+}
+
+async function signInAgainWithGoogle() {
+  reauthing.value = true;
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${window.location.origin}/admin` },
+  });
+  if (error) {
+    reauthing.value = false;
+    toast({
+      title: "Erreur",
+      description: "La reconnexion avec Google n'a pas pu démarrer, veuillez réessayer",
+      variant: "destructive",
+    });
   }
 }
 </script>
@@ -122,6 +190,14 @@ async function handleDeleteAccount() {
       <div>
         <p class="info-label">Email</p>
         <p class="info-value">{{ auth.user?.email }}</p>
+      </div>
+      <div>
+        <p class="info-label">Double authentification</p>
+        <p class="info-value">
+          <RouterLink :to="ROUTE.secondFactor.path" class="info-link">
+            Un code en plus du mot de passe&nbsp;: activer ou gérer
+          </RouterLink>
+        </p>
       </div>
     </div>
 
@@ -251,6 +327,51 @@ async function handleDeleteAccount() {
         </div>
       </div>
     </ModalDialog>
+
+    <ModalDialog
+      :open="reauthOpen"
+      title="Confirmez votre identité"
+      description="Par sécurité, la suppression d'un compte demande une connexion récente."
+      dismissible
+      @close="reauthOpen = false"
+    >
+      <form v-if="signsInWithPassword" class="section" @submit.prevent="confirmWithPassword">
+        <label class="form-label" for="acct-reauth-password">Mot de passe</label>
+        <input
+          id="acct-reauth-password"
+          v-model="reauthPassword"
+          class="form-input"
+          type="password"
+          placeholder="••••••••"
+          maxlength="100"
+          autocomplete="current-password"
+          :disabled="reauthing || deleting"
+        />
+        <button
+          type="submit"
+          class="ac-btn ac-btn--danger ac-btn--sm ac-btn--block"
+          :disabled="reauthing || deleting"
+        >
+          <span v-if="reauthing || deleting" class="spinner"></span>
+          Confirmer et supprimer mon compte
+        </button>
+      </form>
+      <div v-else class="section">
+        <p class="hint">
+          Votre compte se connecte avec Google&nbsp;: reconnectez-vous, puis cliquez de nouveau sur
+          «&nbsp;Supprimer mon compte&nbsp;».
+        </p>
+        <button
+          type="button"
+          class="ac-btn ac-btn--primary ac-btn--sm ac-btn--block"
+          :disabled="reauthing"
+          @click="signInAgainWithGoogle"
+        >
+          <span v-if="reauthing" class="spinner"></span>
+          Se reconnecter avec Google
+        </button>
+      </div>
+    </ModalDialog>
   </section>
 </template>
 
@@ -270,6 +391,12 @@ async function handleDeleteAccount() {
 .info-value {
   font-weight: 600;
   color: hsl(var(--foreground));
+}
+
+.info-link {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
 .actions {

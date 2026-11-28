@@ -3,6 +3,7 @@ import { computed, ref, watch, watchEffect } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/features/auth";
 import { useIdleTimeout, UsernamePromptDialog } from "@/features/auth/account";
+import { ROUTE } from "@/shared/routes";
 import { useToast } from "@/shared/ui/toast/useToast";
 import { usePendingRegistrations } from "../registrations/usePendingRegistrations";
 import { useCreateAudition } from "../auditions/useCreateAudition";
@@ -77,10 +78,12 @@ function toggleFeature(id: Feature) {
   requestedFeature.value = openFeature.value === id ? null : id;
 }
 
+// Nobody signed in: the sign-in page. An account with a second factor gives
+// its code first, on its own page. The loader stays up meanwhile.
 watchEffect(() => {
-  if (!auth.loading && !auth.user) {
-    router.replace("/auth");
-  }
+  if (auth.loading) return;
+  if (!auth.user) router.replace("/auth");
+  else if (auth.secondFactorOwed) router.replace(ROUTE.secondFactor.path);
 });
 
 // OAuth users arrive without a username — prompt once.
@@ -96,7 +99,7 @@ function onProfileComplete() {
 </script>
 
 <template>
-  <div v-if="auth.loading || !auth.user" class="loading">
+  <div v-if="auth.loading || !auth.user || auth.secondFactorOwed" class="loading">
     <span class="spinner spinner-lg" aria-label="Chargement"></span>
   </div>
 

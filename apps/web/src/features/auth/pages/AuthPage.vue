@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { z } from "zod";
 import { supabase } from "@/shared/api/supabase";
 import { noteOutboxAddress } from "@/shared/api/outbox";
+import { useCaptcha } from "@/shared/captcha/turnstile";
+import CaptchaZone from "@/shared/captcha/CaptchaZone.vue";
 import { useToast } from "@/shared/ui/toast/useToast";
 import { ROUTE } from "@/shared/routes";
 import { passwordSchema } from "../lib/password";
-import { mapAuthError } from "../authErrors";
+import { authCode, emailRequestError, mapAuthError } from "../authErrors";
+import { owesSecondFactor } from "../lib/secondFactor";
+import { returnPending } from "../returnArrival";
 import OAuthButtons from "../components/OAuthButtons.vue";
 import UsernamePromptDialog from "../components/UsernamePromptDialog.vue";
 import AuthCard from "../components/AuthCard.vue";
@@ -25,6 +29,9 @@ const signupSchema = z.object({
 
 const router = useRouter();
 const { toast } = useToast();
+// The captcha of a build that has one: a token for each request this page
+// makes of Auth (sign-in, sign-up, a confirmation sent again, a recovery).
+const captcha = useCaptcha();
 
 // `?tab=inscription` (the home page's "join" button and the header's « Nous
 // rejoindre ») opens on the sign-up tab — and the plain /auth, reached from
@@ -50,10 +57,18 @@ const showProfileDialog = ref(false);
 let pendingSignup: { email: string; password: string } | null = null;
 let cooldownTimer: ReturnType<typeof setInterval> | null = null;
 
-onMounted(async () => {
-  const { data } = await supabase.auth.getSession();
-  if (data.session) router.replace("/admin");
-});
+// Somebody already signed in goes on to the admin area. A return from Auth
+// still being settled (main.ts stopped waiting for a slow Auth) is waited for
+// first, behind the loader: the session it leaves decides.
+watch(
+  returnPending,
+  async (pending) => {
+    if (pending) return;
+    const { data } = await supabase.auth.getSession();
+    if (data.session) router.replace("/admin");
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(() => {
   if (cooldownTimer) clearInterval(cooldownTimer);
@@ -84,12 +99,21 @@ async function handleAuth(type: "login" | "signup") {
     }
 
     loading.value = true;
-    const { error } = await supabase.auth.signInWithPassword({
+    const proof = await captcha.proof(() => void handleAuth("login"));
+    if (!proof) return;
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: validated.email,
       password: validated.password,
+      options: { captchaToken: proof.token },
     });
     if (error) throw error;
 
+    // An account with a second factor is asked for its code next: it is
+    // welcomed once in.
+    if (owesSecondFactor(data.session)) {
+      router.push(ROUTE.secondFactor.path);
+      return;
+    }
     toast({ title: "Connexion réussie!", description: "Bienvenue" });
     router.push("/admin");
   } catch (error) {
@@ -112,21 +136,27 @@ async function handleAuth(type: "login" | "signup") {
 }
 
 async function handleProfileComplete(username: string, bio: string) {
-  if (!pendingSignup) return;
+  const signup = pendingSignup;
+  if (!signup) return;
   showProfileDialog.value = false;
   loading.value = true;
   try {
+    // Without a captcha the sign-up waits, as typed, for « Réessayer ».
+    const proof = await captcha.proof(() => void handleProfileComplete(username, bio));
+    if (!proof) return;
+    pendingSignup = null;
     const { error } = await supabase.auth.signUp({
-      email: pendingSignup.email,
-      password: pendingSignup.password,
+      email: signup.email,
+      password: signup.password,
       options: {
         emailRedirectTo: `${window.location.origin}/admin`,
         data: { username, bio },
+        captchaToken: proof.token,
       },
     });
     if (error) throw error;
-    if (__TEST_TOOLS__) noteOutboxAddress(pendingSignup.email);
-    signupEmail.value = pendingSignup.email;
+    if (__TEST_TOOLS__) noteOutboxAddress(signup.email);
+    signupEmail.value = signup.email;
     signupDone.value = true;
   } catch (error) {
     toast({
@@ -136,16 +166,21 @@ async function handleProfileComplete(username: string, bio: string) {
     });
   } finally {
     loading.value = false;
-    pendingSignup = null;
   }
 }
 
 async function handleResendVerification() {
   if (resendCooldown.value > 0) return;
-  const { error } = await supabase.auth.resend({ type: "signup", email: signupEmail.value });
+  const proof = await captcha.proof(() => void handleResendVerification());
+  if (!proof) return;
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: signupEmail.value,
+    options: { captchaToken: proof.token },
+  });
   if (__TEST_TOOLS__) noteOutboxAddress(signupEmail.value);
   if (error) {
-    toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    toast({ title: "Erreur", description: emailRequestError(error), variant: "destructive" });
   } else {
     toast({
       title: "Email envoyé",
@@ -166,11 +201,23 @@ async function handleForgotPassword() {
     return;
   }
   resetLoading.value = true;
-  await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+  const proof = await captcha.proof(() => void handleForgotPassword());
+  if (!proof) {
+    resetLoading.value = false;
+    return;
+  }
+  const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
     redirectTo: `${window.location.origin}/reset-password`,
+    captchaToken: proof.token,
   });
   if (__TEST_TOOLS__) noteOutboxAddress(trimmedEmail);
   resetLoading.value = false;
+  // The answer is the same whether the address has an account or not; only a
+  // captcha Auth refused is said, since no email was asked for then.
+  if (authCode(error) === "captcha_failed") {
+    toast({ title: "Erreur", description: emailRequestError(error), variant: "destructive" });
+    return;
+  }
   toast({
     title: "Email envoyé",
     description:
@@ -181,8 +228,11 @@ async function handleForgotPassword() {
 
 <template>
   <div class="auth-page">
+    <!-- A return from Auth still being settled -->
+    <AuthCard v-if="returnPending" loading />
+
     <!-- "Vérifiez votre email" screen after signup -->
-    <AuthCard v-if="signupDone">
+    <AuthCard v-else-if="signupDone">
       <div class="icon-wrap">
         <svg
           viewBox="0 0 24 24"
@@ -224,6 +274,7 @@ async function handleForgotPassword() {
         >
           ← Retour
         </button>
+        <CaptchaZone :captcha="captcha" />
       </div>
     </AuthCard>
 
@@ -356,6 +407,8 @@ async function handleForgotPassword() {
         </button>
       </form>
 
+      <CaptchaZone class="captcha-zone" :captcha="captcha" />
+
       <!-- New tabs: what was typed stays. Google sign-in creates an account
            too, so the notice is under both tabs. -->
       <p class="legal-note">
@@ -451,6 +504,10 @@ async function handleForgotPassword() {
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
+}
+
+.captcha-zone {
+  margin-top: 1.1rem;
 }
 
 .legal-note {

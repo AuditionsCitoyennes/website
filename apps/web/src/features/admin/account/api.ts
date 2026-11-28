@@ -11,9 +11,13 @@ export function setUsername(username: string) {
   return supabase.auth.updateUser({ data: { username } });
 }
 
-/** A new address: Supabase sends a confirmation email to it. */
+/** A new address: Supabase sends a confirmation email to it, whose link comes
+ *  back to the admin area (one of the pages that read a return from Auth). */
 export function setEmail(email: string) {
-  return supabase.auth.updateUser({ email });
+  return supabase.auth.updateUser(
+    { email },
+    { emailRedirectTo: `${window.location.origin}/admin` },
+  );
 }
 
 /** The signed-in account deleted, with its roles. */
